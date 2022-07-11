@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregation;
+import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -29,9 +29,9 @@ public class LogicalAggToPhysicalHashAgg extends OneImplementationRuleFactory {
     @Override
     public Rule<Plan> build() {
         return logicalAggregate().then(agg -> plan(
-            new PhysicalAggregation(
+            new PhysicalAggregate(
                 // TODO: for use a function to judge whether use stream
-                agg.getOperator().getGroupByExprList(),
+                agg.getOperator().getGroupByExpressionList(),
                 agg.getOperator().getOutputExpressionList(),
                 agg.getOperator().getPartitionExprList(),
                 agg.getOperator().getAggPhase(),

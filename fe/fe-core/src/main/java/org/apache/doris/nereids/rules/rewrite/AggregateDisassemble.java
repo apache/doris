@@ -17,144 +17,156 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Function.CompareMode;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.operators.plans.AggPhase;
 import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
 
-import com.clearspring.analytics.util.Lists;
-import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * TODO: if instance count is 1, shouldn't disassemble the agg operator
  * Used to generate the merge agg node for distributed execution.
- * Do this in following steps:
- *  1. clone output expr list, find all agg function
- *  2. set found agg function intermediaType
- *  3. create new child plan rooted at new local agg
- *  4. update the slot referenced by expr of merge agg
- *  5. create plan rooted at merge agg, return it.
+ * NOTICE: GLOBAL output expressions' ExprId should SAME with ORIGIN output expressions' ExprId.
+ * If we have a query: SELECT SUM(v1 * v2) + 1 FROM t GROUP BY k + 1
+ * the initial plan is:
+ *   Aggregate(phase: [GLOBAL], outputExpr: [Alias(k + 1) #1, Alias(SUM(v1 * v2) + 1) #2], groupByExpr: [k + 1])
+ *   +-- childPlan
+ * we should rewrite to:
+ *   Aggregate(phase: [GLOBAL], outputExpr: [Alias(b) #1, Alias(SUM(a) + 1) #2], groupByExpr: [b])
+ *   +-- Aggregate(phase: [LOCAL], outputExpr: [SUM(v1 * v2) as a, (k + 1) as b], groupByExpr: [k + 1])
+ *       +-- childPlan
+ *
+ * TODO:
+ *     1. use different class represent different phase aggregate
+ *     2. if instance count is 1, shouldn't disassemble the agg operator
+ *     3. we need another rule to removing duplicated expressions in group by expression list
  */
 public class AggregateDisassemble extends OneRewriteRuleFactory {
 
     @Override
     public Rule<Plan> build() {
         return logicalAggregate().when(p -> {
-            LogicalAggregate logicalAggregation = p.getOperator();
-            return !logicalAggregation.isDisassembled();
+            LogicalAggregate logicalAggregate = p.getOperator();
+            return !logicalAggregate.isDisassembled();
         }).thenApply(ctx -> {
-            Plan plan = ctx.root;
-            Operator operator = plan.getOperator();
-            LogicalAggregate agg = (LogicalAggregate) operator;
-            List<NamedExpression> outputExpressionList = agg.getOutputExpressionList();
-            List<NamedExpression> intermediateAggExpressionList = Lists.newArrayList();
-            // TODO: shouldn't extract agg function from this field.
-            for (NamedExpression namedExpression : outputExpressionList) {
-                namedExpression = (NamedExpression) namedExpression.clone();
-                List<AggregateFunction> functionCallList =
-                        namedExpression.collect(org.apache.doris.catalog.AggregateFunction.class::isInstance);
-                // TODO: we will have another mechanism to get corresponding stale agg func.
-                for (AggregateFunction functionCall : functionCallList) {
-                    org.apache.doris.catalog.AggregateFunction staleAggFunc = findAggFunc(functionCall);
-                    Type staleIntermediateType = staleAggFunc.getIntermediateType();
-                    Type staleRetType = staleAggFunc.getReturnType();
-                    if (staleIntermediateType != null && !staleIntermediateType.equals(staleRetType)) {
-                        functionCall.setIntermediate(DataType.convertFromCatalogDataType(staleIntermediateType));
-                    }
-                }
-                intermediateAggExpressionList.add(namedExpression);
-            }
-            LogicalAggregate localAgg = new LogicalAggregate(
-                    agg.getGroupByExprList().stream().map(Expression::clone).collect(Collectors.toList()),
-                    intermediateAggExpressionList,
-                    true,
-                    AggPhase.FIRST
-            );
+            LogicalUnaryPlan<LogicalAggregate, GroupPlan> plan = ctx.root;
+            LogicalAggregate aggregate = plan.getOperator();
+            List<NamedExpression> originOutputExprs = aggregate.getOutputExpressionList();
+            List<Expression> originGroupByExprs = aggregate.getGroupByExpressionList();
 
-            Plan childPlan = plan(localAgg, plan.child(0));
-            List<Slot> stalePlanOutputSlotList = plan.getOutput();
-            List<Slot> childOutputSlotList = childPlan.getOutput();
-            int childOutputSize = stalePlanOutputSlotList.size();
-            Preconditions.checkState(childOutputSize == childOutputSlotList.size());
-            Map<Slot, Slot> staleToNew = new HashMap<>();
-            for (int i = 0; i < stalePlanOutputSlotList.size(); i++) {
-                staleToNew.put(stalePlanOutputSlotList.get(i), childOutputSlotList.get(i));
+            // 1. generate a map from local aggregate output to global aggregate expr substitution.
+            //    inputSubstitutionMap use for replacing expression in global aggregate
+            //    replace rule is:
+            //        a: Expression is a group by key and is a slot reference. e.g. group by k1
+            //        b. Expression is a group by key and is an expression. e.g. group by k1 + 1
+            //        c. Expression is an aggregate function. e.g. sum(v1) in select list
+            //    +-----------+---------------------+-------------------------+--------------------------------+
+            //    | situation | origin expression   | local output expression | expression in global aggregate |
+            //    +-----------+---------------------+-------------------------+--------------------------------+
+            //    | a         | Ref(k1)#1           | Ref(k1)#1               | Ref(k1)#1                      |
+            //    +-----------+---------------------+-------------------------+--------------------------------+
+            //    | b         | Ref(k1)#1 + 1       | A(Ref(k1)#1 + 1, key)#2 | Ref(key)#2                     |
+            //    +-----------+---------------------+-------------------------+--------------------------------+
+            //    | c         | A(AF(v1#1), 'af')#2 | A(AF(v1#1), 'af')#3     | AF(af#3)                       |
+            //    +-----------+---------------------+-------------------------+--------------------------------+
+            //    NOTICE: Ref: SlotReference, A: Alias, AF: AggregateFunction, #x: ExprId x
+            // 2. collect local aggregate output expressions and local aggregate group by expression list
+            Map<Expression, Expression> inputSubstitutionMap = Maps.newHashMap();
+            List<Expression> localGroupByExprs = aggregate.getGroupByExpressionList();
+            List<NamedExpression> localOutputExprs = Lists.newArrayList();
+            for (Expression originGroupByExpr : originGroupByExprs) {
+                if (inputSubstitutionMap.containsKey(originGroupByExpr)) {
+                    continue;
+                }
+                if (originGroupByExpr instanceof SlotReference) {
+                    inputSubstitutionMap.put(originGroupByExpr, originGroupByExpr);
+                    localOutputExprs.add((SlotReference) originGroupByExpr);
+                } else {
+                    NamedExpression localOutputExpr = new Alias<>(originGroupByExpr, originGroupByExpr.toSql());
+                    inputSubstitutionMap.put(originGroupByExpr, localOutputExpr.toSlot());
+                    localOutputExprs.add(localOutputExpr);
+                }
             }
-            List<Expression> groupByExpressionList = agg.getGroupByExprList();
-            for (int i = 0; i < groupByExpressionList.size(); i++) {
-                replaceSlot(staleToNew, groupByExpressionList, groupByExpressionList.get(i), i);
+            for (NamedExpression originOutputExpr : originOutputExprs) {
+                List<AggregateFunction> aggregateFunctions
+                        = originOutputExpr.collect(AggregateFunction.class::isInstance);
+                for (AggregateFunction aggregateFunction : aggregateFunctions) {
+                    if (inputSubstitutionMap.containsKey(aggregateFunction)) {
+                        continue;
+                    }
+                    NamedExpression localOutputExpr = new Alias<>(aggregateFunction, aggregateFunction.toSql());
+                    Expression substitutionValue = aggregateFunction.withChildren(
+                            Lists.newArrayList(localOutputExpr.toSlot()));
+                    inputSubstitutionMap.put(aggregateFunction, substitutionValue);
+                    localOutputExprs.add(localOutputExpr);
+                }
             }
-            List<NamedExpression> mergeOutputExpressionList = agg.getOutputExpressionList();
-            for (int i = 0; i < mergeOutputExpressionList.size(); i++) {
-                replaceSlot(staleToNew, mergeOutputExpressionList, mergeOutputExpressionList.get(i), i);
-            }
-            LogicalAggregate mergeAgg = new LogicalAggregate(
-                    groupByExpressionList,
-                    mergeOutputExpressionList,
+
+            // 3. replace expression in globalOutputExprs and globalGroupByExprs
+            List<NamedExpression> globalOutputExprs = aggregate.getOutputExpressionList().stream()
+                    .map(e -> ExpressionReplacer.INSTANCE.visit(e, inputSubstitutionMap))
+                    .map(NamedExpression.class::cast)
+                    .collect(Collectors.toList());
+            List<Expression> globalGroupByExprs = localGroupByExprs.stream()
+                    .map(e -> ExpressionReplacer.INSTANCE.visit(e, inputSubstitutionMap)).collect(Collectors.toList());
+
+            // 4. generate new plan
+            LogicalAggregate localAggregate = new LogicalAggregate(
+                    localGroupByExprs,
+                    localOutputExprs,
                     true,
-                    AggPhase.FIRST_MERGE
+                    AggPhase.LOCAL
             );
-            return plan(mergeAgg, childPlan);
+            LogicalAggregate globalAggregate = new LogicalAggregate(
+                    globalGroupByExprs,
+                    globalOutputExprs,
+                    true,
+                    AggPhase.GLOBAL
+            );
+            return plan(globalAggregate, plan(localAggregate, plan.child(0)));
         }).toRule(RuleType.AGGREGATE_DISASSEMBLE);
     }
 
-    private org.apache.doris.catalog.AggregateFunction findAggFunc(AggregateFunction functionCall) {
-        FunctionName functionName = new FunctionName(functionCall.getName());
-        List<Expression> expressionList = functionCall.getArguments();
-        List<Type> staleTypeList = expressionList.stream().map(Expression::getDataType)
-                .map(DataType::toCatalogDataType).collect(Collectors.toList());
-        Function staleFuncDesc = new Function(functionName, staleTypeList,
-                functionCall.getDataType().toCatalogDataType(),
-                // I think an aggregate function will never have a variable length parameters
-                false);
-        Function staleFunc = Catalog.getCurrentCatalog()
-                .getFunction(staleFuncDesc, CompareMode.IS_IDENTICAL);
-        Preconditions.checkArgument(staleFunc instanceof org.apache.doris.catalog.AggregateFunction);
-        return  (org.apache.doris.catalog.AggregateFunction) staleFunc;
-    }
+    @SuppressWarnings("InnerClassMayBeStatic")
+    private static class ExpressionReplacer
+            extends ExpressionVisitor<Expression, Map<Expression, Expression>> {
+        private static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
 
-    @SuppressWarnings("unchecked")
-    private <T extends Expression> void replaceSlot(Map<Slot, Slot> staleToNew,
-            List<T> expressionList, Expression root, int index) {
-        if (index != -1) {
-            if (root instanceof Slot) {
-                Slot v = staleToNew.get(root);
-                if (v == null) {
-                    return;
+        @Override
+        public Expression visit(Expression expr, Map<Expression, Expression> substitutionMap) {
+            // TODO: we need to do sub tree match and replace. but we do not have semanticEquals now.
+            //    e.g. a + 1 + 2 in output expression should be replaced by
+            //    (slot reference to update phase out (a + 1)) + 2, if we do group by a + 1
+            //   currently, we could only handle output expression same with group by expression
+            if (substitutionMap.containsKey(expr)) {
+                return substitutionMap.get(expr);
+            } else {
+                List<Expression> newChildren = new ArrayList<>();
+                boolean hasNewChildren = false;
+                for (Expression child : expr.children()) {
+                    Expression newChild = visit(child, substitutionMap);
+                    if (newChild != child) {
+                        hasNewChildren = true;
+                    }
+                    newChildren.add(newChild);
                 }
-                expressionList.set(index, (T) v);
-                return;
+                return hasNewChildren ? expr.withChildren(newChildren) : expr;
             }
-        }
-        List<Expression> children = root.children();
-        for (int i = 0; i < children.size(); i++) {
-            Expression cur = children.get(i);
-            if (!(cur instanceof Slot)) {
-                replaceSlot(staleToNew, expressionList, cur, -1);
-                continue;
-            }
-            Expression v = staleToNew.get(cur);
-            if (v == null) {
-                continue;
-            }
-            children.set(i, v);
         }
     }
 }

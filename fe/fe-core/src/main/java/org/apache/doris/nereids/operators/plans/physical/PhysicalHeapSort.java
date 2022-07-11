@@ -61,7 +61,7 @@ public class PhysicalHeapSort extends PhysicalUnaryOperator {
 
     @Override
     public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
-        return visitor.visitPhysicalSort((PhysicalUnaryPlan<PhysicalHeapSort, Plan>) plan, context);
+        return visitor.visitPhysicalHeapSort((PhysicalUnaryPlan<PhysicalHeapSort, Plan>) plan, context);
     }
 
     @Override

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -25,6 +26,7 @@ import com.google.common.base.Joiner;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Expression for unbound function.
@@ -50,6 +52,14 @@ public class UnboundFunction extends Expression implements Unbound {
 
     public List<Expression> getArguments() {
         return children();
+    }
+
+    @Override
+    public String toSql() throws UnboundException {
+        String params = children.stream()
+                .map(Expression::toSql)
+                .collect(Collectors.joining(", "));
+        return name + "(" + (isDistinct ? "DISTINCT " : "")  + params + ")";
     }
 
     @Override

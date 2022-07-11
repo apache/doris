@@ -22,7 +22,6 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -46,7 +45,6 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -270,21 +268,18 @@ public class SortNode extends PlanNode {
 
     /**
      * Supplement the information needed by be for the sort node.
+     * TODO: currently we only process slotref, so when order key is a + 1, we will failed.
      */
     public void finalizeForNereids(TupleDescriptor tupleDescriptor,
             List<Expr> outputList, List<Expr> orderingExpr) {
-        List<Expr> sortTupleSlotExprs = new ArrayList<>();
-        sortTupleSlotExprs.addAll(outputList);
-        sortTupleSlotExprs.addAll(orderingExpr);
-        List<Expr> afterDeduplication = new ArrayList<>();
-        Set<ExprId> exprIds = new HashSet<>();
-        for (int i = 0; i < sortTupleSlotExprs.size(); i++) {
-            Expr expr = sortTupleSlotExprs.get(i);
-            if (!exprIds.contains(expr.getId())) {
-                afterDeduplication.add(expr);
+        resolvedTupleExprs = Lists.newArrayList(orderingExpr);
+        for (Expr output : outputList) {
+            if (!resolvedTupleExprs.contains(output)) {
+                resolvedTupleExprs.add(output);
             }
         }
         info.setSortTupleDesc(tupleDescriptor);
-        info.setSortTupleSlotExprs(afterDeduplication);
+        info.setSortTupleSlotExprs(resolvedTupleExprs);
+
     }
 }

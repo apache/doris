@@ -15,20 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs;
+package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 
 import com.google.common.collect.ImmutableList;
 
 /**
- * cascade optimizer added.
+ * Execute the disassemble rules.
  */
-public class OptimizeRulesJob extends BatchRulesJob {
-    public OptimizeRulesJob(PlannerContext plannerContext) {
+public class DisassembleRulesJob extends BatchRulesJob {
+    public DisassembleRulesJob(PlannerContext plannerContext) {
         super(plannerContext);
         rulesJob.addAll(ImmutableList.of(
-                optimize()
-        ));
+                topDownBatch(ImmutableList.of(
+                        new AggregateDisassemble())
+                )));
     }
 }

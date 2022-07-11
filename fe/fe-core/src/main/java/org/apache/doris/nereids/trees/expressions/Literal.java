@@ -85,7 +85,7 @@ public class Literal extends Expression implements LeafExpression {
     }
 
     @Override
-    public String sql() {
+    public String toSql() {
         return value.toString();
     }
 

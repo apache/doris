@@ -1267,6 +1267,20 @@ public class FunctionCallExpr extends Expr {
 
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
-        super.finalizeImplForNereids();
+        // TODO: support other functions
+        if (fnName.getFunction().equalsIgnoreCase("sum")) {
+            // Prevent the cast type in vector exec engine
+            Type childType = getChild(0).type.getMaxResolutionType();
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            type = fn.getReturnType();
+        }
+    }
+
+    /**
+     * NOTICE: This function only used for Nereids, should not call it if u don't know what it is mean.
+     */
+    public void setMergeForNereids(boolean isMergeAggFn) {
+        this.isMergeAggFn = isMergeAggFn;
     }
 }

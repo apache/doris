@@ -34,8 +34,8 @@ import java.util.Objects;
  */
 public abstract class LogicalRelation extends LogicalLeafOperator {
 
-    private final Table table;
-    private final List<String> qualifier;
+    protected final Table table;
+    protected final List<String> qualifier;
 
     /**
      * Constructor for LogicalRelationPlan.

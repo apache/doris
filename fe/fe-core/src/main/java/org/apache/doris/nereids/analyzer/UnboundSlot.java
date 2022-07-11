@@ -53,7 +53,7 @@ public class UnboundSlot extends Slot implements Unbound {
     }
 
     @Override
-    public String sql() {
+    public String toSql() {
         return nameParts.stream().map(Utils::quoteIfNeeded).reduce((left, right) -> left + "." + right).orElse("");
     }
 

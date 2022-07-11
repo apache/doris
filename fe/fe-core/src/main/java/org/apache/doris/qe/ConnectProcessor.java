@@ -19,7 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
-import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -138,7 +138,7 @@ public class ConnectProcessor {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
                 if (elapseMs > Config.qe_slow_log_ms) {
-                    String sqlDigest = DigestUtils.md5Hex(((QueryStmt) parsedStmt).toDigest());
+                    String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
                     ctx.getAuditEventBuilder().setSqlDigest(sqlDigest);
                 }
             }

@@ -176,6 +176,9 @@ public abstract class Arithmetic extends Expression {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
+        if (!super.equals(o)) {
+            return false;
+        }
         Arithmetic that = (Arithmetic) o;
         return op == that.op;
     }
@@ -187,6 +190,6 @@ public abstract class Arithmetic extends Expression {
 
     @Override
     public String toString() {
-        return sql();
+        return toSql();
     }
 }

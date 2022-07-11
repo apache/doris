@@ -15,26 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.jobs.batch;
 
-import java.util.ArrayList;
-import java.util.List;
+import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
+
+import com.google.common.collect.ImmutableList;
 
 /**
- * Glue interface for QueryStmt and LogicalPlanAdaptor
+ * execute predicate push down job.
  */
-public interface Queriable {
-    boolean hasOutFileClause();
-
-    OutFileClause getOutFileClause();
-
-    boolean isExplain();
-
-    ExplainOptions getExplainOptions();
-
-    List<Expr> getResultExprs();
-
-    ArrayList<String> getColLabels();
-
-    String toDigest();
+public class PredicatePushDownRulesJob extends BatchRulesJob {
+    public PredicatePushDownRulesJob(PlannerContext plannerContext) {
+        super(plannerContext);
+        rulesJob.addAll(ImmutableList.of(
+                topDownBatch(ImmutableList.of(
+                        new PushPredicateThroughJoin())
+                )));
+    }
 }

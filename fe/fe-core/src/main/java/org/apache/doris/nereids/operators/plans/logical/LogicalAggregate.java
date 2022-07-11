@@ -46,43 +46,45 @@ import java.util.Objects;
 public class LogicalAggregate extends LogicalUnaryOperator {
 
     private final boolean disassembled;
-    private final List<Expression> groupByExprList;
+    private final List<Expression> groupByExpressionList;
     private final List<NamedExpression> outputExpressionList;
-    private List<Expression> partitionExprList;
-
+    private final List<Expression> partitionExprList;
     private final AggPhase aggPhase;
 
     /**
-     * Desc: Constructor for LogicalAggregation.
+     * Desc: Constructor for LogicalAggregate.
      */
-    public LogicalAggregate(List<Expression> groupByExprList, List<NamedExpression> outputExpressionList) {
-        super(OperatorType.LOGICAL_AGGREGATION);
-        this.groupByExprList = groupByExprList;
-        this.outputExpressionList = outputExpressionList;
-        this.disassembled = false;
-        this.aggPhase = AggPhase.FIRST;
+    public LogicalAggregate(List<Expression> groupByExpressionList, List<NamedExpression> outputExpressionList) {
+        this(groupByExpressionList, outputExpressionList, false, AggPhase.GLOBAL);
     }
 
-    public LogicalAggregate(List<Expression> groupByExprList,
+    public LogicalAggregate(List<Expression> groupByExpressionList,
             List<NamedExpression> outputExpressionList,
             boolean disassembled, AggPhase aggPhase) {
+        this(groupByExpressionList, outputExpressionList, null, disassembled, aggPhase);
+    }
+
+    /**
+     * Whole parameters constructor for LogicalAggregate.
+     */
+    public LogicalAggregate(List<Expression> groupByExpressionList,
+            List<NamedExpression> outputExpressionList,
+            List<Expression> partitionExprList,
+            boolean disassembled, AggPhase aggPhase) {
         super(OperatorType.LOGICAL_AGGREGATION);
-        this.groupByExprList = groupByExprList;
+        this.groupByExpressionList = groupByExpressionList;
         this.outputExpressionList = outputExpressionList;
+        this.partitionExprList = partitionExprList;
         this.disassembled = disassembled;
         this.aggPhase = aggPhase;
     }
 
     public List<Expression> getPartitionExprList() {
-        return partitionExprList == null ? groupByExprList : partitionExprList;
+        return partitionExprList == null ? groupByExpressionList : partitionExprList;
     }
 
-    public void setPartitionExprList(List<Expression> partitionExprList) {
-        this.partitionExprList = partitionExprList;
-    }
-
-    public List<Expression> getGroupByExprList() {
-        return groupByExprList;
+    public List<Expression> getGroupByExpressionList() {
+        return groupByExpressionList;
     }
 
     public List<NamedExpression> getOutputExpressionList() {
@@ -95,9 +97,9 @@ public class LogicalAggregate extends LogicalUnaryOperator {
 
     @Override
     public String toString() {
-        return "LogicalAggregate (" + "outputExpressionList: ["
+        return "LogicalAggregate (phase: [" + aggPhase.name() + "], outputExpressionList: ["
                 + StringUtils.join(outputExpressionList, ", ")
-                + "], groupByExprList: [" + StringUtils.join(groupByExprList, ", ") + "])";
+                + "], groupByExprList: [" + StringUtils.join(groupByExpressionList, ", ") + "])";
     }
 
     @Override
@@ -109,7 +111,10 @@ public class LogicalAggregate extends LogicalUnaryOperator {
 
     @Override
     public List<Expression> getExpressions() {
-        return new ImmutableList.Builder<Expression>().addAll(groupByExprList).addAll(outputExpressionList).build();
+        return new ImmutableList.Builder<Expression>()
+                .addAll(groupByExpressionList)
+                .addAll(outputExpressionList)
+                .build();
     }
 
     public boolean isDisassembled() {
@@ -127,7 +132,7 @@ public class LogicalAggregate extends LogicalUnaryOperator {
             return false;
         }
         LogicalAggregate that = (LogicalAggregate) o;
-        return Objects.equals(groupByExprList, that.groupByExprList)
+        return Objects.equals(groupByExpressionList, that.groupByExpressionList)
                 && Objects.equals(outputExpressionList, that.outputExpressionList)
                 && Objects.equals(partitionExprList, that.partitionExprList)
                 && aggPhase == that.aggPhase;
@@ -135,6 +140,11 @@ public class LogicalAggregate extends LogicalUnaryOperator {
 
     @Override
     public int hashCode() {
-        return Objects.hash(groupByExprList, outputExpressionList, partitionExprList, aggPhase);
+        return Objects.hash(groupByExpressionList, outputExpressionList, partitionExprList, aggPhase);
+    }
+
+    public LogicalAggregate withGroupByAndOutput(List<Expression> groupByExprList,
+            List<NamedExpression> outputExpressionList) {
+        return new LogicalAggregate(groupByExprList, outputExpressionList, partitionExprList, disassembled, aggPhase);
     }
 }

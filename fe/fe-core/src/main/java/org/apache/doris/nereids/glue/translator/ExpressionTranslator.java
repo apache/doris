@@ -30,6 +30,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -83,8 +84,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
-    public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
-        return context.findExpr(slotReference);
+    public Expr visitAlias(Alias alias, PlanTranslatorContext context) {
+        return alias.child().accept(this, context);
     }
 
     @Override
@@ -123,6 +124,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitNullSafeEqual(NullSafeEqual nullSafeEqual, PlanTranslatorContext context) {
+        return new BinaryPredicate(Operator.EQ_FOR_NULL,
+                nullSafeEqual.child(0).accept(this, context),
+                nullSafeEqual.child(1).accept(this, context));
+    }
+
+    @Override
     public Expr visitNot(Not not, PlanTranslatorContext context) {
         return new org.apache.doris.analysis.CompoundPredicate(
                 org.apache.doris.analysis.CompoundPredicate.Operator.NOT,
@@ -131,10 +139,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
-    public Expr visitNullSafeEqual(NullSafeEqual nullSafeEqual, PlanTranslatorContext context) {
-        return new BinaryPredicate(Operator.EQ_FOR_NULL,
-                nullSafeEqual.child(0).accept(this, context),
-                nullSafeEqual.child(1).accept(this, context));
+    public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
+        return context.findSlotRef(slotReference.getExprId());
     }
 
     /**
@@ -155,16 +161,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             return new StringLiteral((String) literal.getValue());
         }
         throw new RuntimeException(String.format("Unsupported data type: %s", dataType.toString()));
-    }
-
-    // TODO: Supports for `distinct`
-    @Override
-    public Expr visitBoundFunction(BoundFunction function, PlanTranslatorContext context) {
-        List<Expr> paramList = new ArrayList<>();
-        for (Expression expr : function.getArguments()) {
-            paramList.add(expr.accept(this, context));
-        }
-        return new FunctionCallExpr(function.getName(), paramList);
     }
 
     @Override
@@ -194,6 +190,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 compoundPredicate.child(1).accept(this, context));
     }
 
+    // TODO: Supports for `distinct`
+    @Override
+    public Expr visitBoundFunction(BoundFunction function, PlanTranslatorContext context) {
+        List<Expr> paramList = new ArrayList<>();
+        for (Expression expr : function.getArguments()) {
+            paramList.add(expr.accept(this, context));
+        }
+        return new FunctionCallExpr(function.getName(), paramList);
+    }
+
     @Override
     public Expr visitArithmetic(Arithmetic arithmetic, PlanTranslatorContext context) {
         Arithmetic.ArithmeticOperator arithmeticOperator = arithmetic.getArithmeticOperator();
@@ -201,5 +207,4 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 arithmetic.child(0).accept(this, context),
                 arithmeticOperator.isBinary() ? arithmetic.child(1).accept(this, context) : null);
     }
-
 }
