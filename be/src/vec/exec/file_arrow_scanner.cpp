@@ -218,7 +218,7 @@ VFileParquetScanner::VFileParquetScanner(RuntimeState* state, RuntimeProfile* pr
 
 ArrowReaderWrap* VFileParquetScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
                                                         int32_t num_of_columns_from_file) {
-    return new ParquetReaderWrap(_profile, file_reader, batch_size, num_of_columns_from_file);
+    return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file);
 }
 
 void VFileParquetScanner::_init_profiles(RuntimeProfile* profile) {
