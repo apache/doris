@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Literal;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -91,8 +91,8 @@ public class ExpressionUtils {
         Preconditions.checkArgument(op == NodeType.AND || op == NodeType.OR);
         Objects.requireNonNull(expressions, "expressions is null");
 
-        Expression shortCircuit = (op == NodeType.AND ? Literal.FALSE_LITERAL : Literal.TRUE_LITERAL);
-        Expression skip = (op == NodeType.AND ? Literal.TRUE_LITERAL : Literal.FALSE_LITERAL);
+        Expression shortCircuit = (op == NodeType.AND ? BooleanLiteral.FALSE_LITERAL : BooleanLiteral.TRUE_LITERAL);
+        Expression skip = (op == NodeType.AND ? BooleanLiteral.TRUE_LITERAL : BooleanLiteral.FALSE_LITERAL);
         LinkedHashSet<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
             if (expression.equals(shortCircuit)) {
@@ -104,6 +104,6 @@ public class ExpressionUtils {
 
         Optional<Expression> result =
                 distinctExpressions.stream().reduce((left, right) -> new CompoundPredicate<>(op, left, right));
-        return result.orElse(new Literal(op == NodeType.AND));
+        return result.orElse(new BooleanLiteral(op == NodeType.AND));
     }
 }

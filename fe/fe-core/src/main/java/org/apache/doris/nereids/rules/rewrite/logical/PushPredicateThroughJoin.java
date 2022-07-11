@@ -23,9 +23,9 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -72,7 +72,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             LogicalJoin joinOp = filter.child().operator;
 
             Expression wherePredicates = filter.operator.getPredicates();
-            Expression onPredicates = Literal.TRUE_LITERAL;
+            Expression onPredicates = BooleanLiteral.TRUE_LITERAL;
 
             List<Expression> otherConditions = Lists.newArrayList();
             List<Expression> eqConditions = Lists.newArrayList();
@@ -127,11 +127,11 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
         ExpressionRuleExecutor exprRewriter = new ExpressionRuleExecutor();
         Plan leftPlan = joinPlan.left();
         Plan rightPlan = joinPlan.right();
-        if (!left.equals(Literal.TRUE_LITERAL)) {
+        if (!left.equals(BooleanLiteral.TRUE_LITERAL)) {
             leftPlan = plan(new LogicalFilter(exprRewriter.rewrite(left)), leftPlan);
         }
 
-        if (!right.equals(Literal.TRUE_LITERAL)) {
+        if (!right.equals(BooleanLiteral.TRUE_LITERAL)) {
             rightPlan = plan(new LogicalFilter(exprRewriter.rewrite(right)), rightPlan);
         }
 

@@ -20,11 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.NullType;
-import org.apache.doris.nereids.types.StringType;
 
 import java.util.Objects;
 
@@ -32,9 +28,8 @@ import java.util.Objects;
  * All data type literal expression in Nereids.
  * TODO: Increase the implementation of sub expression. such as Integer.
  */
-public class Literal extends Expression implements LeafExpression {
-    public static final Literal TRUE_LITERAL = new Literal(true);
-    public static final Literal FALSE_LITERAL = new Literal(false);
+public abstract class Literal extends Expression implements LeafExpression {
+
     private final DataType dataType;
     private final Object value;
 
@@ -51,28 +46,20 @@ public class Literal extends Expression implements LeafExpression {
     }
 
     /**
-     * Constructor for Literal. Recognize data type Automatically.
-     *
-     * @param value real value stored in java object
+     * Get literal according to value type
      */
-    public Literal(Object value) {
-        super(NodeType.LITERAL);
-        this.value = value;
+    public static Literal of(Object value) {
         if (value == null) {
-            dataType = NullType.INSTANCE;
+            return new NullLiteral();
         } else if (value instanceof Integer) {
-            dataType = IntegerType.INSTANCE;
+            return new IntegerLiteral(value);
         } else if (value instanceof Boolean) {
-            dataType = BooleanType.INSTANCE;
+            return new BooleanLiteral(value);
         } else if (value instanceof String) {
-            dataType = StringType.INSTANCE;
+            return new StringLiteral(value);
         } else {
             throw new RuntimeException();
         }
-    }
-
-    public static Literal of(Object value) {
-        return new Literal(value);
     }
 
     public Object getValue() {
