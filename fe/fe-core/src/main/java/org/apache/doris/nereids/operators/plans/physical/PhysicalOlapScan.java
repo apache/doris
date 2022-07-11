@@ -76,9 +76,8 @@ public class PhysicalOlapScan extends PhysicalScan {
 
     @Override
     public String toString() {
-        return "Scan Olap Table " + StringUtils.join(qualifier, ".") + "." + olapTable.getName()
-                + " (selected index id: " + selectedTabletId + ", selected partition ids: " + selectedPartitionId
-                + ", selected tablet ids: " + selectedTabletId + ")";
+        return "PhysicalOlapScan([" + StringUtils.join(qualifier, ".") + "." + olapTable.getName()
+                + "], [index id=" + selectedIndexId + "])";
     }
 
     @Override

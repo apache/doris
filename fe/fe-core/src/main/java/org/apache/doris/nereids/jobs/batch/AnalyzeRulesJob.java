@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs;
+package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
+import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 
 import com.google.common.collect.ImmutableList;
 
 /**
- * Execute the analysis job.
+ * Execute the analysis rules.
  */
 public class AnalyzeRulesJob extends BatchRulesJob {
 
@@ -39,7 +40,8 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                 bottomUpBatch(ImmutableList.of(
                         new BindRelation(),
                         new BindSlotReference(),
-                        new BindFunction())
+                        new BindFunction(),
+                        new ProjectToGlobalAggregate())
                 )));
     }
 }

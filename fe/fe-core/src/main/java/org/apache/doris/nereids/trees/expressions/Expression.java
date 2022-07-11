@@ -44,7 +44,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         throw new UnboundException("dataType");
     }
 
-    public String sql() throws UnboundException {
+    public String toSql() throws UnboundException {
         throw new UnboundException("sql");
     }
 
@@ -83,10 +83,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         return false;
     }
 
-    public Expression clone() {
-        throw new RuntimeException("Unimplemented method");
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -97,5 +93,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         }
         Expression that = (Expression) o;
         return Objects.equals(children(), that.children());
+    }
+
+    @Override
+    public int hashCode() {
+        return 0;
     }
 }

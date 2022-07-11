@@ -15,22 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs;
+package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
 
 import com.google.common.collect.ImmutableList;
 
 /**
- * execute predicate push down job.
+ * cascade optimizer added.
  */
-public class PredicatePushDownRulesJob extends BatchRulesJob {
-    public PredicatePushDownRulesJob(PlannerContext plannerContext) {
+public class OptimizeRulesJob extends BatchRulesJob {
+    public OptimizeRulesJob(PlannerContext plannerContext) {
         super(plannerContext);
         rulesJob.addAll(ImmutableList.of(
-                topDownBatch(ImmutableList.of(
-                        new PushPredicateThroughJoin())
-                )));
+                optimize()
+        ));
     }
 }
