@@ -41,10 +41,11 @@ For all forms of SUBSTRING(),
 the position of the first character in the string from which the substring is to be extracted is reckoned as 1.
 
 If len is less than 1, the result is the empty string.
+
 ### example
 
 ```
-mysql> select substring('abc1', -2);
+mysql> select substring('abc1', 2);
 +-----------------------------+
 | substring('abc1', 2)        |
 +-----------------------------+
@@ -57,6 +58,13 @@ mysql> select substring('abc1', -2);
 +-----------------------------+
 | c1                          |
 +-----------------------------+
+
+mysql> select substring('abc1', 0);
++----------------------+
+| substring('abc1', 0) |
++----------------------+
+|                      |
++----------------------+
 
 mysql> select substring('abc1', 5);
 +-----------------------------+
@@ -74,4 +82,4 @@ mysql> select substring('abc1def', 2, 2);
 ```
 
 ### keywords
-SUBSTRING
+SUBSTRING, STRING
