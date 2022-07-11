@@ -30,6 +30,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.io.IOException;
 import java.time.Duration;
 
+/**
+ * Test Elasticsearch by container.
+ **/
 @Testcontainers
 public class EsContainerTest extends TestWithFeService {
 
