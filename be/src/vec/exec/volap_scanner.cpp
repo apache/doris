@@ -33,6 +33,7 @@ VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, b
         : _runtime_state(runtime_state),
           _parent(parent),
           _tuple_desc(parent->_tuple_desc),
+          _id(-1),
           _is_open(false),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
