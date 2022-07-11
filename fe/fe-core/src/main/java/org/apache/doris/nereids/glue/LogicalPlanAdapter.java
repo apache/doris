@@ -77,4 +77,9 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
     public void setColLabels(ArrayList<String> colLabels) {
         this.colLabels = colLabels;
     }
+
+    public String toDigest() {
+        // TODO: generate real digest
+        return "";
+    }
 }

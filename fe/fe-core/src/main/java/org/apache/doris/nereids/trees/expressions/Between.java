@@ -67,8 +67,8 @@ public class Between<
     }
 
     @Override
-    public String sql() {
-        return compareExpr.sql() + " BETWEEN " + lowerBound.sql() + " AND " + upperBound.sql();
+    public String toSql() {
+        return compareExpr.toSql() + " BETWEEN " + lowerBound.toSql() + " AND " + upperBound.toSql();
     }
 
     @Override

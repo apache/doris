@@ -48,9 +48,9 @@ public abstract class StringRegexPredicate<LEFT_CHILD_TYPE extends Expression, R
     }
 
     @Override
-    public String sql() {
+    public String toSql() {
         String nodeType = getType().toString();
-        return left().sql() + ' ' + nodeType + ' ' + right().sql();
+        return left().toSql() + ' ' + nodeType + ' ' + right().toSql();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

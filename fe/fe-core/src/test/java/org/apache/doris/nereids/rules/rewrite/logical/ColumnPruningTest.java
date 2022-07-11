@@ -215,10 +215,10 @@ public class ColumnPruningTest extends TestWithFeService {
     private Plan process(Memo memo) {
         PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
         JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), 0);
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), new ColumnPruning().buildRules(),
-                jobContext);
-        jobContext.getPlannerContext().pushJob(rewriteTopDownJob);
-        jobContext.getPlannerContext().getJobScheduler().executeJobPool(plannerContext);
+        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
+                new ColumnPruning().buildRules(), jobContext);
+        plannerContext.pushJob(rewriteTopDownJob);
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
         return memo.copyOut();
     }
 

@@ -68,4 +68,15 @@ public class PhysicalHashJoin extends PhysicalBinaryOperator {
     public List<Expression> getExpressions() {
         return condition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
     }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("PhysicalHashJoin ([").append(joinType).append("]");
+        if (condition.isPresent()) {
+            sb.append(", [").append(condition.get()).append("]");
+        }
+        sb.append(")");
+        return sb.toString();
+    }
 }

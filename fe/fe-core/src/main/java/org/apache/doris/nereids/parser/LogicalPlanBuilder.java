@@ -398,8 +398,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Literal visitStringLiteral(StringLiteralContext ctx) {
+        // TODO: add unescapeSQLString.
         String s = ctx.STRING().stream()
                 .map(ParseTree::getText)
+                .map(str -> str.substring(1, str.length() - 1))
                 .reduce((s1, s2) -> s1 + s2)
                 .orElse("");
         return new Literal(s);
