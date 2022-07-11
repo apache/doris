@@ -26,9 +26,8 @@ import java.util.List;
 /**
  * Divide Expression.
  */
-public class Divide<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-    public Divide(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+public class Divide extends Arithmetic implements BinaryExpression {
+    public Divide(Expression left, Expression right) {
         super(ArithmeticOperator.DIVIDE, left, right);
     }
 
@@ -41,7 +40,7 @@ public class Divide<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Divide<>(children.get(0), children.get(1));
+        return new Divide(children.get(0), children.get(1));
     }
 
     @Override

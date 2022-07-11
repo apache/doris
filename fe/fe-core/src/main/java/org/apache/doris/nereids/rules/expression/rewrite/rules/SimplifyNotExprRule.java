@@ -78,9 +78,9 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
             NodeType type = cp.getType();
             switch (type) {
                 case AND:
-                    return new Or<>(left, right);
+                    return new Or(left, right);
                 case OR:
-                    return new And<>(left, right);
+                    return new And(left, right);
                 default:
                     return expr;
             }
