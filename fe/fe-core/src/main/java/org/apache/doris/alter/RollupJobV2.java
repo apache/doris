@@ -131,6 +131,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
+    // save failed task after retry three times, tabletId -> agentTask
+    private Map<Long, List<AgentTask>> failedAgentTasks = Maps.newHashMap();
 
     public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs,
             long baseIndexId, long rollupIndexId, String baseIndexName, String rollupIndexName,
@@ -150,10 +152,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.rollupShortKeyColumnCount = rollupShortKeyColumnCount;
 
         this.origStmt = origStmt;
-    }
-
-    private RollupJobV2() {
-        super(JobType.ROLLUP);
     }
 
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {
@@ -425,13 +423,27 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
-
         if (!rollupBatchTask.isFinished()) {
             LOG.info("rollup tasks not finished. job: {}", jobId);
             List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() >= 3) {
-                    throw new AlterCancelException("rollup task failed after try three times: " + task.getErrorMsg());
+                    task.setFinished(true);
+                    AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
+                    LOG.warn("rollup task failed after try three times: " + task.getErrorMsg());
+                    if (!failedAgentTasks.containsKey(task.getTabletId())) {
+                        failedAgentTasks.put(task.getTabletId(), Lists.newArrayList(task));
+                    } else {
+                        failedAgentTasks.get(task.getTabletId()).add(task);
+                    }
+                    int expectSucceedTaskNum = tbl.getPartitionInfo()
+                            .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
+                    int failedTaskCount = failedAgentTasks.get(task.getTabletId()).size();
+                    if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
+                        throw new AlterCancelException(
+                                "rollup tasks failed on same tablet reach threshold "
+                                        + failedAgentTasks.get(task.getTabletId()));
+                    }
                 }
             }
             return;
@@ -444,6 +456,12 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
+            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+            for (List<AgentTask> tasks : failedAgentTasks.values()) {
+                for (AgentTask task : tasks) {
+                    invertedIndex.getReplica(task.getTabletId(), task.getBackendId()).setBad(true);
+                }
+            }
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
                 Partition partition = tbl.getPartition(partitionId);
@@ -454,14 +472,12 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 long visiableVersion = partition.getVisibleVersion();
                 short expectReplicationNum = tbl.getPartitionInfo().getReplicaAllocation(
                         partitionId).getTotalReplicaNum();
-
-
                 MaterializedIndex rollupIndex = entry.getValue();
                 for (Tablet rollupTablet : rollupIndex.getTablets()) {
                     List<Replica> replicas = rollupTablet.getReplicas();
                     int healthyReplicaNum = 0;
                     for (Replica replica : replicas) {
-                        if (replica.getLastFailedVersion() < 0
+                        if (!replica.isBad() && replica.getLastFailedVersion() < 0
                                 && replica.checkVersionCatchUp(visiableVersion, false)) {
                             healthyReplicaNum++;
                         }

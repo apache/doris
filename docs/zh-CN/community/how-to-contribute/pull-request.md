@@ -30,7 +30,7 @@ under the License.
 
 ### 1. Fork仓库
 
-进入 apache/incubator-doris 的 [github 页面](https://github.com/apache/incubator-doris) ，点击右上角按钮 `Fork` 进行 Fork。
+进入 apache/doris 的 [github 页面](https://github.com/apache/doris) ，点击右上角按钮 `Fork` 进行 Fork。
 
 ![Fork](/images/fork-repo.png)
 
@@ -39,28 +39,28 @@ under the License.
 #### （1）将代码克隆到本地：
 
 ```
-git clone https://github.com/<your_github_name>/incubator-doris.git
+git clone https://github.com/<your_github_name>/doris.git
 ```
 
 注意：请将 \<your\_github\_name\> 替换为您的 github 名字。
-  
+
 clone 完成后，origin 会默认指向 github 上的远程 fork 地址。
 
 #### （2）将 apache/incubator-doris 添加为本地仓库的远程分支 upstream：
 
 ```
 cd  incubator-doris
-git remote add upstream https://github.com/apache/incubator-doris.git
+git remote add upstream https://github.com/apache/doris.git
 ```
 
 #### （3）检查远程仓库设置：
 
 ```
 git remote -v
-origin https://github.com/<your_github_name>/incubator-doris.git (fetch)
-origin    https://github.com/<your_github_name>/incubator-doris.git (push)
-upstream  https://github.com/apache/incubator-doris.git (fetch)
-upstream  https://github.com/apache/incubator-doris.git (push)
+origin https://github.com/<your_github_name>/doris.git (fetch)
+origin    https://github.com/<your_github_name>/doris.git (push)
+upstream  https://github.com/apache/doris.git (fetch)
+upstream  https://github.com/apache/doris.git (push)
 ```
 
 #### （4）新建分支以便在分支上做修改：
@@ -85,14 +85,14 @@ git push origin <your_branch_name>
 ### 3. 创建PR
 
 #### （1）新建 PR
-在浏览器切换到自己的 github 页面，切换分支到提交的分支 \<your\_branch\_name\> ，点击 `New pull request` 按钮进行创建，如下图所示：
+在浏览器切换到自己的 github 页面，切换分支到提交的分支 \<your\_branch\_name\> ，点击 `Compare & pull request` 按钮进行创建，如下图所示：
 
 ![new PR](/images/new-pr.png)
 
 #### （2）准备分支
 这时候，会出现 `Create pull request` 按钮，如果没有请检查是否正确选择了分支，也可以点击 “compare across forks” 重新选择 repo 和分支。
 
-![create PR](/images//create-pr.png)
+![create PR](/images/create-pr.png)
 
 #### （3）填写 Commit Message
 这里请填写 comment 的总结和详细内容，然后点击 `Create pull request` 进行创建。
@@ -127,38 +127,38 @@ git push origin <your_branch_name>
 ``` 
 git checkout master
 ```
-   
+
 #### （2）同步远端主分支至本地
 
 ``` 
 git pull upstream master
 ```
-   
+
 #### （3）切换回刚才的分支（假设分支名为fix）
 
 ``` 
 git checkout fix
 ```
-   
+
 #### （4）进行rebase
-   
+
 ``` 
 git rebase -i master
 ```
-   
+
 此时会弹出修改记录的文件，一般直接保存即可。然后会提示哪些文件出现了冲突，此时可打开冲突文件对冲突部分进行修改，将提示的所有冲突文件的冲突都解决后，执行
-   
+
 ```
 git add .
 git rebase --continue
 ```
-   
+
 依此往复，直至屏幕出现类似 *rebase successful* 字样即可，此时您可以进行往提交PR的分支进行更新：
-   
+
 ```
 git push -f origin fix
 ```
-   
+
 ### 5. 一个例子
 
 #### （1）对于已经配置好 upstream 的本地分支 fetch 到最新代码
@@ -173,7 +173,7 @@ remote: Compressing objects: 100% (68/68), done.
 remote: Total 141 (delta 75), reused 108 (delta 48)
 Receiving objects: 100% (141/141), 58.28 KiB, done.
 Resolving deltas: 100% (75/75), completed with 43 local objects.
-From https://github.com/apache/incubator-doris
+From https://github.com/apache/doris
    9c36200..0c4edc2  master     -> upstream/master
 ```
 
@@ -209,7 +209,7 @@ Compressing objects: 100% (41/41), done.
 Writing objects: 100% (141/141), 56.66 KiB, done.
 Total 141 (delta 76), reused 140 (delta 75)
 remote: Resolving deltas: 100% (76/76), completed with 44 local objects.
-To https://lide-reed:fc35ff925bd8fd6629be3f6412bacee99d4e5f97@github.com/lide-reed/incubator-doris.git
+To https://lide-reed:xxxx@github.com/lide-reed/doris.git
    9c36200..0c4edc2  master -> master
 ```
 
@@ -250,9 +250,9 @@ Total 6 (delta 4), reused 0 (delta 0)
 remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
 remote: 
 remote: Create a pull request for 'my_branch' on GitHub by visiting:
-remote:      https://github.com/lide-reed/incubator-doris/pull/new/my_branch
+remote:      https://github.com/lide-reed/doris/pull/new/my_branch
 remote: 
-To https://lide-reed:fc35ff925bd8fd6629be3f6412bacee99d4e5f97@github.com/lide-reed/incubator-doris.git
+To https://lide-reed:xxxx@github.com/lide-reed/doris.git
  * [new branch]      my_branch -> my_branch
 ```
 
