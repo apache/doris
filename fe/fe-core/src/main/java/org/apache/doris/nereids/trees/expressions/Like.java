@@ -28,10 +28,9 @@ import java.util.List;
 /**
  * like expression: a like 'xxx%'.
  */
-public class Like<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends StringRegexPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class Like extends StringRegexPredicate {
 
-    public Like(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+    public Like(Expression left, Expression right) {
         super(NodeType.LIKE, left, right);
     }
 
@@ -46,9 +45,9 @@ public class Like<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends E
     }
 
     @Override
-    public Like<Expression, Expression> withChildren(List<Expression> children) {
+    public Like withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Like<>(children.get(0), children.get(1));
+        return new Like(children.get(0), children.get(1));
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

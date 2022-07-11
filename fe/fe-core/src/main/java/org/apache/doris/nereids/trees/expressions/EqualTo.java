@@ -28,10 +28,9 @@ import java.util.List;
 /**
  * Equal to expression: a = b.
  */
-public class EqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class EqualTo extends ComparisonPredicate {
 
-    public EqualTo(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+    public EqualTo(Expression left, Expression right) {
         super(NodeType.EQUAL_TO, left, right);
     }
 
@@ -46,9 +45,9 @@ public class EqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extend
     }
 
     @Override
-    public EqualTo<Expression, Expression> withChildren(List<Expression> children) {
+    public EqualTo withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new EqualTo<>(children.get(0), children.get(1));
+        return new EqualTo(children.get(0), children.get(1));
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

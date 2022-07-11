@@ -22,22 +22,18 @@ import org.apache.doris.nereids.trees.TernaryNode;
 /**
  * Interface for all expression that have three children.
  */
-public interface TernaryExpression<
-            FIRST_CHILD_TYPE extends Expression,
-            SECOND_CHILD_TYPE extends Expression,
-            THIRD_CHILD_TYPE extends Expression>
-        extends TernaryNode<Expression, FIRST_CHILD_TYPE, SECOND_CHILD_TYPE, THIRD_CHILD_TYPE> {
+public interface TernaryExpression extends TernaryNode<Expression, Expression, Expression, Expression> {
 
 
-    default FIRST_CHILD_TYPE first() {
-        return (FIRST_CHILD_TYPE) child(0);
+    default Expression first() {
+        return child(0);
     }
 
-    default SECOND_CHILD_TYPE second() {
-        return (SECOND_CHILD_TYPE) child(1);
+    default Expression second() {
+        return child(1);
     }
 
-    default THIRD_CHILD_TYPE third() {
-        return (THIRD_CHILD_TYPE) child(2);
+    default Expression third() {
+        return child(2);
     }
 }

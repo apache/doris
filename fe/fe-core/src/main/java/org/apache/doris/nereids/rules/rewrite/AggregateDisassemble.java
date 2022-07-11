@@ -97,7 +97,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     inputSubstitutionMap.put(originGroupByExpr, originGroupByExpr);
                     localOutputExprs.add((SlotReference) originGroupByExpr);
                 } else {
-                    NamedExpression localOutputExpr = new Alias<>(originGroupByExpr, originGroupByExpr.toSql());
+                    NamedExpression localOutputExpr = new Alias(originGroupByExpr, originGroupByExpr.toSql());
                     inputSubstitutionMap.put(originGroupByExpr, localOutputExpr.toSlot());
                     localOutputExprs.add(localOutputExpr);
                 }
@@ -109,7 +109,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     if (inputSubstitutionMap.containsKey(aggregateFunction)) {
                         continue;
                     }
-                    NamedExpression localOutputExpr = new Alias<>(aggregateFunction, aggregateFunction.toSql());
+                    NamedExpression localOutputExpr = new Alias(aggregateFunction, aggregateFunction.toSql());
                     Expression substitutionValue = aggregateFunction.withChildren(
                             Lists.newArrayList(localOutputExpr.toSlot()));
                     inputSubstitutionMap.put(aggregateFunction, substitutionValue);

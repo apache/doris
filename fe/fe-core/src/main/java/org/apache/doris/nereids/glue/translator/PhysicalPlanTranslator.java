@@ -93,13 +93,13 @@ public class PhysicalPlanTranslator extends PlanOperatorVisitor<PlanFragment, Pl
      * The left child of origin predicate is t2.id and the right child of origin predicate is t1.id.
      * In this situation, the children of predicate need to be swap => t1.id=t2.id.
      */
-    private static Expression swapEqualToForChildrenOrder(EqualTo<?, ?> equalTo, List<Slot> leftOutput) {
+    private static Expression swapEqualToForChildrenOrder(EqualTo equalTo, List<Slot> leftOutput) {
         Set<ExprId> leftSlots = SlotExtractor.extractSlot(equalTo.left()).stream()
                 .map(NamedExpression::getExprId).collect(Collectors.toSet());
         if (leftOutput.stream().map(NamedExpression::getExprId).collect(Collectors.toSet()).containsAll(leftSlots)) {
             return equalTo;
         } else {
-            return new EqualTo<>(equalTo.right(), equalTo.left());
+            return new EqualTo(equalTo.right(), equalTo.left());
         }
     }
 

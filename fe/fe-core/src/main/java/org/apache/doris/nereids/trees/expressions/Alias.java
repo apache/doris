@@ -30,8 +30,7 @@ import java.util.List;
 /**
  * Expression for alias, such as col1 as c1.
  */
-public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
-        implements UnaryExpression<CHILD_TYPE> {
+public class Alias extends NamedExpression implements UnaryExpression {
 
     private final ExprId exprId;
     private final String name;
@@ -43,11 +42,11 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
      * @param child expression that alias represents for
      * @param name alias name
      */
-    public Alias(CHILD_TYPE child, String name) {
+    public Alias(Expression child, String name) {
         this(NamedExpressionUtil.newExprId(), child, name);
     }
 
-    private Alias(ExprId exprId, CHILD_TYPE child, String name) {
+    private Alias(ExprId exprId, Expression child, String name) {
         super(NodeType.ALIAS, child);
         this.exprId = exprId;
         this.name = name;
@@ -101,7 +100,7 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Alias<>(exprId, children.get(0), name);
+        return new Alias(exprId, children.get(0), name);
     }
 
 }

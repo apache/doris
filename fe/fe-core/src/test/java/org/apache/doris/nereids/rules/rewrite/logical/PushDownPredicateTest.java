@@ -103,13 +103,13 @@ public class PushDownPredicateTest implements Plans {
     public void pushDownPredicateIntoScanTest1() {
         // select id,name,grade from student join score on student.id = score.sid and student.id > 1
         // and score.cid > 2 where student.age > 18 and score.grade > 60
-        Expression onCondition1 = new EqualTo<>(rStudent.getOutput().get(0), rScore.getOutput().get(0));
-        Expression onCondition2 = new GreaterThan<>(rStudent.getOutput().get(0), Literal.of(1));
-        Expression onCondition3 = new GreaterThan<>(rScore.getOutput().get(0), Literal.of(2));
+        Expression onCondition1 = new EqualTo(rStudent.getOutput().get(0), rScore.getOutput().get(0));
+        Expression onCondition2 = new GreaterThan(rStudent.getOutput().get(0), Literal.of(1));
+        Expression onCondition3 = new GreaterThan(rScore.getOutput().get(0), Literal.of(2));
         Expression onCondition = ExpressionUtils.and(onCondition1, onCondition2, onCondition3);
 
-        Expression whereCondition1 = new GreaterThan<>(rStudent.getOutput().get(1), Literal.of(18));
-        Expression whereCondition2 = new GreaterThan<>(rScore.getOutput().get(2), Literal.of(60));
+        Expression whereCondition1 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
+        Expression whereCondition2 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
 
 
@@ -157,10 +157,10 @@ public class PushDownPredicateTest implements Plans {
     public void pushDownPredicateIntoScanTest3() {
         //select id,name,grade from student left join score on student.id + 1 = score.sid - 2
         //where student.age > 18 and score.grade > 60
-        Expression whereCondition1 = new EqualTo<>(new Add<>(rStudent.getOutput().get(0), Literal.of(1)),
-                new Subtract<>(rScore.getOutput().get(0), Literal.of(2)));
-        Expression whereCondition2 = new GreaterThan<>(rStudent.getOutput().get(1), Literal.of(18));
-        Expression whereCondition3 = new GreaterThan<>(rScore.getOutput().get(2), Literal.of(60));
+        Expression whereCondition1 = new EqualTo(new Add(rStudent.getOutput().get(0), Literal.of(1)),
+                new Subtract(rScore.getOutput().get(0), Literal.of(2)));
+        Expression whereCondition2 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
+        Expression whereCondition3 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3);
 
         Plan join = plan(new LogicalJoin(JoinType.INNER_JOIN, Optional.empty()), rStudent, rScore);
@@ -213,18 +213,18 @@ public class PushDownPredicateTest implements Plans {
          */
 
         // student.id = score.sid
-        Expression whereCondition1 = new EqualTo<>(rStudent.getOutput().get(0), rScore.getOutput().get(0));
+        Expression whereCondition1 = new EqualTo(rStudent.getOutput().get(0), rScore.getOutput().get(0));
         // score.cid = course.cid
-        Expression whereCondition2 = new EqualTo<>(rScore.getOutput().get(1), rCourse.getOutput().get(0));
+        Expression whereCondition2 = new EqualTo(rScore.getOutput().get(1), rCourse.getOutput().get(0));
         // student.age between 18 and 20
-        Expression whereCondition3 = new Between<>(rStudent.getOutput().get(2), Literal.of(18), Literal.of(20));
+        Expression whereCondition3 = new Between(rStudent.getOutput().get(2), Literal.of(18), Literal.of(20));
         // student.age >= 18 and student.age <= 20
-        Expression whereCondition3result = new And<>(
-                new GreaterThanEqual<>(rStudent.getOutput().get(2), Literal.of(18)),
-                new LessThanEqual<>(rStudent.getOutput().get(2), Literal.of(20)));
+        Expression whereCondition3result = new And(
+                new GreaterThanEqual(rStudent.getOutput().get(2), Literal.of(18)),
+                new LessThanEqual(rStudent.getOutput().get(2), Literal.of(20)));
 
         // score.grade > 60
-        Expression whereCondition4 = new GreaterThan<>(rScore.getOutput().get(2), Literal.of(60));
+        Expression whereCondition4 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
 
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3, whereCondition4);
 

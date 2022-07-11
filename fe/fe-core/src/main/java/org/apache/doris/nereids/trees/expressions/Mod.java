@@ -26,9 +26,8 @@ import java.util.List;
 /**
  * Mod Expression.
  */
-public class Mod<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-    public Mod(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+public class Mod extends Arithmetic implements BinaryExpression {
+    public Mod(Expression left, Expression right) {
         super(ArithmeticOperator.MOD, left, right);
     }
 
@@ -41,7 +40,7 @@ public class Mod<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Ex
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Mod<>(children.get(0), children.get(1));
+        return new Mod(children.get(0), children.get(1));
     }
 
     @Override

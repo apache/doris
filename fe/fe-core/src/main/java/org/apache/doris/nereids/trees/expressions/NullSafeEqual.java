@@ -29,15 +29,14 @@ import java.util.List;
  * Null safe equal expression: a <=> b.
  * Unlike normal equal to expression, null <=> null is true.
  */
-public class NullSafeEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class NullSafeEqual extends ComparisonPredicate {
     /**
      * Constructor of Null Safe Equal ComparisonPredicate.
      *
      * @param left  left child of Null Safe Equal
      * @param right right child of Null Safe Equal
      */
-    public NullSafeEqual(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+    public NullSafeEqual(Expression left, Expression right) {
         super(NodeType.NULL_SAFE_EQUAL, left, right);
     }
 
@@ -59,6 +58,6 @@ public class NullSafeEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new NullSafeEqual<>(children.get(0), children.get(1));
+        return new NullSafeEqual(children.get(0), children.get(1));
     }
 }

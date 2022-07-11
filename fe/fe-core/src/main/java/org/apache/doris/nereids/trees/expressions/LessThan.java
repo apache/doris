@@ -28,15 +28,14 @@ import java.util.List;
 /**
  * Less than expression: a < b.
  */
-public class LessThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class LessThan extends ComparisonPredicate {
     /**
      * Constructor of Less Than Comparison Predicate.
      *
      * @param left  left child of Less Than
      * @param right right child of Less Than
      */
-    public LessThan(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+    public LessThan(Expression left, Expression right) {
         super(NodeType.LESS_THAN, left, right);
     }
 
@@ -51,9 +50,9 @@ public class LessThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE exten
     }
 
     @Override
-    public LessThan<Expression, Expression> withChildren(List<Expression> children) {
+    public LessThan withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LessThan<>(children.get(0), children.get(1));
+        return new LessThan(children.get(0), children.get(1));
     }
 
     @Override

@@ -79,7 +79,7 @@ public class AggregateDisassembleTest implements Plans {
                 rStudent.getOutput().get(2).toSlot());
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
                 rStudent.getOutput().get(2).toSlot(),
-                new Alias<>(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
+                new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
         Plan root = plan(new LogicalAggregate(groupExpressionList, outputExpressionList), rStudent);
 
         Memo memo = new Memo();
@@ -145,10 +145,10 @@ public class AggregateDisassembleTest implements Plans {
     @Test
     public void aliasGroupBy() {
         List<Expression> groupExpressionList = Lists.newArrayList(
-                new Add<>(rStudent.getOutput().get(2).toSlot(), new Literal(1)));
+                new Add(rStudent.getOutput().get(2).toSlot(), new Literal(1)));
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
-                new Alias<>(new Add<>(rStudent.getOutput().get(2).toSlot(), new Literal(1)), "key"),
-                new Alias<>(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
+                new Alias(new Add(rStudent.getOutput().get(2).toSlot(), new Literal(1)), "key"),
+                new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
         Plan root = plan(new LogicalAggregate(groupExpressionList, outputExpressionList), rStudent);
 
         Memo memo = new Memo();
@@ -171,9 +171,9 @@ public class AggregateDisassembleTest implements Plans {
         Assertions.assertEquals(AggPhase.GLOBAL, global.getAggPhase());
         Assertions.assertEquals(AggPhase.LOCAL, local.getAggPhase());
 
-        Expression localOutput0 = new Add<>(rStudent.getOutput().get(2).toSlot(), new Literal(1));
+        Expression localOutput0 = new Add(rStudent.getOutput().get(2).toSlot(), new Literal(1));
         Expression localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
-        Expression localGroupBy = new Add<>(rStudent.getOutput().get(2).toSlot(), new Literal(1));
+        Expression localGroupBy = new Add(rStudent.getOutput().get(2).toSlot(), new Literal(1));
 
         Assertions.assertEquals(2, local.getOutputExpressionList().size());
         Assertions.assertTrue(local.getOutputExpressionList().get(0) instanceof Alias);
@@ -215,7 +215,7 @@ public class AggregateDisassembleTest implements Plans {
     public void globalAggregate() {
         List<Expression> groupExpressionList = Lists.newArrayList();
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
-                new Alias<>(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
+                new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
         Plan root = plan(new LogicalAggregate(groupExpressionList, outputExpressionList), rStudent);
 
         Memo memo = new Memo();
@@ -271,7 +271,7 @@ public class AggregateDisassembleTest implements Plans {
         List<Expression> groupExpressionList = Lists.newArrayList(
                 rStudent.getOutput().get(2).toSlot());
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
-                new Alias<>(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
+                new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
         Plan root = plan(new LogicalAggregate(groupExpressionList, outputExpressionList), rStudent);
 
         Memo memo = new Memo();

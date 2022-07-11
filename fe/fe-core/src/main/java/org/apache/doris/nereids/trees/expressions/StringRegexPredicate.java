@@ -29,8 +29,7 @@ import java.util.Objects;
  * string regex expression.
  * Such as: like, regexp
  */
-public abstract class StringRegexPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Expression implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public abstract class StringRegexPredicate extends Expression implements BinaryExpression {
     /**
      * Constructor of StringRegexPredicate.
      *
@@ -38,7 +37,7 @@ public abstract class StringRegexPredicate<LEFT_CHILD_TYPE extends Expression, R
      * @param left     left child of string regex
      * @param right    right child of string regex
      */
-    public StringRegexPredicate(NodeType nodeType, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+    public StringRegexPredicate(NodeType nodeType, Expression left, Expression right) {
         super(nodeType, left, right);
     }
 
