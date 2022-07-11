@@ -56,7 +56,6 @@ import java.util.Set;
 public class SortNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(SortNode.class);
     // info_.sortTupleSlotExprs_ substituted with the outputSmap_ for materialized slots in init().
-    List<Expr> resolvedTupleExprs;
     private final SortInfo info;
     private final boolean  useTopN;
     private final boolean  isDefaultLimit;
@@ -183,18 +182,13 @@ public class SortNode extends PlanNode {
     public void init(Analyzer analyzer) throws UserException {
         // Compute the memory layout for the generated tuple.
         computeStats(analyzer);
-        // createDefaultSmap(analyzer);
-        // // populate resolvedTupleExprs and outputSmap_
-        // List<SlotDescriptor> sortTupleSlots = info.getSortTupleDescriptor().getSlots();
-        // List<Expr> slotExprs = info.getSortTupleSlotExprs_();
-        // Preconditions.checkState(sortTupleSlots.size() == slotExprs.size());
 
         // populate resolvedTupleExprs_ and outputSmap_
         List<SlotDescriptor> sortTupleSlots = info.getSortTupleDescriptor().getSlots();
         List<Expr> slotExprs = info.getSortTupleSlotExprs();
         Preconditions.checkState(sortTupleSlots.size() == slotExprs.size());
 
-        resolvedTupleExprs = Lists.newArrayList();
+        List<Expr> resolvedTupleExprs = Lists.newArrayList();
         outputSmap = new ExprSubstitutionMap();
 
         for (int i = 0; i < slotExprs.size(); ++i) {
@@ -207,6 +201,7 @@ public class SortNode extends PlanNode {
 
         ExprSubstitutionMap childSmap = getCombinedChildSmap();
         resolvedTupleExprs = Expr.substituteList(resolvedTupleExprs, childSmap, analyzer, false);
+        info.setSortTupleSlotExprs(resolvedTupleExprs);
 
         // Remap the ordering exprs to the tuple materialized by this sort node. The mapping
         // is a composition of the childSmap and the outputSmap_ because the child node may
@@ -234,9 +229,6 @@ public class SortNode extends PlanNode {
 
         TSortInfo sortInfo = info.toThrift();
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
-        if (resolvedTupleExprs != null) {
-            sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
-        }
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
 
         msg.sort_node = sortNode;
@@ -262,7 +254,7 @@ public class SortNode extends PlanNode {
     @Override
     public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
         List<SlotId> result = Lists.newArrayList();
-        Expr.getIds(resolvedTupleExprs, null, result);
+        Expr.getIds(info.getSortTupleSlotExprs(), null, result);
         return new HashSet<>(result);
     }
 
@@ -272,14 +264,13 @@ public class SortNode extends PlanNode {
      */
     public void finalizeForNereids(TupleDescriptor tupleDescriptor,
             List<Expr> outputList, List<Expr> orderingExpr) {
-        resolvedTupleExprs = Lists.newArrayList(orderingExpr);
+        info.setSortTupleSlotExprs(Lists.newArrayList(orderingExpr));
         for (Expr output : outputList) {
-            if (!resolvedTupleExprs.contains(output)) {
-                resolvedTupleExprs.add(output);
+            if (!info.getSortTupleSlotExprs().contains(output)) {
+                info.getSortTupleSlotExprs().add(output);
             }
         }
-        info.setSortTupleDesc(tupleDescriptor);
-        info.setSortTupleSlotExprs(resolvedTupleExprs);
 
+        info.setSortTupleDesc(tupleDescriptor);
     }
 }

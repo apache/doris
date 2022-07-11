@@ -382,11 +382,7 @@ public class PlannerTest extends TestWithFeService {
         Assert.assertTrue(node.getChildren().size() > 0);
         Assert.assertTrue(node instanceof SortNode);
         SortNode sortNode = (SortNode) node;
-        List<Expr> tupleExprs = sortNode.resolvedTupleExprs;
         List<Expr> sortTupleExprs = sortNode.getSortInfo().getSortTupleSlotExprs();
-        for (Expr expr : tupleExprs) {
-            expr.isBoundByTupleIds(sortNode.getChild(0).tupleIds);
-        }
         for (Expr expr : sortTupleExprs) {
             expr.isBoundByTupleIds(sortNode.getChild(0).tupleIds);
         }

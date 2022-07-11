@@ -291,6 +291,9 @@ public class SortInfo {
                 Expr.treesToThrift(orderingExprs),
                 isAscOrder,
                 nullsFirstParams);
+        if (sortTupleSlotExprs != null) {
+            sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(sortTupleSlotExprs));
+        }
         return sortInfo;
     }
 }
