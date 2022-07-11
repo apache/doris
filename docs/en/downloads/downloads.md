@@ -49,6 +49,8 @@ You can download the Doris source code from the following link for compilation a
 | 1.0.3 | 1.13 | 2.12 | 2021-03-18 | [Source](https://www.apache.org/dyn/closer.cgi/incubator/doris/flink-connector/1.0.3/apache-doris-flink-connector-1.13_2.12-1.0.3-incubating-src.tar.gz) ([Signature](https://downloads.apache.org/incubator/doris/flink-connector/1.0.3/apache-doris-flink-connector-1.13_2.12-1.0.3-incubating-src.tar.gz.asc) [SHA512](https://downloads.apache.org/incubator/doris/flink-connector/1.0.3/apache-doris-flink-connector-1.13_2.12-1.0.3-incubating-src.tar.gz.sha512))|
 | 1.0.3 | 1.12 | 2.12 | 2021-03-18 | [Source](https://www.apache.org/dyn/closer.cgi/incubator/doris/flink-connector/1.0.3/apache-doris-flink-connector-1.12_2.12-1.0.3-incubating-src.tar.gz) ([Signature](https://downloads.apache.org/incubator/doris/flink-connector/1.0.3/apache-doris-flink-connector-1.12_2.12-1.0.3-incubating-src.tar.gz.asc) [SHA512](https://downloads.apache.org/incubator/doris/flink-connector/1.0.3/apache-doris-flink-connector-1.12_2.12-1.0.3-incubating-src.tar.gz.sha512))|
 | 1.0.3 | 1.11 | 2.12 | 2021-03-18 | [Source](https://www.apache.org/dyn/closer.cgi/incubator/doris/flink-connector/1.0.3/apache-doris-flink-connector-1.11_2.12-1.0.3-incubating-src.tar.gz) ([Signature](https://downloads.apache.org/incubator/doris/flink-connector/1.0.3/apache-doris-flink-connector-1.11_2.12-1.0.3-incubating-src.tar.gz.asc) [SHA512](https://downloads.apache.org/incubator/doris/flink-connector/1.0.3/apache-doris-flink-connector-1.11_2.12-1.0.3-incubating-src.tar.gz.sha512))|
+| 1.1.0 | 1.14 | 2.12 | 2022-07-11 | [Source](https://dist.apache.org/repos/dist/release/doris/flink-connector/1.1.0/apache-doris-flink-connector-1.14_2.12-1.1.0-src.tar.gz) ([Signature](https://dist.apache.org/repos/dist/release/doris/flink-connector/1.1.0/apache-doris-flink-connector-1.14_2.12-1.1.0-src.tar.gz.asc) [SHA512](https://dist.apache.org/repos/dist/release/doris/flink-connector/1.1.0/apache-doris-flink-connector-1.14_2.12-1.1.0-src.tar.gz.sha512)) |
+| 1.1.0 | 1.14 | 2.11 | 2022-07-11 | [Source](https://dist.apache.org/repos/dist/release/doris/flink-connector/1.1.0/apache-doris-flink-connector-1.14_2.11-1.1.0-src.tar.gz) ([Signature](https://dist.apache.org/repos/dist/release/doris/flink-connector/1.1.0/apache-doris-flink-connector-1.14_2.11-1.1.0-src.tar.gz.asc) [SHA512](https://dist.apache.org/repos/dist/release/doris/flink-connector/1.1.0/apache-doris-flink-connector-1.14_2.11-1.1.0-src.tar.gz.sha512)) |
 
 ### Maven
 
@@ -59,7 +61,8 @@ You can download the Doris source code from the following link for compilation a
   <!--artifactId>flink-doris-connector-1.13_2.12</artifactId-->
   <!--artifactId>flink-doris-connector-1.12_2.12</artifactId-->
   <!--artifactId>flink-doris-connector-1.11_2.12</artifactId-->
-  <version>1.0.3</version>
+  <!--version>1.0.3</version-->
+  <version>1.1.0</version>
 </dependency>
 ```
 
@@ -69,15 +72,20 @@ You can download the Doris source code from the following link for compilation a
 |---|---|---|---|---|
 | 1.0.1 | 3.x | 2.12 | 2021-03-18 | [Source](https://www.apache.org/dyn/closer.cgi/incubator/doris/spark-connector/1.0.1/apache-doris-spark-connector-3.1_2.12-1.0.1-incubating-src.tar.gz) ([Signature](https://downloads.apache.org/incubator/doris/spark-connector/1.0.1/apache-doris-spark-connector-3.1_2.12-1.0.1-incubating-src.tar.gz.asc) [SHA512](https://downloads.apache.org/incubator/doris/spark-connector/1.0.1/apache-doris-spark-connector-3.1_2.12-1.0.1-incubating-src.tar.gz.sha512))|
 | 1.0.1 | 2.x | 2.11 | 2021-03-18 | [Source](https://www.apache.org/dyn/closer.cgi/incubator/doris/spark-connector/1.0.1/apache-doris-spark-connector-2.3_2.11-1.0.1-incubating-src.tar.gz) ([Signature](https://downloads.apache.org/incubator/doris/spark-connector/1.0.1/apache-doris-spark-connector-2.3_2.11-1.0.1-incubating-src.tar.gz.asc) [SHA512](https://downloads.apache.org/incubator/doris/spark-connector/1.0.1/apache-doris-spark-connector-2.3_2.11-1.0.1-incubating-src.tar.gz.sha512))|
+| 1.1.0 | 3.1 | 2.12 | 2022-07-11 | [Source](https://dist.apache.org/repos/dist/release/doris/spark-connector/1.1.0/apache-doris-spark-connector-3.1_2.12-1.1.0-src.tar.gz) ([Signature](https://dist.apache.org/repos/dist/release/doris/spark-connector/1.1.0/apache-doris-spark-connector-3.1_2.12-1.1.0-src.tar.gz.asc) [SHA512](https://dist.apache.org/repos/dist/release/doris/spark-connector/1.1.0/apache-doris-spark-connector-3.1_2.12-1.1.0-src.tar.gz.sha512)) |
+| 1.1.0 | 3.2 | 2.12 | 2022-07-11 | [Source](https://dist.apache.org/repos/dist/release/doris/spark-connector/1.1.0/apache-doris-spark-connector-3.2_2.12-1.1.0-src.tar.gz) ([Signature](hhttps://dist.apache.org/repos/dist/release/doris/spark-connector/1.1.0/apache-doris-spark-connector-3.2_2.12-1.1.0-src.tar.gz.asc) [SHA512](https://dist.apache.org/repos/dist/release/doris/spark-connector/1.1.0/apache-doris-spark-connector-3.2_2.12-1.1.0-src.tar.gz.sha512)) |
+| 1.1.0 | 2.3 | 2.11 | 2022-07-11 | [Source](https://dist.apache.org/repos/dist/release/doris/spark-connector/1.1.0/apache-doris-spark-connector-2.3_2.11-1.1.0-src.tar.gz) ([Signature](https://dist.apache.org/repos/dist/release/doris/spark-connector/1.1.0/apache-doris-spark-connector-2.3_2.11-1.1.0-src.tar.gz.asc) [SHA512](https://dist.apache.org/repos/dist/release/doris/spark-connector/1.1.0/apache-doris-spark-connector-2.3_2.11-1.1.0-src.tar.gz.sha512)) |
 
 ### Maven
 
 ```
 <dependency>
   <groupId>org.apache.doris</groupId>
-  <artifactId>spark-doris-connector-3.1_2.12</artifactId>
+  <artifactId>spark-doris-connector-3.2_2.12</artifactId>
+  <!--artifactId>spark-doris-connector-3.1_2.12</artifactId-->
   <!--artifactId>spark-doris-connector-2.3_2.11</artifactId-->
-  <version>1.0.1</version>
+  <!--version>1.0.1</version-->
+  <version>1.1.0</version>
 </dependency>
 ```
 
