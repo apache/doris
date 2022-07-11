@@ -42,7 +42,7 @@ Go to the [github page](https://github.com/apache/incubator-doris) of apache/inc
 git clone https://github.com/<your_github_name>/incubator-doris.git
 ```
 
-Note: Please replace your GitHub name with your yourgithubname\\\\\\\\\\\\\\.
+Note: Please replace your GitHub name with your yourgithubname.
 
 When clone is completed, origin defaults to the remote fork address on github.
 
@@ -50,17 +50,17 @@ When clone is completed, origin defaults to the remote fork address on github.
 
 ```
 cd  incubator-doris
-git remote add upstream https://github.com/apache/incubator-doris.git
+git remote add upstream https://github.com/apache/doris.git
 ```
 
 #### (3) Check remote warehouse settings:
 
 ```
 git remote -v
-origin https://github.com/<your_github_name>/incubator-doris.git (fetch)
-origin    https://github.com/<your_github_name>/incubator-doris.git (push)
-upstream  https://github.com/apache/incubator-doris.git (fetch)
-upstream  https://github.com/apache/incubator-doris.git (push)
+origin https://github.com/<your_github_name>/doris.git (fetch)
+origin    https://github.com/<your_github_name>/doris.git (push)
+upstream  https://github.com/apache/doris.git (fetch)
+upstream  https://github.com/apache/doris.git (push)
 ```
 
 #### (4) New branches to modify them:
@@ -85,7 +85,7 @@ For more git usage, please visit: [git usage](https://www.atlassian.com/git/tuto
 ### 3. Create PR
 
 #### (1) New PR
-Switch to your GitHub page in the browser, switch to the submitted branch yourbranchname\\ and click the `New pull request` button to create it, as shown in the following figure:
+Switch to your GitHub page in the browser, switch to the submitted branch yourbranchname\\ and click the `Compare & pull request` button to create it, as shown in the following figure:
 
 ![new PR](/images/new-pr.png)
 
@@ -173,7 +173,7 @@ remote: Compressing objects: 100% (68/68), done.
 remote: Total 141 (delta 75), reused 108 (delta 48)
 Receiving objects: 100% (141/141), 58.28 KiB, done.
 Resolving deltas: 100% (75/75), completed with 43 local objects.
-From https://github.com/apache/incubator-doris
+From https://github.com/apache/doris
    9c36200..0c4edc2  master     -> upstream/master
 ```
 
@@ -209,7 +209,7 @@ Compressing objects: 100% (41/41), done.
 Writing objects: 100% (141/141), 56.66 KiB, done.
 Total 141 (delta 76), reused 140 (delta 75)
 remote: Resolving deltas: 100% (76/76), completed with 44 local objects.
-To https://lide-reed:fc35ff925bd8fd6629be3f6412bacee99d4e5f97@github.com/lide-reed/incubator-doris.git
+To https://lide-reed:xxxx@github.com/lide-reed/doris.git
    9c36200..0c4edc2  master -> master
 ```
 
@@ -250,9 +250,9 @@ Total 6 (delta 4), reused 0 (delta 0)
 remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
 remote: 
 remote: Create a pull request for 'my_branch' on GitHub by visiting:
-remote:      https://github.com/lide-reed/incubator-doris/pull/new/my_branch
+remote:      https://github.com/lide-reed/doris/pull/new/my_branch
 remote: 
-To https://lide-reed:fc35ff925bd8fd6629be3f6412bacee99d4e5f97@github.com/lide-reed/incubator-doris.git
+To https://lide-reed:xxxx@github.com/lide-reed/doris.git
  * [new branch]      my_branch -> my_branch
 ```
 
