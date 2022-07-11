@@ -56,6 +56,6 @@ public class OrderKey {
 
     @Override
     public String toString() {
-        return expr.sql();
+        return expr.toSql();
     }
 }

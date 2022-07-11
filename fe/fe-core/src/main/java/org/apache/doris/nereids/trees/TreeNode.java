@@ -90,5 +90,4 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         });
         return (T) result.build();
     }
-
 }
