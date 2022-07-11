@@ -19,7 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
-import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -55,6 +55,8 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Scope;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -136,7 +138,7 @@ public class ConnectProcessor {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
                 if (elapseMs > Config.qe_slow_log_ms) {
-                    String sqlDigest = DigestUtils.md5Hex(((QueryStmt) parsedStmt).toDigest());
+                    String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
                     ctx.getAuditEventBuilder().setSqlDigest(sqlDigest);
                 }
             }
@@ -352,7 +354,16 @@ public class ConnectProcessor {
                 handleQuit();
                 break;
             case COM_QUERY:
-                handleQuery();
+                ctx.initTracer("trace");
+                Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").startSpan();
+                try (Scope scope = rootSpan.makeCurrent()) {
+                    handleQuery();
+                } catch (Exception e) {
+                    rootSpan.recordException(e);
+                    throw e;
+                } finally {
+                    rootSpan.end();
+                }
                 break;
             case COM_FIELD_LIST:
                 handleFieldList();

@@ -1265,6 +1265,11 @@ public class FunctionSet<T> {
                                               boolean varArgs, Type ... args) {
         ArrayList<Type> argsType = new ArrayList<Type>();
         for (Type type : args) {
+            // only to prevent olap scan node use array expr to find a fake symbol
+            // TODO: delete the code after we remove origin exec engine
+            if (type.isArrayType()) {
+                symbol = "_ZN5doris19array_fake_functionEPN9doris_udf15FunctionContextE";
+            }
             argsType.add(type);
         }
         addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(

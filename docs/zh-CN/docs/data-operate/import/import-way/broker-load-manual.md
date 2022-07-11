@@ -244,7 +244,7 @@ LOAD LABEL demo.label_20220402
         ) 
         with HDFS (
             "fs.defaultFS"="hdfs://10.220.147.151:8020",
-            "hdfs_user"="root"
+            "hadoop.username"="root"
         )
         PROPERTIES
         (
@@ -406,6 +406,19 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
 - 导入报错：`Scan bytes per broker scanner exceed limit:xxx`
 
   请参照文档中最佳实践部分，修改 FE 配置项 `max_bytes_per_broker_scanner` 和 `max_broker_concurrency`
+
+- 导入过程中出现 `org.apache.thrift.transport.TTransportException: java.net.SocketException: Broken pipe`
+
+  出现这个问题的原因可能是到从外部存储（例如HDFS）导入数据的时候，因为目录下文件太多，列出文件目录的时间太长，这里Broker RPC Timeout 默认是10秒，这里需要适当调整超时时间。
+
+  修改 `fe.conf` 配置文件，添加下面的参数：
+
+  ```
+  broker_timeout_ms = 10000
+  ##这里默认是10秒，需要适当加大这个参数
+  ```
+
+  这里添加参数，需要重启 FE 服务。
 
 - 导入报错：`failed to send batch` 或 `TabletWriter add batch with unknown id`
 

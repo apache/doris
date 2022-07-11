@@ -106,11 +106,11 @@ Status ParquetScanner::open_next_reader() {
         if (range.__isset.num_of_columns_from_file) {
             num_of_columns_from_file = range.num_of_columns_from_file;
         }
-        _cur_file_reader = new ParquetReaderWrap(file_reader.release(), _state->batch_size(),
-                                                 num_of_columns_from_file);
-
-        Status status = _cur_file_reader->init_reader(_src_slot_descs, _state->timezone());
-
+        _cur_file_reader = new ParquetReaderWrap(_profile, file_reader.release(),
+                                                 _state->batch_size(), num_of_columns_from_file);
+        auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
+        Status status = _cur_file_reader->init_reader(tuple_desc, _src_slot_descs, _conjunct_ctxs,
+                                                      _state->timezone());
         if (status.is_end_of_file()) {
             continue;
         } else {
@@ -118,6 +118,7 @@ Status ParquetScanner::open_next_reader() {
                 return Status::InternalError("file: {}, error:{}", range.path,
                                              status.get_error_msg());
             } else {
+                RETURN_IF_ERROR(_cur_file_reader->init_parquet_type());
                 return status;
             }
         }

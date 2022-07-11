@@ -53,6 +53,11 @@ enum SegmentsOverlapPB {
     NONOVERLAPPING = 2;
 }
 
+message KeyBoundsPB {
+    required bytes min_key = 1;
+    required bytes max_key = 2;
+}
+
 message RowsetMetaPB {
     required int64 rowset_id = 1;
     optional int64 partition_id = 2;
@@ -99,6 +104,9 @@ message RowsetMetaPB {
     optional int64 oldest_write_timestamp = 25 [default = -1];
     // latest write time
     optional int64 newest_write_timestamp = 26 [default = -1];
+    // the encoded segment min/max key of segments in this rowset,
+    // only used in unique key data model with primary_key_index support.
+    repeated KeyBoundsPB segments_key_bounds = 27;
     // spare field id for future use
     optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
     // to indicate whether the data between the segments overlap

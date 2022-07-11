@@ -189,6 +189,45 @@ const char* ColumnString::deserialize_and_insert_from_arena(const char* pos) {
     return pos + string_size;
 }
 
+size_t ColumnString::get_max_row_byte_size() const {
+    size_t max_size = 0;
+    size_t num_rows = offsets.size();
+    for (size_t i = 0; i < num_rows; ++i) {
+        max_size = std::max(max_size, size_at(i));
+    }
+
+    return max_size + sizeof(size_t);
+}
+
+void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                                 size_t max_row_byte_size) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        size_t offset = offset_at(i);
+        size_t string_size = size_at(i);
+
+        auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
+        memcpy(ptr, &string_size, sizeof(string_size));
+        memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
+        keys[i].size += sizeof(string_size) + string_size;
+    }
+}
+
+void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                               const uint8_t* null_map,
+                                               size_t max_row_byte_size) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        if (null_map[i] == 0) {
+            size_t offset = offset_at(i);
+            size_t string_size = size_at(i);
+
+            auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
+            memcpy(ptr, &string_size, sizeof(string_size));
+            memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
+            keys[i].size += sizeof(string_size) + string_size;
+        }
+    }
+}
+
 template <typename Type>
 ColumnPtr ColumnString::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
     if (limit == 0) return ColumnString::create();

@@ -258,6 +258,11 @@ public:
         }
     }
 
+    virtual Status get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) {
+        _rowset_meta->get_segments_key_bounds(segments_key_bounds);
+        return Status::OK();
+    }
+
 protected:
     friend class RowsetFactory;
 

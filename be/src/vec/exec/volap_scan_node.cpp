@@ -234,6 +234,7 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
 }
 
 Status VOlapScanNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::open");
     VLOG_CRITICAL << "VOlapScanNode::Open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
@@ -279,6 +280,7 @@ Status VOlapScanNode::open(RuntimeState* state) {
 
 void VOlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::transfer_thread");
     SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     Status status = Status::OK();
 
@@ -371,6 +373,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
             _add_blocks(blocks);
         }
     }
+    telemetry::set_span_attribute(span, _scanner_sched_counter);
 
     VLOG_CRITICAL << "TransferThread finish.";
     _transfer_done = true;
@@ -383,6 +386,8 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
+    START_AND_SCOPE_SPAN(scanner->runtime_state()->get_tracer(), span,
+                         "VOlapScanNode::scanner_thread");
     SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
     Thread::set_self_name("volap_scanner");
@@ -477,6 +482,10 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     }
 
     if (!vexprs.empty()) {
+        if (*scanner->vconjunct_ctx_ptr()) {
+            (*scanner->vconjunct_ctx_ptr())->close(state);
+            *scanner->vconjunct_ctx_ptr() = nullptr;
+        }
         WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
                       "Something wrong for runtime filters: ");
         scanner->set_use_pushdown_conjuncts(true);
@@ -633,74 +642,81 @@ Status VOlapScanNode::normalize_conjuncts() {
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
         switch (slots[slot_idx]->type().type) {
         case TYPE_TINYINT: {
-            ColumnValueRange<int8_t> range(slots[slot_idx]->col_name(),
-                                           slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_TINYINT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_SMALLINT: {
-            ColumnValueRange<int16_t> range(slots[slot_idx]->col_name(),
-                                            slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_SMALLINT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_INT: {
-            ColumnValueRange<int32_t> range(slots[slot_idx]->col_name(),
-                                            slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_INT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_BIGINT: {
-            ColumnValueRange<int64_t> range(slots[slot_idx]->col_name(),
-                                            slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_BIGINT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_LARGEINT: {
-            ColumnValueRange<__int128> range(slots[slot_idx]->col_name(),
-                                             slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_LARGEINT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_HLL:
+        case TYPE_CHAR: {
+            ColumnValueRange<TYPE_CHAR> range(slots[slot_idx]->col_name());
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+        case TYPE_VARCHAR: {
+            ColumnValueRange<TYPE_VARCHAR> range(slots[slot_idx]->col_name());
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+        case TYPE_HLL: {
+            ColumnValueRange<TYPE_HLL> range(slots[slot_idx]->col_name());
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
         case TYPE_STRING: {
-            ColumnValueRange<StringValue> range(slots[slot_idx]->col_name(),
-                                                slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_STRING> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
-        case TYPE_DATE:
+        case TYPE_DATE: {
+            ColumnValueRange<TYPE_DATE> range(slots[slot_idx]->col_name());
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
         case TYPE_DATETIME: {
-            ColumnValueRange<DateTimeValue> range(slots[slot_idx]->col_name(),
-                                                  slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_DATETIME> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_DATEV2: {
-            ColumnValueRange<doris::vectorized::DateV2Value> range(slots[slot_idx]->col_name(),
-                                                                   slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_DATEV2> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_DECIMALV2: {
-            ColumnValueRange<DecimalV2Value> range(slots[slot_idx]->col_name(),
-                                                   slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_DECIMALV2> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_BOOLEAN: {
-            ColumnValueRange<bool> range(slots[slot_idx]->col_name(), slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_BOOLEAN> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
@@ -821,7 +837,7 @@ Status VOlapScanNode::start_scan(RuntimeState* state) {
     return Status::OK();
 }
 
-template <class T>
+template <PrimitiveType T>
 Status VOlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot) {
     // 1. Normalize InPredicate, add to ColumnValueRange
     RETURN_IF_ERROR(normalize_in_and_eq_predicate(slot, &range));
@@ -937,16 +953,18 @@ std::pair<bool, void*> VOlapScanNode::should_push_down_eq_predicate(doris::SlotD
     return result_pair;
 }
 
-template <typename T, typename ChangeFixedValueRangeFunc>
-Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, PrimitiveType type,
+template <PrimitiveType primitive_type, typename ChangeFixedValueRangeFunc>
+Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<primitive_type>& temp_range,
                                                void* value, const ChangeFixedValueRangeFunc& func) {
-    switch (type) {
+    switch (primitive_type) {
     case TYPE_DATE: {
         DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
         // There is must return empty data in olap_scan_node,
         // Because data value loss accuracy
         if (!date_value.check_loss_accuracy_cast_to_date()) {
-            func(temp_range, reinterpret_cast<T*>(&date_value));
+            func(temp_range,
+                 reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(
+                         &date_value));
         }
         break;
     }
@@ -961,12 +979,14 @@ Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, 
     case TYPE_BIGINT:
     case TYPE_LARGEINT:
     case TYPE_STRING: {
-        func(temp_range, reinterpret_cast<T*>(value));
+        func(temp_range,
+             reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(value));
         break;
     }
     case TYPE_BOOLEAN: {
         bool v = *reinterpret_cast<bool*>(value);
-        func(temp_range, reinterpret_cast<T*>(&v));
+        func(temp_range,
+             reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(&v));
         break;
     }
     case TYPE_DATEV2: {
@@ -974,7 +994,7 @@ Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, 
         if (!date_value.check_loss_accuracy_cast_to_date()) {
             doris::vectorized::DateV2Value date_v2;
             date_v2.convert_dt_to_date_v2(&date_value);
-            if constexpr (std::is_same_v<T, doris::vectorized::DateV2Value>) {
+            if constexpr (primitive_type == PrimitiveType::TYPE_DATEV2) {
                 func(temp_range, &date_v2);
             } else {
                 __builtin_unreachable();
@@ -983,7 +1003,8 @@ Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, 
         break;
     }
     default: {
-        LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type=" << type << "]";
+        LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type="
+                     << primitive_type << "]";
         return Status::InternalError("Normalize filter fail, Unsupported Primitive type");
     }
     }
@@ -1057,13 +1078,13 @@ void VOlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
 // It will only handle the InPredicate and eq BinaryPredicate in conjunct_ctxs.
 // It will try to push down conditions of that column as much as possible,
 // But if the number of conditions exceeds the limit, none of conditions will be pushed down.
-template <class T>
+template <PrimitiveType T>
 Status VOlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                                                     ColumnValueRange<T>* range) {
     std::vector<uint32_t> filter_conjuncts_index;
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         // create empty range as temp range, temp range should do intersection on range
-        auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(range->type());
+        auto temp_range = ColumnValueRange<T>::create_empty_column_value_range();
 
         // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
         if (TExprOpcode::FILTER_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
@@ -1081,9 +1102,8 @@ Status VOlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                     continue;
                 }
                 auto value = const_cast<void*>(iter->get_value());
-                RETURN_IF_ERROR(
-                        change_fixed_value_range(temp_range, slot->type().type, value,
-                                                 ColumnValueRange<T>::add_fixed_value_range));
+                RETURN_IF_ERROR(change_fixed_value_range(
+                        temp_range, value, ColumnValueRange<T>::add_fixed_value_range));
                 iter->next();
             }
 
@@ -1110,9 +1130,8 @@ Status VOlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                 auto value = result_pair.second;
                 // where A = nullptr should return empty result set
                 if (value != nullptr) {
-                    RETURN_IF_ERROR(
-                            change_fixed_value_range(temp_range, slot->type().type, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range(
+                            temp_range, value, ColumnValueRange<T>::add_fixed_value_range));
                 }
 
                 if (is_key_column(slot->col_name())) {
@@ -1137,14 +1156,13 @@ Status VOlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
 // It will only handle the NotInPredicate and not eq BinaryPredicate in conjunct_ctxs.
 // It will try to push down conditions of that column as much as possible,
 // But if the number of conditions exceeds the limit, none of conditions will be pushed down.
-template <class T>
+template <PrimitiveType T>
 Status VOlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
                                                             ColumnValueRange<T>* range) {
     // If the conjunct of slot is fixed value, will change the fixed value set of column value range
     // else add value to not in range and push down predicate directly
     bool is_fixed_range = range->is_fixed_value_range();
-    auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(range->column_name(),
-                                                                             range->type());
+    auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(range->column_name());
 
     std::vector<uint32_t> filter_conjuncts_index;
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
@@ -1165,12 +1183,10 @@ Status VOlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot
                 auto value = const_cast<void*>(iter->get_value());
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(change_fixed_value_range(
-                            *range, slot->type().type, value,
-                            ColumnValueRange<T>::remove_fixed_value_range));
+                            *range, value, ColumnValueRange<T>::remove_fixed_value_range));
                 } else {
-                    RETURN_IF_ERROR(
-                            change_fixed_value_range(not_in_range, slot->type().type, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range(
+                            not_in_range, value, ColumnValueRange<T>::add_fixed_value_range));
                 }
                 iter->next();
             }
@@ -1200,12 +1216,10 @@ Status VOlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot
 
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(change_fixed_value_range(
-                            *range, slot->type().type, value,
-                            ColumnValueRange<T>::remove_fixed_value_range));
+                            *range, value, ColumnValueRange<T>::remove_fixed_value_range));
                 } else {
-                    RETURN_IF_ERROR(
-                            change_fixed_value_range(not_in_range, slot->type().type, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range(
+                            not_in_range, value, ColumnValueRange<T>::add_fixed_value_range));
                 }
 
                 if (is_key_column(slot->col_name())) {
@@ -1228,7 +1242,7 @@ Status VOlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot
     return Status::OK();
 }
 
-template <typename T>
+template <PrimitiveType T>
 bool VOlapScanNode::normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
                                                 const std::string& is_null_str,
                                                 ColumnValueRange<T>* range) {
@@ -1245,14 +1259,14 @@ bool VOlapScanNode::normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot
         return false;
     }
 
-    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(range->type());
+    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range();
     temp_range.set_contain_null(is_null_str == "null");
     range->intersection(temp_range);
 
     return true;
 }
 
-template <class T>
+template <PrimitiveType T>
 Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                                                        ColumnValueRange<T>* range) {
     std::vector<uint32_t> filter_conjuncts_index;
@@ -1322,7 +1336,8 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                         }
                     }
                     range->add_range(to_olap_filter_type(pred->op(), child_idx),
-                                     *reinterpret_cast<T*>(&date_value));
+                                     *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(
+                                             &date_value));
                     break;
                 }
                 case TYPE_DATEV2: {
@@ -1334,7 +1349,7 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                     }
                     doris::vectorized::DateV2Value date_v2;
                     date_v2.convert_dt_to_date_v2(&date_value);
-                    if constexpr (std::is_same_v<T, doris::vectorized::DateV2Value>) {
+                    if constexpr (T == PrimitiveType::TYPE_DATEV2) {
                         range->add_range(to_olap_filter_type(pred->op(), child_idx), date_v2);
                         break;
                     } else {
@@ -1353,8 +1368,9 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 case TYPE_LARGEINT:
                 case TYPE_BOOLEAN:
                 case TYPE_STRING: {
-                    range->add_range(to_olap_filter_type(pred->op(), child_idx),
-                                     *reinterpret_cast<T*>(value));
+                    range->add_range(
+                            to_olap_filter_type(pred->op(), child_idx),
+                            *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(value));
                     break;
                 }
 
@@ -1372,7 +1388,9 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
 
                 VLOG_CRITICAL << slot->col_name() << " op: "
                               << static_cast<int>(to_olap_filter_type(pred->op(), child_idx))
-                              << " value: " << *reinterpret_cast<T*>(value);
+                              << " value: "
+                              << *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(
+                                         value);
             }
         }
     }
@@ -1429,6 +1447,7 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
         _transfer_done = true;
         return Status::OK();
     }
+    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
     _block_mem_tracker = MemTracker::create_virtual_tracker(-1, "VOlapScanNode:Block");
 
     // ranges constructed from scan keys
@@ -1504,13 +1523,19 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
     }
     COUNTER_SET(_num_disks_accessed_counter, static_cast<int64_t>(disk_set.size()));
     COUNTER_SET(_num_scanners, static_cast<int64_t>(_volap_scanners.size()));
+    telemetry::set_span_attribute(span, _num_disks_accessed_counter);
+    telemetry::set_span_attribute(span, _num_scanners);
 
     // init progress
     std::stringstream ss;
     ss << "ScanThread complete (node=" << id() << "):";
     _progress = ProgressUpdater(ss.str(), _volap_scanners.size(), 1);
 
-    _transfer_thread.reset(new std::thread(&VOlapScanNode::transfer_thread, this, state));
+    _transfer_thread.reset(new std::thread(
+            [this, state, parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
+                opentelemetry::trace::Scope scope {parent_span};
+                transfer_thread(state);
+            }));
 
     return Status::OK();
 }
@@ -1519,6 +1544,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::close");
     // change done status
     {
         std::unique_lock<std::mutex> l(_blocks_lock);
@@ -1567,6 +1593,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
 }
 
 Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VOlapScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 
@@ -1739,10 +1766,14 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
 
     // post volap scanners to thread-pool
     PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
+    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
     auto iter = olap_scanners.begin();
     while (iter != olap_scanners.end()) {
         PriorityThreadPool::Task task;
-        task.work_function = std::bind(&VOlapScanNode::scanner_thread, this, *iter);
+        task.work_function = [this, scanner = *iter, parent_span = cur_span] {
+            opentelemetry::trace::Scope scope {parent_span};
+            this->scanner_thread(scanner);
+        };
         task.priority = _nice;
         task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
         (*iter)->start_wait_worker_timer();
@@ -1777,6 +1808,7 @@ Status VOlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
         COUNTER_UPDATE(_tablet_counter, 1);
     }
+    telemetry::set_current_span_attribute(_tablet_counter);
 
     return Status::OK();
 }

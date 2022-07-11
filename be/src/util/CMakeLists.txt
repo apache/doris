@@ -107,6 +107,8 @@ set(UTIL_FILES
   hdfs_util.cpp
   topn_counter.cpp
   tuple_row_zorder_compare.cpp
+  telemetry/telemetry.cpp
+  telemetry/brpc_carrier.cpp
   quantile_state.cpp
   jni-util.cpp
 )

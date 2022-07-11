@@ -34,6 +34,7 @@
 #include "gen_cpp/QueryPlanExtra_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
+#include "opentelemetry/trace/scope.h"
 #include "runtime/client_cache.h"
 #include "runtime/datetime_value.h"
 #include "runtime/descriptors.h"
@@ -48,6 +49,7 @@
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
+#include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
@@ -234,6 +236,7 @@ Status FragmentExecState::execute() {
         // if _need_wait_execution_trigger is true, which means this instance
         // is prepared but need to wait for the signal to do the rest execution.
         _fragments_ctx->wait_for_start();
+        opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
     }
     int64_t duration_ns = 0;
     {
@@ -471,8 +474,18 @@ FragmentMgr::~FragmentMgr() {
 static void empty_function(PlanFragmentExecutor* exec) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb) {
+    std::string func_name {"PlanFragmentExecutor::_exec_actual"};
+#ifndef BE_TEST
+    auto span = exec_state->executor()->runtime_state()->get_tracer()->StartSpan(func_name);
+#else
+    auto span = telemetry::get_noop_tracer()->StartSpan(func_name);
+#endif
+    auto scope = opentelemetry::trace::Scope {span};
+    span->SetAttribute("query_id", print_id(exec_state->query_id()));
+    span->SetAttribute("instance_id", print_id(exec_state->fragment_instance_id()));
+
     TAG(LOG(INFO))
-            .log("PlanFragmentExecutor::_exec_actual")
+            .log(std::move(func_name))
             .query_id(exec_state->query_id())
             .instance_id(exec_state->fragment_instance_id())
             .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
@@ -577,6 +590,9 @@ std::shared_ptr<StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragment_
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {
+    auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
+                                                     : telemetry::get_noop_tracer();
+    START_AND_SCOPE_SPAN(tracer, span, "FragmentMgr::exec_plan_fragment");
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
     {
         std::lock_guard<std::mutex> lock(_lock);
@@ -658,7 +674,10 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     }
 
     auto st = _thread_pool->submit_func(
-            std::bind<void>(&FragmentMgr::_exec_actual, this, exec_state, cb));
+            [this, exec_state, cb, parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
+                OpentelemetryScope scope {parent_span};
+                _exec_actual(exec_state, cb);
+            });
     if (!st.ok()) {
         {
             // Remove the exec state added

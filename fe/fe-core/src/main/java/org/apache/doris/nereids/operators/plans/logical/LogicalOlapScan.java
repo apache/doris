@@ -19,6 +19,8 @@ package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.catalog.Table;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.List;
 
 /**
@@ -34,5 +36,10 @@ public class LogicalOlapScan extends LogicalRelation  {
      */
     public LogicalOlapScan(Table table, List<String> qualifier) {
         super(table, qualifier);
+    }
+
+    @Override
+    public String toString() {
+        return "ScanOlapTable([" + StringUtils.join(qualifier, ".") + "." + table.getName() + "])";
     }
 }

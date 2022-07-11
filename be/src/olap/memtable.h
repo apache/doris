@@ -81,29 +81,17 @@ private:
     // row pos in _input_mutable_block
     struct RowInBlock {
         size_t _row_pos;
-        std::vector<vectorized::AggregateDataPtr> _agg_places;
-        explicit RowInBlock(size_t i) : _row_pos(i) {}
+        char* _agg_mem;
+        size_t* _agg_state_offset;
 
-        void init_agg_places(std::vector<vectorized::AggregateFunctionPtr>& agg_functions,
-                             int key_column_count) {
-            _agg_places.resize(agg_functions.size());
-            for (int cid = 0; cid < agg_functions.size(); cid++) {
-                if (cid < key_column_count) {
-                    _agg_places[cid] = nullptr;
-                } else {
-                    auto function = agg_functions[cid];
-                    size_t place_size = function->size_of_data();
-                    _agg_places[cid] = new char[place_size];
-                    function->create(_agg_places[cid]);
-                }
-            }
+        RowInBlock(size_t row) : _row_pos(row) {};
+
+        void init_agg_places(char* agg_mem, size_t* agg_state_offset) {
+            _agg_mem = agg_mem;
+            _agg_state_offset = agg_state_offset;
         }
 
-        ~RowInBlock() {
-            for (auto agg_place : _agg_places) {
-                delete[] agg_place;
-            }
-        }
+        char* agg_places(size_t offset) { return _agg_mem + _agg_state_offset[offset]; }
     };
 
     class RowInBlockComparator {
@@ -211,6 +199,8 @@ private:
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
+    std::vector<size_t> _offsets_of_aggregate_states;
+    size_t _total_size_of_aggregate_states;
     std::vector<RowInBlock*> _row_in_blocks;
     size_t _mem_usage;
 }; // class MemTable

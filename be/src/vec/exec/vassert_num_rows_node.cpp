@@ -39,6 +39,7 @@ VAssertNumRowsNode::VAssertNumRowsNode(ObjectPool* pool, const TPlanNode& tnode,
 }
 
 Status VAssertNumRowsNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAssertNumRowsNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     // ISSUE-3435
@@ -47,8 +48,11 @@ Status VAssertNumRowsNode::open(RuntimeState* state) {
 }
 
 Status VAssertNumRowsNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
+                                 "VAssertNumRowsNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(child(0)->get_next(state, block, eos));
+    RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next(state, block, eos), child(0)->get_next_span(),
+                                   *eos);
     _num_rows_returned += block->rows();
     bool assert_res = false;
     switch (_assertion) {

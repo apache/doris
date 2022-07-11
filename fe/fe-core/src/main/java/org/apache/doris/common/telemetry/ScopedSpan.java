@@ -15,22 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs;
+package org.apache.doris.common.telemetry;
 
-import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.rules.rewrite.logical.PushPredicateThroughJoin;
-
-import com.google.common.collect.ImmutableList;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Scope;
 
 /**
- * execute predicate push down job.
+ * encapsulated {@link Span} and {@link Scope}.
  */
-public class PredicatePushDownRulesJob extends BatchRulesJob {
-    public PredicatePushDownRulesJob(PlannerContext plannerContext) {
-        super(plannerContext);
-        rulesJob.addAll(ImmutableList.of(
-                topDownBatch(ImmutableList.of(
-                        new PushPredicateThroughJoin())
-                )));
+public class ScopedSpan {
+    private Span span;
+    private Scope scope;
+
+    public ScopedSpan() {
+        span = Telemetry.getNoopSpan();
+        this.scope = span.makeCurrent();
+    }
+
+    public ScopedSpan(Span span) {
+        this.span = span;
+        this.scope = span.makeCurrent();
+    }
+
+    public Span getSpan() {
+        return span;
+    }
+
+    public void endSpan() {
+        scope.close();
+        span.end();
     }
 }

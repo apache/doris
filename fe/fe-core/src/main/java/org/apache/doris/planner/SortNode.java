@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
@@ -263,5 +264,22 @@ public class SortNode extends PlanNode {
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(resolvedTupleExprs, null, result);
         return new HashSet<>(result);
+    }
+
+    /**
+     * Supplement the information needed by be for the sort node.
+     * TODO: currently we only process slotref, so when order key is a + 1, we will failed.
+     */
+    public void finalizeForNereids(TupleDescriptor tupleDescriptor,
+            List<Expr> outputList, List<Expr> orderingExpr) {
+        resolvedTupleExprs = Lists.newArrayList(orderingExpr);
+        for (Expr output : outputList) {
+            if (!resolvedTupleExprs.contains(output)) {
+                resolvedTupleExprs.add(output);
+            }
+        }
+        info.setSortTupleDesc(tupleDescriptor);
+        info.setSortTupleSlotExprs(resolvedTupleExprs);
+
     }
 }

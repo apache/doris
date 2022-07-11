@@ -79,6 +79,7 @@ Status VResultSink::prepare(RuntimeState* state) {
 }
 
 Status VResultSink::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VResultSink::open");
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
@@ -87,6 +88,7 @@ Status VResultSink::send(RuntimeState* state, RowBatch* batch) {
 }
 
 Status VResultSink::send(RuntimeState* state, Block* block) {
+    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultSink::send");
     // The memory consumption in the process of sending the results is not check query memory limit.
     // Avoid the query being cancelled when the memory limit is reached after the query result comes out.
     STOP_CHECK_LIMIT_THREAD_LOCAL_MEM_TRACKER();
@@ -98,6 +100,7 @@ Status VResultSink::close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }
 
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VResultSink::close");
     Status final_status = exec_status;
 
     if (_writer) {

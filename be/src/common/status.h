@@ -594,6 +594,19 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& param) {
         }                                \
     } while (false)
 
+// End _get_next_span after last call to get_next method
+#define RETURN_IF_ERROR_AND_CHECK_SPAN(stmt, get_next_span, done) \
+    do {                                                          \
+        const auto& _status_ = (stmt);                            \
+        auto _span = (get_next_span);                             \
+        if (UNLIKELY(_span && (!_status_.ok() || done))) {        \
+            _span->End();                                         \
+        }                                                         \
+        if (UNLIKELY(!_status_.ok())) {                           \
+            return _status_;                                      \
+        }                                                         \
+    } while (false)
+
 #define RETURN_IF_STATUS_ERROR(status, stmt) \
     do {                                     \
         status = (stmt);                     \

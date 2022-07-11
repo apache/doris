@@ -85,6 +85,7 @@ Status VOdbcScanNode::prepare(RuntimeState* state) {
 }
 
 Status VOdbcScanNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOdbcScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -120,6 +121,7 @@ Status VOdbcScanNode::write_text_slot(char* value, int value_length, SlotDescrip
 }
 
 Status VOdbcScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VOdbcScanNode::get_next");
     VLOG_CRITICAL << get_scan_node_type() << "::GetNext";
 
     if (nullptr == state || nullptr == block || nullptr == eos) {
@@ -220,6 +222,7 @@ Status VOdbcScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOdbcScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     _tuple_pool.reset();

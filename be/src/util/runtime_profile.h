@@ -71,7 +71,8 @@ class RuntimeProfile {
 public:
     class Counter {
     public:
-        Counter(TUnit::type type, int64_t value = 0) : _value(value), _type(type) {}
+        Counter(TUnit::type type, int64_t value = 0, std::string name = "")
+                : _value(value), _type(type), _name(std::move(name)) {}
         virtual ~Counter() = default;
 
         virtual void update(int64_t delta) { _value.fetch_add(delta, std::memory_order_relaxed); }
@@ -93,11 +94,16 @@ public:
 
         TUnit::type type() const { return _type; }
 
+        std::string name() const { return _name; }
+
+        void set_name(std::string name) { _name = std::move(name); }
+
     private:
         friend class RuntimeProfile;
 
         std::atomic<int64_t> _value;
         TUnit::type _type;
+        std::string _name;
     };
 
     class DerivedCounter;

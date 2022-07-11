@@ -263,6 +263,7 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
                                      _pre_filter_texprs, counter);
         }
     }
+    scan->reg_conjunct_ctxs(_tuple_id, _conjunct_ctxs);
     std::unique_ptr<BaseScanner> scanner(scan);
     return scanner;
 }

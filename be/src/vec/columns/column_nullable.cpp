@@ -134,6 +134,24 @@ const char* ColumnNullable::deserialize_and_insert_from_arena(const char* pos) {
     return pos;
 }
 
+size_t ColumnNullable::get_max_row_byte_size() const {
+    constexpr auto flag_size = sizeof(NullMap::value_type);
+    return flag_size + get_nested_column().get_max_row_byte_size();
+}
+
+void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                                   size_t max_row_byte_size) const {
+    const auto& arr = get_null_map_data();
+    static constexpr auto s = sizeof(arr[0]);
+    for (size_t i = 0; i < num_rows; ++i) {
+        auto* val = const_cast<char*>(keys[i].data + keys[i].size);
+        *val = (arr[i] ? 1 : 0);
+        keys[i].size += s;
+    }
+
+    get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data(), max_row_byte_size);
+}
+
 void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnNullable& nullable_col = assert_cast<const ColumnNullable&>(src);
     get_null_map_column().insert_range_from(*nullable_col.null_map, start, length);

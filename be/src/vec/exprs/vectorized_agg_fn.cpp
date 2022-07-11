@@ -33,7 +33,6 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
         : _fn(desc.fn),
           _is_merge(desc.agg_expr.is_merge_agg),
           _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)),
-          _intermediate_type(TypeDescriptor::from_thrift(desc.fn.aggregate_fn.intermediate_type)),
           _intermediate_slot_desc(nullptr),
           _output_slot_desc(nullptr),
           _exec_timer(nullptr),
@@ -44,6 +43,11 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
         nullable = desc.is_nullable;
     }
     _data_type = DataTypeFactory::instance().create_data_type(_return_type, nullable);
+
+    auto& param_types = desc.agg_expr.param_types;
+    for (auto raw_type : param_types) {
+        _argument_types.push_back(DataTypeFactory::instance().create_data_type(raw_type));
+    }
 }
 
 Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluator** result) {
@@ -55,7 +59,7 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluato
         VExpr* expr = nullptr;
         VExprContext* ctx = nullptr;
         RETURN_IF_ERROR(
-                VExpr::create_tree_from_thrift(pool, desc.nodes, NULL, &node_idx, &expr, &ctx));
+                VExpr::create_tree_from_thrift(pool, desc.nodes, nullptr, &node_idx, &expr, &ctx));
         agg_fn_evaluator->_input_exprs_ctxs.push_back(ctx);
     }
     return Status::OK();
@@ -65,25 +69,19 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
                                const SlotDescriptor* intermediate_slot_desc,
                                const SlotDescriptor* output_slot_desc,
                                const std::shared_ptr<MemTracker>& mem_tracker) {
-    DCHECK(pool != NULL);
-    DCHECK(intermediate_slot_desc != NULL);
-    DCHECK(_intermediate_slot_desc == NULL);
+    DCHECK(pool != nullptr);
+    DCHECK(intermediate_slot_desc != nullptr);
+    DCHECK(_intermediate_slot_desc == nullptr);
     _output_slot_desc = output_slot_desc;
     _intermediate_slot_desc = intermediate_slot_desc;
 
     Status status = VExpr::prepare(_input_exprs_ctxs, state, desc, mem_tracker);
     RETURN_IF_ERROR(status);
 
-    DataTypes argument_types;
-    argument_types.reserve(_input_exprs_ctxs.size());
-
     std::vector<std::string_view> child_expr_name;
 
-    doris::vectorized::Array params;
     // prepare for argument
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        auto data_type = _input_exprs_ctxs[i]->root()->data_type();
-        argument_types.emplace_back(data_type);
         child_expr_name.emplace_back(_input_exprs_ctxs[i]->root()->expr_name());
     }
 
@@ -95,7 +93,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
 #endif
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
-                _fn.name.function_name, argument_types, params, _data_type->is_nullable());
+                _fn.name.function_name, _argument_types, {}, _data_type->is_nullable());
     }
     if (_function == nullptr) {
         return Status::InternalError("Agg Function {} is not implemented", _fn.name.function_name);
