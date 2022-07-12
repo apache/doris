@@ -91,8 +91,8 @@ public class ExpressionUtils {
         Preconditions.checkArgument(op == NodeType.AND || op == NodeType.OR);
         Objects.requireNonNull(expressions, "expressions is null");
 
-        Expression shortCircuit = (op == NodeType.AND ? BooleanLiteral.FALSE_LITERAL : BooleanLiteral.TRUE_LITERAL);
-        Expression skip = (op == NodeType.AND ? BooleanLiteral.TRUE_LITERAL : BooleanLiteral.FALSE_LITERAL);
+        Expression shortCircuit = (op == NodeType.AND ? BooleanLiteral.FALSE : BooleanLiteral.TRUE);
+        Expression skip = (op == NodeType.AND ? BooleanLiteral.TRUE : BooleanLiteral.FALSE);
         LinkedHashSet<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
             if (expression.equals(shortCircuit)) {

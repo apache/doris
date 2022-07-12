@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.BooleanType;
 
 
 /**
@@ -25,13 +25,13 @@ import org.apache.doris.nereids.types.IntegerType;
  */
 public class BooleanLiteral extends Literal {
 
-    public static final BooleanLiteral TRUE_LITERAL = new BooleanLiteral(true);
-    public static final BooleanLiteral FALSE_LITERAL = new BooleanLiteral(false);
+    public static final BooleanLiteral TRUE = new BooleanLiteral(true);
+    public static final BooleanLiteral FALSE = new BooleanLiteral(false);
 
     private final boolean value;
 
     public BooleanLiteral(boolean value) {
-        super(IntegerType.INSTANCE);
+        super(BooleanType.INSTANCE);
         this.value = value;
     }
 

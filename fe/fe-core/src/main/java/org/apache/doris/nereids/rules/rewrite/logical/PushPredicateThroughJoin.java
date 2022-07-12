@@ -72,7 +72,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             LogicalJoin joinOp = filter.child().operator;
 
             Expression wherePredicates = filter.operator.getPredicates();
-            Expression onPredicates = BooleanLiteral.TRUE_LITERAL;
+            Expression onPredicates = BooleanLiteral.TRUE;
 
             List<Expression> otherConditions = Lists.newArrayList();
             List<Expression> eqConditions = Lists.newArrayList();
@@ -127,11 +127,11 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
         ExpressionRuleExecutor exprRewriter = new ExpressionRuleExecutor();
         Plan leftPlan = joinPlan.left();
         Plan rightPlan = joinPlan.right();
-        if (!left.equals(BooleanLiteral.TRUE_LITERAL)) {
+        if (!left.equals(BooleanLiteral.TRUE)) {
             leftPlan = plan(new LogicalFilter(exprRewriter.rewrite(left)), leftPlan);
         }
 
-        if (!right.equals(BooleanLiteral.TRUE_LITERAL)) {
+        if (!right.equals(BooleanLiteral.TRUE)) {
             rightPlan = plan(new LogicalFilter(exprRewriter.rewrite(right)), rightPlan);
         }
 
