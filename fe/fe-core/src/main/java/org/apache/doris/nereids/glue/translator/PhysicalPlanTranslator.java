@@ -107,7 +107,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      * @return Stale Planner PlanFragment tree
      */
     public PlanFragment translatePlan(PhysicalPlan physicalPlan, PlanTranslatorContext context) {
-        PlanFragment rootFragment = visit(physicalPlan, context);
+        PlanFragment rootFragment = physicalPlan.accept(this, context);
         if (rootFragment.isPartitioned() && rootFragment.getPlanRoot().getNumInstances() > 1) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
@@ -129,7 +129,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     @Override
     public PlanFragment visitPhysicalAggregate(PhysicalAggregate<Plan> aggregate, PlanTranslatorContext context) {
-        PlanFragment inputPlanFragment = visit(aggregate.child(0), context);
+        PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
 
         // TODO: stale planner generate aggregate tuple in a special way. tuple include 2 parts:
         //    1. group by expressions: removing duplicate expressions add to tuple
@@ -267,7 +267,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalHeapSort(PhysicalHeapSort<Plan> sort,
             PlanTranslatorContext context) {
-        PlanFragment childFragment = visit(sort.child(0), context);
+        PlanFragment childFragment = sort.child(0).accept(this, context);
         long limit = sort.getLimit();
         // TODO: need to discuss how to process field: SortNode::resolvedTupleExprs
         List<Expr> oldOrderingExprList = Lists.newArrayList();
@@ -327,8 +327,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, PlanTranslatorContext context) {
         // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
-        PlanFragment rightFragment = visit(hashJoin.child(1), context);
-        PlanFragment leftFragment = visit(hashJoin.child(0), context);
+        PlanFragment rightFragment = hashJoin.child(1).accept(this, context);
+        PlanFragment leftFragment = hashJoin.child(0).accept(this, context);
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
         JoinType joinType = hashJoin.getJoinType();
@@ -359,7 +359,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     // TODO: generate expression mapping when be project could do in ExecNode
     @Override
     public PlanFragment visitPhysicalProject(PhysicalProject<Plan> project, PlanTranslatorContext context) {
-        PlanFragment inputFragment = visit(project.child(0), context);
+        PlanFragment inputFragment = project.child(0).accept(this, context);
         List<Expr> execExprList = project.getProjects()
                 .stream()
                 .map(e -> ExpressionTranslator.translate(e, context))
@@ -380,7 +380,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     @Override
     public PlanFragment visitPhysicalFilter(PhysicalFilter<Plan> filter, PlanTranslatorContext context) {
-        PlanFragment inputFragment = visit(filter.child(0), context);
+        PlanFragment inputFragment = filter.child(0).accept(this, context);
         PlanNode planNode = inputFragment.getPlanRoot();
         Expression expression = filter.getPredicates();
         List<Expression> expressionList = ExpressionUtils.extractConjunct(expression);
