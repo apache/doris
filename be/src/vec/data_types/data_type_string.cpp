@@ -52,17 +52,15 @@ static inline void read(IColumn& column, Reader&& reader) {
 }
 
 std::string DataTypeString::to_string(const IColumn& column, size_t row_num) const {
-    const StringRef& s =
-            assert_cast<const ColumnString&>(*column.convert_to_full_column_if_const().get())
-                    .get_data_at(row_num);
+    auto ptr = column.convert_to_full_column_if_const();
+    const StringRef& s = assert_cast<const ColumnString&>(*ptr.get()).get_data_at(row_num);
     return s.to_string();
 }
 
 void DataTypeString::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
                                class doris::vectorized::BufferWritable& ostr) const {
-    const StringRef& s =
-            assert_cast<const ColumnString&>(*column.convert_to_full_column_if_const().get())
-                    .get_data_at(row_num);
+    auto ptr = column.convert_to_full_column_if_const();
+    const StringRef& s = assert_cast<const ColumnString&>(*ptr.get()).get_data_at(row_num);
     ostr.write(s.data, s.size);
 }
 
