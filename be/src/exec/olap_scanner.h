@@ -145,6 +145,8 @@ protected:
     MonotonicStopWatch _watcher;
 
     std::shared_ptr<MemTracker> _mem_tracker;
+
+    TabletSchema _tablet_schema;
 };
 
 } // namespace doris

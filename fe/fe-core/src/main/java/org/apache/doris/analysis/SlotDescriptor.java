@@ -29,11 +29,14 @@ import org.apache.doris.thrift.TSlotDescriptor;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
 
 public class SlotDescriptor {
+    private static final Logger LOG = LogManager.getLogger(SlotDescriptor.class);
     private final SlotId id;
     private final TupleDescriptor parent;
     private Type type;
@@ -278,27 +281,26 @@ public class SlotDescriptor {
 
     // TODO
     public TSlotDescriptor toThrift() {
-        if (originType != null) {
-            return new TSlotDescriptor(id.asInt(), parent.getId().asInt(), originType.toThrift(), -1,
-                    byteOffset, nullIndicatorByte,
-                    nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
-        } else {
-            return new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
-                    byteOffset, nullIndicatorByte,
-                    nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
+
+        TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(),
+                (originType != null ? originType.toThrift() : type.toThrift()), -1, byteOffset, nullIndicatorByte,
+                nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
+
+        if (column != null) {
+            LOG.debug("column name:{}, column unique id:{}", column.getName(), column.getUniqueId());
+            tSlotDescriptor.setColUniqueId(column.getUniqueId());
         }
+        return tSlotDescriptor;
     }
 
     public String debugString() {
         String colStr = (column == null ? "null" : column.getName());
         String typeStr = (type == null ? "null" : type.toString());
         String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
-        return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId)
-                .add("col", colStr).add("type", typeStr).add("materialized", isMaterialized)
-                .add("byteSize", byteSize).add("byteOffset", byteOffset)
-                .add("nullIndicatorByte", nullIndicatorByte)
-                .add("nullIndicatorBit", nullIndicatorBit)
-                .add("slotIdx", slotIdx).toString();
+        return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", colStr)
+                .add("type", typeStr).add("materialized", isMaterialized).add("byteSize", byteSize)
+                .add("byteOffset", byteOffset).add("nullIndicatorByte", nullIndicatorByte)
+                .add("nullIndicatorBit", nullIndicatorBit).add("slotIdx", slotIdx).toString();
     }
 
     @Override
@@ -311,10 +313,8 @@ public class SlotDescriptor {
         String colStr = (column == null ? "null" : column.getName());
         String typeStr = (type == null ? "null" : type.toString());
         String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
-        builder.append(prefix).append("SlotDescriptor{")
-            .append("id=").append(id)
-            .append(", col=").append(colStr)
-            .append(", type=").append(typeStr).append("}\n");
+        builder.append(prefix).append("SlotDescriptor{").append("id=").append(id).append(", col=").append(colStr)
+                .append(", type=").append(typeStr).append("}\n");
 
         prefix += "  ";
         builder.append(prefix).append("parent=").append(parentTupleId).append("\n");

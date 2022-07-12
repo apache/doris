@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
@@ -55,6 +56,7 @@ public class Column implements Writable {
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     private static final String COLUMN_ARRAY_CHILDREN = "item";
+    public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
 
     @SerializedName(value = "name")
     private String name;
@@ -93,6 +95,9 @@ public class Column implements Writable {
     @SerializedName(value = "defaultValueExprDef")
     private DefaultValueExprDef defaultValueExprDef; // used for default value
 
+    @SerializedName(value = "uniqueId")
+    private int uniqueId;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -102,6 +107,7 @@ public class Column implements Writable {
         this.visible = true;
         this.defineExpr = null;
         this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
+        this.uniqueId = -1;
     }
 
     public Column(String name, PrimitiveType dataType) {
@@ -123,11 +129,13 @@ public class Column implements Writable {
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment) {
-        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true, null);
+        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true, null,
+                COLUMN_UNIQUE_ID_INIT_VALUE);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-            String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef) {
+            String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef,
+            int colUniqueId) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -149,6 +157,7 @@ public class Column implements Writable {
         this.visible = visible;
         this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
         createChildrenColumn(this.type, this);
+        this.uniqueId = colUniqueId;
     }
 
     public Column(Column column) {
@@ -164,6 +173,7 @@ public class Column implements Writable {
         this.stats = column.getStats();
         this.visible = column.visible;
         this.children = column.getChildren();
+        this.uniqueId = column.getUniqueId();
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -366,6 +376,7 @@ public class Column implements Writable {
         tColumn.setVisible(visible);
         toChildrenThrift(this, tColumn);
 
+        tColumn.setColUniqueId(uniqueId);
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -687,5 +698,24 @@ public class Column implements Writable {
         sb.append(aggregationType);
         sb.append(defaultValue == null ? "" : defaultValue);
         return sb.toString();
+    }
+
+    public void setUniqueId(int colUniqueId) {
+        this.uniqueId = colUniqueId;
+    }
+
+    public int getUniqueId() {
+        return this.uniqueId;
+    }
+
+    public void setIndexFlag(TColumn tColumn, List<Index> indexes) {
+        for (Index index : indexes) {
+            if (index.getIndexType() == IndexDef.IndexType.BITMAP) {
+                List<String> columns = index.getColumns();
+                if (tColumn.getColumnName().equals(columns.get(0))) {
+                    tColumn.setHasBitmapIndex(true);
+                }
+            }
+        }
     }
 }

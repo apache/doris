@@ -76,7 +76,7 @@ public:
 
     Status new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter);
 
-    size_t num_short_keys() const { return _tablet_schema->num_short_key_columns(); }
+    size_t num_short_keys() const { return _tablet_schema.num_short_key_columns(); }
 
     uint32_t num_rows_per_block() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
@@ -121,7 +121,7 @@ private:
     std::string _path;
 
     uint32_t _segment_id;
-    const TabletSchema* _tablet_schema;
+    TabletSchema _tablet_schema;
 
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
     // The memory consumed by querying is tracked in segment iterator.

@@ -72,4 +72,15 @@ void BaseTablet::_gen_tablet_path() {
     }
 }
 
+bool BaseTablet::set_tablet_schema_into_rowset_meta() {
+    bool flag = false;
+    for (RowsetMetaSharedPtr rowset_meta : _tablet_meta->all_mutable_rs_metas()) {
+        if (!rowset_meta->get_rowset_pb().has_tablet_schema()) {
+            rowset_meta->set_tablet_schema(&_schema);
+            flag = true;
+        }
+    }
+    return flag;
+}
+
 } /* namespace doris */

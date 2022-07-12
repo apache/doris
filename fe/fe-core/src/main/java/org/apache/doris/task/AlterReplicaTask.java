@@ -21,12 +21,15 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.thrift.TAlterMaterializedViewParam;
 import org.apache.doris.thrift.TAlterTabletReqV2;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -48,6 +51,7 @@ public class AlterReplicaTask extends AgentTask {
 
     private Map<String, Expr> defineExprs;
     private DescriptorTable descTable;
+    private List<Column> baseSchemaColumns;
 
     /**
      * AlterReplicaTask constructor.
@@ -56,7 +60,7 @@ public class AlterReplicaTask extends AgentTask {
     public AlterReplicaTask(long backendId, long dbId, long tableId, long partitionId, long rollupIndexId,
             long baseIndexId, long rollupTabletId, long baseTabletId, long newReplicaId, int newSchemaHash,
             int baseSchemaHash, long version, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defineExprs,
-            DescriptorTable descTable) {
+            DescriptorTable descTable, List<Column> baseSchemaColumns) {
         super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
@@ -71,6 +75,7 @@ public class AlterReplicaTask extends AgentTask {
         this.jobType = jobType;
         this.defineExprs = defineExprs;
         this.descTable = descTable;
+        this.baseSchemaColumns = baseSchemaColumns;
     }
 
     public long getBaseTabletId() {
@@ -115,6 +120,14 @@ public class AlterReplicaTask extends AgentTask {
             }
         }
         req.setDescTbl(descTable.toThrift());
+
+        if (baseSchemaColumns != null) {
+            List<TColumn> columns = new ArrayList<TColumn>();
+            for (Column column : baseSchemaColumns) {
+                columns.add(column.toThrift());
+            }
+            req.setColumns(columns);
+        }
         return req;
     }
 }

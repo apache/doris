@@ -111,6 +111,10 @@ public abstract class AlterJobV2 implements Writable {
         return jobState;
     }
 
+    public void setJobState(JobState jobState) {
+        this.jobState = jobState;
+    }
+
     public JobType getType() {
         return type;
     }
@@ -141,6 +145,10 @@ public abstract class AlterJobV2 implements Writable {
 
     public long getFinishedTimeMs() {
         return finishedTimeMs;
+    }
+
+    public void setFinishedTimeMs(long finishedTimeMs) {
+        this.finishedTimeMs = finishedTimeMs;
     }
 
     /**

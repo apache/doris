@@ -19,7 +19,8 @@
                 "is_nullable": false,
                 "length": 8,
                 "index_length": 8,
-                "visible": true
+                "visible": true,
+                "col_unique_id": -1
             },
             {
                 "unique_id": 1,
@@ -31,7 +32,8 @@
                 "default_value": "MA==",
                 "length": 16387,
                 "index_length": 16,
-                "visible": true
+                "visible": true,
+                "col_unique_id": -1
             },
             {
                 "unique_id": 2,
@@ -42,7 +44,8 @@
                 "is_nullable": false,
                 "length": 4,
                 "index_length": 4,
-                "visible": true
+                "visible": true,
+                "col_unique_id": -1
             }
         ],
         "num_short_key_columns": 1,
@@ -54,7 +57,8 @@
         "sequence_col_idx": -1,
         "sort_type": "LEXICAL",
         "sort_col_num": 0,
-        "compression_type": "LZ4F"
+        "compression_type": "LZ4F",
+        "schema_version": 0
     },
     "rs_metas": [
         {

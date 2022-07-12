@@ -60,11 +60,13 @@ public:
 
 private:
     Status _convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
-                       RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset);
+                       RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset,
+                       const TabletSchema* tablet_schema);
     // Convert local data file to internal formatted delta,
     // return new delta's SegmentGroup
     Status _convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
-                    RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset);
+                    RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset,
+                    const TabletSchema* tablet_schema);
 
     // Only for debug
     std::string _debug_version_list(const Versions& versions) const;
@@ -112,7 +114,7 @@ public:
     static IBinaryReader* create(bool need_decompress);
     virtual ~IBinaryReader() = default;
 
-    virtual Status init(TabletSharedPtr tablet, BinaryFile* file) = 0;
+    virtual Status init(const TabletSchema* tablet_schema, BinaryFile* file) = 0;
     virtual Status finalize() = 0;
 
     virtual Status next(RowCursor* row) = 0;
@@ -131,7 +133,7 @@ protected:
               _ready(false) {}
 
     BinaryFile* _file;
-    TabletSharedPtr _tablet;
+    const TabletSchema* _tablet_schema;
     size_t _content_len;
     size_t _curr;
     uint32_t _adler_checksum;
@@ -144,7 +146,7 @@ public:
     explicit BinaryReader();
     ~BinaryReader() override { finalize(); }
 
-    Status init(TabletSharedPtr tablet, BinaryFile* file) override;
+    Status init(const TabletSchema* tablet_schema, BinaryFile* file) override;
     Status finalize() override;
 
     Status next(RowCursor* row) override;
@@ -161,7 +163,7 @@ public:
     explicit LzoBinaryReader();
     ~LzoBinaryReader() override { finalize(); }
 
-    Status init(TabletSharedPtr tablet, BinaryFile* file) override;
+    Status init(const TabletSchema* tablet_schema, BinaryFile* file) override;
     Status finalize() override;
 
     Status next(RowCursor* row) override;

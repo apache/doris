@@ -73,7 +73,7 @@ private:
     // then merged with other rowset readers.
     class LevelIterator {
     public:
-        LevelIterator(TabletReader* reader) : _schema(reader->tablet()->tablet_schema()) {};
+        LevelIterator(TabletReader* reader) : _schema(reader->tablet_schema()) {};
 
         virtual Status init() = 0;
 
