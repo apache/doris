@@ -19,6 +19,7 @@
 
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple.h"
@@ -40,7 +41,10 @@ FileScanNode::FileScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _num_running_scanners(0),
           _scan_finished(false),
           _max_buffered_batches(32),
-          _wait_scanner_timer(nullptr) {}
+          _wait_scanner_timer(nullptr),
+          _runtime_filter_descs(tnode.runtime_filters) {
+            LOG(WARNING) << "file scan node runtime filter size=" << _runtime_filter_descs.size();
+          }
 
 Status FileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::init(tnode, state));
@@ -48,6 +52,23 @@ Status FileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     if (file_scan_node.__isset.pre_filter_exprs) {
         _pre_filter_texprs = file_scan_node.pre_filter_exprs;
+    }
+
+    /// TODO: could one filter used in the different scan_node ?
+    int filter_size = _runtime_filter_descs.size();
+    _runtime_filter_ctxs.resize(filter_size);
+    _runtime_filter_ready_flag.resize(filter_size);
+    for (int i = 0; i < filter_size; ++i) {
+        IRuntimeFilter* runtime_filter = nullptr;
+        const auto& filter_desc = _runtime_filter_descs[i];
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(
+                RuntimeFilterRole::CONSUMER, filter_desc, state->query_options(), id()));
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
+                                                                        &runtime_filter));
+
+        _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
+        _runtime_filter_ready_flag[i] = false;
+        _rf_locks.push_back(std::make_unique<std::mutex>());
     }
 
     return Status::OK();
@@ -87,6 +108,38 @@ Status FileScanNode::open(RuntimeState* state) {
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_CANCELLED(state);
+
+    // acquire runtime filter
+    _runtime_filter_ctxs.resize(_runtime_filter_descs.size());
+
+    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
+        auto& filter_desc = _runtime_filter_descs[i];
+        IRuntimeFilter* runtime_filter = nullptr;
+        state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id, &runtime_filter);
+        DCHECK(runtime_filter != nullptr);
+        if (runtime_filter == nullptr) {
+            continue;
+        }
+        bool ready = runtime_filter->is_ready();
+        if (!ready) {
+            ready = runtime_filter->await();
+        }
+        if (ready) {
+            std::list<ExprContext*> expr_context;
+            RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(&expr_context));
+            _runtime_filter_ctxs[i].apply_mark = true;
+            _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
+
+            for (auto ctx : expr_context) {
+                ctx->prepare(state, row_desc(), _expr_mem_tracker);
+                ctx->open(state);
+                int index = _conjunct_ctxs.size();
+                _conjunct_ctxs.push_back(ctx);
+                // it's safe to store address from a fix-resized vector
+                _conjunctid_to_runtime_filter_ctxs[index] = &_runtime_filter_ctxs[i];
+            }
+        }
+    }
 
     RETURN_IF_ERROR(start_scanners());
 
@@ -158,6 +211,7 @@ Status FileScanNode::get_next(RuntimeState* state, vectorized::Block* block, boo
             }
             _scan_finished.store(true);
             *eos = true;
+            LOG(INFO) << "cmy reach here: " << block->rows();
             return Status::OK();
         }
         // notify one scanner
@@ -169,11 +223,13 @@ Status FileScanNode::get_next(RuntimeState* state, vectorized::Block* block, boo
 
         if (_mutable_block->rows() + scanner_block->rows() < batch_size) {
             // merge scanner_block into _mutable_block
+            LOG(INFO) << "cmy add rows: " << scanner_block->rows();
             _mutable_block->add_rows(scanner_block.get(), 0, scanner_block->rows());
             continue;
         } else {
             if (_mutable_block->empty()) {
                 // directly use scanner_block
+                LOG(INFO) << "cmy directly use scanner_block: " << scanner_block->rows();
                 *block = *scanner_block;
             } else {
                 // copy _mutable_block firstly, then merge scanner_block into _mutable_block for next.
@@ -194,6 +250,7 @@ Status FileScanNode::get_next(RuntimeState* state, vectorized::Block* block, boo
         *eos = false;
     }
 
+    LOG(INFO) << "cmy _mutable_block-rows: " << _mutable_block->rows();
     return Status::OK();
 }
 
