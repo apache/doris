@@ -17,27 +17,30 @@
 
 package org.apache.doris.catalog.external;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.datasource.EsExternalDataSource;
 import org.apache.doris.datasource.ExternalDataSource;
 
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Elasticsearch metastore external database.
  */
-public class EsExternalDatabase extends ExternalDatabase<HMSExternalTable> {
+public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
 
     private static final Logger LOG = LogManager.getLogger(EsExternalDatabase.class);
 
     // Cache of table name to table id.
-    private ConcurrentHashMap<String, Long> tableNameToId = new ConcurrentHashMap<>();
-    private AtomicLong nextId = new AtomicLong(0);
+    private Map<String, Long> tableNameToId = Maps.newConcurrentMap();
+    private Map<Long, EsExternalTable> idToTbl = Maps.newHashMap();
 
     /**
      * Create Elasticsearch external database.
@@ -45,7 +48,6 @@ public class EsExternalDatabase extends ExternalDatabase<HMSExternalTable> {
      * @param extDataSource External data source this database belongs to.
      * @param id database id.
      * @param name database name.
-     * @param uri Hive metastore uri.
      */
     public EsExternalDatabase(ExternalDataSource extDataSource, long id, String name) {
         super(extDataSource, id, name);
@@ -56,7 +58,9 @@ public class EsExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         List<String> tableNames = extDataSource.listTableNames(null, name);
         if (tableNames != null) {
             for (String tableName : tableNames) {
-                tableNameToId.put(tableName, nextId.incrementAndGet());
+                long tblId = Catalog.getCurrentCatalog().getNextId();
+                tableNameToId.put(tableName, tblId);
+                idToTbl.put(tblId, new EsExternalTable(tblId, tableName, name, (EsExternalDataSource) extDataSource));
             }
         }
     }
@@ -65,5 +69,23 @@ public class EsExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     public Set<String> getTableNamesWithLock() {
         // Doesn't need to lock because everytime we call the hive metastore api to get table names.
         return new HashSet<>(extDataSource.listTableNames(null, name));
+    }
+
+    @Override
+    public List<EsExternalTable> getTables() {
+        return new ArrayList<>(idToTbl.values());
+    }
+
+    @Override
+    public EsExternalTable getTableNullable(String tableName) {
+        if (!tableNameToId.containsKey(tableName)) {
+            return null;
+        }
+        return idToTbl.get(tableNameToId.get(tableName));
+    }
+
+    @Override
+    public EsExternalTable getTableNullable(long tableId) {
+        return idToTbl.get(tableId);
     }
 }

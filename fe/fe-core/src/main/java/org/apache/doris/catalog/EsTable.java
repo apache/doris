@@ -32,12 +32,10 @@ import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.simple.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -143,8 +141,8 @@ public class EsTable extends Table {
     /**
      * Create table for test.
      **/
-    public EsTable(long id, String name, List<Column> schema,
-            Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException {
+    public EsTable(long id, String name, List<Column> schema, Map<String, String> properties,
+            PartitionInfo partitionInfo) throws DdlException {
         super(id, name, TableType.ELASTICSEARCH, schema);
         this.partitionInfo = partitionInfo;
         validate(properties);
@@ -199,8 +197,8 @@ public class EsTable extends Table {
         }
 
         if (StringUtils.isBlank(properties.get(INDEX))) {
-            throw new DdlException("Index of ES table is null. "
-                    + "Please add properties('index'='xxxx') when create table");
+            throw new DdlException(
+                    "Index of ES table is null. " + "Please add properties('index'='xxxx') when create table");
         }
         indexName = properties.get(INDEX).trim();
 
@@ -446,29 +444,7 @@ public class EsTable extends Table {
         }
     }
 
-    /**
-     * Generate columns from ES Cluster.
-     **/
     public List<Column> genColumnsFromEs() {
-        String mapping = client.getMapping(indexName);
-        JSONObject mappingProps = EsUtil.getMappingProps(indexName, mapping, mappingType);
-        Set<String> keys = (Set<String>) mappingProps.keySet();
-        List<Column> columns = new ArrayList<>();
-        for (String key : keys) {
-            JSONObject field = (JSONObject) mappingProps.get(key);
-            // Complex types are not currently supported.
-            if (field.containsKey("type")) {
-                Type type = EsUtil.toDorisType(field.get("type").toString());
-                if (!type.isInvalid()) {
-                    Column column = new Column();
-                    column.setName(key);
-                    column.setType(type);
-                    column.setIsKey(true);
-                    column.setIsAllowNull(true);
-                    columns.add(column);
-                }
-            }
-        }
-        return columns;
+        return EsUtil.genColumnsFromEs(client, indexName, mappingType);
     }
 }

@@ -48,9 +48,11 @@ import org.apache.commons.lang3.StringUtils;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -349,6 +351,33 @@ public class EsUtil {
         return null;
     }
 
+
+    /**
+     * Generate columns from ES Cluster.
+     **/
+    public static List<Column> genColumnsFromEs(EsRestClient client, String indexName, String mappingType) {
+        String mapping = client.getMapping(indexName);
+        JSONObject mappingProps = EsUtil.getMappingProps(indexName, mapping, mappingType);
+        Set<String> keys = (Set<String>) mappingProps.keySet();
+        List<Column> columns = new ArrayList<>();
+        for (String key : keys) {
+            JSONObject field = (JSONObject) mappingProps.get(key);
+            // Complex types are not currently supported.
+            if (field.containsKey("type")) {
+                Type type = toDorisType(field.get("type").toString());
+                if (!type.isInvalid()) {
+                    Column column = new Column();
+                    column.setName(key);
+                    column.setType(type);
+                    column.setIsKey(true);
+                    column.setIsAllowNull(true);
+                    columns.add(column);
+                }
+            }
+        }
+        return columns;
+    }
+
     /**
      * Transfer es type to doris type.
      **/
@@ -429,8 +458,7 @@ public class EsUtil {
             if (StringUtils.isNotBlank(type)) {
                 initScrollUrl.append("/").append(type);
             }
-            initScrollUrl.append("/_search?").append(filterPath).append("&terminate_after=")
-                    .append(batchSize);
+            initScrollUrl.append("/_search?").append(filterPath).append("&terminate_after=").append(batchSize);
             nextScrollUrl.append("/_search/scroll?").append(filterPath);
             return new EsUrls(null, initScrollUrl.toString(), nextScrollUrl.toString());
         } else {
