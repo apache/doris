@@ -33,6 +33,7 @@ HdfsFileReader::HdfsFileReader(const THdfsParams& hdfs_params, const std::string
           _hdfs_file(nullptr),
           _builder(createHDFSBuilder(_hdfs_params)) {
     _namenode = _hdfs_params.fs_name;
+    _current_offset = 0;
 }
 
 HdfsFileReader::HdfsFileReader(const std::map<std::string, std::string>& properties,
@@ -44,6 +45,7 @@ HdfsFileReader::HdfsFileReader(const std::map<std::string, std::string>& propert
           _hdfs_file(nullptr),
           _builder(createHDFSBuilder(properties)) {
     _parse_properties(properties);
+    _current_offset = 0;
 }
 
 HdfsFileReader::~HdfsFileReader() {

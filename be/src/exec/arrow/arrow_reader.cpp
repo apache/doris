@@ -85,6 +85,10 @@ ArrowFile::~ArrowFile() {
     }
 }
 
+int64_t ArrowFile::size() {
+    return _file->size();
+}
+
 arrow::Status ArrowFile::Close() {
     if (_file != nullptr) {
         _file->close();

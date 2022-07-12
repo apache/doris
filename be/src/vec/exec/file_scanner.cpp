@@ -167,7 +167,6 @@ Status FileScanner::_filter_block(vectorized::Block* _block) {
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_vpre_filter_ctx_ptr, _block,
                                                            origin_column_num));
     _counter->num_rows_unselected += old_rows - (*_block).rows();
-    LOG(INFO) << "cmy old rows: " << old_rows << ", new rows: " << (*_block).rows();
     return Status::OK();
 }
 

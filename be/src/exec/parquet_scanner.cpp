@@ -110,7 +110,7 @@ Status ParquetScanner::open_next_reader() {
                                                  num_of_columns_from_file);
         auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
         Status status = _cur_file_reader->init_reader(tuple_desc, _src_slot_descs, _conjunct_ctxs,
-                                                      _state->timezone());
+                                                      _state->timezone(), 0, 0);
         if (status.is_end_of_file()) {
             continue;
         } else {

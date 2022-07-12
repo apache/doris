@@ -54,7 +54,7 @@ ParquetReaderWrap::~ParquetReaderWrap() {
 Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
                                       const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                       const std::vector<ExprContext*>& conjunct_ctxs,
-                                      const std::string& timezone) {
+                                      const std::string& timezone, int64_t start, int64_t size) {
     try {
         parquet::ArrowReaderProperties arrow_reader_properties =
                 parquet::default_arrow_reader_properties();
@@ -100,9 +100,10 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         _timezone = timezone;
 
         RETURN_IF_ERROR(column_indices(tuple_slot_descs));
+        LOG(INFO) << "cmy _include_column_ids.size: " << _include_column_ids.size();
         if (config::parquet_predicate_push_down) {
             _row_group_reader.reset(new RowGroupReader(conjunct_ctxs, _file_metadata, this));
-            _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids);
+            _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids, start, size, _arrow_file->size());
         }
         _thread = std::thread(&ParquetReaderWrap::prefetch_batch, this);
         return Status::OK();

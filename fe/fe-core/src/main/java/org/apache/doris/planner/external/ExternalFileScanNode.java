@@ -63,7 +63,6 @@ import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.mortbay.log.Log;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -301,7 +300,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             rangeDesc.getHdfsParams().setFsName(fsName);
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
-            Log.debug("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
+            LOG.info("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
                     + " with table split: " +  fileSplit.getPath()
                     + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")");
 

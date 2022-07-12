@@ -70,6 +70,8 @@ public:
     arrow::Status Close() override;
     bool closed() const override;
 
+    int64_t size();
+
 private:
     FileReader* _file;
     int64_t _pos = 0;
@@ -84,7 +86,7 @@ public:
     virtual Status init_reader(const TupleDescriptor* tuple_desc,
                                const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                const std::vector<ExprContext*>& conjunct_ctxs,
-                               const std::string& timezone) = 0;
+                               const std::string& timezone, int64_t start, int64_t size) = 0;
     // for row
     virtual Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
                         MemPool* mem_pool, bool* eof) {

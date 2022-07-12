@@ -162,7 +162,6 @@ public class View extends Table {
         Preconditions.checkNotNull(inlineViewDef);
         // Parse the expanded view definition SQL-string into a QueryStmt and
         // populate a view definition.
-        LOG.info("cmy:{}", inlineViewDef);
         SqlScanner input = new SqlScanner(new StringReader(inlineViewDef), sqlMode);
         SqlParser parser = new SqlParser(input);
         ParseNode node;

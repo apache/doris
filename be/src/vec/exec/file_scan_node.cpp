@@ -135,6 +135,7 @@ Status FileScanNode::open(RuntimeState* state) {
                 ctx->open(state);
                 int index = _conjunct_ctxs.size();
                 _conjunct_ctxs.push_back(ctx);
+                LOG(INFO) << "cmy open receive rf conjunct size: " << _conjunct_ctxs.size();
                 // it's safe to store address from a fix-resized vector
                 _conjunctid_to_runtime_filter_ctxs[index] = &_runtime_filter_ctxs[i];
             }
@@ -152,6 +153,7 @@ Status FileScanNode::start_scanners() {
         _num_running_scanners = _scan_ranges.size();
     }
 
+    LOG(INFO) << "cmy _num_running_scanners: " << _num_running_scanners;
     _scanners_status.resize(_scan_ranges.size());
     for (int i = 0; i < _scan_ranges.size(); i++) {
         _scanner_threads.emplace_back(&FileScanNode::scanner_worker, this, i, _scan_ranges.size(),
@@ -211,7 +213,6 @@ Status FileScanNode::get_next(RuntimeState* state, vectorized::Block* block, boo
             }
             _scan_finished.store(true);
             *eos = true;
-            LOG(INFO) << "cmy reach here: " << block->rows();
             return Status::OK();
         }
         // notify one scanner
@@ -223,13 +224,11 @@ Status FileScanNode::get_next(RuntimeState* state, vectorized::Block* block, boo
 
         if (_mutable_block->rows() + scanner_block->rows() < batch_size) {
             // merge scanner_block into _mutable_block
-            LOG(INFO) << "cmy add rows: " << scanner_block->rows();
             _mutable_block->add_rows(scanner_block.get(), 0, scanner_block->rows());
             continue;
         } else {
             if (_mutable_block->empty()) {
                 // directly use scanner_block
-                LOG(INFO) << "cmy directly use scanner_block: " << scanner_block->rows();
                 *block = *scanner_block;
             } else {
                 // copy _mutable_block firstly, then merge scanner_block into _mutable_block for next.
@@ -250,7 +249,6 @@ Status FileScanNode::get_next(RuntimeState* state, vectorized::Block* block, boo
         *eos = false;
     }
 
-    LOG(INFO) << "cmy _mutable_block-rows: " << _mutable_block->rows();
     return Status::OK();
 }
 

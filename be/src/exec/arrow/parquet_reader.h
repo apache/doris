@@ -73,7 +73,7 @@ public:
     Status init_reader(const TupleDescriptor* tuple_desc,
                        const std::vector<SlotDescriptor*>& tuple_slot_descs,
                        const std::vector<ExprContext*>& conjunct_ctxs,
-                       const std::string& timezone) override;
+                       const std::string& timezone, int64_t start, int64_t size) override;
     Status init_parquet_type();
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
 
