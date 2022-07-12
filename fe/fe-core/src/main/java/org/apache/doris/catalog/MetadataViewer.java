@@ -303,7 +303,7 @@ public class MetadataViewer {
             }
 
             // graph
-            for (int i = 0; i < dataSizeTabletInfos.size(); i++) {
+            for (int i = 0; i < distributionInfo.getBucketNum(); i++) {
                 List<String> row = Lists.newArrayList();
                 row.add(String.valueOf(i));
                 row.add(rowCountTabletInfos.get(i).toString());
