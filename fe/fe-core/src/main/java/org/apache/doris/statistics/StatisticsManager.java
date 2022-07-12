@@ -427,11 +427,13 @@ public class StatisticsManager {
      */
     private String validatePartitionName(Table table, String partitionName) throws AnalysisException {
         if (!table.isPartitioned() && !Strings.isNullOrEmpty(partitionName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_ON_NONPARTITIONED, partitionName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_ON_NONPARTITIONED,
+                    partitionName, table.getName());
         }
 
         if (!Strings.isNullOrEmpty(partitionName) && table.getPartition(partitionName) == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_PARTITION, partitionName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_PARTITION,
+                    partitionName, table.getName());
         }
 
         return partitionName;
