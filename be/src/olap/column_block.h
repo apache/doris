@@ -53,9 +53,9 @@ public:
 
     ColumnBlockCell cell(size_t idx) const;
 
-    void set_delete_state(DelCondSatisfied delete_state) { _batch->set_delete_state(delete_state); }
+    void set_delete_state(CondSatisfied delete_state) { _batch->set_delete_state(delete_state); }
 
-    DelCondSatisfied delete_state() const { return _batch->delete_state(); }
+    CondSatisfied delete_state() const { return _batch->delete_state(); }
 
 private:
     ColumnVectorBatch* _batch;

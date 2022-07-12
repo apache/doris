@@ -57,7 +57,7 @@ public:
     explicit ColumnVectorBatch(const TypeInfo* type_info, bool is_nullable)
             : _type_info(type_info),
               _capacity(0),
-              _delete_state(DEL_NOT_SATISFIED),
+              _delete_state(COND_NOT_SATISFIED),
               _nullable(is_nullable),
               _null_signs(0) {}
 
@@ -85,9 +85,9 @@ public:
 
     const bool* null_signs() const { return _null_signs.data(); }
 
-    void set_delete_state(DelCondSatisfied delete_state) { _delete_state = delete_state; }
+    void set_delete_state(CondSatisfied delete_state) { _delete_state = delete_state; }
 
-    DelCondSatisfied delete_state() const { return _delete_state; }
+    CondSatisfied delete_state() const { return _delete_state; }
 
     /**
      * Change the number of slots to at least the given capacity.
@@ -111,7 +111,7 @@ public:
 private:
     const TypeInfo* _type_info;
     size_t _capacity;
-    DelCondSatisfied _delete_state;
+    CondSatisfied _delete_state;
     const bool _nullable;
     DataBuffer<bool> _null_signs;
 };

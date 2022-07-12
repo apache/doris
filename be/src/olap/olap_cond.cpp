@@ -34,7 +34,6 @@ using std::string;
 using std::vector;
 
 using doris::ColumnStatistics;
-
 //This file is mainly used to process query conditions and delete conditions sent by users. Logically, both can be divided into three layers
 //Condition->Condcolumn->Cond
 //Condition represents a single condition sent by the user
@@ -96,7 +95,7 @@ Cond::~Cond() {
     max_value_field = nullptr;
 }
 
-Status Cond::init(const TCondition& tcond, const TabletColumn& column) {
+Status Cond::init(const TCondition& tcond, const TabletColumn& column, ColumnPredicate* predicate) {
     // Parse op type
     op = parse_op_type(tcond.condition_op);
     if (op == OP_NULL || (op != OP_IN && op != OP_NOT_IN && tcond.condition_values.size() != 1)) {
@@ -170,7 +169,7 @@ Status Cond::init(const TCondition& tcond, const TabletColumn& column) {
             }
         }
     }
-
+    this->predicate = predicate;
     return Status::OK();
 }
 
@@ -270,28 +269,28 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
     if (stat.first == nullptr || stat.second == nullptr) {
         //for string type, the column statistics may be not recorded in block level
         //so it can be ignored for ColumnStatistics.
-        return DEL_PARTIAL_SATISFIED;
+        return COND_PARTIAL_SATISFIED;
     }
 
     if (OP_IS != op) {
         if (stat.first->is_null() && stat.second->is_null()) {
-            return DEL_NOT_SATISFIED;
+            return COND_NOT_SATISFIED;
         } else if (stat.first->is_null() && !stat.second->is_null()) {
-            return DEL_PARTIAL_SATISFIED;
+            return COND_PARTIAL_SATISFIED;
         }
     }
 
-    int ret = DEL_NOT_SATISFIED;
+    int ret = COND_NOT_SATISFIED;
     switch (op) {
     case OP_EQ: {
         int cmp1 = operand_field->cmp(stat.first);
         int cmp2 = operand_field->cmp(stat.second);
         if (cmp1 == 0 && cmp2 == 0) {
-            ret = DEL_SATISFIED;
+            ret = COND_SATISFIED;
         } else if (cmp1 >= 0 && cmp2 <= 0) {
-            ret = DEL_PARTIAL_SATISFIED;
+            ret = COND_PARTIAL_SATISFIED;
         } else {
-            ret = DEL_NOT_SATISFIED;
+            ret = COND_NOT_SATISFIED;
         }
         return ret;
     }
@@ -299,66 +298,66 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
         int cmp1 = operand_field->cmp(stat.first);
         int cmp2 = operand_field->cmp(stat.second);
         if (cmp1 == 0 && cmp2 == 0) {
-            ret = DEL_NOT_SATISFIED;
+            ret = COND_NOT_SATISFIED;
         } else if (cmp1 >= 0 && cmp2 <= 0) {
-            ret = DEL_PARTIAL_SATISFIED;
+            ret = COND_PARTIAL_SATISFIED;
         } else {
-            ret = DEL_SATISFIED;
+            ret = COND_SATISFIED;
         }
         return ret;
     }
     case OP_LT: {
         if (operand_field->cmp(stat.first) <= 0) {
-            ret = DEL_NOT_SATISFIED;
+            ret = COND_NOT_SATISFIED;
         } else if (operand_field->cmp(stat.second) > 0) {
-            ret = DEL_SATISFIED;
+            ret = COND_SATISFIED;
         } else {
-            ret = DEL_PARTIAL_SATISFIED;
+            ret = COND_PARTIAL_SATISFIED;
         }
         return ret;
     }
     case OP_LE: {
         if (operand_field->cmp(stat.first) < 0) {
-            ret = DEL_NOT_SATISFIED;
+            ret = COND_NOT_SATISFIED;
         } else if (operand_field->cmp(stat.second) >= 0) {
-            ret = DEL_SATISFIED;
+            ret = COND_SATISFIED;
         } else {
-            ret = DEL_PARTIAL_SATISFIED;
+            ret = COND_PARTIAL_SATISFIED;
         }
         return ret;
     }
     case OP_GT: {
         if (operand_field->cmp(stat.second) >= 0) {
-            ret = DEL_NOT_SATISFIED;
+            ret = COND_NOT_SATISFIED;
         } else if (operand_field->cmp(stat.first) < 0) {
-            ret = DEL_SATISFIED;
+            ret = COND_SATISFIED;
         } else {
-            ret = DEL_PARTIAL_SATISFIED;
+            ret = COND_PARTIAL_SATISFIED;
         }
         return ret;
     }
     case OP_GE: {
         if (operand_field->cmp(stat.second) > 0) {
-            ret = DEL_NOT_SATISFIED;
+            ret = COND_NOT_SATISFIED;
         } else if (operand_field->cmp(stat.first) <= 0) {
-            ret = DEL_SATISFIED;
+            ret = COND_SATISFIED;
         } else {
-            ret = DEL_PARTIAL_SATISFIED;
+            ret = COND_PARTIAL_SATISFIED;
         }
         return ret;
     }
     case OP_IN: {
         if (stat.first->cmp(stat.second) == 0) {
             if (operand_set.find(stat.first) != operand_set.end()) {
-                ret = DEL_SATISFIED;
+                ret = COND_SATISFIED;
             } else {
-                ret = DEL_NOT_SATISFIED;
+                ret = COND_NOT_SATISFIED;
             }
         } else {
             if (min_value_field->cmp(stat.second) <= 0 && max_value_field->cmp(stat.first) >= 0) {
-                ret = DEL_PARTIAL_SATISFIED;
+                ret = COND_PARTIAL_SATISFIED;
             } else {
-                ret = DEL_NOT_SATISFIED;
+                ret = COND_NOT_SATISFIED;
             }
         }
         return ret;
@@ -366,16 +365,16 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
     case OP_NOT_IN: {
         if (stat.first->cmp(stat.second) == 0) {
             if (operand_set.find(stat.first) == operand_set.end()) {
-                ret = DEL_SATISFIED;
+                ret = COND_SATISFIED;
             } else {
-                ret = DEL_NOT_SATISFIED;
+                ret = COND_NOT_SATISFIED;
             }
         } else {
             if (min_value_field->cmp(stat.second) > 0 || max_value_field->cmp(stat.first) < 0) {
                 // When there is no intersection, all entries in the range should be deleted.
-                ret = DEL_SATISFIED;
+                ret = COND_SATISFIED;
             } else {
-                ret = DEL_PARTIAL_SATISFIED;
+                ret = COND_PARTIAL_SATISFIED;
             }
         }
         return ret;
@@ -383,22 +382,22 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
     case OP_IS: {
         if (operand_field->is_null()) {
             if (stat.first->is_null() && stat.second->is_null()) {
-                ret = DEL_SATISFIED;
+                ret = COND_SATISFIED;
             } else if (stat.first->is_null() && !stat.second->is_null()) {
-                ret = DEL_PARTIAL_SATISFIED;
+                ret = COND_PARTIAL_SATISFIED;
             } else if (!stat.first->is_null() && !stat.second->is_null()) {
-                ret = DEL_NOT_SATISFIED;
+                ret = COND_NOT_SATISFIED;
             } else {
                 CHECK(false)
                         << "It will not happen when the stat's min is not null and max is null";
             }
         } else {
             if (stat.first->is_null() && stat.second->is_null()) {
-                ret = DEL_NOT_SATISFIED;
+                ret = COND_NOT_SATISFIED;
             } else if (stat.first->is_null() && !stat.second->is_null()) {
-                ret = DEL_PARTIAL_SATISFIED;
+                ret = COND_PARTIAL_SATISFIED;
             } else if (!stat.first->is_null() && !stat.second->is_null()) {
-                ret = DEL_SATISFIED;
+                ret = COND_SATISFIED;
             } else {
                 CHECK(false)
                         << "It will not happen when the stat's min is not null and max is null";
@@ -500,9 +499,9 @@ CondColumn::~CondColumn() {
 }
 
 // PRECONDITION 1. index is valid; 2. at least has one operand
-Status CondColumn::add_cond(const TCondition& tcond, const TabletColumn& column) {
+Status CondColumn::add_cond(const TCondition& tcond, const TabletColumn& column, ColumnPredicate* predicate) {
     std::unique_ptr<Cond> cond(new Cond());
-    auto res = cond->init(tcond, column);
+    auto res = cond->init(tcond, column, predicate);
     if (!res.ok()) {
         return res;
     }
@@ -540,28 +539,28 @@ int CondColumn::del_eval(const std::pair<WrapperField*, WrapperField*>& statisti
      * elseif any delete condition is not satisfied, the data can't be filtered.
      * else is the partial satisfied.
     */
-    int ret = DEL_NOT_SATISFIED;
+    int ret = COND_NOT_SATISFIED;
     bool del_partial_satisfied = false;
-    bool del_not_satisfied = false;
+    bool COND_NOT_SATISFIED = false;
     for (auto& each_cond : _conds) {
         int del_ret = each_cond->del_eval(statistic);
-        if (DEL_SATISFIED == del_ret) {
+        if (COND_SATISFIED == del_ret) {
             continue;
-        } else if (DEL_PARTIAL_SATISFIED == del_ret) {
+        } else if (COND_PARTIAL_SATISFIED == del_ret) {
             del_partial_satisfied = true;
         } else {
-            del_not_satisfied = true;
+            COND_NOT_SATISFIED = true;
             break;
         }
     }
-    if (del_not_satisfied || _conds.empty()) {
+    if (COND_NOT_SATISFIED || _conds.empty()) {
         // if the size of condcolumn vector is zero,
         // the delete condtion is not satisfied.
-        ret = DEL_NOT_SATISFIED;
+        ret = COND_NOT_SATISFIED;
     } else if (del_partial_satisfied) {
-        ret = DEL_PARTIAL_SATISFIED;
+        ret = COND_PARTIAL_SATISFIED;
     } else {
-        ret = DEL_SATISFIED;
+        ret = COND_SATISFIED;
     }
 
     return ret;
@@ -587,7 +586,7 @@ bool CondColumn::eval(const segment_v2::BloomFilter* bf) const {
     return true;
 }
 
-Status Conditions::append_condition(const TCondition& tcond) {
+Status Conditions::append_condition(const TCondition& tcond, ColumnPredicate* predicate) {
     DCHECK(_schema != nullptr);
     int32_t index = _schema->field_index(tcond.column_name);
     if (index < 0) {
@@ -610,7 +609,7 @@ Status Conditions::append_condition(const TCondition& tcond) {
         cond_col = it->second;
     }
 
-    return cond_col->add_cond(tcond, column);
+    return cond_col->add_cond(tcond, column, predicate);
 }
 
 bool Conditions::delete_conditions_eval(const RowCursor& row) const {
@@ -646,7 +645,7 @@ bool Conditions::rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) c
 
 int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) const {
     if (_columns.empty()) {
-        return DEL_NOT_SATISFIED;
+        return COND_NOT_SATISFIED;
     }
     // ZoneMap and DeletePredicate are all stored in TabletMeta.
     // This function is to filter rowset using ZoneMap and Delete Predicate.
@@ -656,9 +655,9 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
      * elseif all delete condition is satisfied, the data can be filtered.
      * else is the partial satisfied.
     */
-    int ret = DEL_NOT_SATISFIED;
+    int ret = COND_NOT_SATISFIED;
     bool del_partial_satisfied = false;
-    bool del_not_satisfied = false;
+    bool COND_NOT_SATISFIED = false;
     for (auto& cond_it : _columns) {
         /*
          * this is base on the assumption that the delete condition
@@ -672,22 +671,22 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
         }
 
         int del_ret = cond_it.second->del_eval(zone_maps.at(cond_it.first));
-        if (DEL_SATISFIED == del_ret) {
+        if (COND_SATISFIED == del_ret) {
             continue;
-        } else if (DEL_PARTIAL_SATISFIED == del_ret) {
+        } else if (COND_PARTIAL_SATISFIED == del_ret) {
             del_partial_satisfied = true;
         } else {
-            del_not_satisfied = true;
+            COND_NOT_SATISFIED = true;
             break;
         }
     }
 
-    if (del_not_satisfied) {
-        ret = DEL_NOT_SATISFIED;
+    if (COND_NOT_SATISFIED) {
+        ret = COND_NOT_SATISFIED;
     } else if (del_partial_satisfied) {
-        ret = DEL_PARTIAL_SATISFIED;
+        ret = COND_PARTIAL_SATISFIED;
     } else {
-        ret = DEL_SATISFIED;
+        ret = COND_SATISFIED;
     }
     return ret;
 }

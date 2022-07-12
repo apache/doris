@@ -66,7 +66,7 @@ public:
         for (int i = 0; i < _selected_size; ++i) {
             _selection_vector[i] = i;
         }
-        _delete_state = DEL_NOT_SATISFIED;
+        _delete_state = COND_NOT_SATISFIED;
     }
 
     // convert RowBlockV2 to RowBlock
@@ -95,12 +95,12 @@ public:
 
     void set_selected_size(uint16_t selected_size) { _selected_size = selected_size; }
 
-    DelCondSatisfied delete_state() const { return _delete_state; }
+    CondSatisfied delete_state() const { return _delete_state; }
 
-    void set_delete_state(DelCondSatisfied delete_state) {
-        // if the set _delete_state is DEL_PARTIAL_SATISFIED,
-        // we can not change _delete_state to DEL_NOT_SATISFIED;
-        if (_delete_state == DEL_PARTIAL_SATISFIED && delete_state != DEL_SATISFIED) {
+    void set_delete_state(CondSatisfied delete_state) {
+        // if the set _delete_state is COND_PARTIAL_SATISFIED,
+        // we can not change _delete_state to COND_NOT_SATISFIED;
+        if (_delete_state == COND_PARTIAL_SATISFIED && delete_state != COND_SATISFIED) {
             return;
         }
         _delete_state = delete_state;
@@ -128,7 +128,7 @@ private:
     uint16_t _selected_size;
 
     // block delete state
-    DelCondSatisfied _delete_state;
+    CondSatisfied _delete_state;
 };
 
 // Stands for a row in RowBlockV2. It is consisted of a RowBlockV2 reference

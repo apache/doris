@@ -223,7 +223,7 @@ Status CollectIterator::Level0Iterator::_refresh_current_row_v1() {
         if (_row_block != nullptr && _row_block->has_remaining()) {
             size_t pos = _row_block->pos();
             _row_block->get_row(pos, &_row_cursor);
-            if (_row_block->block_status() == DEL_PARTIAL_SATISFIED &&
+            if (_row_block->block_status() == COND_PARTIAL_SATISFIED &&
                 _reader->_delete_handler.is_filter_data(version(), _row_cursor)) {
                 _reader->_stats.rows_del_filtered++;
                 _row_block->pos_inc();

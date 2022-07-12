@@ -98,9 +98,12 @@ public:
     }
     uint32_t column_id() const { return _column_id; }
 
+    void set_satisfy_state(int sat) { _satisfy_state = sat; }
+
 protected:
     uint32_t _column_id;
     bool _opposite;
+    int _satisfy_state = COND_PARTIAL_SATISFIED;
 };
 
 } //namespace doris

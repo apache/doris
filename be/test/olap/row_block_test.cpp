@@ -303,7 +303,7 @@ TEST_F(TestRowBlock, pos_limit) {
     EXPECT_EQ(0, block.pos());
     EXPECT_EQ(0, block.limit());
     EXPECT_FALSE(block.has_remaining());
-    EXPECT_EQ(DEL_PARTIAL_SATISFIED, block.block_status());
+    EXPECT_EQ(COND_PARTIAL_SATISFIED, block.block_status());
 
     block.set_limit(100);
     EXPECT_EQ(100, block.limit());

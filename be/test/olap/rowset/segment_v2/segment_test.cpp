@@ -182,7 +182,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
                 int rows_read = left > 1024 ? 1024 : left;
                 block.clear();
                 EXPECT_TRUE(iter->next_batch(&block).ok());
-                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                EXPECT_EQ(COND_NOT_SATISFIED, block.delete_state());
                 EXPECT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
@@ -231,7 +231,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
 
             RowBlockV2 block(schema, 100);
             EXPECT_TRUE(iter->next_batch(&block).ok());
-            EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+            EXPECT_EQ(COND_NOT_SATISFIED, block.delete_state());
             EXPECT_EQ(11, block.num_rows());
             auto column_block = block.column_block(0);
             for (int i = 0; i < 11; ++i) {
@@ -492,7 +492,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
                 int rows_read = left > 1024 ? 1024 : left;
                 block.clear();
                 EXPECT_TRUE(iter->next_batch(&block).ok());
-                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                EXPECT_EQ(COND_NOT_SATISFIED, block.delete_state());
                 EXPECT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
@@ -554,7 +554,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
                 auto s = iter->next_batch(&block);
                 EXPECT_TRUE(s.ok()) << s.to_string();
                 EXPECT_EQ(rows_read, block.num_rows());
-                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                EXPECT_EQ(COND_NOT_SATISFIED, block.delete_state());
                 left -= rows_read;
 
                 for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
@@ -688,7 +688,7 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
                 int rows_read = left > 1024 ? 1024 : left;
                 block.clear();
                 EXPECT_TRUE(iter->next_batch(&block).ok());
-                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                EXPECT_EQ(COND_NOT_SATISFIED, block.delete_state());
                 EXPECT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
@@ -841,7 +841,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                 block.clear();
                 st = iter->next_batch(&block);
                 EXPECT_TRUE(st.ok());
-                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                EXPECT_EQ(COND_NOT_SATISFIED, block.delete_state());
                 EXPECT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
@@ -950,7 +950,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                 block.clear();
                 st = iter->next_batch(&block);
                 EXPECT_TRUE(st.ok());
-                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                EXPECT_EQ(COND_NOT_SATISFIED, block.delete_state());
                 EXPECT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 

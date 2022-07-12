@@ -129,6 +129,9 @@ public:
 
     int32_t num_pages() const { return _page_zone_maps.size(); }
 
+    bool has_segment_zone_map() const { return _index_meta->has_segment_zone_map(); }
+
+    const ZoneMapPB& segment_zone_map() const { return _index_meta->segment_zone_map(); }
 private:
     io::FileSystem* _fs;
     std::string _path;

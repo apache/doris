@@ -30,7 +30,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/stream_index_common.h"
-
+#include "olap/column_predicate.h"
 namespace doris {
 
 class WrapperField;
@@ -61,13 +61,15 @@ struct FieldEqual {
     }
 };
 
+
+
 // 条件二元组，描述了一个条件的操作类型和操作数(1个或者多个)
 struct Cond {
 public:
     Cond() = default;
     ~Cond();
 
-    Status init(const TCondition& tcond, const TabletColumn& column);
+    Status init(const TCondition& tcond, const TabletColumn& column, ColumnPredicate* predicate=nullptr);
 
     // 用一行数据的指定列同条件进行比较，如果符合过滤条件，
     // 即按照此条件，行应被过滤掉，则返回true，否则返回false
@@ -92,6 +94,10 @@ public:
     // valid when op is OP_IN or OP_NOT_IN, represents the minimum or maximum value of in elements
     WrapperField* min_value_field = nullptr;
     WrapperField* max_value_field = nullptr;
+
+    //本cond对应的predicate，表达相同的逻辑。
+    //对rang查询，如果cond 判断segment全部满足或全部不满足条件，那么对应的predicate可以不用计算
+    ColumnPredicate* predicate = nullptr;
 };
 
 // 所有归属于同一列上的条件二元组，聚合在一个CondColumn上
@@ -102,7 +108,7 @@ public:
     }
     ~CondColumn();
 
-    Status add_cond(const TCondition& tcond, const TabletColumn& column);
+    Status add_cond(const TCondition& tcond, const TabletColumn& column, ColumnPredicate* predicate=nullptr);
 
     // 对一行数据中的指定列，用所有过滤条件进行比较，如果所有条件都满足，则过滤此行
     // Return true means this row should be filtered out, otherwise return false
@@ -169,7 +175,7 @@ public:
     // 对于下列情况，将不会被处理
     // 1. column不属于key列
     // 2. column类型是double, float
-    Status append_condition(const TCondition& condition);
+    Status append_condition(const TCondition& condition, ColumnPredicate* predicate = nullptr);
 
     // 通过所有列上的删除条件对RowCursor进行过滤
     // Return true means this row should be filtered out, otherwise return false

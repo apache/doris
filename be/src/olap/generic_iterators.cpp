@@ -94,7 +94,7 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
     }
     block->set_num_rows(row_idx);
     block->set_selected_size(row_idx);
-    block->set_delete_state(DEL_PARTIAL_SATISFIED);
+    block->set_delete_state(COND_PARTIAL_SATISFIED);
     if (row_idx > 0) {
         return Status::OK();
     }

@@ -450,10 +450,10 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
                 _value_col_predicates.push_back(predicate);
             } else {
                 _col_predicates.push_back(predicate);
-                Status status = _conditions.append_condition(condition);
+                Status status = _conditions.append_condition(condition, predicate);
                 DCHECK_EQ(Status::OK(), status);
             }
-            Status status = _all_conditions.append_condition(condition);
+            Status status = _all_conditions.append_condition(condition, predicate);
             DCHECK_EQ(Status::OK(), status);
         }
     }

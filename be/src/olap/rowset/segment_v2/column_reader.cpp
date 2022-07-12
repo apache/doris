@@ -227,6 +227,18 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column, CondColumn* de
     int32_t page_size = _zone_map_index->num_pages();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
+
+    if (_zone_map_index->has_segment_zone_map()) {
+        _parse_zone_map(_zone_map_index->segment_zone_map(), min_value.get(), max_value.get());
+        for (auto& cond : cond_column->conds()) {
+            if (cond->predicate != nullptr && (cond->op == OP_GT || cond->op == OP_GE ||
+                                               cond->op == OP_LT || cond->op == OP_LE)) {
+                int statisfy_state = cond->del_eval({min_value.get(), max_value.get()});
+                cond->predicate->set_satisfy_state(statisfy_state);
+            }
+        }
+    }
+
     for (int32_t i = 0; i < page_size; ++i) {
         if (zone_maps[i].pass_all()) {
             page_indexes->push_back(i);
@@ -237,7 +249,7 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column, CondColumn* de
                 bool should_read = true;
                 if (delete_condition != nullptr) {
                     int state = delete_condition->del_eval({min_value.get(), max_value.get()});
-                    if (state == DEL_SATISFIED) {
+                    if (state == COND_SATISFIED) {
                         should_read = false;
                     }
                 }

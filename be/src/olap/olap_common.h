@@ -109,10 +109,10 @@ enum RangeCondition {
     LE = 3, // less or equal
 };
 
-enum DelCondSatisfied {
-    DEL_SATISFIED = 0,         //satisfy delete condition
-    DEL_NOT_SATISFIED = 1,     //not satisfy delete condition
-    DEL_PARTIAL_SATISFIED = 2, //partially satisfy delete condition
+enum CondSatisfied {
+    COND_SATISFIED = 0,         //satisfy condition
+    COND_NOT_SATISFIED = 1,     //not satisfy condition
+    COND_PARTIAL_SATISFIED = 2, //partially satisfy condition
 };
 // Define all data types supported by Field.
 // If new filed_type is defined, not only new TypeInfo may need be defined,
