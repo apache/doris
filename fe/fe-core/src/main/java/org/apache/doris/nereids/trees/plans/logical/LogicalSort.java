@@ -15,19 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.logical;
+package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Logical Sort plan operator.
@@ -36,18 +41,24 @@ import java.util.Objects;
  * orderKeys: list of column information after order by. eg:[a, asc],[b, desc].
  * OrderKey: Contains order expression information and sorting method. Default is ascending.
  */
-public class LogicalSort extends LogicalUnaryOperator {
+public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnaryPlan<CHILD_TYPE> {
 
     // Default offset is 0.
     private int offset = 0;
 
     private final List<OrderKey> orderKeys;
 
+
+    public LogicalSort(List<OrderKey> orderKeys, CHILD_TYPE child) {
+        this(orderKeys, Optional.empty(), Optional.empty(), child);
+    }
+
     /**
      * Constructor for LogicalSort.
      */
-    public LogicalSort(List<OrderKey> orderKeys) {
-        super(OperatorType.LOGICAL_SORT);
+    public LogicalSort(List<OrderKey> orderKeys, Optional<GroupExpression> groupExpression,
+                       Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        super(PlanType.LOGICAL_SORT, groupExpression, logicalProperties, child);
         this.orderKeys = Objects.requireNonNull(orderKeys, "orderKeys can not be null");
     }
 
@@ -74,9 +85,30 @@ public class LogicalSort extends LogicalUnaryOperator {
     }
 
     @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitLogicalSort((LogicalSort<Plan>) this, context);
+    }
+
+    @Override
     public List<Expression> getExpressions() {
         return orderKeys.stream()
                 .map(OrderKey::getExpr)
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public LogicalUnaryPlan<Plan> withChildren(List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalSort<>(orderKeys, children.get(0));
+    }
+
+    @Override
+    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new LogicalSort<>(orderKeys, groupExpression, Optional.of(logicalProperties), child());
+    }
+
+    @Override
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new LogicalSort<>(orderKeys, Optional.empty(), logicalProperties, child());
     }
 }

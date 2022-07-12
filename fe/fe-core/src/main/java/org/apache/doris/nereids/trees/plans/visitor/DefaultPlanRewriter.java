@@ -15,28 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.physical;
+package org.apache.doris.nereids.trees.plans.visitor;
 
-import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.properties.DistributionSpec;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.Plan;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Enforcer operator.
+ * Default implementation for plan rewriting, delegating to child plans and rewrite current root
+ * when any one of its children changed.
  */
-public class PhysicalDistribution extends PhysicalUnaryOperator {
-
-    protected DistributionSpec distributionSpec;
-
-
-    public PhysicalDistribution(DistributionSpec spec) {
-        super(OperatorType.PHYSICAL_DISTRIBUTION);
-    }
+public abstract class DefaultPlanRewriter<C> extends PlanVisitor<Plan, C> {
 
     @Override
-    public List<Expression> getExpressions() {
-        return null;
+    public Plan visit(Plan expr, C context) {
+        List<Plan> newChildren = new ArrayList<>();
+        boolean hasNewChildren = false;
+        for (Plan child : expr.children()) {
+            Plan newChild = child.accept(this, context);
+            if (newChild != child) {
+                hasNewChildren = true;
+            }
+            newChildren.add(newChild);
+        }
+        return hasNewChildren ? expr.withChildren(newChildren) : expr;
     }
 }

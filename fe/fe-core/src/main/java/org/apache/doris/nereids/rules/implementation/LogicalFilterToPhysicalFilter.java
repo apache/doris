@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 
 /**
  * Implementation rule that convert logical filter to physical filter.
@@ -28,10 +28,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 public class LogicalFilterToPhysicalFilter extends OneImplementationRuleFactory {
     @Override
     public Rule<Plan> build() {
-        return logicalFilter().then(filter -> plan(
-            new PhysicalFilter(filter.getOperator().getPredicates()),
+        return logicalFilter().then(filter -> new PhysicalFilter(
+            filter.getPredicates(),
             filter.getLogicalProperties(),
-            filter.child()
-        )).toRule(RuleType.LOGICAL_FILTER_TO_PHYSICAL_FILTER_RULE);
+            filter.child())
+        ).toRule(RuleType.LOGICAL_FILTER_TO_PHYSICAL_FILTER_RULE);
     }
 }

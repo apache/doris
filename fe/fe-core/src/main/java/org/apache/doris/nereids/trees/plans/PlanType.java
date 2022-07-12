@@ -15,10 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans;
+package org.apache.doris.nereids.trees.plans;
 
 /**
- * interface for all concrete binary plan operator.
+ * Types for all Plan in Nereids.
  */
-public interface BinaryPlanOperator extends PlanOperator {
+public enum PlanType {
+    UNKNOWN,
+
+    // logical plan
+    LOGICAL_UNBOUND_RELATION,
+    LOGICAL_BOUND_RELATION,
+    LOGICAL_PROJECT,
+    LOGICAL_FILTER,
+    LOGICAL_JOIN,
+    LOGICAL_AGGREGATION,
+    LOGICAL_SORT,
+    LOGICAL_OLAP_SCAN,
+    GROUP_PLAN,
+
+    // physical plan
+    PHYSICAL_OLAP_SCAN,
+    PHYSICAL_PROJECT,
+    PHYSICAL_FILTER,
+    PHYSICAL_BROADCAST_HASH_JOIN,
+    PHYSICAL_AGGREGATION,
+    PHYSICAL_SORT,
+    PHYSICAL_HASH_JOIN,
+    PHYSICAL_EXCHANGE,
+    PHYSICAL_DISTRIBUTION;
 }

@@ -15,20 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.logical;
+package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.operators.plans.AggPhase;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Logical Aggregation plan operator.
@@ -43,7 +48,7 @@ import java.util.Objects;
  * Note: In general, the output of agg is a subset of the group by column plus aggregate column.
  * In special cases. this relationship does not hold. for example, select k1+1, sum(v1) from table group by k1.
  */
-public class LogicalAggregate extends LogicalUnaryOperator {
+public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnaryPlan<CHILD_TYPE> {
 
     private final boolean disassembled;
     private final List<Expression> groupByExpressionList;
@@ -54,24 +59,37 @@ public class LogicalAggregate extends LogicalUnaryOperator {
     /**
      * Desc: Constructor for LogicalAggregate.
      */
-    public LogicalAggregate(List<Expression> groupByExpressionList, List<NamedExpression> outputExpressionList) {
-        this(groupByExpressionList, outputExpressionList, false, AggPhase.GLOBAL);
+    public LogicalAggregate(List<Expression> groupByExpressionList, List<NamedExpression> outputExpressionList,
+                            CHILD_TYPE child) {
+        this(groupByExpressionList, outputExpressionList, false, AggPhase.GLOBAL, child);
     }
 
     public LogicalAggregate(List<Expression> groupByExpressionList,
             List<NamedExpression> outputExpressionList,
-            boolean disassembled, AggPhase aggPhase) {
-        this(groupByExpressionList, outputExpressionList, null, disassembled, aggPhase);
+            boolean disassembled, AggPhase aggPhase, CHILD_TYPE child) {
+        this(groupByExpressionList, outputExpressionList, null, disassembled, aggPhase, child);
+    }
+
+    public LogicalAggregate(List<Expression> groupByExpressionList,
+                            List<NamedExpression> outputExpressionList,
+                            List<Expression> partitionExprList,
+                            boolean disassembled, AggPhase aggPhase,
+                            CHILD_TYPE child) {
+        this(groupByExpressionList, outputExpressionList, partitionExprList, disassembled, aggPhase,
+                Optional.empty(), Optional.empty(), child);
     }
 
     /**
      * Whole parameters constructor for LogicalAggregate.
      */
     public LogicalAggregate(List<Expression> groupByExpressionList,
-            List<NamedExpression> outputExpressionList,
-            List<Expression> partitionExprList,
-            boolean disassembled, AggPhase aggPhase) {
-        super(OperatorType.LOGICAL_AGGREGATION);
+                            List<NamedExpression> outputExpressionList,
+                            List<Expression> partitionExprList,
+                            boolean disassembled, AggPhase aggPhase,
+                            Optional<GroupExpression> groupExpression,
+                            Optional<LogicalProperties> logicalProperties,
+                            CHILD_TYPE child) {
+        super(PlanType.LOGICAL_AGGREGATION, groupExpression, logicalProperties, child);
         this.groupByExpressionList = groupByExpressionList;
         this.outputExpressionList = outputExpressionList;
         this.partitionExprList = partitionExprList;
@@ -110,6 +128,11 @@ public class LogicalAggregate extends LogicalUnaryOperator {
     }
 
     @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitLogicalAggregate((LogicalAggregate<Plan>) this, context);
+    }
+
+    @Override
     public List<Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>()
                 .addAll(groupByExpressionList)
@@ -143,8 +166,30 @@ public class LogicalAggregate extends LogicalUnaryOperator {
         return Objects.hash(groupByExpressionList, outputExpressionList, partitionExprList, aggPhase);
     }
 
-    public LogicalAggregate withGroupByAndOutput(List<Expression> groupByExprList,
-            List<NamedExpression> outputExpressionList) {
-        return new LogicalAggregate(groupByExprList, outputExpressionList, partitionExprList, disassembled, aggPhase);
+    @Override
+    public LogicalAggregate<Plan> withChildren(List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalAggregate(groupByExpressionList, outputExpressionList,
+            partitionExprList, disassembled, aggPhase, children.get(0));
+    }
+
+    @Override
+    public LogicalAggregate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new LogicalAggregate(groupByExpressionList, outputExpressionList,
+            partitionExprList, disassembled, aggPhase, groupExpression,
+            Optional.of(logicalProperties), children.get(0));
+    }
+
+    @Override
+    public LogicalAggregate<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new LogicalAggregate(groupByExpressionList, outputExpressionList,
+            partitionExprList, disassembled, aggPhase, Optional.empty(),
+            logicalProperties, children.get(0));
+    }
+
+    public LogicalAggregate<Plan> withGroupByAndOutput(List<Expression> groupByExprList,
+                                                 List<NamedExpression> outputExpressionList) {
+        return new LogicalAggregate(groupByExprList, outputExpressionList,
+            partitionExprList, disassembled, aggPhase, child());
     }
 }

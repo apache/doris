@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.operators.plans.AggPhase;
-import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -27,9 +25,10 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -60,12 +59,8 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
 
     @Override
     public Rule<Plan> build() {
-        return logicalAggregate().when(p -> {
-            LogicalAggregate logicalAggregate = p.getOperator();
-            return !logicalAggregate.isDisassembled();
-        }).thenApply(ctx -> {
-            LogicalUnaryPlan<LogicalAggregate, GroupPlan> plan = ctx.root;
-            LogicalAggregate aggregate = plan.getOperator();
+        return logicalAggregate().when(agg -> !agg.isDisassembled()).thenApply(ctx -> {
+            LogicalAggregate<GroupPlan> aggregate = ctx.root;
             List<NamedExpression> originOutputExprs = aggregate.getOutputExpressionList();
             List<Expression> originGroupByExprs = aggregate.getGroupByExpressionList();
 
@@ -130,15 +125,16 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     localGroupByExprs,
                     localOutputExprs,
                     true,
-                    AggPhase.LOCAL
+                    AggPhase.LOCAL,
+                    aggregate.child()
             );
-            LogicalAggregate globalAggregate = new LogicalAggregate(
+            return new LogicalAggregate(
                     globalGroupByExprs,
                     globalOutputExprs,
                     true,
-                    AggPhase.GLOBAL
+                    AggPhase.GLOBAL,
+                    localAggregate
             );
-            return plan(globalAggregate, plan(localAggregate, plan.child(0)));
         }).toRule(RuleType.AGGREGATE_DISASSEMBLE);
     }
 

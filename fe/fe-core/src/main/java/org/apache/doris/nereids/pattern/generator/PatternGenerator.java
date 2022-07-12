@@ -202,17 +202,17 @@ public abstract class PatternGenerator {
     /** create generator by operator's type. */
     public static Optional<PatternGenerator> create(PatternGeneratorAnalyzer analyzer,
             ClassDeclaration opType, Set<String> parentClass) {
-        if (parentClass.contains("org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator")) {
+        if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan")) {
             return Optional.of(new LogicalLeafPatternGenerator(analyzer, opType, parentClass));
-        } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.logical.LogicalUnaryOperator")) {
+        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan")) {
             return Optional.of(new LogicalUnaryPatternGenerator(analyzer, opType, parentClass));
-        } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.logical.LogicalBinaryOperator")) {
+        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan")) {
             return Optional.of(new LogicalBinaryPatternGenerator(analyzer, opType, parentClass));
-        } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.physical.PhysicalLeafOperator")) {
+        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan")) {
             return Optional.of(new PhysicalLeafPatternGenerator(analyzer, opType, parentClass));
-        } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.physical.PhysicalUnaryOperator")) {
+        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan")) {
             return Optional.of(new PhysicalUnaryPatternGenerator(analyzer, opType, parentClass));
-        } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.physical.PhysicalBinaryOperator")) {
+        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan")) {
             return Optional.of(new PhysicalBinaryPatternGenerator(analyzer, opType, parentClass));
         } else {
             return Optional.empty();
@@ -243,7 +243,7 @@ public abstract class PatternGenerator {
         }
 
         for (EnumFieldPatternInfo info : enumFieldPatternInfos) {
-            String predicate = ".when(p -> p.operator." + info.enumInstanceGetter + "() == "
+            String predicate = ".when(p -> p." + info.enumInstanceGetter + "() == "
                     + info.enumType + "." + info.enumInstance + ")";
             generateTypePattern(info.patternName, opClassName, genericType(), predicate, false);
             if (childrenNum() > 0) {

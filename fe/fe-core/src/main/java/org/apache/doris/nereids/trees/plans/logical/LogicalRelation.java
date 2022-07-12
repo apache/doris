@@ -15,27 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.logical;
+package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Logical relation plan operator.
  */
-public abstract class LogicalRelation extends LogicalLeafOperator {
+public abstract class LogicalRelation extends LogicalLeafPlan {
 
     protected final Table table;
     protected final List<String> qualifier;
+
+    public LogicalRelation(PlanType type, Table table, List<String> qualifier) {
+        this(type, table, qualifier, Optional.empty(), Optional.empty());
+    }
 
     /**
      * Constructor for LogicalRelationPlan.
@@ -43,8 +51,9 @@ public abstract class LogicalRelation extends LogicalLeafOperator {
      * @param table Doris table
      * @param qualifier qualified relation name
      */
-    public LogicalRelation(Table table, List<String> qualifier) {
-        super(OperatorType.LOGICAL_BOUND_RELATION);
+    public LogicalRelation(PlanType type, Table table, List<String> qualifier,
+                           Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        super(type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
     }
@@ -68,6 +77,11 @@ public abstract class LogicalRelation extends LogicalLeafOperator {
                 .stream()
                 .map(col -> SlotReference.fromColumn(col, qualifier))
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitLogicalRelation(this, context);
     }
 
     @Override

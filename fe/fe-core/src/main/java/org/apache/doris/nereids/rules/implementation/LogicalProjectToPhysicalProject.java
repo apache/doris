@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
 /**
  * Implementation rule that convert logical project to physical project.
@@ -28,10 +28,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 public class LogicalProjectToPhysicalProject extends OneImplementationRuleFactory {
     @Override
     public Rule<Plan> build() {
-        return logicalProject().then(project -> plan(
-                new PhysicalProject(project.getOperator().getProjects()),
+        return logicalProject().then(project -> new PhysicalProject(
+                project.getProjects(),
                 project.getLogicalProperties(),
-                project.child()
-        )).toRule(RuleType.LOGICAL_PROJECT_TO_PHYSICAL_PROJECT_RULE);
+                project.child())
+        ).toRule(RuleType.LOGICAL_PROJECT_TO_PHYSICAL_PROJECT_RULE);
     }
 }

@@ -62,7 +62,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
          * @param groupExpression group expression to be matched
          */
         public GroupExpressionIterator(Pattern<Plan, Plan> pattern, GroupExpression groupExpression) {
-            if (!pattern.matchOperator(groupExpression.getOperator())) {
+            if (!pattern.matchRoot(groupExpression.getPlan())) {
                 return;
             }
 
@@ -87,7 +87,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
             }
 
             // toTreeNode will wrap operator to plan, and set GroupPlan as children placeholder
-            Plan root = groupExpression.getOperator().toTreeNode(groupExpression);
+            Plan root = groupExpression.getPlan();
             // pattern.arity() == 0 equals to root.arity() == 0
             if (pattern.arity() == 0) {
                 if (pattern.matchPredicates(root)) {

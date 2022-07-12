@@ -15,15 +15,45 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.logical;
-
-import org.apache.doris.nereids.operators.plans.PlanOperator;
-import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.plans.Plan;
+package org.apache.doris.nereids.trees.expressions;
 
 /**
- * interface for all concrete logical plan operator.
+ * Types for all Expression in Nereids.
  */
-public interface LogicalOperator extends PlanOperator {
-    LogicalProperties computeLogicalProperties(Plan... inputs);
+public enum ExpressionType {
+    UNBOUND_FUNCTION,
+    UNBOUND_ALIAS,
+    UNBOUND_SLOT,
+    UNBOUND_STAR,
+    BOUND_STAR,
+    BOUND_FUNCTION,
+    LITERAL,
+    SLOT_REFERENCE,
+    COMPARISON_PREDICATE,
+    EQUAL_TO,
+    LESS_THAN,
+    GREATER_THAN,
+    LESS_THAN_EQUAL,
+    GREATER_THAN_EQUAL,
+    NULL_SAFE_EQUAL,
+    NOT,
+    ALIAS,
+    COMPOUND,
+    AND,
+    OR,
+    BETWEEN,
+    LIKE,
+    REGEXP,
+    MULTIPLY,
+    DIVIDE,
+    MOD,
+    INT_DIVIDE,
+    ADD,
+    SUBTRACT,
+    BITAND,
+    BITOR,
+    BITXOR,
+    BITNOT,
+    FACTORIAL,
+    FUNCTION_CALL
 }

@@ -18,11 +18,10 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.logical.LogicalUnaryOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
 import com.google.common.base.Preconditions;
@@ -33,41 +32,28 @@ import java.util.Optional;
 /**
  * Abstract class for all logical plan that have one child.
  */
-public class LogicalUnaryPlan<OP_TYPE extends LogicalUnaryOperator, CHILD_TYPE extends Plan>
-        extends AbstractLogicalPlan<OP_TYPE>
+public abstract class LogicalUnaryPlan<CHILD_TYPE extends Plan>
+        extends AbstractLogicalPlan
         implements UnaryPlan<CHILD_TYPE> {
 
-    public LogicalUnaryPlan(OP_TYPE operator, CHILD_TYPE child) {
-        super(NodeType.LOGICAL, operator, child);
+    public LogicalUnaryPlan(PlanType type, CHILD_TYPE child) {
+        super(type, child);
     }
 
-    public LogicalUnaryPlan(OP_TYPE operator, Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(NodeType.LOGICAL, operator, logicalProperties, child);
+    public LogicalUnaryPlan(PlanType type, Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        super(type, logicalProperties, child);
     }
 
-    public LogicalUnaryPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
+    public LogicalUnaryPlan(PlanType type, Optional<GroupExpression> groupExpression,
                             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(NodeType.LOGICAL, operator, groupExpression, logicalProperties, child);
+        super(type, groupExpression, logicalProperties, child);
     }
 
-    @Override
-    public LogicalUnaryPlan<OP_TYPE, Plan> withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new LogicalUnaryPlan(operator, Optional.empty(), children.get(0));
-    }
+    public abstract List<Slot> computeOutput(Plan input);
 
     @Override
-    public LogicalUnaryPlan<OP_TYPE, CHILD_TYPE> withOutput(List<Slot> output) {
-        return new LogicalUnaryPlan<>(operator, Optional.of(logicalProperties.withOutput(output)), child());
-    }
-
-    @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalUnaryPlan<>(operator, groupExpression, Optional.of(logicalProperties), child());
-    }
-
-    @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalUnaryPlan<>(operator, groupExpression, logicalProperties, child());
+    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+        Preconditions.checkArgument(inputs.length == 1);
+        return new LogicalProperties(() -> computeOutput(inputs[0]));
     }
 }

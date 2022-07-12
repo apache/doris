@@ -158,7 +158,8 @@ public class DateLiteral extends LiteralExpr {
         DATEV2(3);
 
         private final int value;
-        private DateLiteralType(int value) {
+
+        DateLiteralType(int value) {
             this.value = value;
         }
 

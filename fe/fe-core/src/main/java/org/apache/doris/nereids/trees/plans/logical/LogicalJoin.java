@@ -15,15 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.logical;
+package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.operators.plans.JoinType;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -34,7 +38,8 @@ import java.util.stream.Collectors;
 /**
  * Logical join plan operator.
  */
-public class LogicalJoin extends LogicalBinaryOperator {
+public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
+        extends LogicalBinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     private final JoinType joinType;
     private final Optional<Expression> condition;
@@ -47,8 +52,13 @@ public class LogicalJoin extends LogicalBinaryOperator {
      *
      * @param joinType logical type for join
      */
-    public LogicalJoin(JoinType joinType) {
-        this(joinType, Optional.empty());
+    public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, Optional.empty(), Optional.empty(), Optional.empty(), leftChild, rightChild);
+    }
+
+    public LogicalJoin(JoinType joinType, Optional<Expression> condition,
+                       LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, condition, Optional.empty(), Optional.empty(), leftChild, rightChild);
     }
 
     /**
@@ -57,8 +67,10 @@ public class LogicalJoin extends LogicalBinaryOperator {
      * @param joinType logical type for join
      * @param condition on clause for join node
      */
-    public LogicalJoin(JoinType joinType, Optional<Expression> condition) {
-        super(OperatorType.LOGICAL_JOIN);
+    public LogicalJoin(JoinType joinType, Optional<Expression> condition,
+                       Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+                       LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.condition = Objects.requireNonNull(condition, "condition can not be null");
     }
@@ -118,11 +130,33 @@ public class LogicalJoin extends LogicalBinaryOperator {
     }
 
     @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitLogicalJoin((LogicalJoin<Plan, Plan>) this, context);
+    }
+
+    @Override
     public List<Expression> getExpressions() {
         return condition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
     }
 
     public JoinReorderContext getJoinReorderContext() {
         return joinReorderContext;
+    }
+
+    @Override
+    public LogicalBinaryPlan<Plan, Plan> withChildren(List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new LogicalJoin<>(joinType, condition, children.get(0), children.get(1));
+    }
+
+    @Override
+    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new LogicalJoin<>(joinType, condition, groupExpression,
+            Optional.of(logicalProperties), left(), right());
+    }
+
+    @Override
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new LogicalJoin<>(joinType, condition, Optional.empty(), logicalProperties, left(), right());
     }
 }

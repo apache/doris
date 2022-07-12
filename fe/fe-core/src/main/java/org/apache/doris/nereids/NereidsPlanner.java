@@ -150,8 +150,7 @@ public class NereidsPlanner extends Planner {
             planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i)));
         }
 
-        Plan plan = ((PhysicalPlan) groupExpression.getOperator().toTreeNode(groupExpression)).withChildren(
-                planChildren);
+        Plan plan = groupExpression.getPlan().withChildren(planChildren);
         if (!(plan instanceof PhysicalPlan)) {
             throw new AnalysisException("generate logical plan");
         }

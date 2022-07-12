@@ -15,26 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.physical;
+package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Physical olap scan plan operator.
  */
-public class PhysicalOlapScan extends PhysicalScan {
+public class PhysicalOlapScan extends PhysicalRelation {
     private final long selectedIndexId;
     private final List<Long> selectedTabletId;
     private final List<Long> selectedPartitionId;
@@ -47,8 +47,9 @@ public class PhysicalOlapScan extends PhysicalScan {
      * @param olapTable OlapTable in Doris
      * @param qualifier table's name
      */
-    public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier) {
-        super(OperatorType.PHYSICAL_OLAP_SCAN, qualifier);
+    public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier,
+                            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
+        super(PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties);
         this.olapTable = olapTable;
         this.selectedIndexId = olapTable.getBaseIndexId();
         this.selectedTabletId = Lists.newArrayList();
@@ -81,12 +82,17 @@ public class PhysicalOlapScan extends PhysicalScan {
     }
 
     @Override
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
-        return visitor.visitPhysicalOlapScan((PhysicalLeafPlan<PhysicalOlapScan>) plan, context);
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitPhysicalOlapScan(this, context);
     }
 
     @Override
-    public List<Expression> getExpressions() {
-        return ImmutableList.of();
+    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new PhysicalOlapScan(olapTable, qualifier, groupExpression, logicalProperties);
+    }
+
+    @Override
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new PhysicalOlapScan(olapTable, qualifier, Optional.empty(), logicalProperties.get());
     }
 }

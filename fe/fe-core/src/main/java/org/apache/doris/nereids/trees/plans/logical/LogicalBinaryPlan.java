@@ -18,12 +18,11 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.logical.LogicalBinaryOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 
 import com.google.common.base.Preconditions;
 
@@ -33,44 +32,32 @@ import java.util.Optional;
 /**
  * Abstract class for all logical plan that have two children.
  */
-public class LogicalBinaryPlan<
-            OP_TYPE extends LogicalBinaryOperator,
+public abstract class LogicalBinaryPlan<
             LEFT_CHILD_TYPE extends Plan,
             RIGHT_CHILD_TYPE extends Plan>
-        extends AbstractLogicalPlan<OP_TYPE>
+        extends AbstractLogicalPlan
         implements BinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public LogicalBinaryPlan(OP_TYPE operator, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(NodeType.LOGICAL, operator, Optional.empty(), leftChild, rightChild);
+    public LogicalBinaryPlan(PlanType type, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(type, Optional.empty(), leftChild, rightChild);
     }
 
-    public LogicalBinaryPlan(OP_TYPE operator, Optional<LogicalProperties> logicalProperties,
+    public LogicalBinaryPlan(PlanType type, Optional<LogicalProperties> logicalProperties,
                              LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(NodeType.LOGICAL, operator, logicalProperties, leftChild, rightChild);
+        super(type, logicalProperties, leftChild, rightChild);
     }
 
-    public LogicalBinaryPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
-             Optional<LogicalProperties> logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(NodeType.LOGICAL, operator, groupExpression, logicalProperties, leftChild, rightChild);
+    public LogicalBinaryPlan(PlanType type, Optional<GroupExpression> groupExpression,
+                             Optional<LogicalProperties> logicalProperties, LEFT_CHILD_TYPE leftChild,
+                             RIGHT_CHILD_TYPE rightChild) {
+        super(type, groupExpression, logicalProperties, leftChild, rightChild);
     }
 
-    @Override
-    public LogicalBinaryPlan<OP_TYPE, Plan, Plan> withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new LogicalBinaryPlan(operator, Optional.empty(), children.get(0), children.get(1));
-    }
+    public abstract List<Slot> computeOutput(Plan left, Plan right);
 
     @Override
-    public LogicalBinaryPlan<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withOutput(List<Slot> output) {
-        return new LogicalBinaryPlan<>(operator, Optional.of(logicalProperties.withOutput(output)), left(), right());
-    }
-
-    public LogicalBinaryPlan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalBinaryPlan<>(operator, groupExpression, Optional.of(logicalProperties), left(), right());
-    }
-
-    @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalBinaryPlan<>(operator, groupExpression, logicalProperties, left(), right());
+    public final LogicalProperties computeLogicalProperties(Plan... inputs) {
+        Preconditions.checkArgument(inputs.length == 2);
+        return new LogicalProperties(() -> computeOutput(inputs[0], inputs[1]));
     }
 }

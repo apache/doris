@@ -15,24 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators;
+package org.apache.doris.nereids.trees.plans.visitor;
 
-import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 
 /**
- * interface for all concrete operator.
+ * Use the visitor to iterate over all plans for plan.
  */
-public interface Operator {
-    OperatorType getType();
-
-    <NODE_TYPE extends TreeNode<NODE_TYPE>> NODE_TYPE toTreeNode(GroupExpression groupExpression);
-
-    <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context);
-
-    <R, C> R accept(OperatorVisitor<R, C> visitor, Operator operator, C context);
-
-    <R, C> R accept(OperatorVisitor<R, C> visitor, C context);
+public class DefaultPlanVisitor<R, C> extends PlanVisitor<R, C> {
+    @Override
+    public R visit(Plan plan, C context) {
+        for (Plan child : plan.children()) {
+            child.accept(this, context);
+        }
+        return null;
+    }
 }

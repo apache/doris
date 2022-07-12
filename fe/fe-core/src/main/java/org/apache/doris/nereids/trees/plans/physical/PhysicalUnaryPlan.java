@@ -18,53 +18,26 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalUnaryOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
-import com.google.common.base.Preconditions;
-
-import java.util.List;
 import java.util.Optional;
 
 /**
  * Abstract class for all physical plan that have one child.
  */
-public class PhysicalUnaryPlan<OP_TYPE extends PhysicalUnaryOperator, CHILD_TYPE extends Plan>
-        extends AbstractPhysicalPlan<OP_TYPE>
+public abstract class PhysicalUnaryPlan<CHILD_TYPE extends Plan>
+        extends AbstractPhysicalPlan
         implements UnaryPlan<CHILD_TYPE> {
 
-    public PhysicalUnaryPlan(OP_TYPE operator, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(NodeType.PHYSICAL, operator, logicalProperties, child);
+    public PhysicalUnaryPlan(PlanType type, LogicalProperties logicalProperties, CHILD_TYPE child) {
+        super(type, logicalProperties, child);
     }
 
-    public PhysicalUnaryPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
+    public PhysicalUnaryPlan(PlanType type, Optional<GroupExpression> groupExpression,
                              LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(NodeType.PHYSICAL, operator, groupExpression, logicalProperties, child);
-    }
-
-    @Override
-    public PhysicalUnaryPlan<OP_TYPE, Plan> withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalUnaryPlan(operator, logicalProperties, children.get(0));
-    }
-
-    @Override
-    public PhysicalUnaryPlan<OP_TYPE, CHILD_TYPE> withOutput(List<Slot> output) {
-        LogicalProperties logicalProperties = new LogicalProperties(() -> output);
-        return new PhysicalUnaryPlan<>(operator, logicalProperties, child());
-    }
-
-    @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalUnaryPlan<>(operator, groupExpression, logicalProperties, child());
-    }
-
-    @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalUnaryPlan<>(operator, groupExpression, logicalProperties.get(), child());
+        super(type, groupExpression, logicalProperties, child);
     }
 }

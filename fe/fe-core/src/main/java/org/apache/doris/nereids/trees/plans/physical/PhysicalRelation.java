@@ -15,42 +15,46 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.logical;
+package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
+/**
+ * Abstract class for all physical scan operator.
+ */
+public abstract class PhysicalRelation extends PhysicalLeafPlan {
 
-/** GroupPlanOperator. */
-public class GroupPlanOperator extends LogicalLeafOperator {
-    public GroupPlanOperator() {
-        super(OperatorType.GROUP_PLAN);
+    protected final List<String> qualifier;
+
+    /**
+     * Constructor for PhysicalScan.
+     *
+     * @param type node type
+     * @param qualifier table's name
+     */
+    public PhysicalRelation(PlanType type, List<String> qualifier, Optional<GroupExpression> groupExpression,
+                            LogicalProperties logicalProperties) {
+        super(type, groupExpression, logicalProperties);
+        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+    }
+
+    public List<String> getQualifier() {
+        return qualifier;
     }
 
     @Override
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
-        return visitor.visitGroupPlan((GroupPlan) plan, context);
-    }
-
-    @Override
-    public List<Slot> computeOutput() {
-        throw new IllegalStateException("GroupPlanOperator can not compute output."
-            + " You should invoke GroupPlan.getOutput()");
-    }
-
-    @Override
-    public LogicalProperties computeLogicalProperties(Plan... inputs) {
-        throw new IllegalStateException("GroupPlanOperator can not compute logical properties."
-            + " You should invoke GroupPlan.getLogicalProperties()");
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitPhysicalScan(this, context);
     }
 
     @Override

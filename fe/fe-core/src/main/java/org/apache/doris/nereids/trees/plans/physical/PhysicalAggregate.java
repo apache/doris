@@ -15,24 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.operators.plans.physical;
+package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.operators.plans.AggPhase;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Physical aggregation plan operator.
  */
-public class PhysicalAggregate extends PhysicalUnaryOperator {
+public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnaryPlan<CHILD_TYPE> {
 
     private final List<Expression> groupByExprList;
 
@@ -44,6 +47,14 @@ public class PhysicalAggregate extends PhysicalUnaryOperator {
 
     private final boolean usingStream;
 
+
+    public PhysicalAggregate(List<Expression> groupByExprList, List<NamedExpression> outputExpressionList,
+                             List<Expression> partitionExprList, AggPhase aggPhase, boolean usingStream,
+                             LogicalProperties logicalProperties, CHILD_TYPE child) {
+        this(groupByExprList, outputExpressionList, partitionExprList, aggPhase, usingStream,
+                Optional.empty(), logicalProperties, child);
+    }
+
     /**
      * Constructor of PhysicalAggNode.
      *
@@ -53,8 +64,10 @@ public class PhysicalAggregate extends PhysicalUnaryOperator {
      * @param usingStream whether it's stream agg.
      */
     public PhysicalAggregate(List<Expression> groupByExprList, List<NamedExpression> outputExpressionList,
-            List<Expression> partitionExprList, AggPhase aggPhase, boolean usingStream) {
-        super(OperatorType.PHYSICAL_AGGREGATION);
+                             List<Expression> partitionExprList, AggPhase aggPhase, boolean usingStream,
+                             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+                             CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_AGGREGATION, groupExpression, logicalProperties, child);
         this.groupByExprList = groupByExprList;
         this.outputExpressionList = outputExpressionList;
         this.aggPhase = aggPhase;
@@ -83,8 +96,8 @@ public class PhysicalAggregate extends PhysicalUnaryOperator {
     }
 
     @Override
-    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, Plan plan, C context) {
-        return visitor.visitPhysicalAggregate((PhysicalUnaryPlan<PhysicalAggregate, Plan>) plan, context);
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitPhysicalAggregate((PhysicalAggregate<Plan>) this, context);
     }
 
     @Override
@@ -98,5 +111,24 @@ public class PhysicalAggregate extends PhysicalUnaryOperator {
     public String toString() {
         return "PhysicalAggregate([key=" + groupByExprList
                 + "], [output=" + outputExpressionList + "])";
+    }
+
+    @Override
+    public PhysicalUnaryPlan<Plan> withChildren(List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new PhysicalAggregate<>(groupByExprList, outputExpressionList, partitionExprList, aggPhase,
+            usingStream, logicalProperties, children.get(0));
+    }
+
+    @Override
+    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new PhysicalAggregate<>(groupByExprList, outputExpressionList, partitionExprList, aggPhase,
+            usingStream, groupExpression, logicalProperties, child());
+    }
+
+    @Override
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new PhysicalAggregate<>(groupByExprList, outputExpressionList, partitionExprList, aggPhase,
+            usingStream, Optional.empty(), logicalProperties.get(), child());
     }
 }

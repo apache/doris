@@ -20,7 +20,6 @@ package org.apache.doris.nereids.pattern;
 /**
  * Types for all Pattern type.
  * <p>
- * There are four types of Pattern for pattern matching:
  * 1. NORMAL:      normal pattern matching, e.g. match by operatorId or class type.
  * 2. ANY:         match any operator, return a plan when matched.
  * 3. MULTI:       match multiple children operators, that we don't know how many children exist.

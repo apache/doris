@@ -18,57 +18,30 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalBinaryOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 
-import com.google.common.base.Preconditions;
-
-import java.util.List;
 import java.util.Optional;
 
 /**
  * Abstract class for all physical plan that have two children.
  */
-public class PhysicalBinaryPlan<
-            OP_TYPE extends PhysicalBinaryOperator,
+public abstract class PhysicalBinaryPlan<
             LEFT_CHILD_TYPE extends Plan,
             RIGHT_CHILD_TYPE extends Plan>
-        extends AbstractPhysicalPlan<OP_TYPE>
+        extends AbstractPhysicalPlan
         implements BinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public PhysicalBinaryPlan(OP_TYPE operator, LogicalProperties logicalProperties,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(NodeType.PHYSICAL, operator, logicalProperties, leftChild, rightChild);
+    public PhysicalBinaryPlan(PlanType type, LogicalProperties logicalProperties,
+                              LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(type, logicalProperties, leftChild, rightChild);
     }
 
-    public PhysicalBinaryPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(NodeType.PHYSICAL, operator, groupExpression, logicalProperties, leftChild, rightChild);
-    }
-
-    @Override
-    public PhysicalBinaryPlan<OP_TYPE, Plan, Plan> withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalBinaryPlan(operator, logicalProperties, children.get(0), children.get(1));
-    }
-
-    @Override
-    public PhysicalBinaryPlan<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withOutput(List<Slot> output) {
-        LogicalProperties logicalProperties = new LogicalProperties(() -> output);
-        return new PhysicalBinaryPlan<>(operator, logicalProperties, left(), right());
-    }
-
-    @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalBinaryPlan<>(operator, groupExpression, logicalProperties, left(), right());
-    }
-
-    @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalBinaryPlan<>(operator, groupExpression, logicalProperties.get(), left(), right());
+    public PhysicalBinaryPlan(PlanType type, Optional<GroupExpression> groupExpression,
+                              LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild,
+                              RIGHT_CHILD_TYPE rightChild) {
+        super(type, groupExpression, logicalProperties, leftChild, rightChild);
     }
 }

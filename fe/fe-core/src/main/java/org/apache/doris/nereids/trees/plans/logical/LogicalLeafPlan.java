@@ -18,12 +18,11 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 
 import com.google.common.base.Preconditions;
 
@@ -33,41 +32,27 @@ import java.util.Optional;
 /**
  * Abstract class for all logical plan that have no child.
  */
-public class LogicalLeafPlan<OP_TYPE extends LogicalLeafOperator>
-        extends AbstractLogicalPlan<OP_TYPE>
-        implements LeafPlan {
+public abstract class LogicalLeafPlan extends AbstractLogicalPlan implements LeafPlan {
 
-    public LogicalLeafPlan(OP_TYPE operator) {
-        super(NodeType.LOGICAL, operator);
+    public LogicalLeafPlan(PlanType nodeType) {
+        super(nodeType);
     }
 
-    public LogicalLeafPlan(OP_TYPE operator, Optional<LogicalProperties> logicalProperties) {
-        super(NodeType.LOGICAL, operator, logicalProperties);
+    public LogicalLeafPlan(PlanType nodeType, Optional<LogicalProperties> logicalProperties) {
+        super(nodeType, logicalProperties);
     }
 
-    public LogicalLeafPlan(OP_TYPE operator, Optional<GroupExpression> groupExpression,
+    public LogicalLeafPlan(PlanType nodeType, Optional<GroupExpression> groupExpression,
                            Optional<LogicalProperties> logicalProperties) {
-        super(NodeType.LOGICAL, operator, groupExpression, logicalProperties);
+        super(nodeType, groupExpression, logicalProperties);
     }
 
-    @Override
-    public LogicalLeafPlan<OP_TYPE> withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 0);
-        return new LogicalLeafPlan(operator, Optional.empty());
-    }
+    public abstract List<Slot> computeOutput();
+
 
     @Override
-    public LogicalLeafPlan<OP_TYPE> withOutput(List<Slot> output) {
-        return new LogicalLeafPlan<>(operator, Optional.of(logicalProperties.withOutput(output)));
-    }
-
-    @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalLeafPlan<>(operator, groupExpression, Optional.of(logicalProperties));
-    }
-
-    @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalLeafPlan<>(operator, groupExpression, logicalProperties);
+    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+        Preconditions.checkArgument(inputs.length == 0);
+        return new LogicalProperties(() -> computeOutput());
     }
 }
