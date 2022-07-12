@@ -18,6 +18,7 @@
 package org.apache.doris.load;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -41,6 +42,7 @@ import org.apache.doris.task.HadoopLoadPendingTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PushTask;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
@@ -434,6 +436,10 @@ public class LoadChecker extends MasterDaemon {
                         }
 
                         int schemaHash = tableLoadInfo.getIndexSchemaHash(indexId);
+                        List<TColumn> columnsDesc = new ArrayList<TColumn>();
+                        for (Column column : table.getSchemaByIndexId(indexId)) {
+                            columnsDesc.add(column.toThrift());
+                        }
                         short quorumNum = (short) (replicationNum / 2 + 1);
                         for (Tablet tablet : index.getTablets()) {
                             long tabletId = tablet.getId();
@@ -471,7 +477,7 @@ public class LoadChecker extends MasterDaemon {
                                             job.getId(), type, job.getConditions(), needDecompress, job.getPriority(),
                                             TTaskType.REALTIME_PUSH, job.getTransactionId(),
                                             Catalog.getCurrentGlobalTransactionMgr()
-                                                    .getTransactionIDGenerator().getNextTransactionId());
+                                                    .getTransactionIDGenerator().getNextTransactionId(), columnsDesc);
                                     pushTask.setIsSchemaChanging(autoLoadToTwoTablet);
                                     if (AgentTaskQueue.addTask(pushTask)) {
                                         batchTask.addTask(pushTask);

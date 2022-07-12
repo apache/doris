@@ -149,6 +149,7 @@ public:
     TabletSchema* mutable_tablet_schema();
 
     const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
+    std::vector<RowsetMetaSharedPtr>& all_mutable_rs_metas();
     Status add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_rs_meta_by_version(const Version& version,
                                    std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
@@ -199,12 +200,13 @@ public:
                     << _cooldown_resource << " to " << resource;
         _cooldown_resource = std::move(resource);
     }
+    static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
+                                         ColumnPB* column);
 
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
 private:
     Status _save_meta(DataDir* data_dir);
-    void _init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn, ColumnPB* column);
 
     // _del_pred_array is ignored to compare.
     friend bool operator==(const TabletMeta& a, const TabletMeta& b);
@@ -470,6 +472,10 @@ inline TabletSchema* TabletMeta::mutable_tablet_schema() {
 }
 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const {
+    return _rs_metas;
+}
+
+inline std::vector<RowsetMetaSharedPtr>& TabletMeta::all_mutable_rs_metas() {
     return _rs_metas;
 }
 
