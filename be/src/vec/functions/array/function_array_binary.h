@@ -51,16 +51,13 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto right_column =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-
         Status ret = Status::RuntimeError(
                 fmt::format("execute failed, unsupported types for function {}({}, {})", get_name(),
                             block.get_by_position(arguments[0]).type->get_name(),
                             block.get_by_position(arguments[1]).type->get_name()));
-
         // extract array column
         ColumnArrayExecutionData left_data;
         ColumnArrayExecutionData right_data;
-
         ColumnPtr res_ptr = nullptr;
         if (extract_column_array_info(*left_column, left_data) &&
             extract_column_array_info(*right_column, right_data)) {
