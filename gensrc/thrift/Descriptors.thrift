@@ -21,6 +21,21 @@ namespace java org.apache.doris.thrift
 include "Types.thrift"
 include "Exprs.thrift"
 
+struct TColumn {
+    1: required string column_name
+    2: required Types.TColumnType column_type
+    3: optional Types.TAggregationType aggregation_type
+    4: optional bool is_key
+    5: optional bool is_allow_null
+    6: optional string default_value
+    7: optional bool is_bloom_filter_column
+    8: optional Exprs.TExpr define_expr
+    9: optional bool visible = true
+    10: optional list<TColumn> children_column
+    11: optional i32 col_unique_id  = -1
+    12: optional bool has_bitmap_index = false
+}
+
 struct TSlotDescriptor {
   1: required Types.TSlotId id
   2: required Types.TTupleId parent
@@ -32,6 +47,7 @@ struct TSlotDescriptor {
   8: required string colName;
   9: required i32 slotIdx
   10: required bool isMaterialized
+  11: optional i32 col_unique_id = -1
 }
 
 struct TTupleDescriptor {
@@ -158,6 +174,7 @@ struct TOlapTableIndexSchema {
     1: required i64 id
     2: required list<string> columns
     3: required i32 schema_hash
+    4: required list<TColumn> columns_desc
 }
 
 struct TOlapTableSchemaParam {

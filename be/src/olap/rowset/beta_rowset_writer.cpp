@@ -88,6 +88,8 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
+    _rowset_meta->set_tablet_schema(_context.tablet_schema);
+
     return Status::OK();
 }
 

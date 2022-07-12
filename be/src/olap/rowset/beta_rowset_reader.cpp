@@ -86,7 +86,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
-            _rowset, &_segment_cache_handle,
+            _rowset, &_segment_cache_handle, read_context->tablet_schema,
             read_context->reader_type == ReaderType::READER_QUERY));
 
     // create iterator for each segment
