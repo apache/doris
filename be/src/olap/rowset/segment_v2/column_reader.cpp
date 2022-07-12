@@ -233,7 +233,7 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column, CondColumn* de
         for (auto& cond : cond_column->conds()) {
             if (cond->predicate != nullptr && (cond->op == OP_GT || cond->op == OP_GE ||
                                                cond->op == OP_LT || cond->op == OP_LE)) {
-                int statisfy_state = cond->del_eval({min_value.get(), max_value.get()});
+                int statisfy_state = cond->cond_eval({min_value.get(), max_value.get()});
                 cond->predicate->set_satisfy_state(statisfy_state);
             }
         }
@@ -248,7 +248,7 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column, CondColumn* de
                                           cond_column)) {
                 bool should_read = true;
                 if (delete_condition != nullptr) {
-                    int state = delete_condition->del_eval({min_value.get(), max_value.get()});
+                    int state = delete_condition->cond_eval({min_value.get(), max_value.get()});
                     if (state == COND_SATISFIED) {
                         should_read = false;
                     }

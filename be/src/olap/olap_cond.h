@@ -76,7 +76,7 @@ public:
     bool eval(const KeyRange& statistic) const;
 
     // 通过单列上的单个删除条件对version进行过滤
-    int del_eval(const KeyRange& stat) const;
+    int cond_eval(const KeyRange& stat) const;
 
     // 通过单列上BloomFilter对block进行过滤
     bool eval(const BloomFilter& bf) const;
@@ -118,7 +118,7 @@ public:
     bool eval(const std::pair<WrapperField*, WrapperField*>& statistic) const;
 
     // Whether the rowset satisfied delete condition
-    int del_eval(const std::pair<WrapperField*, WrapperField*>& statistic) const;
+    int cond_eval(const std::pair<WrapperField*, WrapperField*>& statistic) const;
 
     // 通过一列上的所有BloomFilter索引信息对block进行过滤
     // Return true if the block should be filtered out

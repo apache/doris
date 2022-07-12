@@ -48,10 +48,10 @@ using doris::ColumnStatistics;
 // 2. The filter block is in the SegmentReader.
 // 3. Filter version in Reader. Call delta_pruing_filter
 //
-//del_eval is used to filter deletion conditions, including the filtering of heap block and version, but this filtering has one more state than eval, that is, partial filtering.
+//cond_eval is used to test range condition, especially to filter deletion conditions, including the filtering of heap block and version, but this filtering has one more state than eval, that is, partial filtering.
 // 1. The filtering of rows is in DeleteHandler.
 // This part directly calls delete_condition_eval to achieve, and internally calls the eval function, because the filtering of row does not involve partial filtering.
-// 2. The filter block is in the SegmentReader, call del_eval directly
+// 2. The filter block is in the SegmentReader, call cond_eval directly
 // 3. The filter version is actually in Reader, call rowset_pruning_filter
 
 namespace doris {
@@ -264,7 +264,7 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
     return false;
 }
 
-int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
+int Cond::cond_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
     // When we apply column statistics, stat maybe null.
     if (stat.first == nullptr || stat.second == nullptr) {
         //for string type, the column statistics may be not recorded in block level
@@ -533,7 +533,7 @@ bool CondColumn::eval(const std::pair<WrapperField*, WrapperField*>& statistic) 
     return true;
 }
 
-int CondColumn::del_eval(const std::pair<WrapperField*, WrapperField*>& statistic) const {
+int CondColumn::cond_eval(const std::pair<WrapperField*, WrapperField*>& statistic) const {
     /*
      * the relationship between cond A and B is A & B.
      * if all delete condition is satisfied, the data can be filtered.
@@ -544,7 +544,7 @@ int CondColumn::del_eval(const std::pair<WrapperField*, WrapperField*>& statisti
     bool del_partial_satisfied = false;
     bool COND_NOT_SATISFIED = false;
     for (auto& each_cond : _conds) {
-        int del_ret = each_cond->del_eval(statistic);
+        int del_ret = each_cond->cond_eval(statistic);
         if (COND_SATISFIED == del_ret) {
             continue;
         } else if (COND_PARTIAL_SATISFIED == del_ret) {
@@ -671,7 +671,7 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
             continue;
         }
 
-        int del_ret = cond_it.second->del_eval(zone_maps.at(cond_it.first));
+        int del_ret = cond_it.second->cond_eval(zone_maps.at(cond_it.first));
         if (COND_SATISFIED == del_ret) {
             continue;
         } else if (COND_PARTIAL_SATISFIED == del_ret) {
