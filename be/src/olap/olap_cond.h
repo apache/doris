@@ -26,11 +26,11 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/column_data_file.pb.h"
 #include "olap/bloom_filter.hpp"
+#include "olap/column_predicate.h"
 #include "olap/field.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/stream_index_common.h"
-#include "olap/column_predicate.h"
 namespace doris {
 
 class WrapperField;
@@ -61,15 +61,14 @@ struct FieldEqual {
     }
 };
 
-
-
 // 条件二元组，描述了一个条件的操作类型和操作数(1个或者多个)
 struct Cond {
 public:
     Cond() = default;
     ~Cond();
 
-    Status init(const TCondition& tcond, const TabletColumn& column, ColumnPredicate* predicate=nullptr);
+    Status init(const TCondition& tcond, const TabletColumn& column,
+                ColumnPredicate* predicate = nullptr);
 
     // 用一行数据的指定列同条件进行比较，如果符合过滤条件，
     // 即按照此条件，行应被过滤掉，则返回true，否则返回false
@@ -108,7 +107,8 @@ public:
     }
     ~CondColumn();
 
-    Status add_cond(const TCondition& tcond, const TabletColumn& column, ColumnPredicate* predicate=nullptr);
+    Status add_cond(const TCondition& tcond, const TabletColumn& column,
+                    ColumnPredicate* predicate = nullptr);
 
     // 对一行数据中的指定列，用所有过滤条件进行比较，如果所有条件都满足，则过滤此行
     // Return true means this row should be filtered out, otherwise return false

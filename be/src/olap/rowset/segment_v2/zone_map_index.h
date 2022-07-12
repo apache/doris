@@ -132,6 +132,7 @@ public:
     bool has_segment_zone_map() const { return _index_meta->has_segment_zone_map(); }
 
     const ZoneMapPB& segment_zone_map() const { return _index_meta->segment_zone_map(); }
+
 private:
     io::FileSystem* _fs;
     std::string _path;

@@ -137,13 +137,17 @@ public:
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                       uint16_t size) const override {
         //evaluate by zone_map min/max
-        if (_satisfy_state == COND_SATISFIED){
-            if (_opposite) return 0;
-            else return size;
-        } 
-        if (_satisfy_state == COND_NOT_SATISFIED){
-            if (_opposite) return size;
-            else return 0;
+        if (_satisfy_state == COND_SATISFIED) {
+            if (_opposite)
+                return 0;
+            else
+                return size;
+        }
+        if (_satisfy_state == COND_NOT_SATISFIED) {
+            if (_opposite)
+                return size;
+            else
+                return 0;
         }
 
         if (column.is_nullable()) {
@@ -239,14 +243,18 @@ public:
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
                       bool* flags) const override {
         //evaluate by zone_map min/max
-        if (_satisfy_state == COND_SATISFIED){
-            if (_opposite) memset(flags, 0, size);
-            else memset(flags, 1, size);
+        if (_satisfy_state == COND_SATISFIED) {
+            if (_opposite)
+                memset(flags, 0, size);
+            else
+                memset(flags, 1, size);
             return;
-        } 
-        if (_satisfy_state == COND_NOT_SATISFIED){
-            if (_opposite) memset(flags, 1, size);
-            else memset(flags, 0, size);
+        }
+        if (_satisfy_state == COND_NOT_SATISFIED) {
+            if (_opposite)
+                memset(flags, 1, size);
+            else
+                memset(flags, 0, size);
             return;
         }
         _evaluate_vec_internal<false>(column, size, flags);
@@ -255,11 +263,11 @@ public:
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override {
         //evaluated by zone_map min/max
-        if (_satisfy_state == COND_SATISFIED){
+        if (_satisfy_state == COND_SATISFIED) {
             if (_opposite) memset(flags, 0, size);
             return;
-        } 
-        if (_satisfy_state == COND_NOT_SATISFIED){
+        }
+        if (_satisfy_state == COND_NOT_SATISFIED) {
             if (!_opposite) memset(flags, 0, size);
             return;
         }

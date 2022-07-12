@@ -499,7 +499,8 @@ CondColumn::~CondColumn() {
 }
 
 // PRECONDITION 1. index is valid; 2. at least has one operand
-Status CondColumn::add_cond(const TCondition& tcond, const TabletColumn& column, ColumnPredicate* predicate) {
+Status CondColumn::add_cond(const TCondition& tcond, const TabletColumn& column,
+                            ColumnPredicate* predicate) {
     std::unique_ptr<Cond> cond(new Cond());
     auto res = cond->init(tcond, column, predicate);
     if (!res.ok()) {
