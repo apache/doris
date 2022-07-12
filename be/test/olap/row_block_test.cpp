@@ -318,7 +318,7 @@ TEST_F(TestRowBlock, pos_limit) {
     EXPECT_TRUE(block.has_remaining());
     EXPECT_EQ(97, block.remaining());
 
-    block.set_block_status(DEL_SATISFIED);
-    EXPECT_EQ(DEL_SATISFIED, block.block_status());
+    block.set_block_status(COND_SATISFIED);
+    EXPECT_EQ(COND_SATISFIED, block.block_status());
 }
 } // namespace doris
