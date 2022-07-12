@@ -45,7 +45,7 @@ namespace doris::vectorized {
 const char* UDAF_EXECUTOR_CLASS = "org/apache/doris/udf/UdafExecutor";
 const char* UDAF_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* UDAF_EXECUTOR_CLOSE_SIGNATURE = "()V";
-const char* UDAF_EXECUTOR_DESTROY_SIGNATURE = "(J)V";
+const char* UDAF_EXECUTOR_DESTROY_SIGNATURE = "()V";
 const char* UDAF_EXECUTOR_ADD_SIGNATURE = "(ZJJ)V";
 const char* UDAF_EXECUTOR_SERIALIZE_SIGNATURE = "(J)[B";
 const char* UDAF_EXECUTOR_MERGE_SIGNATURE = "(J[B)V";
@@ -180,10 +180,10 @@ public:
 
     void read(BufferReadable& buf) { read_binary(serialize_data, buf); }
 
-    Status destroy(int64_t place) {
+    Status destroy() {
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf destroy function");
-        env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_destroy_id, place);
+        env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_destroy_id);
         return JniUtil::GetJniExceptionMsg(env);
     }
 
@@ -240,13 +240,6 @@ public:
         return JniUtil::GetJniExceptionMsg(env);
     }
 
-    Status set_create_flag(AggregateDataPtr place, AggregateDataPtr& exec_place,
-                           bool* first_create) {
-        *first_create = false;
-        exec_place = place;
-        return Status::OK();
-    }
-
 private:
     Status register_func_id(JNIEnv* env) {
         auto register_id = [&](const char* func_name, const char* func_sign, jmethodID& func_id) {
@@ -274,6 +267,8 @@ private:
     }
 
 private:
+    // TODO: too many variables are hold, it's causing a lot of memory waste
+    // it's time to refactor it.
     jclass executor_cl;
     jobject executor_obj;
     jmethodID executor_ctor_id;
@@ -320,16 +315,15 @@ public:
             new (place) Data(argument_types.size());
             Status status = Status::OK();
             RETURN_IF_STATUS_ERROR(status, this->data(place).init_udaf(_fn));
-            RETURN_IF_STATUS_ERROR(status,
-                                   this->data(place).set_create_flag(
-                                           place, const_cast<AggregateDataPtr&>(_exec_place),
-                                           const_cast<bool*>(&_first_created)));
+            _first_created = false;
+            _exec_place = place;
         }
     }
 
+    // To avoid multiple times JNI call, Here will destroy all data at once
     void destroy(AggregateDataPtr __restrict place) const noexcept override {
         if (place == _exec_place) {
-            this->data(_exec_place).destroy(reinterpret_cast<int64_t>(place));
+            this->data(_exec_place).destroy();
             this->data(_exec_place).~Data();
         }
     }
@@ -340,8 +334,8 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        LOG(FATAL) << " shouldn't going add function, there maybe some error about function "
-                   << _fn.name.function_name;
+        LOG(WARNING) << " shouldn't going add function, there maybe some error about function "
+                     << _fn.name.function_name;
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
@@ -362,9 +356,10 @@ public:
         this->data(_exec_place).add(places_address, true, columns, 0, batch_size, argument_types);
     }
 
+    // TODO: reset function should be implement also in struct data
     void reset(AggregateDataPtr place) const override {
-        LOG(FATAL) << " shouldn't going reset function, there maybe some error about function "
-                   << _fn.name.function_name;
+        LOG(WARNING) << " shouldn't going reset function, there maybe some error about function "
+                     << _fn.name.function_name;
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -395,8 +390,8 @@ public:
 private:
     TFunction _fn;
     DataTypePtr _return_type;
-    bool _first_created;
-    AggregateDataPtr _exec_place;
+    mutable bool _first_created;
+    mutable AggregateDataPtr _exec_place;
 };
 
 } // namespace doris::vectorized

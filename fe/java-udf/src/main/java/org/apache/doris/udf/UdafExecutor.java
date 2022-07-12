@@ -167,13 +167,14 @@ public class UdafExecutor {
     }
 
     /**
-     * invoke destroy before colse.
+     * invoke destroy before colse. Here we destroy all data at once
      */
-    public void destroy(long place) throws UdfRuntimeException {
+    public void destroy() throws UdfRuntimeException {
         try {
-            Long curPlace = place;
-            allMethods.get(UDAF_DESTROY_FUNCTION).invoke(udaf, stateObjMap.get(curPlace));
-            stateObjMap.remove(curPlace);
+            for (Object obj : stateObjMap.values()) {
+                allMethods.get(UDAF_DESTROY_FUNCTION).invoke(udaf, obj);
+            }
+            stateObjMap.clear();
         } catch (Exception e) {
             throw new UdfRuntimeException("UDAF failed to destroy: ", e);
         }
