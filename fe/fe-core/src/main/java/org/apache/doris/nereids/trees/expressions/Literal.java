@@ -31,18 +31,15 @@ import java.util.Objects;
 public abstract class Literal extends Expression implements LeafExpression {
 
     private final DataType dataType;
-    private final Object value;
 
     /**
      * Constructor for Literal.
      *
-     * @param value    real value stored in java object
      * @param dataType logical data type in Nereids
      */
-    public Literal(Object value, DataType dataType) {
+    public Literal(DataType dataType) {
         super(NodeType.LITERAL);
         this.dataType = dataType;
-        this.value = value;
     }
 
     /**
@@ -52,19 +49,17 @@ public abstract class Literal extends Expression implements LeafExpression {
         if (value == null) {
             return new NullLiteral();
         } else if (value instanceof Integer) {
-            return new IntegerLiteral(value);
+            return new IntegerLiteral((Integer) value);
         } else if (value instanceof Boolean) {
-            return new BooleanLiteral(value);
+            return new BooleanLiteral((Boolean) value);
         } else if (value instanceof String) {
-            return new StringLiteral(value);
+            return new StringLiteral((String) value);
         } else {
             throw new RuntimeException();
         }
     }
 
-    public Object getValue() {
-        return value;
-    }
+    public abstract Object getValue();
 
     @Override
     public DataType getDataType() throws UnboundException {
@@ -73,12 +68,12 @@ public abstract class Literal extends Expression implements LeafExpression {
 
     @Override
     public String toSql() {
-        return value.toString();
+        return String.valueOf(getValue());
     }
 
     @Override
     public boolean nullable() throws UnboundException {
-        return value == null;
+        return this instanceof NullLiteral;
     }
 
     @Override
@@ -100,16 +95,16 @@ public abstract class Literal extends Expression implements LeafExpression {
             return false;
         }
         Literal other = (Literal) o;
-        return Objects.equals(value, other.getValue());
+        return Objects.equals(getValue(), other.getValue());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(value);
+        return Objects.hashCode(getValue());
     }
 
     @Override
     public String toString() {
-        return value.toString();
+        return String.valueOf(getValue());
     }
 }

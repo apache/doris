@@ -17,22 +17,24 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.types.IntegerType;
 
-/**
- * Represents Integer literal
- */
-public class IntegerLiteral extends Literal {
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-    private final int value;
+class LiteralTest {
 
-    public IntegerLiteral(int value) {
-        super(IntegerType.INSTANCE);
-        this.value = value;
-    }
-
-    @Override
-    public Integer getValue() {
-        return value;
+    @Test
+    public void testEqual() {
+        IntegerLiteral one = new IntegerLiteral(1);
+        IntegerLiteral anotherOne = new IntegerLiteral(1);
+        IntegerLiteral two = new IntegerLiteral(2);
+        Assertions.assertNotEquals(one, two);
+        Assertions.assertEquals(one, anotherOne);
+        StringLiteral str1 = new StringLiteral("hello");
+        Assertions.assertNotEquals(str1, one);
+        Assertions.assertTrue(Literal.of("world") instanceof StringLiteral);
+        Assertions.assertTrue(Literal.of(null) instanceof NullLiteral);
+        Assertions.assertTrue(Literal.of(1) instanceof IntegerLiteral);
+        Assertions.assertTrue(Literal.of(false) instanceof BooleanLiteral);
     }
 }

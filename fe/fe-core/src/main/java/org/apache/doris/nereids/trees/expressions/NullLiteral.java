@@ -25,7 +25,7 @@ import org.apache.doris.nereids.types.NullType;
 public class NullLiteral extends Literal {
 
     public NullLiteral() {
-        super(null, NullType.INSTANCE);
+        super(NullType.INSTANCE);
     }
 
     @Override

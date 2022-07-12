@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.types.IntegerType;
 
-import com.google.common.base.Preconditions;
 
 /**
  * Represents Boolean literal
@@ -29,13 +28,15 @@ public class BooleanLiteral extends Literal {
     public static final BooleanLiteral TRUE_LITERAL = new BooleanLiteral(true);
     public static final BooleanLiteral FALSE_LITERAL = new BooleanLiteral(false);
 
-    public BooleanLiteral(Object value) {
-        super(value, IntegerType.INSTANCE);
-        Preconditions.checkState(value instanceof Boolean);
+    private final boolean value;
+
+    public BooleanLiteral(boolean value) {
+        super(IntegerType.INSTANCE);
+        this.value = value;
     }
 
     @Override
     public Boolean getValue() {
-        return (Boolean) super.getValue();
+        return value;
     }
 }

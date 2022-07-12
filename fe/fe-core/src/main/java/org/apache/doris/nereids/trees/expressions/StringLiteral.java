@@ -19,25 +19,25 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.types.StringType;
 
-import com.google.common.base.Preconditions;
-
 /**
  * Represents String literal
  */
 public class StringLiteral extends Literal {
+
+    private final String value;
 
     /**
      * Constructor for Literal.
      *
      * @param value real value stored in java object
      */
-    public StringLiteral(Object value) {
-        super(value, StringType.INSTANCE);
-        Preconditions.checkState(value instanceof Integer);
+    public StringLiteral(String value) {
+        super(StringType.INSTANCE);
+        this.value = value;
     }
 
     @Override
     public String getValue() {
-        return (String) super.getValue();
+        return value;
     }
 }
