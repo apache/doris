@@ -32,7 +32,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Physical filter plan operator.
+ * Physical filter plan.
  */
 public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
 

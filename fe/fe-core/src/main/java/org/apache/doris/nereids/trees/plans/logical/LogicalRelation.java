@@ -34,7 +34,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Logical relation plan operator.
+ * Logical relation plan.
  */
 public abstract class LogicalRelation extends LogicalLeaf {
 

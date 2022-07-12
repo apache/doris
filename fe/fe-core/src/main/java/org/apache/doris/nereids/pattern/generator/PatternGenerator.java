@@ -43,7 +43,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-/** used to generate pattern by operator. */
+/** used to generate pattern by plan. */
 public abstract class PatternGenerator {
     protected final PatternGeneratorAnalyzer analyzer;
     protected final ClassDeclaration opType;
@@ -199,7 +199,7 @@ public abstract class PatternGenerator {
         return parts;
     }
 
-    /** create generator by operator's type. */
+    /** create generator by plan's type. */
     public static Optional<PatternGenerator> create(PatternGeneratorAnalyzer analyzer,
             ClassDeclaration opType, Set<String> parentClass) {
         if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalLeaf")) {

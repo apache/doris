@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Physical sort plan operator.
+ * Physical sort plan.
  */
 public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
     private final long limit;

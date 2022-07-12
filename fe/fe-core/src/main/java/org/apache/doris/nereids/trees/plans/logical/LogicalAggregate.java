@@ -36,7 +36,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Logical Aggregation plan operator.
+ * Logical Aggregate plan.
  * <p>
  * eg:select a, sum(b), c from table group by a, c;
  * groupByExprList: Column field after group by. eg: a, c;
@@ -89,7 +89,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
                             Optional<GroupExpression> groupExpression,
                             Optional<LogicalProperties> logicalProperties,
                             CHILD_TYPE child) {
-        super(PlanType.LOGICAL_AGGREGATION, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_AGGREGATE, groupExpression, logicalProperties, child);
         this.groupByExpressionList = groupByExpressionList;
         this.outputExpressionList = outputExpressionList;
         this.partitionExprList = partitionExprList;
@@ -145,7 +145,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     }
 
     /**
-     * Determine the equality with another operator
+     * Determine the equality with another plan
      */
     public boolean equals(Object o) {
         if (this == o) {

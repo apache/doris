@@ -45,10 +45,10 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
     }
 
     /**
-     * create physical plan by op, logicalProperties and children.
+     * create physical plan by groupExpression, logicalProperties and children.
      *
      * @param type node type
-     * @param groupExpression group expression contains operator
+     * @param groupExpression group expression contains plan
      * @param logicalProperties logical properties of this plan
      * @param children children of this plan
      */

@@ -112,13 +112,13 @@ public class GroupPlan extends LogicalLeaf {
 
     @Override
     public List<Slot> computeOutput() {
-        throw new IllegalStateException("GroupPlanOperator can not compute output."
+        throw new IllegalStateException("GroupPlan can not compute output."
             + " You should invoke GroupPlan.getOutput()");
     }
 
     @Override
     public LogicalProperties computeLogicalProperties(Plan... inputs) {
-        throw new IllegalStateException("GroupPlanOperator can not compute logical properties."
+        throw new IllegalStateException("GroupPlan can not compute logical properties."
             + " You should invoke GroupPlan.getLogicalProperties()");
     }
 

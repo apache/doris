@@ -33,7 +33,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Physical hash join plan operator.
+ * Physical hash join plan.
  */
 public class PhysicalHashJoin<
         LEFT_CHILD_TYPE extends Plan,

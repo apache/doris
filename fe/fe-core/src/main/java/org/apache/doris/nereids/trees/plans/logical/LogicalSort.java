@@ -35,7 +35,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Logical Sort plan operator.
+ * Logical Sort plan.
  * <p>
  * eg: select * from table order by a, b desc;
  * orderKeys: list of column information after order by. eg:[a, asc],[b, desc].

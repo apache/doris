@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Enforcer operator.
+ * Enforcer plan.
  */
 public class PhysicalDistribution<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
 

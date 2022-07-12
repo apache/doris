@@ -86,7 +86,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                 return;
             }
 
-            // toTreeNode will wrap operator to plan, and set GroupPlan as children placeholder
+            // getPlan return the plan with GroupPlan as children
             Plan root = groupExpression.getPlan();
             // pattern.arity() == 0 equals to root.arity() == 0
             if (pattern.arity() == 0) {

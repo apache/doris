@@ -22,7 +22,7 @@ import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
 import java.util.Set;
 import java.util.TreeSet;
 
-/** used to generate pattern for PhysicalUnaryOperator. */
+/** used to generate pattern for PhysicalUnary. */
 public class PhysicalUnaryPatternGenerator extends PatternGenerator {
 
     public PhysicalUnaryPatternGenerator(PatternGeneratorAnalyzer analyzer,

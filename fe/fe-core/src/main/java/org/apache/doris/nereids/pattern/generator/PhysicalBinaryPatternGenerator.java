@@ -23,7 +23,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 
-/** used to generate pattern for PhysicalBinaryOperator. */
+/** used to generate pattern for PhysicalBinary. */
 public class PhysicalBinaryPatternGenerator extends PatternGenerator {
 
     public PhysicalBinaryPatternGenerator(PatternGeneratorAnalyzer analyzer,

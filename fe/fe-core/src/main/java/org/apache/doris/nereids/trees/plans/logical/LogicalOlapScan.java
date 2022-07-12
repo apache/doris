@@ -30,7 +30,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Logical OlapScan operator.
+ * Logical OlapScan.
  */
 public class LogicalOlapScan extends LogicalRelation  {
 

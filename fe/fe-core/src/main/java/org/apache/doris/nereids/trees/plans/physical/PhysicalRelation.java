@@ -30,7 +30,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Abstract class for all physical scan operator.
+ * Abstract class for all physical scan plan.
  */
 public abstract class PhysicalRelation extends PhysicalLeaf {
 

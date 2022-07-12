@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Physical olap scan plan operator.
+ * Physical olap scan plan.
  */
 public class PhysicalOlapScan extends PhysicalRelation {
     private final long selectedIndexId;

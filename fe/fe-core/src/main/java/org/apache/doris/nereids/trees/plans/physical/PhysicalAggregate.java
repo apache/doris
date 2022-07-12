@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Physical aggregation plan operator.
+ * Physical aggregation plan.
  */
 public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
 
@@ -67,7 +67,7 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
                              List<Expression> partitionExprList, AggPhase aggPhase, boolean usingStream,
                              Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                              CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_AGGREGATION, groupExpression, logicalProperties, child);
+        super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, child);
         this.groupByExprList = groupByExprList;
         this.outputExpressionList = outputExpressionList;
         this.aggPhase = aggPhase;

@@ -47,7 +47,7 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
     /**
      * Constructor for plan node.
      *
-     * @param groupExpression group expression related to the operator of this node
+     * @param groupExpression group expression related to the plan of this node
      * @param children children of this node
      */
     public AbstractTreeNode(Optional<GroupExpression> groupExpression, NODE_TYPE... children) {

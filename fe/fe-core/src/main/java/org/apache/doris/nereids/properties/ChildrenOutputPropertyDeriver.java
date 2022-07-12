@@ -54,12 +54,12 @@ public class ChildrenOutputPropertyDeriver extends PlanVisitor<PhysicalPropertie
 
     //    public List<List<PhysicalProperties>> getProperties(GroupExpression groupExpression) {
     //        properties = Lists.newArrayList();
-    //        groupExpression.getOperator().accept(this, new PlanContext(groupExpression));
+    //        groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
     //        return properties;
     //    }
 
     //    @Override
-    //    public Void visitOperator(Operator operator, PlanContext context) {
+    //    public Void visit(Plan plan, PlanContext context) {
     //        List<PhysicalProperties> props = Lists.newArrayList();
     //        for (int childIndex = 0; childIndex < context.getGroupExpression().arity(); ++childIndex) {
     //            props.add(new PhysicalProperties());

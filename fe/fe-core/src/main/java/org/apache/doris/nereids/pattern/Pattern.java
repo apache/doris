@@ -74,7 +74,7 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
      * Constructor for Pattern.
      *
      * @param patternType pattern type to matching
-     * @param planType operator type to matching
+     * @param planType plan type to matching
      * @param predicates custom matching predicate
      * @param children sub pattern
      */
@@ -95,11 +95,11 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
     }
 
     /**
-     * get current type in Operator.
+     * get current type in Plan.
      *
-     * @return operator type in pattern
+     * @return plan type in pattern
      */
-    public PlanType getOperatorType() {
+    public PlanType getPlanType() {
         return planType;
     }
 
@@ -138,10 +138,10 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
     }
 
     /**
-     * Return ture if current Pattern match Operator in params.
+     * Return ture if current Pattern match Plan in params.
      *
      * @param plan wait to match
-     * @return ture if current Pattern match Operator in params
+     * @return ture if current Pattern match Plan in params
      */
     public boolean matchRoot(Plan plan) {
         if (plan == null) {

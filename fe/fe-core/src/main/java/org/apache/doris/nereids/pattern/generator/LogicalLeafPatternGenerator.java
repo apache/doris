@@ -22,30 +22,12 @@ import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
 import java.util.Set;
 import java.util.TreeSet;
 
-/** used to generate pattern for LogicalLeafOperator. */
+/** used to generate pattern for LogicalLeaf. */
 public class LogicalLeafPatternGenerator extends PatternGenerator {
 
     public LogicalLeafPatternGenerator(PatternGeneratorAnalyzer analyzer,
             ClassDeclaration opType, Set<String> parentClass) {
         super(analyzer, opType, parentClass);
-    }
-
-    @Override
-    public String generate() {
-        String planClassName = opType.name;
-        String methodName = getPatternMethodName();
-
-        String patternParam = genericType();
-
-        generateTypePattern(methodName, planClassName, patternParam, "", false);
-
-        for (EnumFieldPatternInfo info : enumFieldPatternInfos) {
-            String predicate = ".when(p -> p." + info.enumInstanceGetter + "() == "
-                    + info.enumType + "." + info.enumInstance + ")";
-            generateTypePattern(info.patternName, planClassName, patternParam, predicate, false);
-        }
-
-        return generatePatterns();
     }
 
     @Override

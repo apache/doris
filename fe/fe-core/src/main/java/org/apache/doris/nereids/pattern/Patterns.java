@@ -60,7 +60,7 @@ public interface Patterns {
         return new PatternDescriptor<>(Pattern.MULTI_GROUP, defaultPromise());
     }
 
-    /* abstract plan operator patterns */
+    /* abstract plan patterns */
 
     /**
      * create a leafPlan pattern.
@@ -107,7 +107,7 @@ public interface Patterns {
         );
     }
 
-    /* abstract logical operator patterns */
+    /* abstract logical plan patterns */
 
     /**
      * create a logicalLeaf pattern.
@@ -162,7 +162,7 @@ public interface Patterns {
         return new PatternDescriptor(new TypePattern(LogicalRelation.class), defaultPromise());
     }
 
-    /* abstract physical operator patterns */
+    /* abstract physical plan patterns */
 
     /**
      * create a physicalLeaf pattern.

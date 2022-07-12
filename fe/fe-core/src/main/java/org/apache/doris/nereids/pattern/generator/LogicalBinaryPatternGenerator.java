@@ -22,7 +22,7 @@ import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
 import java.util.Set;
 import java.util.TreeSet;
 
-/** used to generate pattern for LogicalBinaryOperator. */
+/** used to generate pattern for LogicalBinary. */
 public class LogicalBinaryPatternGenerator extends PatternGenerator {
 
     public LogicalBinaryPatternGenerator(PatternGeneratorAnalyzer analyzer,
