@@ -40,7 +40,7 @@
 #include <csignal>
 #include <ctime>
 
-#include "util/debug_util.h"
+#include "gen_cpp/version.h"
 #ifdef HAVE_UCONTEXT_H
 #include <ucontext.h>
 #endif
@@ -256,9 +256,9 @@ void DumpTimeInfo() {
     formatter.AppendString(" try \"date -d @");
     formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
     formatter.AppendString("\" if you are using GNU date ***\n");
-    formatter.AppendString("*** Current BE version: ");
-    formatter.AppendString(doris::get_build_version(true).c_str());
-    formatter.AppendString("***\n");
+    formatter.AppendString("*** Current BE git commitID: ");
+    formatter.AppendString(DORIS_BUILD_SHORT_HASH);
+    formatter.AppendString(" ***\n");
     g_failure_writer(buf, formatter.num_bytes_written());
 }
 
