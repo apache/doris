@@ -414,4 +414,15 @@ struct RowsetId {
     }
 };
 
+// used for hash-struct of hash_map<RowsetId, Rowset*>.
+struct HashOfRowsetId {
+    size_t operator()(const RowsetId& rowset_id) const {
+        size_t seed = 0;
+        seed = HashUtil::hash64(&rowset_id.hi, sizeof(rowset_id.hi), seed);
+        seed = HashUtil::hash64(&rowset_id.mi, sizeof(rowset_id.mi), seed);
+        seed = HashUtil::hash64(&rowset_id.lo, sizeof(rowset_id.lo), seed);
+        return seed;
+    }
+};
+
 } // namespace doris
