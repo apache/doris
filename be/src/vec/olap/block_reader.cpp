@@ -52,6 +52,7 @@ OLAPStatus BlockReader::_init_collect_iter(const ReaderParams& read_params,
 
     _reader_context.batch_size = _batch_size;
     _reader_context.is_vec = true;
+    _reader_context.tablet_columns_convert_to_null_set = _tablet_columns_convert_to_null_set;
     for (auto& rs_reader : rs_readers) {
         RETURN_NOT_OK(rs_reader->init(&_reader_context));
         OLAPStatus res = _vcollect_iter.add_child(rs_reader);

@@ -117,8 +117,11 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     // merge or union segment iterator
     RowwiseIterator* final_iterator;
     if (config::enable_storage_vectorization && read_context->is_vec) {
-        if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
-            final_iterator = vectorized::new_merge_iterator(iterators, _parent_tracker, read_context->sequence_id_idx, read_context->is_unique);
+        if (read_context->need_ordered_result &&
+            _rowset->rowset_meta()->is_segments_overlapping()) {
+            final_iterator = vectorized::new_merge_iterator(
+                    iterators, _parent_tracker, read_context->sequence_id_idx,
+                    read_context->is_unique, read_context->tablet_columns_convert_to_null_set);
         } else {
             final_iterator = vectorized::new_union_iterator(iterators, _parent_tracker);
         }
