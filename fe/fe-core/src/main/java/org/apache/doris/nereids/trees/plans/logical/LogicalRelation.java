@@ -36,7 +36,7 @@ import java.util.Optional;
 /**
  * Logical relation plan operator.
  */
-public abstract class LogicalRelation extends LogicalLeafPlan {
+public abstract class LogicalRelation extends LogicalLeaf {
 
     protected final Table table;
     protected final List<String> qualifier;

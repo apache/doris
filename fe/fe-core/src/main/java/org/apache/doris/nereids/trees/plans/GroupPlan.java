@@ -22,7 +22,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.statistics.StatisticalType;
@@ -38,7 +38,7 @@ import java.util.Optional;
  * Used in {@link org.apache.doris.nereids.pattern.GroupExpressionMatching.GroupExpressionIterator},
  * as a place-holder when do match root.
  */
-public class GroupPlan extends LogicalLeafPlan {
+public class GroupPlan extends LogicalLeaf {
     private final Group group;
 
     public GroupPlan(Group group) {

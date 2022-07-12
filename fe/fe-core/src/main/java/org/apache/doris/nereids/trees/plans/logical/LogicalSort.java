@@ -41,7 +41,7 @@ import java.util.Optional;
  * orderKeys: list of column information after order by. eg:[a, asc],[b, desc].
  * OrderKey: Contains order expression information and sorting method. Default is ascending.
  */
-public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnaryPlan<CHILD_TYPE> {
+public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
     // Default offset is 0.
     private int offset = 0;
@@ -97,7 +97,7 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnaryPlan<CHILD
     }
 
     @Override
-    public LogicalUnaryPlan<Plan> withChildren(List<Plan> children) {
+    public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalSort<>(orderKeys, children.get(0));
     }

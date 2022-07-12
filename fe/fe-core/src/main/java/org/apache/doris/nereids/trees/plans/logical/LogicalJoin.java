@@ -39,7 +39,7 @@ import java.util.stream.Collectors;
  * Logical join plan operator.
  */
 public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
-        extends LogicalBinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     private final JoinType joinType;
     private final Optional<Expression> condition;
@@ -144,7 +144,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     @Override
-    public LogicalBinaryPlan<Plan, Plan> withChildren(List<Plan> children) {
+    public LogicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalJoin<>(joinType, condition, children.get(0), children.get(1));
     }

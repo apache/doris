@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
 import com.google.common.base.Preconditions;
 
@@ -30,29 +30,30 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Abstract class for all logical plan that have no child.
+ * Abstract class for all logical plan that have one child.
  */
-public abstract class LogicalLeafPlan extends AbstractLogicalPlan implements LeafPlan {
+public abstract class LogicalUnary<CHILD_TYPE extends Plan>
+        extends AbstractLogicalPlan
+        implements UnaryPlan<CHILD_TYPE> {
 
-    public LogicalLeafPlan(PlanType nodeType) {
-        super(nodeType);
+    public LogicalUnary(PlanType type, CHILD_TYPE child) {
+        super(type, child);
     }
 
-    public LogicalLeafPlan(PlanType nodeType, Optional<LogicalProperties> logicalProperties) {
-        super(nodeType, logicalProperties);
+    public LogicalUnary(PlanType type, Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        super(type, logicalProperties, child);
     }
 
-    public LogicalLeafPlan(PlanType nodeType, Optional<GroupExpression> groupExpression,
-                           Optional<LogicalProperties> logicalProperties) {
-        super(nodeType, groupExpression, logicalProperties);
+    public LogicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
+                            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        super(type, groupExpression, logicalProperties, child);
     }
 
-    public abstract List<Slot> computeOutput();
-
+    public abstract List<Slot> computeOutput(Plan input);
 
     @Override
     public LogicalProperties computeLogicalProperties(Plan... inputs) {
-        Preconditions.checkArgument(inputs.length == 0);
-        return new LogicalProperties(() -> computeOutput());
+        Preconditions.checkArgument(inputs.length == 1);
+        return new LogicalProperties(() -> computeOutput(inputs[0]));
     }
 }

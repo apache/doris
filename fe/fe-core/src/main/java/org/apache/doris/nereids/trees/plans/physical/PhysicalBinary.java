@@ -28,18 +28,18 @@ import java.util.Optional;
 /**
  * Abstract class for all physical plan that have two children.
  */
-public abstract class PhysicalBinaryPlan<
+public abstract class PhysicalBinary<
             LEFT_CHILD_TYPE extends Plan,
             RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalPlan
         implements BinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public PhysicalBinaryPlan(PlanType type, LogicalProperties logicalProperties,
+    public PhysicalBinary(PlanType type, LogicalProperties logicalProperties,
                               LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(type, logicalProperties, leftChild, rightChild);
     }
 
-    public PhysicalBinaryPlan(PlanType type, Optional<GroupExpression> groupExpression,
+    public PhysicalBinary(PlanType type, Optional<GroupExpression> groupExpression,
                               LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild,
                               RIGHT_CHILD_TYPE rightChild) {
         super(type, groupExpression, logicalProperties, leftChild, rightChild);

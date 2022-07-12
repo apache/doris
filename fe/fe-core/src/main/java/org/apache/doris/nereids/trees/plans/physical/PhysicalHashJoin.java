@@ -38,7 +38,7 @@ import java.util.Optional;
 public class PhysicalHashJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
-        extends PhysicalBinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     private final JoinType joinType;
 
@@ -94,7 +94,7 @@ public class PhysicalHashJoin<
     }
 
     @Override
-    public PhysicalBinaryPlan<Plan, Plan> withChildren(List<Plan> children) {
+    public PhysicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalHashJoin<>(joinType, condition, logicalProperties, children.get(0), children.get(1));
     }

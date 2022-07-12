@@ -35,7 +35,7 @@ import java.util.Optional;
 /**
  * Logical filter plan operator.
  */
-public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnaryPlan<CHILD_TYPE> {
+public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
     private final Expression predicates;
 
 
@@ -74,7 +74,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnaryPlan<CHI
     }
 
     @Override
-    public LogicalUnaryPlan<Plan> withChildren(List<Plan> children) {
+    public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalFilter<>(predicates, children.get(0));
     }

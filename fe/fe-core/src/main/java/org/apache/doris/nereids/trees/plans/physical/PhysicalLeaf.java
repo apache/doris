@@ -19,25 +19,22 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
 import java.util.Optional;
 
 /**
- * Abstract class for all physical plan that have one child.
+ * Abstract class for all physical plan that have no child.
  */
-public abstract class PhysicalUnaryPlan<CHILD_TYPE extends Plan>
-        extends AbstractPhysicalPlan
-        implements UnaryPlan<CHILD_TYPE> {
+public abstract class PhysicalLeaf extends AbstractPhysicalPlan implements LeafPlan {
 
-    public PhysicalUnaryPlan(PlanType type, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(type, logicalProperties, child);
+    public PhysicalLeaf(PlanType type, LogicalProperties logicalProperties) {
+        super(type, logicalProperties);
     }
 
-    public PhysicalUnaryPlan(PlanType type, Optional<GroupExpression> groupExpression,
-                             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(type, groupExpression, logicalProperties, child);
+    public PhysicalLeaf(PlanType type, Optional<GroupExpression> groupExpression,
+                            LogicalProperties logicalProperties) {
+        super(type, groupExpression, logicalProperties);
     }
 }

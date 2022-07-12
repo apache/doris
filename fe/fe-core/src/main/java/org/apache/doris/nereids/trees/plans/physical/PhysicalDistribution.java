@@ -34,7 +34,7 @@ import java.util.Optional;
 /**
  * Enforcer operator.
  */
-public class PhysicalDistribution<CHILD_TYPE extends Plan> extends PhysicalUnaryPlan<CHILD_TYPE> {
+public class PhysicalDistribution<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
 
     protected DistributionSpec distributionSpec;
 

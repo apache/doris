@@ -37,7 +37,7 @@ import java.util.Optional;
 /**
  * Logical project plan operator.
  */
-public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnaryPlan<CHILD_TYPE> {
+public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
     private final List<NamedExpression> projects;
 
@@ -105,7 +105,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnaryPlan<CH
     }
 
     @Override
-    public LogicalUnaryPlan<Plan> withChildren(List<Plan> children) {
+    public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalProject<>(projects, children.get(0));
     }

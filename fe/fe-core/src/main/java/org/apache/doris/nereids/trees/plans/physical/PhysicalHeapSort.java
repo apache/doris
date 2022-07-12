@@ -34,7 +34,7 @@ import java.util.Optional;
 /**
  * Physical sort plan operator.
  */
-public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnaryPlan<CHILD_TYPE> {
+public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
     private final long limit;
     // Default offset is 0.
     private final int offset;
@@ -84,7 +84,7 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnaryPlan
     }
 
     @Override
-    public PhysicalUnaryPlan<Plan> withChildren(List<Plan> children) {
+    public PhysicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalHeapSort<>(orderKeys, limit, offset, logicalProperties, children.get(0));
     }

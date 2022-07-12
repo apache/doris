@@ -32,7 +32,7 @@ import java.util.Optional;
 /**
  * Abstract class for all physical scan operator.
  */
-public abstract class PhysicalRelation extends PhysicalLeafPlan {
+public abstract class PhysicalRelation extends PhysicalLeaf {
 
     protected final List<String> qualifier;
 

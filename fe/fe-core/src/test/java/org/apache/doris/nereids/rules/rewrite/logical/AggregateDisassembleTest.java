@@ -38,7 +38,7 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -93,9 +93,9 @@ public class AggregateDisassembleTest {
 
         Plan after = memo.copyOut();
 
-        Assertions.assertTrue(after instanceof LogicalUnaryPlan);
+        Assertions.assertTrue(after instanceof LogicalUnary);
         Assertions.assertTrue(after instanceof LogicalAggregate);
-        Assertions.assertTrue(after.child(0) instanceof LogicalUnaryPlan);
+        Assertions.assertTrue(after.child(0) instanceof LogicalUnary);
         LogicalAggregate<Plan> global = (LogicalAggregate) after;
         LogicalAggregate<Plan> local = (LogicalAggregate) after.child(0);
         Assertions.assertEquals(AggPhase.GLOBAL, global.getAggPhase());
@@ -162,9 +162,9 @@ public class AggregateDisassembleTest {
 
         Plan after = memo.copyOut();
 
-        Assertions.assertTrue(after instanceof LogicalUnaryPlan);
+        Assertions.assertTrue(after instanceof LogicalUnary);
         Assertions.assertTrue(after instanceof LogicalAggregate);
-        Assertions.assertTrue(after.child(0) instanceof LogicalUnaryPlan);
+        Assertions.assertTrue(after.child(0) instanceof LogicalUnary);
         LogicalAggregate<Plan> global = (LogicalAggregate) after;
         LogicalAggregate<Plan> local = (LogicalAggregate) after.child(0);
         Assertions.assertEquals(AggPhase.GLOBAL, global.getAggPhase());
@@ -229,9 +229,9 @@ public class AggregateDisassembleTest {
 
         Plan after = memo.copyOut();
 
-        Assertions.assertTrue(after instanceof LogicalUnaryPlan);
+        Assertions.assertTrue(after instanceof LogicalUnary);
         Assertions.assertTrue(after instanceof LogicalAggregate);
-        Assertions.assertTrue(after.child(0) instanceof LogicalUnaryPlan);
+        Assertions.assertTrue(after.child(0) instanceof LogicalUnary);
         LogicalAggregate<Plan> global = (LogicalAggregate) after;
         LogicalAggregate<Plan> local = (LogicalAggregate) after.child(0);
         Assertions.assertEquals(AggPhase.GLOBAL, global.getAggPhase());
@@ -285,9 +285,9 @@ public class AggregateDisassembleTest {
 
         Plan after = memo.copyOut();
 
-        Assertions.assertTrue(after instanceof LogicalUnaryPlan);
+        Assertions.assertTrue(after instanceof LogicalUnary);
         Assertions.assertTrue(after instanceof LogicalAggregate);
-        Assertions.assertTrue(after.child(0) instanceof LogicalUnaryPlan);
+        Assertions.assertTrue(after.child(0) instanceof LogicalUnary);
         LogicalAggregate<Plan> global = (LogicalAggregate) after;
         LogicalAggregate<Plan> local = (LogicalAggregate) after.child(0);
         Assertions.assertEquals(AggPhase.GLOBAL, global.getAggPhase());

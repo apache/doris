@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -39,7 +39,7 @@ import java.util.Optional;
 /**
  * Represent a relation plan node that has not been bound.
  */
-public class UnboundRelation extends LogicalLeafPlan implements Unbound {
+public class UnboundRelation extends LogicalLeaf implements Unbound {
     private final List<String> nameParts;
 
     public UnboundRelation(List<String> nameParts) {

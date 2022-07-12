@@ -35,7 +35,7 @@ import java.util.Optional;
 /**
  * Physical project plan operator.
  */
-public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnaryPlan<CHILD_TYPE> {
+public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
 
     private final List<NamedExpression> projects;
 
@@ -69,7 +69,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnaryPlan<
     }
 
     @Override
-    public PhysicalUnaryPlan<Plan> withChildren(List<Plan> children) {
+    public PhysicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalProject<>(projects, logicalProperties, children.get(0));
     }

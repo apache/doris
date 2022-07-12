@@ -35,7 +35,7 @@ import java.util.Optional;
 /**
  * Physical aggregation plan operator.
  */
-public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnaryPlan<CHILD_TYPE> {
+public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
 
     private final List<Expression> groupByExprList;
 
@@ -114,7 +114,7 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnaryPla
     }
 
     @Override
-    public PhysicalUnaryPlan<Plan> withChildren(List<Plan> children) {
+    public PhysicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalAggregate<>(groupByExprList, outputExpressionList, partitionExprList, aggPhase,
             usingStream, logicalProperties, children.get(0));

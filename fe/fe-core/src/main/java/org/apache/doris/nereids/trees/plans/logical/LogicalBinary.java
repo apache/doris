@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
 import com.google.common.base.Preconditions;
 
@@ -30,30 +30,34 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Abstract class for all logical plan that have one child.
+ * Abstract class for all logical plan that have two children.
  */
-public abstract class LogicalUnaryPlan<CHILD_TYPE extends Plan>
+public abstract class LogicalBinary<
+            LEFT_CHILD_TYPE extends Plan,
+            RIGHT_CHILD_TYPE extends Plan>
         extends AbstractLogicalPlan
-        implements UnaryPlan<CHILD_TYPE> {
+        implements BinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public LogicalUnaryPlan(PlanType type, CHILD_TYPE child) {
-        super(type, child);
+    public LogicalBinary(PlanType type, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(type, Optional.empty(), leftChild, rightChild);
     }
 
-    public LogicalUnaryPlan(PlanType type, Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(type, logicalProperties, child);
+    public LogicalBinary(PlanType type, Optional<LogicalProperties> logicalProperties,
+                             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(type, logicalProperties, leftChild, rightChild);
     }
 
-    public LogicalUnaryPlan(PlanType type, Optional<GroupExpression> groupExpression,
-                            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(type, groupExpression, logicalProperties, child);
+    public LogicalBinary(PlanType type, Optional<GroupExpression> groupExpression,
+                             Optional<LogicalProperties> logicalProperties, LEFT_CHILD_TYPE leftChild,
+                             RIGHT_CHILD_TYPE rightChild) {
+        super(type, groupExpression, logicalProperties, leftChild, rightChild);
     }
 
-    public abstract List<Slot> computeOutput(Plan input);
+    public abstract List<Slot> computeOutput(Plan left, Plan right);
 
     @Override
-    public LogicalProperties computeLogicalProperties(Plan... inputs) {
-        Preconditions.checkArgument(inputs.length == 1);
-        return new LogicalProperties(() -> computeOutput(inputs[0]));
+    public final LogicalProperties computeLogicalProperties(Plan... inputs) {
+        Preconditions.checkArgument(inputs.length == 2);
+        return new LogicalProperties(() -> computeOutput(inputs[0], inputs[1]));
     }
 }

@@ -202,17 +202,17 @@ public abstract class PatternGenerator {
     /** create generator by operator's type. */
     public static Optional<PatternGenerator> create(PatternGeneratorAnalyzer analyzer,
             ClassDeclaration opType, Set<String> parentClass) {
-        if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan")) {
+        if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalLeaf")) {
             return Optional.of(new LogicalLeafPatternGenerator(analyzer, opType, parentClass));
-        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan")) {
+        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalUnary")) {
             return Optional.of(new LogicalUnaryPatternGenerator(analyzer, opType, parentClass));
-        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan")) {
+        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalBinary")) {
             return Optional.of(new LogicalBinaryPatternGenerator(analyzer, opType, parentClass));
-        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan")) {
+        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.physical.PhysicalLeaf")) {
             return Optional.of(new PhysicalLeafPatternGenerator(analyzer, opType, parentClass));
-        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.physical.PhysicalUnaryPlan")) {
+        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.physical.PhysicalUnary")) {
             return Optional.of(new PhysicalUnaryPatternGenerator(analyzer, opType, parentClass));
-        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan")) {
+        } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.physical.PhysicalBinary")) {
             return Optional.of(new PhysicalBinaryPatternGenerator(analyzer, opType, parentClass));
         } else {
             return Optional.empty();
