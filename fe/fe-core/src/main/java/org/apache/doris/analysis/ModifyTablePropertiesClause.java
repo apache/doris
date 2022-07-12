@@ -33,11 +33,11 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
     private Map<String, String> properties;
 
     public String getStoragePolicy() {
-        return storagePolicy;
+        return this.storagePolicy;
     }
 
     public void setStoragePolicy(String storagePolicy) {
-        storagePolicy = storagePolicy;
+        this.storagePolicy = storagePolicy;
     }
 
     private String storagePolicy;
