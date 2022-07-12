@@ -139,8 +139,13 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     bool has_bf_columns = false;
     for (TColumn tcolumn : tablet_schema.columns) {
         ColumnPB* column = schema->add_column();
-        uint32_t unique_id = col_ordinal_to_unique_id.at(col_ordinal++);
-        _init_column_from_tcolumn(unique_id, tcolumn, column);
+        uint32_t unique_id = -1;
+        if (tcolumn.col_unique_id >= 0) {
+            unique_id = tcolumn.col_unique_id;
+        } else {
+            unique_id = col_ordinal_to_unique_id.at(col_ordinal++);
+        }
+        init_column_from_tcolumn(unique_id, tcolumn, column);
 
         if (column->is_key()) {
             ++key_count;
@@ -200,11 +205,12 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _storage_medium(b._storage_medium),
           _cooldown_resource(b._cooldown_resource) {};
 
-void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
-                                           ColumnPB* column) {
+void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
+                                          ColumnPB* column) {
     column->set_unique_id(unique_id);
+    column->set_col_unique_id(tcolumn.col_unique_id);
     column->set_name(tcolumn.column_name);
-    column->set_has_bitmap_index(false);
+    column->set_has_bitmap_index(tcolumn.has_bitmap_index);
     string data_type;
     EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
     column->set_type(data_type);
@@ -243,7 +249,7 @@ void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tc
     }
     if (tcolumn.column_type.type == TPrimitiveType::ARRAY) {
         ColumnPB* children_column = column->add_children_columns();
-        _init_column_from_tcolumn(0, tcolumn.children_column[0], children_column);
+        init_column_from_tcolumn(0, tcolumn.children_column[0], children_column);
     }
 }
 

@@ -47,7 +47,7 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segme
 
 Segment::Segment(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
                  const TabletSchema* tablet_schema)
-        : _fs(fs), _path(path), _segment_id(segment_id), _tablet_schema(tablet_schema) {
+        : _fs(fs), _path(path), _segment_id(segment_id), _tablet_schema(*tablet_schema) {
 #ifndef BE_TEST
     _mem_tracker = StorageEngine::instance()->tablet_mem_tracker();
 #else
@@ -177,16 +177,16 @@ Status Segment::_create_column_readers() {
         _column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
     }
 
-    _column_readers.resize(_tablet_schema->columns().size());
-    for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
-        auto& column = _tablet_schema->columns()[ordinal];
+    _column_readers.resize(_tablet_schema.columns().size());
+    for (uint32_t ordinal = 0; ordinal < _tablet_schema.num_columns(); ++ordinal) {
+        auto& column = _tablet_schema.columns()[ordinal];
         auto iter = _column_id_to_footer_ordinal.find(column.unique_id());
         if (iter == _column_id_to_footer_ordinal.end()) {
             continue;
         }
 
         ColumnReaderOptions opts;
-        opts.kept_in_memory = _tablet_schema->is_in_memory();
+        opts.kept_in_memory = _tablet_schema.is_in_memory();
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, _footer.columns(iter->second),
                                              _footer.num_rows(), _fs, _path, &reader));
@@ -197,7 +197,7 @@ Status Segment::_create_column_readers() {
 
 Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
     if (_column_readers[cid] == nullptr) {
-        const TabletColumn& tablet_column = _tablet_schema->column(cid);
+        const TabletColumn& tablet_column = _tablet_schema.column(cid);
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
         }

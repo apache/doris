@@ -485,6 +485,11 @@ Status DataDir::load() {
                           << " schema hash: " << rowset_meta->tablet_schema_hash()
                           << " for txn: " << rowset_meta->txn_id();
             }
+            if (!rowset_meta->get_rowset_pb().has_tablet_schema()) {
+                rowset_meta->set_tablet_schema(&tablet->tablet_schema());
+                RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(),
+                                        rowset_meta->get_rowset_pb());
+            }
         } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
                    rowset_meta->tablet_uid() == tablet->tablet_uid()) {
             Status publish_status = tablet->add_rowset(rowset);
@@ -506,6 +511,15 @@ Status DataDir::load() {
             ++invalid_rowset_counter;
         }
     }
+
+    for (int64_t tablet_id : tablet_ids) {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet && tablet->set_tablet_schema_into_rowset_meta()) {
+            TabletMetaManager::save(this, tablet->tablet_id(), tablet->schema_hash(),
+                                    tablet->tablet_meta());
+        }
+    }
+
     // At startup, we only count these invalid rowset, but do not actually delete it.
     // The actual delete operation is in StorageEngine::_clean_unused_rowset_metas,
     // which is cleaned up uniformly by the background cleanup thread.
