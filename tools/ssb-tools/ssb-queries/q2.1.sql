@@ -23,4 +23,4 @@ WHERE
     AND p_category = 'MFGR#12'
     AND s_region = 'AMERICA'
 GROUP BY d_year, p_brand
-ORDER BY d_year, p_brand;
+ORDER BY p_brand;

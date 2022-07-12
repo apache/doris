@@ -83,6 +83,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     private static final String HIVE_DEFAULT_LINE_DELIMITER = "\n";
 
+    // Just for explain
+    private int inputSplitsNum = 0;
+    private long totalFileSize = 0;
+
     private static class ParamCreateContext {
         public TFileScanRangeParams params;
         public TupleDescriptor srcTupleDescriptor;
@@ -276,6 +280,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
         if (0 == inputSplits.length) {
             return;
         }
+        inputSplitsNum = inputSplits.length;
 
         String fullPath = ((FileSplit) inputSplits[0]).getPath().toUri().toString();
         String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
@@ -287,6 +292,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         for (InputSplit split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
+            totalFileSize += split.getLength();
 
             List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
                     partitionKeys);
@@ -385,17 +391,19 @@ public class ExternalFileScanNode extends ExternalScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix).append("TABLE: ")
-                .append(hmsTable.getDbName()).append(".").append(hmsTable.getName()).append("\n")
-                .append(prefix).append("HIVE URL: ").append(scanProvider.getMetaStoreUrl()).append("\n");
+        output.append(prefix).append("table: ").append(hmsTable.getDbName()).append(".").append(hmsTable.getName())
+                .append("\n").append(prefix).append("hms url: ").append(scanProvider.getMetaStoreUrl()).append("\n");
 
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
+            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");
             output.append(getRuntimeFilterExplainString(false));
         }
+
+        output.append(prefix).append("inputSplitNum=").append(inputSplitsNum).append(", totalFileSize=")
+                .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
 
         output.append(prefix);
         if (cardinality > 0) {
@@ -409,3 +417,4 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return output.toString();
     }
 }
+

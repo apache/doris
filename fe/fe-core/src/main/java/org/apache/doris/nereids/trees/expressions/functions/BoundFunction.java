@@ -22,14 +22,13 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
 /** BoundFunction. */
-public class BoundFunction extends Expression {
-    private String name;
+public abstract class BoundFunction extends Expression {
+    private final String name;
 
     public BoundFunction(String name, Expression... arguments) {
         super(NodeType.BOUND_FUNCTION, arguments);
@@ -67,10 +66,10 @@ public class BoundFunction extends Expression {
     }
 
     @Override
-    public String sql() throws UnboundException {
+    public String toSql() throws UnboundException {
         String args = children()
                 .stream()
-                .map(Expression::sql)
+                .map(Expression::toSql)
                 .collect(Collectors.joining(", "));
         return name + "(" + args + ")";
     }
@@ -82,14 +81,5 @@ public class BoundFunction extends Expression {
                 .map(Expression::toString)
                 .collect(Collectors.joining(", "));
         return name + "(" + args + ")";
-    }
-
-    @Override
-    public BoundFunction clone() {
-        List<Expression> paramList = new ArrayList<>();
-        for (Expression param : getArguments()) {
-            paramList.add(param.clone());
-        }
-        return new BoundFunction(this.name, paramList.toArray(new Expression[0]));
     }
 }

@@ -32,11 +32,9 @@ import java.util.List;
 /**
  * Expression for unbound alias.
  */
-public class UnboundAlias<CHILD_TYPE extends Expression>
-        extends NamedExpression
-        implements UnaryExpression<CHILD_TYPE>, Unbound {
+public class UnboundAlias extends NamedExpression implements UnaryExpression, Unbound {
 
-    public UnboundAlias(CHILD_TYPE child) {
+    public UnboundAlias(Expression child) {
         super(NodeType.UNBOUND_ALIAS, child);
     }
 
@@ -58,6 +56,6 @@ public class UnboundAlias<CHILD_TYPE extends Expression>
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new UnboundAlias<>(children.get(0));
+        return new UnboundAlias(children.get(0));
     }
 }

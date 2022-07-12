@@ -18,21 +18,17 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.jobs.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.OptimizeRulesJob;
-import org.apache.doris.nereids.jobs.PredicatePushDownRulesJob;
+import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
+import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
+import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
+import org.apache.doris.nereids.jobs.batch.PredicatePushDownRulesJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -47,12 +43,9 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -81,33 +74,14 @@ public class NereidsPlanner extends Planner {
 
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
-        physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
+        PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
 
         scanNodeList = planTranslatorContext.getScanNodeList();
         descTable = planTranslatorContext.getDescTable();
         fragments = new ArrayList<>(planTranslatorContext.getPlanFragmentList());
-        for (PlanFragment fragment : fragments) {
-            fragment.finalize(queryStmt);
-        }
-        Collections.reverse(fragments);
-        PlanFragment root = fragments.get(0);
 
-        // compute output exprs
-        Map<Integer, Expr> outputCandidates = Maps.newHashMap();
-        List<Expr> outputExprs = Lists.newArrayList();
-        for (TupleId tupleId : root.getPlanRoot().getTupleIds()) {
-            TupleDescriptor tupleDescriptor = descTable.getTupleDesc(tupleId);
-            for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
-                SlotRef slotRef = new SlotRef(slotDescriptor);
-                outputCandidates.put(slotDescriptor.getId().asInt(), slotRef);
-            }
-        }
-        physicalPlan.getOutput().stream()
-                .forEach(i -> outputExprs.add(planTranslatorContext.findExpr(i)));
-        root.setOutputExprs(outputExprs);
-        root.getPlanRoot().convertToVectoriezd();
-
-        logicalPlanAdapter.setResultExprs(outputExprs);
+        // set output exprs
+        logicalPlanAdapter.setResultExprs(root.getOutputExprs());
         ArrayList<String> columnLabelList = physicalPlan.getOutput().stream()
                 .map(NamedExpression::getName).collect(Collectors.toCollection(ArrayList::new));
         logicalPlanAdapter.setColLabels(columnLabelList);
@@ -146,6 +120,9 @@ public class NereidsPlanner extends Planner {
 
         PredicatePushDownRulesJob predicatePushDownRulesJob = new PredicatePushDownRulesJob(plannerContext);
         predicatePushDownRulesJob.execute();
+
+        DisassembleRulesJob disassembleRulesJob = new DisassembleRulesJob(plannerContext);
+        disassembleRulesJob.execute();
 
         OptimizeRulesJob optimizeRulesJob = new OptimizeRulesJob(plannerContext);
         optimizeRulesJob.execute();

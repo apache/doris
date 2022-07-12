@@ -30,8 +30,7 @@ import java.util.List;
 /**
  * Expression for alias, such as col1 as c1.
  */
-public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
-        implements UnaryExpression<CHILD_TYPE> {
+public class Alias extends NamedExpression implements UnaryExpression {
 
     private final ExprId exprId;
     private final String name;
@@ -43,9 +42,13 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
      * @param child expression that alias represents for
      * @param name alias name
      */
-    public Alias(CHILD_TYPE child, String name) {
+    public Alias(Expression child, String name) {
+        this(NamedExpressionUtil.newExprId(), child, name);
+    }
+
+    private Alias(ExprId exprId, Expression child, String name) {
         super(NodeType.ALIAS, child);
-        this.exprId = NamedExpressionUtil.newExprId();
+        this.exprId = exprId;
         this.name = name;
         this.qualifier = ImmutableList.of();
     }
@@ -76,8 +79,8 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     }
 
     @Override
-    public String sql() {
-        return null;
+    public String toSql() {
+        return child().toSql() + " AS `" + name + "`";
     }
 
     @Override
@@ -87,13 +90,7 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
 
     @Override
     public String toString() {
-        return child().toString() + " AS " + name;
-    }
-
-    @Override
-    public Alias<CHILD_TYPE> clone() {
-        CHILD_TYPE childType = (CHILD_TYPE) children.get(0).clone();
-        return new Alias<>(childType, name);
+        return child().toString() + " AS `" + name + "`#" + exprId;
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -103,7 +100,7 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Alias<>(children.get(0), name);
+        return new Alias(exprId, children.get(0), name);
     }
 
 }

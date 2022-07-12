@@ -44,7 +44,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         throw new UnboundException("dataType");
     }
 
-    public String sql() throws UnboundException {
+    public String toSql() throws UnboundException {
         throw new UnboundException("sql");
     }
 
@@ -75,16 +75,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
      * Whether the expression is a constant.
      */
     public boolean isConstant() {
-        for (Expression child : children()) {
-            if (child.isConstant()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public Expression clone() {
-        throw new RuntimeException("Unimplemented method");
+        return children().stream().anyMatch(Expression::isConstant);
     }
 
     @Override
@@ -97,5 +88,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         }
         Expression that = (Expression) o;
         return Objects.equals(children(), that.children());
+    }
+
+    @Override
+    public int hashCode() {
+        return 0;
     }
 }

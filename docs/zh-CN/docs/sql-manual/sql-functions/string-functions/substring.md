@@ -54,6 +54,13 @@ mysql> select substring('abc1', -2);
 | c1                          |
 +-----------------------------+
 
+mysql> select substring('abc1', 0);
++----------------------+
+| substring('abc1', 0) |
++----------------------+
+|                      |
++----------------------+
+
 mysql> select substring('abc1', 5);
 +-----------------------------+
 | substring('abc1', 5)        |
@@ -69,4 +76,4 @@ mysql> select substring('abc1def', 2, 2);
 +-----------------------------+
 ```
 ### keywords
-SUBSTRING
+SUBSTRING, STRING

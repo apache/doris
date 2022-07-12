@@ -29,10 +29,9 @@ import java.util.Objects;
 /**
  * Not expression: not a.
  */
-public class Not<CHILD_TYPE extends Expression> extends Expression
-        implements UnaryExpression<CHILD_TYPE> {
+public class Not extends Expression implements UnaryExpression {
 
-    public Not(CHILD_TYPE child) {
+    public Not(Expression child) {
         super(NodeType.NOT, child);
     }
 
@@ -54,7 +53,7 @@ public class Not<CHILD_TYPE extends Expression> extends Expression
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        Not<Expression> other = (Not) o;
+        Not other = (Not) o;
         return Objects.equals(child(), other.child());
     }
 
@@ -64,8 +63,8 @@ public class Not<CHILD_TYPE extends Expression> extends Expression
     }
 
     @Override
-    public Not<Expression> withChildren(List<Expression> children) {
+    public Not withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Not<>(children.get(0));
+        return new Not(children.get(0));
     }
 }

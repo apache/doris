@@ -56,7 +56,7 @@ public class AnalyzeUtils {
                 new RewriteBottomUpJob(memo.getRoot(), new BindSlotReference().buildRules(), jobContext));
         plannerContext.pushJob(
                 new RewriteBottomUpJob(memo.getRoot(), new BindRelation().buildRules(), jobContext));
-        jobContext.getPlannerContext().getJobScheduler().executeJobPool(plannerContext);
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
         return (LogicalPlan) memo.copyOut();
     }
 }

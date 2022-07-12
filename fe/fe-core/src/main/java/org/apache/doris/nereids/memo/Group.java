@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -50,6 +51,7 @@ public class Group {
     private double costLowerBound = -1;
     private boolean isExplored = false;
     private boolean hasCost = false;
+    private StatsDeriveResult statistics;
 
     /**
      * Constructor for Group.
@@ -134,6 +136,35 @@ public class Group {
     public void setCostLowerBound(double costLowerBound) {
         this.costLowerBound = costLowerBound;
     }
+
+    /**
+     * Set or update lowestCostPlans: properties --> new Pair<>(cost, expression)
+     */
+    public void setBestPlan(GroupExpression expression, double cost, PhysicalProperties properties) {
+        if (lowestCostPlans.containsKey(properties)) {
+            if (lowestCostPlans.get(properties).first > cost) {
+                lowestCostPlans.put(properties, new Pair<>(cost, expression));
+            }
+        } else {
+            lowestCostPlans.put(properties, new Pair<>(cost, expression));
+        }
+    }
+
+    public GroupExpression getBestExpression(PhysicalProperties properties) {
+        if (lowestCostPlans.containsKey(properties)) {
+            return lowestCostPlans.get(properties).second;
+        }
+        return null;
+    }
+
+    public StatsDeriveResult getStatistics() {
+        return statistics;
+    }
+
+    public void setStatistics(StatsDeriveResult statistics) {
+        this.statistics = statistics;
+    }
+
 
     public List<GroupExpression> getLogicalExpressions() {
         return logicalExpressions;
