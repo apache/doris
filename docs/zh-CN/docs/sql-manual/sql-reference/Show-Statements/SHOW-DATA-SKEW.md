@@ -1,6 +1,6 @@
 ---
 {
-"title": "SHOW DATA SKEW",
+"title": "SHOW-DATA-SKEW",
 "language": "zh-CN"
 }
 ---
@@ -24,8 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SHOW DATA SKEW
-## description
+## SHOW-DATA-SKEW
+
+### Name
+
+SHOW DATA SKEW
+
+### Description
 
     该语句用于查看表或某个分区的数据倾斜情况。
 
@@ -38,12 +43,14 @@ under the License.
         1. 必须指定且仅指定一个分区。对于非分区表，分区名称同表名。
         2. 结果将展示指定分区下，各个分桶的数据行数，数据量，以及每个分桶数据量在总数据量中的占比。
 
-## example
+### Example
 
     1. 查看表的数据倾斜情况
 
         SHOW DATA SKEW FROM db1.test PARTITION(p1);
 
-## keyword
+### Keywords
 
     SHOW,DATA,SKEW
+
+### Best Practice
