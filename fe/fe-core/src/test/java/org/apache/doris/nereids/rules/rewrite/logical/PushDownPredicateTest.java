@@ -60,7 +60,7 @@ import java.util.Optional;
  * plan rewrite ut.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class PushDownPredicateTest implements Plans {
+public class PushDownPredicateTest {
 
     private Table student;
     private Table score;

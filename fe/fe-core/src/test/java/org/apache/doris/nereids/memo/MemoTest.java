@@ -28,7 +28,7 @@ import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class MemoTest implements Plans {
+public class MemoTest {
     @Test
     public void testInitialize() {
         UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));

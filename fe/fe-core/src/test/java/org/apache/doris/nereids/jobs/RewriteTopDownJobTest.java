@@ -59,18 +59,7 @@ public class RewriteTopDownJobTest {
                                 new Column("id", Type.INT),
                                 new Column("name", Type.STRING)
                         ));
-                        return new LogicalRelation(PlanType.LOGICAL_OLAP_SCAN,
-                                olapTable, Lists.newArrayList("test")) {
-                            @Override
-                            public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-                                return null;
-                            }
-
-                            @Override
-                            public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-                                return null;
-                            }
-                        };
+                        return new LogicalBoundRelation(olapTable, Lists.newArrayList("test"));
                     }
                 ).toRule(RuleType.BINDING_RELATION);
         }
@@ -115,5 +104,27 @@ public class RewriteTopDownJobTest {
         Assertions.assertEquals(1, leafGroup.getLogicalExpressions().size());
         GroupExpression leafGroupExpression = leafGroup.getLogicalExpression();
         Assertions.assertEquals(PlanType.LOGICAL_BOUND_RELATION, leafGroupExpression.getPlan().getType());
+    }
+
+    private static class LogicalBoundRelation extends LogicalRelation {
+
+        public LogicalBoundRelation(Table table, List<String> qualifier) {
+            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier);
+        }
+
+        public LogicalBoundRelation(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
+                Optional<LogicalProperties> logicalProperties) {
+            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier, groupExpression, logicalProperties);
+        }
+
+        @Override
+        public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+            return new LogicalBoundRelation(table, qualifier, groupExpression, Optional.of(logicalProperties));
+        }
+
+        @Override
+        public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+            return new LogicalBoundRelation(table, qualifier, Optional.empty(), logicalProperties);
+        }
     }
 }

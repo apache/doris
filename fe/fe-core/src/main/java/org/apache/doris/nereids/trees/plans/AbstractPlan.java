@@ -44,7 +44,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     protected final LogicalProperties logicalProperties;
 
     public AbstractPlan(PlanType type, Plan... children) {
-        this(type, Optional.empty(), null, children);
+        this(type, Optional.empty(), Optional.empty(), children);
     }
 
     public AbstractPlan(PlanType type, Optional<LogicalProperties> optLogicalProperties, Plan... children) {

@@ -41,7 +41,7 @@ import org.junit.jupiter.api.Assertions;
 import java.util.List;
 import java.util.Optional;
 
-public class TestPlanOutput implements Plans {
+public class TestPlanOutput {
     @Test
     public void testComputeOutput() {
         Table table = new Table(0L, "a", Table.TableType.OLAP, ImmutableList.<Column>of(

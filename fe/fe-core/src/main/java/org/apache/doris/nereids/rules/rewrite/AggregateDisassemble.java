@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -33,7 +33,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -140,7 +139,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
 
     @SuppressWarnings("InnerClassMayBeStatic")
     private static class ExpressionReplacer
-            extends ExpressionVisitor<Expression, Map<Expression, Expression>> {
+            extends DefaultExpressionRewriter<Map<Expression, Expression>> {
         private static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
 
         @Override
@@ -152,16 +151,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             if (substitutionMap.containsKey(expr)) {
                 return substitutionMap.get(expr);
             } else {
-                List<Expression> newChildren = new ArrayList<>();
-                boolean hasNewChildren = false;
-                for (Expression child : expr.children()) {
-                    Expression newChild = visit(child, substitutionMap);
-                    if (newChild != child) {
-                        hasNewChildren = true;
-                    }
-                    newChildren.add(newChild);
-                }
-                return hasNewChildren ? expr.withChildren(newChildren) : expr;
+                return super.visit(expr, substitutionMap);
             }
         }
     }

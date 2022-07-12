@@ -51,7 +51,7 @@ import org.junit.jupiter.api.TestInstance;
 import java.util.List;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class AggregateDisassembleTest implements Plans {
+public class AggregateDisassembleTest {
     private Plan rStudent;
 
     @BeforeAll

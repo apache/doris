@@ -43,8 +43,17 @@ public class UnboundRelation extends LogicalLeafPlan implements Unbound {
     private final List<String> nameParts;
 
     public UnboundRelation(List<String> nameParts) {
-        super(PlanType.LOGICAL_UNBOUND_RELATION);
+        this(nameParts, Optional.empty(), Optional.empty());
+    }
+
+    public UnboundRelation(List<String> nameParts, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties) {
+        super(PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = nameParts;
+    }
+
+    public UnboundRelation(TableIdentifier identifier) {
+        this(identifier, Optional.empty(), Optional.empty());
     }
 
     /**
@@ -52,8 +61,9 @@ public class UnboundRelation extends LogicalLeafPlan implements Unbound {
      *
      * @param identifier relation identifier
      */
-    public UnboundRelation(TableIdentifier identifier) {
-        super(PlanType.LOGICAL_UNBOUND_RELATION);
+    public UnboundRelation(TableIdentifier identifier, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties) {
+        super(PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = Lists.newArrayList();
         if (identifier.getDatabaseName().isPresent()) {
             nameParts.add(identifier.getDatabaseName().get());
@@ -77,12 +87,12 @@ public class UnboundRelation extends LogicalLeafPlan implements Unbound {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return null;
+        return new UnboundRelation(nameParts, groupExpression, Optional.of(logicalProperties));
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return null;
+        return new UnboundRelation(nameParts, Optional.empty(), logicalProperties);
     }
 
     @Override

@@ -36,7 +36,7 @@ import org.junit.Test;
 
 import java.util.List;
 
-public class LogicalProjectToPhysicalProjectTest implements Plans {
+public class LogicalProjectToPhysicalProjectTest {
     @Test
     public void projectionImplTest(@Mocked Group group) {
         Plan plan = new LogicalProject(Lists.newArrayList(), new GroupPlan(group));

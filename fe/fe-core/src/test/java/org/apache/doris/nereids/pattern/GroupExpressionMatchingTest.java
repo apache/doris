@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Iterator;
 
-public class GroupExpressionMatchingTest implements Plans {
+public class GroupExpressionMatchingTest {
 
     @Test
     public void testLeafNode() {

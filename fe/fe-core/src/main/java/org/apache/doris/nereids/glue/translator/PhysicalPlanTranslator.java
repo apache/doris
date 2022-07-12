@@ -48,7 +48,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
-import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.DataPartition;
@@ -80,7 +80,7 @@ import java.util.stream.Collectors;
  *      Must always visit plan's children first when you implement a method to translate from PhysicalPlan to PlanNode.
  * </STRONG>
  */
-public class PhysicalPlanTranslator extends PlanVisitor<PlanFragment, PlanTranslatorContext> {
+public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, PlanTranslatorContext> {
     /**
      * The left and right child of origin predicates need to be swap sometimes.
      * Case A:
@@ -121,11 +121,6 @@ public class PhysicalPlanTranslator extends PlanVisitor<PlanFragment, PlanTransl
         }
         Collections.reverse(context.getPlanFragmentList());
         return rootFragment;
-    }
-
-    @Override
-    public PlanFragment visit(Plan plan, PlanTranslatorContext context) {
-        return plan.accept(this, context);
     }
 
     /**

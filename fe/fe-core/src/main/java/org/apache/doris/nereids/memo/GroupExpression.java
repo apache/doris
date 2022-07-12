@@ -58,7 +58,7 @@ public class GroupExpression {
      * @param children children groups in memo
      */
     public GroupExpression(Plan plan, List<Group> children) {
-        this.plan = Objects.requireNonNull(plan);
+        this.plan = Objects.requireNonNull(plan, "plan can not be null");
         this.children = Objects.requireNonNull(children);
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
