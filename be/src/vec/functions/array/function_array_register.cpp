@@ -27,6 +27,7 @@ void register_function_array_index(SimpleFunctionFactory&);
 void register_function_array_size(SimpleFunctionFactory&);
 void register_function_array_aggregation(SimpleFunctionFactory&);
 void register_function_arrays_overlap(SimpleFunctionFactory&);
+void register_function_array_distinct(SimpleFunctionFactory&);
 
 void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_element(factory);
@@ -34,6 +35,7 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_size(factory);
     register_function_array_aggregation(factory);
     register_function_arrays_overlap(factory);
+    register_function_array_distinct(factory);
 }
 
 } // namespace doris::vectorized
