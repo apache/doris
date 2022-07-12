@@ -104,7 +104,7 @@ public:
     /// of the current chunk. Creates a new chunk if there aren't any chunks
     /// with enough capacity.
     uint8_t* allocate(int64_t size, Status* rst = nullptr) {
-        // TODO: rethink if DEFAULT_ALIGNMENT should be 82, malloc is aligned by 16.
+        // TODO: rethink if DEFAULT_ALIGNMENT should be changed, malloc is aligned by 16.
         return allocate<false>(size, DEFAULT_ALIGNMENT, rst);
     }
 
