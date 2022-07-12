@@ -39,9 +39,10 @@ public:
 
     StringRef get_value() const {
         if constexpr (result_is_nullable) {
-            return assert_cast<ColumnNullable*>(_ptr)->get_data_at(_offset);
+            auto* col = assert_cast<const ColumnNullable*>(_ptr);
+            return assert_cast<const ColVecType&>(col->get_nested_column()).get_data_at(_offset);
         } else {
-            return assert_cast<ColVecType*>(_ptr)->get_data_at(_offset);
+            return assert_cast<const ColVecType*>(_ptr)->get_data_at(_offset);
         }
     }
 

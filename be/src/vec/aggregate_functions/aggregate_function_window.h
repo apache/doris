@@ -227,8 +227,6 @@ protected:
 template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
 struct FirstLastData {
 public:
-    static constexpr bool res_nullable = result_is_nullable;
-
     void reset() {
         _data_value.reset();
         _has_value = false;
@@ -289,7 +287,7 @@ public:
         _is_inited = false;
     }
 
-    bool defualt_is_null() { return _default_value.is_null(); }
+    bool default_is_null() { return _default_value.is_null(); }
 
     void set_value_from_default() { this->_data_value = _default_value; }
 
@@ -318,7 +316,7 @@ struct WindowFunctionLeadImpl : Data {
                                 int64_t frame_end, const IColumn** columns) {
         this->check_default(columns[2]);
         if (frame_end > partition_end) { //output default value, win end is under partition
-            if (this->defualt_is_null()) {
+            if (this->default_is_null()) {
                 this->set_is_null();
             } else {
                 this->set_value_from_default();
@@ -337,7 +335,7 @@ struct WindowFunctionLagImpl : Data {
                                 int64_t frame_end, const IColumn** columns) {
         this->check_default(columns[2]);
         if (partition_start >= frame_end) { //[unbound preceding(0), offset preceding(-123)]
-            if (this->defualt_is_null()) {  // win start is beyond partition
+            if (this->default_is_null()) {  // win start is beyond partition
                 this->set_is_null();
             } else {
                 this->set_value_from_default();
@@ -396,13 +394,7 @@ public:
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override {
-        if (Data::res_nullable && !_argument_type->is_nullable()) {
-            return make_nullable(_argument_type);
-        } else {
-            return _argument_type;
-        }
-    }
+    DataTypePtr get_return_type() const override { return _argument_type; }
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
