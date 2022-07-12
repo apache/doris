@@ -48,4 +48,14 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
     return true;
 }
 
+MutableColumnPtr assemble_column_array(ColumnArrayMutableData& data) {
+    if (data.nullable_col) {
+        return ColumnArray::create(std::move(data.nullable_col->assume_mutable()),
+                                  std::move(data.offsets_col->assume_mutable()));
+    } else {
+        return ColumnArray::create(std::move(data.nested_col->assume_mutable()),
+                                  std::move(data.offsets_col->assume_mutable()));
+    }
+}
+
 } // namespace doris::vectorized

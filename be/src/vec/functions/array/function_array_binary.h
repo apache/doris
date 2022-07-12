@@ -18,12 +18,9 @@
 #pragma once
 
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/hash_table/hash_set.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/array/function_array_utils.h"
-#include "vec/functions/array/function_array_set_like.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 
@@ -35,11 +32,8 @@ class FunctionArrayBinary : public IFunction {
 public:
     static constexpr auto name = Name::name;
     static FunctionPtr create() { return std::make_shared<FunctionArrayBinary>(); }
-
     String get_name() const override { return name; }
-
     bool is_variadic() const override { return false; }
-
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
@@ -48,11 +42,7 @@ public:
         DCHECK(arguments[0]->equals(*arguments[1]))
                << "data type " << arguments[0]->get_name() << " not equal with "
                << arguments[1]->get_name();
-        const DataTypeArray* array1 =
-                check_and_get_data_type<DataTypeArray>(arguments[0].get());
-        const DataTypeArray* array2 =
-                check_and_get_data_type<DataTypeArray>(arguments[1].get());
-        return Impl::get_return_type(array1, array2);
+        return Impl::get_return_type(arguments);
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -70,19 +60,16 @@ public:
         // extract array column
         ColumnArrayExecutionData left_data;
         ColumnArrayExecutionData right_data;
-        if (!extract_column_array_info(*left_column, left_data) ||
-            !extract_column_array_info(*right_column, right_data)) {
-            return ret;
-        }
 
-        MutableColumnPtr res_ptr = nullptr;
-        ret = Impl:execute(res_ptr, left_data, right_data);
-        if (ret != Status::Ok()) {
-            return ret;
+        ColumnPtr res_ptr = nullptr;
+        if (extract_column_array_info(*left_column, left_data) &&
+            extract_column_array_info(*right_column, right_data)) {
+            ret = Impl::execute(res_ptr, left_data, right_data);
         }
-
-        block.replace_by_position(result, std::move(res_ptr));
-        return Status::OK();
+        if (ret == Status::OK()) {
+            block.replace_by_position(result, std::move(res_ptr));
+        }
+        return ret;
     }
 };
 

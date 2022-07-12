@@ -15,9 +15,182 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/functions/array/function_array_binary.h"
+#include "vec/functions/array/function_array_set.h"
+
+#include "vec/functions/simple_function_factory.h"
+
 namespace doris::vectorized {
 
+struct NameArrayUnion {
+    static constexpr auto name = "array_union";
+};
 
+template <typename ColumnType>
+struct UnionAction {
+    using ElementType = typename ColumnType::value_type;
+    using ElementNativeType = typename NativeType<ElementType>::Type;
+    using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>, 4>;
+    static constexpr auto apply_left_first = true;
+    Set set;
+    bool null_flag = false;
+
+    bool apply_null_left() {
+        if (!null_flag) {
+            null_flag = true;
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool apply_left(const ElementType* elem) {
+        if (!set.find(*elem)) {
+            set.insert(*elem);
+            return true;
+        }
+        return false;
+    }
+
+    bool apply_null_right() {
+        if (!null_flag) {
+            null_flag = true;
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool apply_right(const ElementType* elem) {
+        if (!set.find(*elem)) {
+            set.insert(*elem);
+            return true;
+        }
+        return false;
+    }
+//
+//
+//
+//    void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
+//               ColumnArrayMutableData& dst, size_t* count) {
+//        const auto& src_data = assert_cast<const ColumnType&>(*src.nested_col).get_data();
+//        auto& dst_data = assert_cast<ColumnType&>(*dst.nested_col).get_data();
+//        for (size_t i = off; i < off + len; ++i) {
+//            if (src.nested_nullmap_data && src.nested_nullmap_data[i]) {
+//                if (!containNull) {
+//                    dst_data.push_back(typename ColumnType::value_type());
+//                    dst.nested_nullmap_data->push_back(1);
+//                    containNull = true;
+//                    continue;
+//                }
+//            } else  {
+//                if (!set.find(src_data[i])) {
+//                    dst_data.push_back(src_data[i]);
+//                    if (dst.nested_nullmap_data) {
+//                        dst.nested_nullmap_data->push_back(0);
+//                    }
+//                    set.insert(src_data[i]);
+//                    continue;
+//                }
+//            }
+//            ++(*count);
+//        }
+//    }
+//
+//    void apply_left(const ColumnArrayExecutionData& src, size_t off, size_t len,
+//                    ColumnArrayMutableData& dst, size_t* count) {
+//        apply(src, off, len, dst, count);
+//    }
+//
+//    void apply_right(const ColumnArrayExecutionData& src, size_t off, size_t len,
+//                    ColumnArrayMutableData& dst, size_t* count) {
+//        apply(src, off, len, dst, count);
+//    }
+};
+
+template <>
+struct UnionAction<ColumnString> {
+    using Set = HashSetWithStackMemory<StringRef, DefaultHash<StringRef>, 4>;
+    static constexpr auto apply_left_first = true;
+    Set set;
+    Set result_set;
+    bool null_flag = false;
+
+    bool apply_null_left() {
+        if (!null_flag) {
+            null_flag = true;
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool apply_left(const StringRef& elem) {
+        if (!set.find(elem)) {
+            set.insert(elem);
+            return true;
+        }
+        return false;
+    }
+
+    bool apply_null_right() {
+        if (!null_flag) {
+            null_flag = true;
+        }
+        return false;
+    }
+
+    bool apply_right(const StringRef& elem) {
+        if (!set.find(elem)) {
+            set.insert(elem);
+            return true;
+        }
+        return false;
+    }
+
+//    void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
+//               ColumnArrayMutableData& dst, size_t* count) {
+//        const auto& src_column = assert_cast<const ColumnString&>(*src.nested_col);
+//        auto& dst_column = assert_cast<ColumnString&>(*dst.nested_col);
+//        for (size_t i = off; i < off + len; ++i) {
+//            if (src.nested_nullmap_data && src.nested_nullmap_data[i]) {
+//                if (!containNull) {
+//                    dst_column.insert_default();
+//                    dst.nested_nullmap_data->push_back(1);
+//                    containNull = true;
+//                    continue;
+//                }
+//            } else  {
+//                if (!set.find(src_column.get_data_at(i))) {
+//                    dst_column.insert_from(src_column, i);
+//                    if (dst.nested_nullmap_data) {
+//                        dst.nested_nullmap_data->push_back(0);
+//                    }
+//                    set.insert(src_column.get_data_at(i));
+//                    continue;
+//                }
+//            }
+//            ++(*count);
+//        }
+//    }
+//
+//    void apply_left(const ColumnArrayExecutionData& src, size_t off, size_t len,
+//                    ColumnArrayMutableData& dst, size_t* count) {
+//        apply(src, off, len, dst, count);
+//    }
+//
+//    void apply_right(const ColumnArrayExecutionData& src, size_t off, size_t len,
+//                     ColumnArrayMutableData& dst, size_t* count) {
+//        apply(src, off, len, dst, count);
+//    }
+};
+
+using FunctionArrayUnion =
+        FunctionArrayBinary<ArraySetImpl<SetOperation::UNION>, NameArrayUnion>;
+
+void register_function_array_union(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArrayUnion>();
+}
 
 } // namespace doris::vectorized
 
