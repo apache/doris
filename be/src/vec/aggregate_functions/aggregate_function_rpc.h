@@ -21,6 +21,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "exprs/rpc_fn_comm.h"
 #include "gen_cpp/Exprs_types.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
@@ -42,427 +43,7 @@
 #include "vec/io/io_helper.h"
 namespace doris::vectorized {
 
-template <bool nullable>
-void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
-                           const vectorized::DataTypePtr& data_type, PValues* arg, int start,
-                           int end) {
-    int row_count = end - start;
-    PGenericType* ptype = arg->mutable_type();
-    switch (data_type->get_type_id()) {
-    case vectorized::TypeIndex::UInt8: {
-        ptype->set_id(PGenericType::UINT8);
-        auto* values = arg->mutable_bool_value();
-        values->Reserve(row_count);
-        const auto* col = vectorized::check_and_get_column<vectorized::ColumnUInt8>(column);
-        auto& data = col->get_data();
-        values->Add(data.begin() + start, data.begin() + end);
-        break;
-    }
-    case vectorized::TypeIndex::UInt16: {
-        ptype->set_id(PGenericType::UINT16);
-        auto* values = arg->mutable_uint32_value();
-        values->Reserve(row_count);
-        const auto* col = vectorized::check_and_get_column<vectorized::ColumnUInt16>(column);
-        auto& data = col->get_data();
-        values->Add(data.begin() + start, data.begin() + end);
-        break;
-    }
-    case vectorized::TypeIndex::UInt32: {
-        ptype->set_id(PGenericType::UINT32);
-        auto* values = arg->mutable_uint32_value();
-        values->Reserve(row_count);
-        const auto* col = vectorized::check_and_get_column<vectorized::ColumnUInt32>(column);
-        auto& data = col->get_data();
-        values->Add(data.begin() + start, data.begin() + end);
-        break;
-    }
-    case vectorized::TypeIndex::UInt64: {
-        ptype->set_id(PGenericType::UINT64);
-        auto* values = arg->mutable_uint64_value();
-        values->Reserve(row_count);
-        const auto* col = vectorized::check_and_get_column<vectorized::ColumnUInt64>(column);
-        auto& data = col->get_data();
-        values->Add(data.begin() + start, data.begin() + end);
-        break;
-    }
-    case vectorized::TypeIndex::UInt128: {
-        ptype->set_id(PGenericType::UINT128);
-        arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = start; row_num < end; ++row_num) {
-            if constexpr (nullable) {
-                if (column->is_null_at(row_num)) {
-                    arg->add_bytes_value(nullptr);
-                } else {
-                    StringRef data = column->get_data_at(row_num);
-                    arg->add_bytes_value(data.data, data.size);
-                }
-            } else {
-                StringRef data = column->get_data_at(row_num);
-                arg->add_bytes_value(data.data, data.size);
-            }
-        }
-        break;
-    }
-    case vectorized::TypeIndex::Int8: {
-        ptype->set_id(PGenericType::INT8);
-        auto* values = arg->mutable_int32_value();
-        values->Reserve(row_count);
-        const auto* col = vectorized::check_and_get_column<vectorized::ColumnInt8>(column);
-        auto& data = col->get_data();
-        values->Add(data.begin() + start, data.begin() + end);
-        break;
-    }
-    case vectorized::TypeIndex::Int16: {
-        ptype->set_id(PGenericType::INT16);
-        auto* values = arg->mutable_int32_value();
-        values->Reserve(row_count);
-        const auto* col = vectorized::check_and_get_column<vectorized::ColumnInt16>(column);
-        auto& data = col->get_data();
-        values->Add(data.begin() + start, data.begin() + end);
-        break;
-    }
-    case vectorized::TypeIndex::Int32: {
-        ptype->set_id(PGenericType::INT32);
-        auto* values = arg->mutable_int32_value();
-        values->Reserve(row_count);
-        const auto* col = vectorized::check_and_get_column<vectorized::ColumnInt32>(column);
-        auto& data = col->get_data();
-        values->Add(data.begin() + start, data.begin() + end);
-        break;
-    }
-    case vectorized::TypeIndex::Int64: {
-        ptype->set_id(PGenericType::INT64);
-        auto* values = arg->mutable_int64_value();
-        values->Reserve(row_count);
-        const auto* col = vectorized::check_and_get_column<vectorized::ColumnInt64>(column);
-        auto& data = col->get_data();
-        values->Add(data.begin() + start, data.begin() + end);
-        break;
-    }
-    case vectorized::TypeIndex::Int128: {
-        ptype->set_id(PGenericType::INT128);
-        arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = start; row_num < end; ++row_num) {
-            if constexpr (nullable) {
-                if (column->is_null_at(row_num)) {
-                    arg->add_bytes_value(nullptr);
-                } else {
-                    StringRef data = column->get_data_at(row_num);
-                    arg->add_bytes_value(data.data, data.size);
-                }
-            } else {
-                StringRef data = column->get_data_at(row_num);
-                arg->add_bytes_value(data.data, data.size);
-            }
-        }
-        break;
-    }
-    case vectorized::TypeIndex::Float32: {
-        ptype->set_id(PGenericType::FLOAT);
-        auto* values = arg->mutable_float_value();
-        values->Reserve(row_count);
-        const auto* col = vectorized::check_and_get_column<vectorized::ColumnFloat32>(column);
-        auto& data = col->get_data();
-        values->Add(data.begin() + start, data.begin() + end);
-        break;
-    }
-
-    case vectorized::TypeIndex::Float64: {
-        ptype->set_id(PGenericType::DOUBLE);
-        auto* values = arg->mutable_double_value();
-        values->Reserve(row_count);
-        const auto* col = vectorized::check_and_get_column<vectorized::ColumnFloat64>(column);
-        auto& data = col->get_data();
-        values->Add(data.begin() + start, data.begin() + end);
-        break;
-    }
-    case vectorized::TypeIndex::String: {
-        ptype->set_id(PGenericType::STRING);
-        arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = start; row_num < end; ++row_num) {
-            if constexpr (nullable) {
-                if (column->is_null_at(row_num)) {
-                    arg->add_string_value(nullptr);
-                } else {
-                    StringRef data = column->get_data_at(row_num);
-                    arg->add_string_value(data.to_string());
-                }
-            } else {
-                StringRef data = column->get_data_at(row_num);
-                arg->add_string_value(data.to_string());
-            }
-        }
-        break;
-    }
-    case vectorized::TypeIndex::Date: {
-        ptype->set_id(PGenericType::DATE);
-        arg->mutable_datetime_value()->Reserve(row_count);
-        for (size_t row_num = start; row_num < end; ++row_num) {
-            PDateTime* date_time = arg->add_datetime_value();
-            if constexpr (nullable) {
-                if (!column->is_null_at(row_num)) {
-                    vectorized::VecDateTimeValue v =
-                            vectorized::VecDateTimeValue::create_from_olap_date(
-                                    column->get_int(row_num));
-                    date_time->set_day(v.day());
-                    date_time->set_month(v.month());
-                    date_time->set_year(v.year());
-                }
-            } else {
-                vectorized::VecDateTimeValue v =
-                        vectorized::VecDateTimeValue::create_from_olap_date(
-                                column->get_int(row_num));
-                date_time->set_day(v.day());
-                date_time->set_month(v.month());
-                date_time->set_year(v.year());
-            }
-        }
-        break;
-    }
-    case vectorized::TypeIndex::DateTime: {
-        ptype->set_id(PGenericType::DATETIME);
-        arg->mutable_datetime_value()->Reserve(row_count);
-        for (size_t row_num = start; row_num < end; ++row_num) {
-            PDateTime* date_time = arg->add_datetime_value();
-            if constexpr (nullable) {
-                if (!column->is_null_at(row_num)) {
-                    vectorized::VecDateTimeValue v =
-                            vectorized::VecDateTimeValue::create_from_olap_datetime(
-                                    column->get_int(row_num));
-                    date_time->set_day(v.day());
-                    date_time->set_month(v.month());
-                    date_time->set_year(v.year());
-                    date_time->set_hour(v.hour());
-                    date_time->set_minute(v.minute());
-                    date_time->set_second(v.second());
-                }
-            } else {
-                vectorized::VecDateTimeValue v =
-                        vectorized::VecDateTimeValue::create_from_olap_datetime(
-                                column->get_int(row_num));
-                date_time->set_day(v.day());
-                date_time->set_month(v.month());
-                date_time->set_year(v.year());
-                date_time->set_hour(v.hour());
-                date_time->set_minute(v.minute());
-                date_time->set_second(v.second());
-            }
-        }
-        break;
-    }
-    case vectorized::TypeIndex::BitMap: {
-        ptype->set_id(PGenericType::BITMAP);
-        arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = start; row_num < end; ++row_num) {
-            if constexpr (nullable) {
-                if (column->is_null_at(row_num)) {
-                    arg->add_bytes_value(nullptr);
-                } else {
-                    StringRef data = column->get_data_at(row_num);
-                    arg->add_bytes_value(data.data, data.size);
-                }
-            } else {
-                StringRef data = column->get_data_at(row_num);
-                arg->add_bytes_value(data.data, data.size);
-            }
-        }
-        break;
-    }
-    case vectorized::TypeIndex::HLL: {
-        ptype->set_id(PGenericType::HLL);
-        arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = start; row_num < end; ++row_num) {
-            if constexpr (nullable) {
-                if (column->is_null_at(row_num)) {
-                    arg->add_bytes_value(nullptr);
-                } else {
-                    StringRef data = column->get_data_at(row_num);
-                    arg->add_bytes_value(data.data, data.size);
-                }
-            } else {
-                StringRef data = column->get_data_at(row_num);
-                arg->add_bytes_value(data.data, data.size);
-            }
-        }
-        break;
-    }
-    default:
-        LOG(INFO) << "unknown type: " << data_type->get_name();
-        ptype->set_id(PGenericType::UNKNOWN);
-        break;
-    }
-}
-
-template <bool nullable>
-void convert_to_column(vectorized::MutableColumnPtr& column, const PValues& result) {
-    switch (result.type().id()) {
-    case PGenericType::UINT8: {
-        column->reserve(result.uint32_value_size());
-        column->resize(result.uint32_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnUInt8*>(column.get())->get_data();
-        for (int i = 0; i < result.uint32_value_size(); ++i) {
-            data[i] = result.uint32_value(i);
-        }
-        break;
-    }
-    case PGenericType::UINT16: {
-        column->reserve(result.uint32_value_size());
-        column->resize(result.uint32_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnUInt16*>(column.get())->get_data();
-        for (int i = 0; i < result.uint32_value_size(); ++i) {
-            data[i] = result.uint32_value(i);
-        }
-        break;
-    }
-    case PGenericType::UINT32: {
-        column->reserve(result.uint32_value_size());
-        column->resize(result.uint32_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnUInt32*>(column.get())->get_data();
-        for (int i = 0; i < result.uint32_value_size(); ++i) {
-            data[i] = result.uint32_value(i);
-        }
-        break;
-    }
-    case PGenericType::UINT64: {
-        column->reserve(result.uint64_value_size());
-        column->resize(result.uint64_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnUInt64*>(column.get())->get_data();
-        for (int i = 0; i < result.uint64_value_size(); ++i) {
-            data[i] = result.uint64_value(i);
-        }
-        break;
-    }
-    case PGenericType::INT8: {
-        column->reserve(result.int32_value_size());
-        column->resize(result.int32_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnInt16*>(column.get())->get_data();
-        for (int i = 0; i < result.int32_value_size(); ++i) {
-            data[i] = result.int32_value(i);
-        }
-        break;
-    }
-    case PGenericType::INT16: {
-        column->reserve(result.int32_value_size());
-        column->resize(result.int32_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnInt16*>(column.get())->get_data();
-        for (int i = 0; i < result.int32_value_size(); ++i) {
-            data[i] = result.int32_value(i);
-        }
-        break;
-    }
-    case PGenericType::INT32: {
-        column->reserve(result.int32_value_size());
-        column->resize(result.int32_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnInt32*>(column.get())->get_data();
-        for (int i = 0; i < result.int32_value_size(); ++i) {
-            data[i] = result.int32_value(i);
-        }
-        break;
-    }
-    case PGenericType::INT64: {
-        column->reserve(result.int64_value_size());
-        column->resize(result.int64_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnInt64*>(column.get())->get_data();
-        for (int i = 0; i < result.int64_value_size(); ++i) {
-            data[i] = result.int64_value(i);
-        }
-        break;
-    }
-    case PGenericType::DATE:
-    case PGenericType::DATETIME: {
-        column->reserve(result.datetime_value_size());
-        column->resize(result.datetime_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnInt64*>(column.get())->get_data();
-        for (int i = 0; i < result.datetime_value_size(); ++i) {
-            vectorized::VecDateTimeValue v;
-            PDateTime pv = result.datetime_value(i);
-            v.set_time(pv.year(), pv.month(), pv.day(), pv.hour(), pv.minute(), pv.minute());
-            data[i] = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(v);
-        }
-        break;
-    }
-    case PGenericType::FLOAT: {
-        column->reserve(result.float_value_size());
-        column->resize(result.float_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnFloat32*>(column.get())->get_data();
-        for (int i = 0; i < result.float_value_size(); ++i) {
-            data[i] = result.float_value(i);
-        }
-        break;
-    }
-    case PGenericType::DOUBLE: {
-        column->reserve(result.double_value_size());
-        column->resize(result.double_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnFloat64*>(column.get())->get_data();
-        for (int i = 0; i < result.double_value_size(); ++i) {
-            data[i] = result.double_value(i);
-        }
-        break;
-    }
-    case PGenericType::INT128: {
-        column->reserve(result.bytes_value_size());
-        column->resize(result.bytes_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnInt128*>(column.get())->get_data();
-        for (int i = 0; i < result.bytes_value_size(); ++i) {
-            data[i] = *(int128_t*)(result.bytes_value(i).c_str());
-        }
-        break;
-    }
-    case PGenericType::STRING: {
-        column->reserve(result.string_value_size());
-        for (int i = 0; i < result.string_value_size(); ++i) {
-            column->insert_data(result.string_value(i).c_str(), result.string_value(i).size());
-        }
-        break;
-    }
-    case PGenericType::DECIMAL128: {
-        column->reserve(result.bytes_value_size());
-        column->resize(result.bytes_value_size());
-        auto& data = reinterpret_cast<vectorized::ColumnDecimal128*>(column.get())->get_data();
-        for (int i = 0; i < result.bytes_value_size(); ++i) {
-            data[i] = *(int128_t*)(result.bytes_value(i).c_str());
-        }
-        break;
-    }
-    case PGenericType::BITMAP: {
-        column->reserve(result.bytes_value_size());
-        for (int i = 0; i < result.bytes_value_size(); ++i) {
-            column->insert_data(result.bytes_value(i).c_str(), result.bytes_value(i).size());
-        }
-        break;
-    }
-    case PGenericType::HLL: {
-        column->reserve(result.bytes_value_size());
-        for (int i = 0; i < result.bytes_value_size(); ++i) {
-            column->insert_data(result.bytes_value(i).c_str(), result.bytes_value(i).size());
-        }
-        break;
-    }
-    default: {
-        LOG(WARNING) << "unknown PGenericType: " << result.type().DebugString();
-        break;
-    }
-    }
-}
-
-void convert_nullable_col_to_pvalue(const vectorized::ColumnPtr& column,
-                                    const vectorized::DataTypePtr& data_type,
-                                    const vectorized::ColumnUInt8& null_col, PValues* arg,
-                                    int start, int end) {
-    int row_count = end - start;
-    if (column->has_null(row_count)) {
-        auto* null_map = arg->mutable_null_map();
-        null_map->Reserve(row_count);
-        const auto* col = vectorized::check_and_get_column<vectorized::ColumnUInt8>(null_col);
-        auto& data = col->get_data();
-        null_map->Add(data.begin() + start, data.begin() + end);
-        convert_col_to_pvalue<true>(column, data_type, arg, start, end);
-    } else {
-        convert_col_to_pvalue<false>(column, data_type, arg, start, end);
-    }
-}
-
-#define MAX_BUFFERED_ROWS 4096
+constexpr int64_t max_buffered_rows = 4096;
 struct AggregateRpcUdafData {
 private:
     std::string _update_fn;
@@ -495,7 +76,6 @@ public:
             //last result
             PValues* arg = request.add_args();
             arg->CopyFrom(res.result(0));
-
             arg = request.add_args();
             //current result
             arg->CopyFrom(current_res.result(0));
@@ -574,31 +154,31 @@ public:
             PValues* arg = request.add_args();
             arg->mutable_type()->CopyFrom(_buffer_request[0].args(i).type());
             for (int j = 0; j < _buffer_request.size(); j++) {
-                for (int m = 0; m < _buffer_request[j].args(i).double_value_size(); m++) {
+                if (_buffer_request[j].args(i).double_value_size() > 0) {
                     arg->add_double_value(_buffer_request[j].args(i).double_value(0));
                 }
-                for (int m = 0; m < _buffer_request[j].args(i).float_value_size(); m++) {
+                if (_buffer_request[j].args(i).float_value_size() > 0) {
                     arg->add_float_value(_buffer_request[j].args(i).float_value(0));
                 }
-                for (int m = 0; m < _buffer_request[j].args(i).int32_value_size(); m++) {
+                if (_buffer_request[j].args(i).int32_value_size() > 0) {
                     arg->add_int32_value(_buffer_request[j].args(i).int32_value(0));
                 }
-                for (int m = 0; m < _buffer_request[j].args(i).int64_value_size(); m++) {
+                if (_buffer_request[j].args(i).int64_value_size() > 0) {
                     arg->add_int64_value(_buffer_request[j].args(i).int64_value(0));
                 }
-                for (int m = 0; m < _buffer_request[j].args(i).uint32_value_size(); m++) {
+                if (_buffer_request[j].args(i).uint32_value_size() > 0) {
                     arg->add_uint32_value(_buffer_request[j].args(i).uint32_value(0));
                 }
-                for (int m = 0; m < _buffer_request[j].args(i).uint64_value_size(); m++) {
+                if (_buffer_request[j].args(i).uint64_value_size() > 0) {
                     arg->add_uint64_value(_buffer_request[j].args(i).uint64_value(0));
                 }
-                for (int m = 0; m < _buffer_request[j].args(i).bool_value_size(); m++) {
+                if (_buffer_request[j].args(i).bool_value_size() > 0) {
                     arg->add_bool_value(_buffer_request[j].args(i).bool_value(0));
                 }
-                for (int m = 0; m < _buffer_request[j].args(i).string_value_size(); m++) {
+                if (_buffer_request[j].args(i).string_value_size() > 0) {
                     arg->add_string_value(_buffer_request[j].args(i).string_value(0));
                 }
-                for (int m = 0; m < _buffer_request[j].args(i).bytes_value_size(); m++) {
+                if (_buffer_request[j].args(i).bytes_value_size() > 0) {
                     arg->add_bytes_value(_buffer_request[j].args(i).bytes_value(0));
                 }
             }
@@ -612,7 +192,7 @@ public:
         PFunctionCallRequest request;
         gen_request_data(request, columns, start, end, argument_types);
         _buffer_request.push_back(request);
-        if (_buffer_request.size() >= MAX_BUFFERED_ROWS) {
+        if (_buffer_request.size() >= max_buffered_rows) {
             send_buffer_to_rpc_server();
         }
         return Status::OK();
@@ -685,11 +265,38 @@ public:
                     reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
         }
         WhichDataType which(result_type);
-        if (which.is_int32()) {
-            int32_t a = response.result(0).int32_value(0);
-            to.insert_data((char*)&a, 0);
+        if (which.is_float()) {
+            float ret = response.result(0).float_value(0);
+            to.insert_data((char*)&ret, 0);
         }
-
+        if (which.is_float64()) {
+            double ret = response.result(0).double_value(0);
+            to.insert_data((char*)&ret, 0);
+        }
+        if (which.is_int32()) {
+            int32_t ret = response.result(0).int32_value(0);
+            to.insert_data((char*)&ret, 0);
+        }
+        if (which.is_uint32()) {
+            uint32_t ret = response.result(0).uint32_value(0);
+            to.insert_data((char*)&ret, 0);
+        }
+        if (which.is_int64()) {
+            int64_t ret = response.result(0).int64_value(0);
+            to.insert_data((char*)&ret, 0);
+        }
+        if (which.is_uint64()) {
+            uint64_t ret = response.result(0).uint64_value(0);
+            to.insert_data((char*)&ret, 0);
+        }
+        if (which.is_uint8()) {
+            uint8_t ret = response.result(0).bool_value(0);
+            to.insert_data((char*)&ret, 0);
+        }
+        if (which.is_string()) {
+            std::string ret = response.result(0).string_value(0);
+            to.insert_data(ret.c_str(), ret.size());
+        }
         return Status::OK();
     }
 
