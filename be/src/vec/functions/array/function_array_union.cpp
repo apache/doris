@@ -68,44 +68,6 @@ struct UnionAction {
         }
         return false;
     }
-//
-//
-//
-//    void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
-//               ColumnArrayMutableData& dst, size_t* count) {
-//        const auto& src_data = assert_cast<const ColumnType&>(*src.nested_col).get_data();
-//        auto& dst_data = assert_cast<ColumnType&>(*dst.nested_col).get_data();
-//        for (size_t i = off; i < off + len; ++i) {
-//            if (src.nested_nullmap_data && src.nested_nullmap_data[i]) {
-//                if (!containNull) {
-//                    dst_data.push_back(typename ColumnType::value_type());
-//                    dst.nested_nullmap_data->push_back(1);
-//                    containNull = true;
-//                    continue;
-//                }
-//            } else  {
-//                if (!set.find(src_data[i])) {
-//                    dst_data.push_back(src_data[i]);
-//                    if (dst.nested_nullmap_data) {
-//                        dst.nested_nullmap_data->push_back(0);
-//                    }
-//                    set.insert(src_data[i]);
-//                    continue;
-//                }
-//            }
-//            ++(*count);
-//        }
-//    }
-//
-//    void apply_left(const ColumnArrayExecutionData& src, size_t off, size_t len,
-//                    ColumnArrayMutableData& dst, size_t* count) {
-//        apply(src, off, len, dst, count);
-//    }
-//
-//    void apply_right(const ColumnArrayExecutionData& src, size_t off, size_t len,
-//                    ColumnArrayMutableData& dst, size_t* count) {
-//        apply(src, off, len, dst, count);
-//    }
 };
 
 template <>
@@ -147,42 +109,6 @@ struct UnionAction<ColumnString> {
         }
         return false;
     }
-
-//    void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
-//               ColumnArrayMutableData& dst, size_t* count) {
-//        const auto& src_column = assert_cast<const ColumnString&>(*src.nested_col);
-//        auto& dst_column = assert_cast<ColumnString&>(*dst.nested_col);
-//        for (size_t i = off; i < off + len; ++i) {
-//            if (src.nested_nullmap_data && src.nested_nullmap_data[i]) {
-//                if (!containNull) {
-//                    dst_column.insert_default();
-//                    dst.nested_nullmap_data->push_back(1);
-//                    containNull = true;
-//                    continue;
-//                }
-//            } else  {
-//                if (!set.find(src_column.get_data_at(i))) {
-//                    dst_column.insert_from(src_column, i);
-//                    if (dst.nested_nullmap_data) {
-//                        dst.nested_nullmap_data->push_back(0);
-//                    }
-//                    set.insert(src_column.get_data_at(i));
-//                    continue;
-//                }
-//            }
-//            ++(*count);
-//        }
-//    }
-//
-//    void apply_left(const ColumnArrayExecutionData& src, size_t off, size_t len,
-//                    ColumnArrayMutableData& dst, size_t* count) {
-//        apply(src, off, len, dst, count);
-//    }
-//
-//    void apply_right(const ColumnArrayExecutionData& src, size_t off, size_t len,
-//                     ColumnArrayMutableData& dst, size_t* count) {
-//        apply(src, off, len, dst, count);
-//    }
 };
 
 using FunctionArrayUnion =
