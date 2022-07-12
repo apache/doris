@@ -278,6 +278,7 @@ message TabletMetaPB {
     optional string remote_storage_name = 20;
     optional int64 replica_id = 21 [default = 0];
     optional string storage_policy = 22;
+    optional DeleteBitmapPB delete_bitmap = 23;
 }
 
 message OLAPIndexHeaderMessage {
@@ -297,4 +298,12 @@ message OLAPDataHeaderMessage {
 
 message OLAPRawDeltaHeaderMessage {
     required int32 schema_hash = 2;
+}
+
+message DeleteBitmapPB {
+    repeated string rowset_ids = 1;
+    repeated uint32 segment_ids = 2;
+    repeated int64 versions = 3;
+    // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
+    repeated bytes segment_delete_bitmaps = 4;
 }

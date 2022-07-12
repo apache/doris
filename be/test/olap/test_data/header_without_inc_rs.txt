@@ -146,5 +146,6 @@
     "storage_medium": "HDD",
     "remote_storage_name": "",
     "replica_id": 0,
-    "storage_policy": ""
+    "storage_policy": "",
+    "delete_bitmap": {}
 }
