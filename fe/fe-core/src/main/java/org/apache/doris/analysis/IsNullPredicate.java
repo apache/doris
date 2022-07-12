@@ -36,8 +36,8 @@ import org.apache.logging.log4j.Logger;
 
 public class IsNullPredicate extends Predicate {
     private static final Logger LOG = LogManager.getLogger(IsNullPredicate.class);
-    private static final String IS_NULL = "is_null_pred";
-    private static final String IS_NOT_NULL = "is_not_null_pred";
+    public static final String IS_NULL = "is_null_pred";
+    public static final String IS_NOT_NULL = "is_not_null_pred";
 
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type t : Type.getSupportedTypes()) {

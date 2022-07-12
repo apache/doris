@@ -228,7 +228,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertEquals(baseIndexName, tbl.getName());
             MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
             Assertions.assertNotNull(indexMeta);
-            Assertions.assertEquals(12, tbl.getMaxColUniqueId());
+            Assertions.assertEquals(13, tbl.getMaxColUniqueId());
         } finally {
             tbl.readUnlock();
         }

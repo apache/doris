@@ -319,17 +319,28 @@ std::string TupleDescriptor::debug_string() const {
 }
 
 RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TTupleId>& row_tuples,
-                             const std::vector<bool>& nullable_tuples)
+                             const std::vector<bool>& nullable_tuples, bool skip_delete)
         : _tuple_idx_nullable_map(nullable_tuples) {
-    DCHECK(nullable_tuples.size() == row_tuples.size())
-            << "nullable_tuples size " << nullable_tuples.size() << " != row_tuples size "
-            << row_tuples.size();
     DCHECK_GT(row_tuples.size(), 0);
     _num_materialized_slots = 0;
     _num_null_slots = 0;
 
     for (int i = 0; i < row_tuples.size(); ++i) {
         TupleDescriptor* tupleDesc = desc_tbl.get_tuple_descriptor(row_tuples[i]);
+
+        if (skip_delete) {
+            bool has_delete_sign = false;
+            for (auto slot : tupleDesc->slots()) {
+                if (slot->col_name() == DELETE_SIGN) {
+                    has_delete_sign = true;
+                    break;
+                }
+            }
+            if (has_delete_sign) {
+                continue;
+            }
+        }
+
         _num_materialized_slots += tupleDesc->num_materialized_slots();
         _num_null_slots += tupleDesc->num_null_slots();
         _tuple_desc_map.push_back(tupleDesc);
@@ -339,6 +350,10 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TT
 
     init_tuple_idx_map();
     init_has_varlen_slots();
+
+    DCHECK(nullable_tuples.size() == _tuple_desc_map.size())
+            << "nullable_tuples size " << nullable_tuples.size() << " != _tuple_desc_map size "
+            << _tuple_desc_map.size();
 }
 
 RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable)

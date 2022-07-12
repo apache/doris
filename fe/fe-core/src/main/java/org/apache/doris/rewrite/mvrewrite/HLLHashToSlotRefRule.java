@@ -106,8 +106,7 @@ public class HLLHashToSlotRefRule implements ExprRewriteRule {
         TableName tableName = queryColumnSlotRef.getTableName();
         Preconditions.checkNotNull(tableName);
         SlotRef mvSlotRef = new SlotRef(tableName, mvColumn.getName());
-        List<Expr> newFnParams = Lists.newArrayList();
-        newFnParams.add(mvSlotRef);
+        List<Expr> newFnParams = Lists.newArrayList(mvSlotRef);
         FunctionCallExpr result = new FunctionCallExpr(fnName, newFnParams);
         result.analyzeNoThrow(analyzer);
         return result;

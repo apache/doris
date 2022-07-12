@@ -56,7 +56,7 @@ public:
             auto* __restrict res_data = assert_cast<ColumnUInt8&>(*res_column).get_data().data();
 
             for (size_t i = 0; i < input_rows_count; ++i) {
-                res_data[i] = !src_data[i];
+                res_data[i] = src_data[i] == 0;
             }
 
             block.replace_by_position(result, std::move(res_column));

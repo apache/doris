@@ -33,14 +33,12 @@ import org.apache.doris.rewrite.ExprRewriter;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import java.util.List;
-
 /**
  * Rewrite count(k1) to sum(mv_count_k1) when MV Column exists.
  * For example:
  * Table: (k1 int ,k2 varchar)
  * MV: (k1 int, mv_count_k2 bigint sum)
- *       mv_count_k1 = case when k2 is null then 0 else 1
+ *       mv_count_k1 = is_not_null_pred(k1)
  * Query: select k1, count(k2) from table group by k1
  * Rewritten query: select k1, sum(mv_count_k2) from table group by k1
  */
@@ -92,9 +90,7 @@ public class CountFieldToSum implements ExprRewriteRule {
         // exception to Unknown column, because we can't find an alias which named as origin table name that has
         // required column.
         SlotRef mvSlotRef = new SlotRef(null, mvColumn.getName());
-        List<Expr> newFnParams = Lists.newArrayList();
-        newFnParams.add(mvSlotRef);
-        FunctionCallExpr result = new FunctionCallExpr("sum", newFnParams);
+        FunctionCallExpr result = new FunctionCallExpr("sum", Lists.newArrayList(mvSlotRef));
         result.analyzeNoThrow(analyzer);
         return result;
     }

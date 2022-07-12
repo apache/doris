@@ -82,6 +82,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntSupplier;
 
 /**
  * Version 2 of RollupJob.
@@ -141,7 +142,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs,
             long baseIndexId, long rollupIndexId, String baseIndexName, String rollupIndexName,
             List<Column> rollupSchema, int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
-            short rollupShortKeyColumnCount, OriginStatement origStmt) {
+            short rollupShortKeyColumnCount, OriginStatement origStmt) throws AnalysisException {
         super(jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
 
         this.baseIndexId = baseIndexId;
@@ -150,6 +151,55 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.rollupIndexName = rollupIndexName;
 
         this.rollupSchema = rollupSchema;
+
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrException(dbId,
+                s -> new AnalysisException("Databasee " + s + " does not exist"));
+
+        OlapTable tbl;
+        try {
+            tbl = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+
+        IntSupplier colUniqueIdSupplier = new IntSupplier() {
+            public int pendingMaxColUniqueId = tbl.getMaxColUniqueId();
+
+            @Override
+            public int getAsInt() {
+                pendingMaxColUniqueId++;
+                return pendingMaxColUniqueId;
+            }
+        };
+        for (Column column : this.rollupSchema) {
+            column.setUniqueId(colUniqueIdSupplier.getAsInt());
+        }
+
+        this.baseSchemaHash = baseSchemaHash;
+        this.rollupSchemaHash = rollupSchemaHash;
+        this.rollupKeysType = rollupKeysType;
+        this.rollupShortKeyColumnCount = rollupShortKeyColumnCount;
+
+        this.origStmt = origStmt;
+    }
+
+    public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs, long baseIndexId,
+            long rollupIndexId, String baseIndexName, String rollupIndexName, List<Column> rollupSchema,
+            int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType, short rollupShortKeyColumnCount,
+            OriginStatement origStmt, IntSupplier colUniqueIdSupplier) {
+        super(jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
+
+        this.baseIndexId = baseIndexId;
+        this.rollupIndexId = rollupIndexId;
+        this.baseIndexName = baseIndexName;
+        this.rollupIndexName = rollupIndexName;
+
+        this.rollupSchema = rollupSchema;
+
+        for (Column column : this.rollupSchema) {
+            column.setUniqueId(colUniqueIdSupplier.getAsInt());
+        }
+
         this.baseSchemaHash = baseSchemaHash;
         this.rollupSchemaHash = rollupSchemaHash;
         this.rollupKeysType = rollupKeysType;
