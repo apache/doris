@@ -1761,6 +1761,20 @@ public class OlapTable extends Table {
         return tableProperty.getRemoteStoragePolicy();
     }
 
+    public void setEnableUniqueKeyMergeOnWrite(boolean speedup) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.setEnableUniqueKeyMergeOnWrite(speedup);
+    }
+
+    public boolean getEnableUniqueKeyMergeOnWrite() {
+        if (tableProperty == null) {
+            return false;
+        }
+        return tableProperty.getEnableUniqueKeyMergeOnWrite();
+    }
+
     // For non partitioned table:
     //   The table's distribute hash columns need to be a subset of the aggregate columns.
     //
