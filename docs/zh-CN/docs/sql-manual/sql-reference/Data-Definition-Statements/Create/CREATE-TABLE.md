@@ -309,7 +309,7 @@ distribution_info
 
     * `compression`
 
-        Doris 表的默认压缩方式是 LZ4F。1.1版本后，支持将压缩方式指定为ZSTD以获得更高的压缩比。
+        Doris 表的默认压缩方式是 LZ4。1.1版本后，支持将压缩方式指定为ZSTD以获得更高的压缩比。
     
         `"compression"="zstd"`
     

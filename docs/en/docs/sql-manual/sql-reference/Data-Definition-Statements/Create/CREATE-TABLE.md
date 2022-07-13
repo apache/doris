@@ -308,7 +308,7 @@ distribution_info
 
     * `compression`
 
-        The default compression method for Doris tables is LZ4F. After version 1.1, it is supported to specify the compression method as ZSTD to obtain a higher compression ratio.
+        The default compression method for Doris tables is LZ4. After version 1.1, it is supported to specify the compression method as ZSTD to obtain a higher compression ratio.
     
         `"compression"="zstd"`
     
