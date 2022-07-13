@@ -38,7 +38,6 @@
 #include "olap/utils.h"
 #include "olap/version_graph.h"
 #include "util/once.h"
-#include "olap/rowset/rowset_tree.h"
 
 namespace doris {
 
@@ -362,9 +361,6 @@ private:
     // These _stale rowsets are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
-    // RowsetTree is used to locate rowsets contain a key or a key range quickly.
-    // It's only used in UNIQUE_KEYS data model.
-    std::unique_ptr<RowsetTree> _rowset_tree;
 
     // if this tablet is broken, set to true. default is false
     std::atomic<bool> _is_bad;
