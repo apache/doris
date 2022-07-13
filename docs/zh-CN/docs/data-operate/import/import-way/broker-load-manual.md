@@ -445,6 +445,12 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
 
   注：如果使用某些 hive 版本直接生成的 orc 文件，orc 文件中的表头并非 hive meta 数据，而是（_col0, _col1, _col2, ...）, 可能导致 Invalid Column Name 错误，那么则需要使用 set 进行映射
 
+- 导入出错：`Login failure for xxx from keytab xxx.keytab`
+
+  出现这个问题的原因是导入的时候broker访问kerberos认证的集群时候，认证没有通过，首先确定`kerberos_principal`和`kerberos_keytab`配置是否正确，如果没问题，则需要在fe.conf中JAVA_OPTS=""
+  JAVA_OPTS_FOR_JDK_9="" 参数里面添加-Djava.security.krb5.conf=/xxx/krb5.conf，还需要将hadoop中的hdfs-site.xml复制到broker/conf下
+  
+
 ## 更多帮助
 
 关于 Broker Load 使用的更多详细语法及最佳实践，请参阅 [Broker Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BROKER LOAD` 获取更多帮助信息。
