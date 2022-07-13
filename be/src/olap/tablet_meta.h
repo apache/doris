@@ -167,7 +167,7 @@ public:
 
     void add_delete_predicate(const DeletePredicatePB delete_predicate, int64_t version);
     void remove_delete_predicate_by_version(const Version& version);
-    std::vector<DeletePredicatePB>& delete_predicates() const;
+    const std::vector<DeletePredicatePB>& delete_predicates() const;
     bool version_for_delete_predicate(const Version& version);
 
     std::string full_name() const;

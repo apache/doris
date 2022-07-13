@@ -672,6 +672,7 @@ RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& 
     return nullptr;
 }
 
+// Use copy not reference or pointer here, because will modify the version in the method
 void TabletMeta::add_delete_predicate(const DeletePredicatePB delete_predicate, int64_t version) {
     for (auto& del_pred : _del_predicates) {
         if (del_pred.version() == version) {
@@ -679,7 +680,7 @@ void TabletMeta::add_delete_predicate(const DeletePredicatePB delete_predicate, 
             return;
         }
     }
-    delete_predicate->set_version(version);
+    delete_predicate.set_version(version);
     _del_predicates.push_back(delete_predicate);
 }
 
@@ -687,7 +688,6 @@ void TabletMeta::remove_delete_predicate_by_version(const Version& version) {
     DCHECK(version.first == version.second) << "version=" << version;
     int pred_to_del = -1;
     for (int i = 0; i < _del_predicates.size(); ++i) {
-        const DeletePredicatePB& temp = _del_predicates[i];
         if (_del_predicates[i].version() == version.first) {
             pred_to_del = i;
             // add_delete_predicate already make sure there is only one predicate for specific version
@@ -699,7 +699,7 @@ void TabletMeta::remove_delete_predicate_by_version(const Version& version) {
     }
 }
 
-std::vector<DeletePredicatePB>& TabletMeta::delete_predicates() const {
+const std::vector<DeletePredicatePB>& TabletMeta::delete_predicates() const {
     return _del_predicates;
 }
 
