@@ -89,7 +89,8 @@ public:
                TabletUid tablet_uid, TTabletType::type tabletType,
                TStorageMedium::type t_storage_medium, const std::string& remote_storage_name,
                TCompressionType::type compression_type,
-               const std::string& storage_policy = std::string());
+               const std::string& storage_policy = std::string(),
+               bool enable_unique_key_merge_on_write);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
