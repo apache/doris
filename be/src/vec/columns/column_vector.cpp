@@ -26,6 +26,7 @@
 #include <cmath>
 #include <cstring>
 
+#include "gutil/strings/fastmem.h"
 #include "runtime/datetime_value.h"
 #include "util/simd/bits.h"
 #include "vec/common/arena.h"
@@ -61,7 +62,8 @@ template <typename T>
 void ColumnVector<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                     size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+        strings::memcpy_inlined(const_cast<char*>(keys[i].data + keys[i].size), &data[i],
+                                sizeof(T));
         keys[i].size += sizeof(T);
     }
 }
@@ -72,7 +74,8 @@ void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, 
                                                   size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
-            memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+            strings::memcpy_inlined(const_cast<char*>(keys[i].data + keys[i].size), &data[i],
+                                    sizeof(T));
             keys[i].size += sizeof(T);
         }
     }

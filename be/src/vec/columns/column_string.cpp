@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_string.h"
 
+#include "gutil/strings/fastmem.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -206,7 +207,7 @@ void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
         size_t string_size = size_at(i);
 
         auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-        memcpy(ptr, &string_size, sizeof(string_size));
+        strings::memcpy_inlined(ptr, &string_size, sizeof(string_size));
         memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
         keys[i].size += sizeof(string_size) + string_size;
     }
@@ -221,7 +222,7 @@ void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
             size_t string_size = size_at(i);
 
             auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-            memcpy(ptr, &string_size, sizeof(string_size));
+            strings::memcpy_inlined(ptr, &string_size, sizeof(string_size));
             memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
             keys[i].size += sizeof(string_size) + string_size;
         }
