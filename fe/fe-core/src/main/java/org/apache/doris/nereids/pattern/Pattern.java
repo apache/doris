@@ -18,11 +18,10 @@
 package org.apache.doris.nereids.pattern;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.Operator;
-import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -44,18 +43,18 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
 
     protected final List<Predicate<TYPE>> predicates;
     protected final PatternType patternType;
-    protected final OperatorType operatorType;
+    protected final PlanType planType;
 
-    public Pattern(OperatorType operatorType, Pattern... children) {
-        this(PatternType.NORMAL, operatorType, children);
+    public Pattern(PlanType planType, Pattern... children) {
+        this(PatternType.NORMAL, planType, children);
     }
 
-    public Pattern(OperatorType operatorType, List<Predicate<TYPE>> predicates, Pattern... children) {
-        this(PatternType.NORMAL, operatorType, predicates, children);
+    public Pattern(PlanType planType, List<Predicate<TYPE>> predicates, Pattern... children) {
+        this(PatternType.NORMAL, planType, predicates, children);
     }
 
     private Pattern(PatternType patternType, Pattern... children) {
-        this(patternType, OperatorType.UNKNOWN, children);
+        this(patternType, PlanType.UNKNOWN, children);
     }
 
     /**
@@ -64,10 +63,10 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
      * @param patternType pattern type to matching
      * @param children sub pattern
      */
-    private Pattern(PatternType patternType, OperatorType operatorType, Pattern... children) {
-        super(NodeType.PATTERN, children);
+    private Pattern(PatternType patternType, PlanType planType, Pattern... children) {
+        super(children);
         this.patternType = patternType;
-        this.operatorType = operatorType;
+        this.planType = planType;
         this.predicates = ImmutableList.of();
     }
 
@@ -75,15 +74,15 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
      * Constructor for Pattern.
      *
      * @param patternType pattern type to matching
-     * @param operatorType operator type to matching
+     * @param planType plan type to matching
      * @param predicates custom matching predicate
      * @param children sub pattern
      */
-    private Pattern(PatternType patternType, OperatorType operatorType,
+    private Pattern(PatternType patternType, PlanType planType,
                    List<Predicate<TYPE>> predicates, Pattern... children) {
-        super(NodeType.PATTERN, children);
+        super(children);
         this.patternType = patternType;
-        this.operatorType = operatorType;
+        this.planType = planType;
         this.predicates = ImmutableList.copyOf(predicates);
 
         for (int i = 0; i + 1 < children.length; ++i) {
@@ -96,12 +95,12 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
     }
 
     /**
-     * get current type in Operator.
+     * get current type in Plan.
      *
-     * @return operator type in pattern
+     * @return plan type in pattern
      */
-    public OperatorType getOperatorType() {
-        return operatorType;
+    public PlanType getPlanType() {
+        return planType;
     }
 
     /**
@@ -139,13 +138,13 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
     }
 
     /**
-     * Return ture if current Pattern match Operator in params.
+     * Return ture if current Pattern match Plan in params.
      *
-     * @param operator wait to match
-     * @return ture if current Pattern match Operator in params
+     * @param plan wait to match
+     * @return ture if current Pattern match Plan in params
      */
-    public boolean matchOperator(Operator operator) {
-        if (operator == null) {
+    public boolean matchRoot(Plan plan) {
+        if (plan == null) {
             return false;
         }
         switch (patternType) {
@@ -155,7 +154,7 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
             case MULTI_GROUP:
                 return true;
             default:
-                return operatorType == operator.getType();
+                return planType == plan.getType();
         }
     }
 
@@ -175,7 +174,7 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
     }
 
     public Pattern<TYPE, NODE_TYPE> withPredicates(List<Predicate<TYPE>> predicates) {
-        return new Pattern(patternType, operatorType, predicates, children.toArray(new Pattern[0]));
+        return new Pattern(patternType, planType, predicates, children.toArray(new Pattern[0]));
     }
 
     @Override
@@ -202,11 +201,11 @@ public class Pattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYP
         Pattern<?, ?> pattern = (Pattern<?, ?>) o;
         return predicates.equals(pattern.predicates)
                 && patternType == pattern.patternType
-                && operatorType == pattern.operatorType;
+                && planType == pattern.planType;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(predicates, patternType, operatorType);
+        return Objects.hash(predicates, patternType, planType);
     }
 }

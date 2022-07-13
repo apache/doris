@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -37,7 +36,7 @@ public abstract class StringRegexPredicate extends Expression implements BinaryE
      * @param left     left child of string regex
      * @param right    right child of string regex
      */
-    public StringRegexPredicate(NodeType nodeType, Expression left, Expression right) {
+    public StringRegexPredicate(ExpressionType nodeType, Expression left, Expression right) {
         super(nodeType, left, right);
     }
 

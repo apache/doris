@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include <string>
-
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "util/faststring.h"
@@ -50,7 +50,7 @@ public:
     Slice min_key() { return Slice(_min_key); }
     Slice max_key() { return Slice(_max_key); }
 
-    Status finalize(segment_v2::IndexedColumnMetaPB* meta);
+    Status finalize(segment_v2::PrimaryKeyIndexMetaPB* meta);
 
 private:
     io::FileWriter* _file_writer = nullptr;
@@ -59,7 +59,8 @@ private:
 
     faststring _min_key;
     faststring _max_key;
-    std::unique_ptr<segment_v2::IndexedColumnWriter> _index_builder;
+    std::unique_ptr<segment_v2::IndexedColumnWriter> _primary_key_index_builder;
+    std::unique_ptr<segment_v2::BloomFilterIndexWriter> _bloom_filter_index_builder;
 };
 
 class PrimaryKeyIndexReader {
@@ -67,12 +68,23 @@ public:
     PrimaryKeyIndexReader() : _parsed(false) {}
 
     Status parse(io::FileSystem* fs, const std::string& path,
-                 const segment_v2::IndexedColumnMetaPB& meta);
+                 const segment_v2::PrimaryKeyIndexMetaPB& meta);
 
     Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator) const {
         DCHECK(_parsed);
         index_iterator->reset(new segment_v2::IndexedColumnIterator(_index_reader.get()));
         return Status::OK();
+    }
+
+    const TypeInfo* type_info() const {
+        DCHECK(_parsed);
+        return _index_reader->type_info();
+    }
+
+    // verify whether exist in BloomFilter
+    bool check_present(const Slice& key) {
+        DCHECK(_parsed);
+        return _bf->test_bytes(key.data, key.size);
     }
 
     uint32_t num_rows() const {
@@ -85,6 +97,7 @@ private:
     bool _use_page_cache = true;
     bool _kept_in_memory = true;
     std::unique_ptr<segment_v2::IndexedColumnReader> _index_reader;
+    std::unique_ptr<segment_v2::BloomFilter> _bf;
 };
 
 } // namespace doris
