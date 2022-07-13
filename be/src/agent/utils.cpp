@@ -148,7 +148,7 @@ Status MasterServerClient::refresh_storage_policy(TGetStoragePolicyResult* resul
         try {
             client->refreshStoragePolicy(*result);
         } catch (TTransportException& e) {
-            LOG(WARNING) << "master client, retry refresh_storage_policy: " << e.what();
+            // LOG(WARNING) << "master client, retry refresh_storage_policy: " << e.what();
             client_status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!client_status.ok()) {
                 LOG(WARNING) << "fail to get master client from cache. "
