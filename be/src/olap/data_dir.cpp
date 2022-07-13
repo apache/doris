@@ -558,8 +558,8 @@ void DataDir::perform_path_gc_by_tablet() {
         }
         TTabletId tablet_id = -1;
         TSchemaHash schema_hash = -1;
-        bool is_valid = _tablet_manager->get_tablet_id_and_schema_hash_from_path(path, &tablet_id,
-                                                                                 &schema_hash);
+        bool is_valid = TabletManager::get_tablet_id_and_schema_hash_from_path(path, &tablet_id,
+                                                                               &schema_hash);
         if (!is_valid) {
             LOG(WARNING) << "unknown path:" << path;
             continue;
@@ -607,8 +607,8 @@ void DataDir::perform_path_gc_by_rowsetid() {
         }
         TTabletId tablet_id = -1;
         TSchemaHash schema_hash = -1;
-        bool is_valid = _tablet_manager->get_tablet_id_and_schema_hash_from_path(path, &tablet_id,
-                                                                                 &schema_hash);
+        bool is_valid = TabletManager::get_tablet_id_and_schema_hash_from_path(path, &tablet_id,
+                                                                               &schema_hash);
         if (!is_valid) {
             LOG(WARNING) << "unknown path:" << path;
             continue;

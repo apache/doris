@@ -187,7 +187,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
             break;
         }
         _tablet_meta = new_tablet_meta;
-    } while (0);
+    } while (false);
 
     for (auto& version : versions_to_delete) {
         auto it = _rs_version_map.find(version);
@@ -377,11 +377,13 @@ const RowsetSharedPtr Tablet::rowset_with_max_version() const {
 
 const RowsetMetaSharedPtr Tablet::rowset_meta_with_max_schema_version(
         const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
-    return *std::max_element(rowset_metas.begin(), rowset_metas.end(),
-                             [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
-                                 return a->tablet_schema()->schema_version() <
-                                        b->tablet_schema()->schema_version();
-                             });
+    return *std::max_element(
+            rowset_metas.begin(), rowset_metas.end(),
+            [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
+                int32_t version_a = a->tablet_schema() ? a->tablet_schema()->schema_version() : -1;
+                int32_t version_b = b->tablet_schema() ? b->tablet_schema()->schema_version() : -1;
+                return version_a < version_b;
+            });
 }
 
 RowsetSharedPtr Tablet::_rowset_with_largest_size() {
@@ -661,7 +663,7 @@ Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& 
                 rowsets->push_back(it_expired->second);
                 break;
             }
-        } while (0);
+        } while (false);
 
         if (!is_find) {
             LOG(WARNING) << "fail to find Rowset for version. tablet=" << full_name()
@@ -832,7 +834,7 @@ void Tablet::calc_missed_versions_unlocked(int64_t spec_version,
 }
 
 void Tablet::max_continuous_version_from_beginning(Version* version, Version* max_version) {
-    bool has_version_cross;
+    bool has_version_cross = false;
     std::shared_lock rdlock(_meta_lock);
     _max_continuous_version_from_beginning_unlocked(version, max_version, &has_version_cross);
 }
@@ -915,7 +917,9 @@ Status Tablet::pick_quick_compaction_rowsets(std::vector<RowsetSharedPtr>* input
                 }
             }
         }
-        if (quick_compaction_rowsets.size() == 0) return Status::OK();
+        if (quick_compaction_rowsets.size() == 0) {
+            return Status::OK();
+        }
         std::vector<RowsetSharedPtr> result = quick_compaction_rowsets[0];
         for (int i = 0; i < quick_compaction_rowsets.size(); i++) {
             if (quick_compaction_rowsets[i].size() > result.size()) {
@@ -1341,7 +1345,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     // We start from the initial version and traverse backwards until we meet a discontinuous version.
     Version cversion;
     Version max_version;
-    bool has_version_cross;
+    bool has_version_cross = false;
     _max_continuous_version_from_beginning_unlocked(&cversion, &max_version, &has_version_cross);
     // cause publish version task runs concurrently, version may be flying
     // so we add a consecutive miss check to solve this problem:
@@ -1581,7 +1585,7 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
             LOG(WARNING) << "failed to add rowset for tablet " << full_name();
             break;
         }
-    } while (0);
+    } while (false);
 
     // Unregister index and delete files(index and data) if failed
     if (!res.ok()) {
@@ -1813,7 +1817,6 @@ void Tablet::remove_all_remote_rowsets() {
 
 const TabletSchema& Tablet::tablet_schema() const {
     std::shared_lock wrlock(_meta_lock);
-    _tablet_meta->all_rs_metas();
     const RowsetMetaSharedPtr rowset_meta =
             rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas());
     if (rowset_meta->tablet_schema() == nullptr) {
