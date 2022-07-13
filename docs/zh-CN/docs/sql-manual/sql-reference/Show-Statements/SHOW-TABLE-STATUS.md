@@ -49,13 +49,13 @@ SHOW TABLE STATUS
 
  1. 查看当前数据库下所有表的信息
 
-     ```sql
-SHOW TABLE STATUS;
+    ```sql
+    SHOW TABLE STATUS;
     ```
 
  1. 查看指定数据库下，名称包含 example 的表的信息
 
-     ```sql
+    ```sql
     SHOW TABLE STATUS FROM db LIKE "%example%";
     ```
 
