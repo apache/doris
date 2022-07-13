@@ -282,9 +282,11 @@ public class MetadataViewer {
                 break;
             }
             DistributionInfo distributionInfo = partition.getDistributionInfo();
-            List<Long> tabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
+            List<Long> rowCountTabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
+            List<Long> dataSizeTabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
             for (long i = 0; i < distributionInfo.getBucketNum(); i++) {
-                tabletInfos.add(0L);
+                rowCountTabletInfos.add(0L);
+                dataSizeTabletInfos.add(0L);
             }
 
             long totalSize = 0;
@@ -292,20 +294,23 @@ public class MetadataViewer {
                 List<Long> tabletIds = mIndex.getTabletIdsInOrder();
                 for (int i = 0; i < tabletIds.size(); i++) {
                     Tablet tablet = mIndex.getTablet(tabletIds.get(i));
+                    long rowCount = tablet.getRowCount(true);
                     long dataSize = tablet.getDataSize(true);
-                    tabletInfos.set(i, tabletInfos.get(i) + dataSize);
+                    rowCountTabletInfos.set(i, rowCountTabletInfos.get(i) + rowCount);
+                    dataSizeTabletInfos.set(i, dataSizeTabletInfos.get(i) + dataSize);
                     totalSize += dataSize;
                 }
             }
 
             // graph
-            for (int i = 0; i < tabletInfos.size(); i++) {
+            for (int i = 0; i < distributionInfo.getBucketNum(); i++) {
                 List<String> row = Lists.newArrayList();
                 row.add(String.valueOf(i));
-                row.add(tabletInfos.get(i).toString());
-                row.add(graph(tabletInfos.get(i), totalSize));
-                row.add(totalSize == tabletInfos.get(i)
-                        ? "100.00%" : df.format((double) tabletInfos.get(i) / totalSize));
+                row.add(rowCountTabletInfos.get(i).toString());
+                row.add(dataSizeTabletInfos.get(i).toString());
+                row.add(graph(dataSizeTabletInfos.get(i), totalSize));
+                row.add(totalSize == dataSizeTabletInfos.get(i)
+                        ? "100.00%" : df.format((double) dataSizeTabletInfos.get(i) / totalSize));
                 result.add(row);
             }
         } finally {
