@@ -149,7 +149,7 @@ public:
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowsetReaderSharedPtr>* rs_readers) const;
 
-    std::vector<DeletePredicatePB>& delete_predicates() {
+    const std::vector<DeletePredicatePB>& delete_predicates() {
         return _tablet_meta->delete_predicates();
     }
     void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
