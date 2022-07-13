@@ -260,7 +260,7 @@ public class QueryProfileAction extends RestBaseController {
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         if (isAllNode) {
-            String httpPath = "/rest/v2/manager/query/trace_id" + traceId;
+            String httpPath = "/rest/v2/manager/query/trace_id/" + traceId;
             ImmutableMap<String, String> arguments =
                     ImmutableMap.<String, String>builder().put(IS_ALL_NODE_PARA, "false").build();
             List<Pair<String, Integer>> frontends = HttpUtils.getFeList();
