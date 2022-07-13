@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -43,9 +44,9 @@ public abstract class AbstractPushDownProjectRule<C extends Plan> extends OneRew
     public Rule<Plan> build() {
         return logicalProject(target).then(project -> {
             List<Expression> projects = Lists.newArrayList();
-            projects.addAll(project.operator.getProjects());
+            projects.addAll(project.getProjects());
             Set<Slot> projectSlots = SlotExtractor.extractSlot(projects);
-            return plan(project.operator, pushDownProject(project.child(), projectSlots));
+            return project.withChildren(ImmutableList.of(pushDownProject(project.child(), projectSlots)));
         }).toRule(ruleType);
     }
 

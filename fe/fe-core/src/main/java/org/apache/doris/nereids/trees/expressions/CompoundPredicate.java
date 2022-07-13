@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import java.util.List;
@@ -37,7 +36,7 @@ public class CompoundPredicate extends Expression implements BinaryExpression {
      * @param left  left child of comparison predicate
      * @param right right child of comparison predicate
      */
-    public CompoundPredicate(NodeType type, Expression left, Expression right) {
+    public CompoundPredicate(ExpressionType type, Expression left, Expression right) {
         super(type, left, right);
     }
 
@@ -81,11 +80,11 @@ public class CompoundPredicate extends Expression implements BinaryExpression {
         return nodeType + "(" + left() + ", " + right() + ")";
     }
 
-    public NodeType flip() {
-        if (getType() == NodeType.AND) {
-            return NodeType.OR;
+    public ExpressionType flip() {
+        if (getType() == ExpressionType.AND) {
+            return ExpressionType.OR;
         }
-        return NodeType.AND;
+        return ExpressionType.AND;
     }
 }
 

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
@@ -36,7 +35,7 @@ public class GreaterThan extends ComparisonPredicate {
      * @param right right child of greater than
      */
     public GreaterThan(Expression left, Expression right) {
-        super(NodeType.GREATER_THAN, left, right);
+        super(ExpressionType.GREATER_THAN, left, right);
     }
 
     @Override
