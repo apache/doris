@@ -156,6 +156,17 @@ enable_http_server_v2 = true
     <scope>provided</scope>
 </dependency>
 
+<!-- Add log dependencies when debugging locally -->
+<dependency>
+   <groupId>org.slf4j</groupId>
+   <artifactId>slf4j-api</artifactId>
+   <version>${slf4j.version}</version>
+</dependency>
+<dependency>
+   <groupId>org.slf4j</groupId>
+   <artifactId>slf4j-log4j12</artifactId>
+   <version>${slf4j.version}</version>
+</dependency>
 <!-- flink-doris-connector -->
 <dependency>
   <groupId>org.apache.doris</groupId>
