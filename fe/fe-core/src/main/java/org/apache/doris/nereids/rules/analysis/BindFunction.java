@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -27,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 
@@ -42,17 +41,15 @@ public class BindFunction implements AnalysisRuleFactory {
         return ImmutableList.of(
             RuleType.BINDING_PROJECT_FUNCTION.build(
                 logicalProject().then(project -> {
-                    List<NamedExpression> boundExpr = bind(project.operator.getProjects());
-                    LogicalProject op = new LogicalProject(boundExpr);
-                    return plan(op, project.child());
+                    List<NamedExpression> boundExpr = bind(project.getProjects());
+                    return new LogicalProject(boundExpr, project.child());
                 })
             ),
             RuleType.BINDING_AGGREGATE_FUNCTION.build(
                 logicalAggregate().then(agg -> {
-                    List<Expression> groupBy = bind(agg.operator.getGroupByExpressionList());
-                    List<NamedExpression> output = bind(agg.operator.getOutputExpressionList());
-                    LogicalAggregate op = agg.operator.withGroupByAndOutput(groupBy, output);
-                    return plan(op, agg.child());
+                    List<Expression> groupBy = bind(agg.getGroupByExpressionList());
+                    List<NamedExpression> output = bind(agg.getOutputExpressionList());
+                    return agg.withGroupByAndOutput(groupBy, output);
                 })
             )
         );
