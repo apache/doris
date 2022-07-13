@@ -225,7 +225,7 @@ private:
     TabletUid _tablet_uid;
     TabletTypePB _tablet_type = TabletTypePB::TABLET_TYPE_DISK;
     // may be true iff unique keys model
-    bool _speed_up_unique_key_with_aux_index = false;
+    bool _enable_unique_key_merge_on_write = false;
 
     TabletState _tablet_state = TABLET_NOTREADY;
     // the reference of _schema may use in tablet, so here need keep
