@@ -487,4 +487,10 @@ public class Util {
             FeNameFormat.checkCommonName("catalog", catalog);
         }
     }
+
+    public static void prohibitExternalCatalog(String catalog, String msg) throws AnalysisException {
+        if (!Strings.isNullOrEmpty(catalog) && !catalog.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+            throw new AnalysisException(String.format("External catalog '%s' is not allowed in '%s'", catalog, msg));
+        }
+    }
 }

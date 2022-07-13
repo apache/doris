@@ -321,8 +321,7 @@ public:
                                                   input_rows_count);
         TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
-        return Status::NotSupported(
-                fmt::format("argument_type {} not supported", data_type->get_name()));
+        return Status::NotSupported("argument_type {} not supported", data_type->get_name());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

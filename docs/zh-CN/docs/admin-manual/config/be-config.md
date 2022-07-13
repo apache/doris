@@ -231,9 +231,9 @@ BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构�
 
 ### `chunk_reserved_bytes_limit`
 
-默认值：2147483648
+默认值：20%
 
-Chunk Allocator的reserved bytes限制，默认为2GB，增加这个变量可以提高性能，但是会获得更多其他模块无法使用的空闲内存
+Chunk Allocator的reserved bytes限制，通常被设置为 mem_limit 的百分比。默认单位字节，值必须是2的倍数，且必须大于0，如果大于物理内存，将被设置为物理内存大小。增加这个变量可以提高性能，但是会获得更多其他模块无法使用的空闲内存。
 
 ### `clear_transaction_task_worker_count`
 
@@ -673,11 +673,17 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 BloomFilter/Min/Max等统计信息缓存的容量
 
+### `kafka_api_version_request`
+
+默认值：true
+
+如果依赖的 kafka 版本低于0.10.0.0, 该值应该被设置为 false。
+
 ### `kafka_broker_version_fallback`
 
 默认值：0.10.0
 
-如果依赖的 kafka 版本低于routine load依赖的 kafka 客户端版本, 将使用回退版本 kafka_broker_version_fallback 设置的值，有效值为：0.9.0、0.8.2、0.8.1、0.8.0。
+如果依赖的 kafka 版本低于0.10.0.0, 当 kafka_api_version_request 值为 false 的时候，将使用回退版本 kafka_broker_version_fallback 设置的值，有效值为：0.9.0.x、0.8.x.y。
 
 ### `load_data_reserve_hours`
 
@@ -1553,3 +1559,24 @@ webserver默认工作线程数
 * 类型: int32
 * 描述: String 类型最大长度的软限，单位是字节
 * 默认值: 1048576
+
+### `enable_quick_compaction`
+* 类型: bool
+* 描述: 是否开启quick_compaction,主要用在小数据量频繁导入的场景,通过快速compaction的机制及时合并导入版本可以有效避免-235的问题，小数据量的定义目前是根据行数来定义
+* 默认值: false
+
+### `quick_compaction_max_rows`
+* 类型: int32
+* 描述: 当导入的行数小于这个值认为这次导入是小数据量的导入，在快速合并时会被选中
+* 默认值: 1000
+
+### `quick_compaction_batch_size`
+* 类型: int32
+* 描述: 快速合并的触发时机，导入次数达到quick_compaction_batch_size时触发一次
+* 默认值: 10
+
+### `quick_compaction_min_rowsets`
+* 类型: int32
+* 描述: 最少进行合并的版本数，当选中的小数据量的rowset个数，大于这个值是才会进行真正的合并
+* 默认值: 10
+

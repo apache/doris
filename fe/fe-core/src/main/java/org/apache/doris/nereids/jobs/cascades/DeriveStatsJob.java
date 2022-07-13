@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -35,9 +35,9 @@ public class DeriveStatsJob extends Job<Plan> {
      * Constructor for DeriveStatsJob.
      *
      * @param groupExpression Derive stats on this {@link GroupExpression}
-     * @param context context of optimization
+     * @param context context of current job
      */
-    public DeriveStatsJob(GroupExpression groupExpression, PlannerContext context) {
+    public DeriveStatsJob(GroupExpression groupExpression, JobContext context) {
         super(JobType.DERIVE_STATS, context);
         this.groupExpression = groupExpression;
         this.deriveChildren = false;

@@ -21,6 +21,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.QueryStmt;
@@ -397,5 +398,10 @@ public class OriginalPlanner extends Planner {
                 }
             }
         }
+    }
+
+    @Override
+    public DescriptorTable getDescTable() {
+        return analyzer.getDescTbl();
     }
 }

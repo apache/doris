@@ -30,11 +30,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 public class AdminShowTabletStorageFormatStmt extends ShowStmt {
     private boolean verbose;
 
-    @Override
-    public boolean isVerbose() {
-        return verbose;
-    }
-
     public AdminShowTabletStorageFormatStmt(boolean verbose) {
         this.verbose = verbose;
     }
@@ -50,6 +45,11 @@ public class AdminShowTabletStorageFormatStmt extends ShowStmt {
         }
 
         super.analyze(analyzer);
+    }
+
+    @Override
+    public boolean isVerbose() {
+        return verbose;
     }
 
     @Override

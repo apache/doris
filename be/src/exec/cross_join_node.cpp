@@ -82,7 +82,6 @@ void CrossJoinNode::init_get_next(TupleRow* first_left_row) {
 }
 
 Status CrossJoinNode::get_next(RuntimeState* state, RowBatch* output_batch, bool* eos) {
-    // RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT, state));
     RETURN_IF_CANCELLED(state);
     *eos = false;
     // TOOD(zhaochun)

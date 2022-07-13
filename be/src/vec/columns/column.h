@@ -71,6 +71,9 @@ public:
     /// If column is ColumnDictionary, and is a range comparison predicate, convert dict encoding
     virtual void convert_dict_codes_if_necessary() {}
 
+    /// If column is ColumnDictionary, and is a bloom filter predicate, generate_hash_values
+    virtual void generate_hash_values_for_runtime_filter() {}
+
     /// Creates empty column with the same type.
     virtual MutablePtr clone_empty() const { return clone_resized(0); }
 
@@ -242,6 +245,23 @@ public:
     /// Deserializes a value that was serialized using IColumn::serialize_value_into_arena method.
     /// Returns pointer to the position after the read data.
     virtual const char* deserialize_and_insert_from_arena(const char* pos) = 0;
+
+    /// Return the size of largest row.
+    /// This is for calculating the memory size for vectorized serialization of aggregation keys.
+    virtual size_t get_max_row_byte_size() const {
+        LOG(FATAL) << "get_max_row_byte_size not supported";
+    }
+
+    virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                               size_t max_row_byte_size) const {
+        LOG(FATAL) << "serialize_vec not supported";
+    }
+
+    virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                             const uint8_t* null_map,
+                                             size_t max_row_byte_size) const {
+        LOG(FATAL) << "serialize_vec_with_null_map not supported";
+    }
 
     /// Update state of hash function with value of n-th element.
     /// On subsequent calls of this method for sequence of column values of arbitrary types,

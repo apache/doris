@@ -39,11 +39,13 @@ public interface ExternalFileScanProvider {
 
     TFileType getTableFileType();
 
-    String getMetaStoreUrl() throws MetaNotFoundException;
+    String getMetaStoreUrl();
 
     InputSplit[] getSplits(List<Expr> exprs) throws IOException, UserException;
 
     Table getRemoteHiveTable() throws DdlException, MetaNotFoundException;
 
     Map<String, String> getTableProperties() throws MetaNotFoundException;
+
+    List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException;
 }

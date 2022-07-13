@@ -92,7 +92,7 @@ public:
     static const std::string _s_num_disks_accessed_counter;
 
 protected:
-    std::string _peel_pushed_vconjunct(
+    void _peel_pushed_vconjunct(
             RuntimeState* state,
             const std::function<bool(int)>& checker); // remove pushed expr from conjunct tree
 

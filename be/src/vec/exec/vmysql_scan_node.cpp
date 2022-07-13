@@ -98,6 +98,7 @@ Status VMysqlScanNode::prepare(RuntimeState* state) {
 }
 
 Status VMysqlScanNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -111,7 +112,6 @@ Status VMysqlScanNode::open(RuntimeState* state) {
         return Status::InternalError("used before initialize.");
     }
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(_mysql_scanner->open());
     RETURN_IF_ERROR(_mysql_scanner->query(_table_name, _columns, _filters, _limit));
@@ -146,11 +146,11 @@ Status VMysqlScanNode::write_text_slot(char* value, int value_length, SlotDescri
 }
 
 Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VMysqlScanNode::get_next");
     VLOG_CRITICAL << "VMysqlScanNode::GetNext";
     if (state == NULL || block == NULL || eos == NULL)
         return Status::InternalError("input is NULL pointer");
     if (!_is_init) return Status::InternalError("used before initialize.");
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     bool mem_reuse = block->mem_reuse();
     DCHECK(block->rows() == 0);
@@ -194,10 +194,9 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
                                 reinterpret_cast<vectorized::ColumnNullable*>(columns[i].get());
                         nullable_column->insert_data(nullptr, 0);
                     } else {
-                        std::stringstream ss;
-                        ss << "nonnull column contains NULL. table=" << _table_name
-                           << ", column=" << slot_desc->col_name();
-                        return Status::InternalError(ss.str());
+                        return Status::InternalError(
+                                "nonnull column contains NULL. table={}, column={}", _table_name,
+                                slot_desc->col_name());
                     }
                 } else {
                     RETURN_IF_ERROR(
@@ -239,7 +238,7 @@ Status VMysqlScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     _tuple_pool.reset();

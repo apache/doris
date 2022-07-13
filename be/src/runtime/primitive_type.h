@@ -175,6 +175,12 @@ struct PrimitiveTypeTraits<TYPE_STRING> {
     using ColumnType = vectorized::ColumnString;
 };
 
+template <>
+struct PrimitiveTypeTraits<TYPE_HLL> {
+    using CppType = StringValue;
+    using ColumnType = vectorized::ColumnString;
+};
+
 // only for adapt get_predicate_column_ptr
 template <PrimitiveType type>
 struct PredicatePrimitiveTypeTraits {
@@ -204,6 +210,22 @@ struct PredicatePrimitiveTypeTraits<TYPE_DATEV2> {
 template <>
 struct PredicatePrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using PredicateFieldType = uint64_t;
+};
+
+// used for VInPredicate. VInPredicate should use vectorized data type
+template <PrimitiveType type>
+struct VecPrimitiveTypeTraits {
+    using CppType = typename PrimitiveTypeTraits<type>::CppType;
+};
+
+template <>
+struct VecPrimitiveTypeTraits<TYPE_DATE> {
+    using CppType = vectorized::VecDateTimeValue;
+};
+
+template <>
+struct VecPrimitiveTypeTraits<TYPE_DATETIME> {
+    using CppType = vectorized::VecDateTimeValue;
 };
 
 } // namespace doris

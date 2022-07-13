@@ -38,7 +38,7 @@ public:
     virtual ~BaseTablet();
 
     DataDir* data_dir() const;
-    FilePathDesc tablet_path_desc() const;
+    const std::string& tablet_path() const;
 
     TabletState tablet_state() const { return _state; }
     Status set_tablet_state(TabletState state);
@@ -59,8 +59,16 @@ public:
     int16_t shard_id() const;
     bool equal(int64_t tablet_id, int32_t schema_hash);
 
+    const io::ResourceId& cooldown_resource() const { return _tablet_meta->cooldown_resource(); }
+
+    void set_cooldown_resource(io::ResourceId resource) {
+        _tablet_meta->set_cooldown_resource(std::move(resource));
+    }
+
     // properties encapsulated in TabletSchema
-    const TabletSchema& tablet_schema() const;
+    virtual const TabletSchema& tablet_schema() const;
+
+    bool set_tablet_schema_into_rowset_meta();
 
 protected:
     void _gen_tablet_path();
@@ -72,7 +80,7 @@ protected:
     const TabletSchema& _schema;
 
     DataDir* _data_dir;
-    FilePathDesc _tablet_path_desc;
+    std::string _tablet_path;
 
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity = nullptr;
@@ -92,8 +100,8 @@ inline DataDir* BaseTablet::data_dir() const {
     return _data_dir;
 }
 
-inline FilePathDesc BaseTablet::tablet_path_desc() const {
-    return _tablet_path_desc;
+inline const std::string& BaseTablet::tablet_path() const {
+    return _tablet_path;
 }
 
 inline const TabletMetaSharedPtr BaseTablet::tablet_meta() {

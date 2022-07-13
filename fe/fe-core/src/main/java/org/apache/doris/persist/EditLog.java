@@ -180,47 +180,45 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_TABLE: {
                     CreateTableInfo info = (CreateTableInfo) journal.getData();
-                    LOG.info("Begin to unprotect create table. db = "
-                            + info.getDbName() + " table = " + info.getTable().getId());
+                    LOG.info("Begin to unprotect create table. db = " + info.getDbName() + " table = " + info.getTable()
+                            .getId());
                     catalog.replayCreateTable(info.getDbName(), info.getTable());
                     break;
                 }
                 case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
                     RefreshExternalTableInfo info = (RefreshExternalTableInfo) journal.getData();
-                    LOG.info("Begin to unprotect alter external table schema. db = "
-                            + info.getDbName() + " table = " + info.getTableName());
+                    LOG.info("Begin to unprotect alter external table schema. db = " + info.getDbName() + " table = "
+                            + info.getTableName());
                     catalog.replayAlterExternalTableSchema(info.getDbName(), info.getTableName(), info.getNewSchema());
                     break;
                 }
                 case OperationType.OP_DROP_TABLE: {
                     DropInfo info = (DropInfo) journal.getData();
-                    Database db =
-                            Catalog.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
-                    LOG.info("Begin to unprotect drop table. db = "
-                            + db.getFullName() + " table = " + info.getTableId());
+                    Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
+                    LOG.info("Begin to unprotect drop table. db = " + db.getFullName() + " table = "
+                            + info.getTableId());
                     catalog.replayDropTable(db, info.getTableId(), info.isForceDrop());
                     break;
                 }
                 case OperationType.OP_ADD_PARTITION: {
                     PartitionPersistInfo info = (PartitionPersistInfo) journal.getData();
-                    LOG.info("Begin to unprotect add partition. db = " + info.getDbId()
-                            + " table = " + info.getTableId()
-                            + " partitionName = " + info.getPartition().getName());
+                    LOG.info(
+                            "Begin to unprotect add partition. db = " + info.getDbId() + " table = " + info.getTableId()
+                                    + " partitionName = " + info.getPartition().getName());
                     catalog.replayAddPartition(info);
                     break;
                 }
                 case OperationType.OP_DROP_PARTITION: {
                     DropPartitionInfo info = (DropPartitionInfo) journal.getData();
-                    LOG.info("Begin to unprotect drop partition. db = " + info.getDbId()
-                            + " table = " + info.getTableId()
-                            + " partitionName = " + info.getPartitionName());
+                    LOG.info("Begin to unprotect drop partition. db = " + info.getDbId() + " table = "
+                            + info.getTableId() + " partitionName = " + info.getPartitionName());
                     catalog.replayDropPartition(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_PARTITION: {
                     ModifyPartitionInfo info = (ModifyPartitionInfo) journal.getData();
-                    LOG.info("Begin to unprotect modify partition. db = " + info.getDbId()
-                            + " table = " + info.getTableId() + " partitionId = " + info.getPartitionId());
+                    LOG.info("Begin to unprotect modify partition. db = " + info.getDbId() + " table = "
+                            + info.getTableId() + " partitionId = " + info.getPartitionId());
                     catalog.getAlterInstance().replayModifyPartition(info);
                     break;
                 }
@@ -285,8 +283,9 @@ public class EditLog {
                 case OperationType.OP_BATCH_DROP_ROLLUP: {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
-                        catalog.getMaterializedViewHandler().replayDropRollup(new DropInfo(batchDropInfo.getDbId(),
-                                batchDropInfo.getTableId(), indexId, false), catalog);
+                        catalog.getMaterializedViewHandler().replayDropRollup(
+                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false),
+                                catalog);
                     }
                     break;
                 }
@@ -466,7 +465,7 @@ public class EditLog {
                     int version = Integer.parseInt(versionString);
                     if (version > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
-                                        + "please update FeConstants.meta_version and restart.",
+                                + "please update FeConstants.meta_version and restart.",
                                 MetaContext.get().getMetaVersion(), FeConstants.meta_version);
                         System.exit(-1);
                     }
@@ -546,8 +545,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BATCH_REMOVE_TXNS: {
-                    final BatchRemoveTransactionsOperation operation
-                            = (BatchRemoveTransactionsOperation) journal.getData();
+                    final BatchRemoveTransactionsOperation operation = (BatchRemoveTransactionsOperation) journal
+                            .getData();
                     Catalog.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactions(operation);
                     break;
                 }
@@ -647,8 +646,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_LOAD_JOB: {
-                    org.apache.doris.load.loadv2.LoadJob loadJob =
-                            (org.apache.doris.load.loadv2.LoadJob) journal.getData();
+                    org.apache.doris.load.loadv2.LoadJob loadJob = (org.apache.doris.load.loadv2.LoadJob) journal
+                            .getData();
                     catalog.getLoadManager().replayCreateLoadJob(loadJob);
                     break;
                 }
@@ -742,8 +741,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_REPLACE_TEMP_PARTITION: {
-                    ReplacePartitionOperationLog replaceTempPartitionLog
-                            = (ReplacePartitionOperationLog) journal.getData();
+                    ReplacePartitionOperationLog replaceTempPartitionLog = (ReplacePartitionOperationLog) journal
+                            .getData();
                     catalog.replayReplaceTempPartition(replaceTempPartitionLog);
                     break;
                 }
@@ -846,6 +845,11 @@ public class EditLog {
                     catalog.getDataSourceMgr().replayAlterCatalogProps(log);
                     break;
                 }
+                case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
+                    final TableAddOrDropColumnsInfo info = (TableAddOrDropColumnsInfo) journal.getData();
+                    catalog.getSchemaChangeHandler().replayModifyTableAddOrDropColumns(info);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -858,13 +862,19 @@ public class EditLog {
              * for a table that no longer exists.
              * 1. Thread 1: get TableA object
              * 2. Thread 2: lock db and drop table and record edit log of the dropped TableA
-             * 3. Thread 1: lock table, modify table and record edit log of the modified TableA
+             * 3. Thread 1: lock table, modify table and record edit log of the modified
+             * TableA
              * **The modified edit log is after the dropped edit log**
-             * Because the table has been dropped, the olapTable in here is null when the modified edit log is replayed.
-             * So in this case, we will ignore the edit log of the modified table after the table is dropped.
-             * This could make the meta inconsistent, for example, an edit log on a dropped table is ignored, but
-             * this table is restored later, so there may be an inconsistent situation between master and followers. We
-             * log a warning here to debug when happens. This could happen to other meta like DB.
+             * Because the table has been dropped, the olapTable in here is null when the
+             * modified edit log is replayed.
+             * So in this case, we will ignore the edit log of the modified table after the
+             * table is dropped.
+             * This could make the meta inconsistent, for example, an edit log on a dropped
+             * table is ignored, but
+             * this table is restored later, so there may be an inconsistent situation
+             * between master and followers. We
+             * log a warning here to debug when happens. This could happen to other meta
+             * like DB.
              */
             LOG.warn("[INCONSISTENT META] replay failed {}: {}", journal, e.getMessage(), e);
         } catch (Exception e) {
@@ -911,7 +921,8 @@ public class EditLog {
         try {
             journal.write(op, writable);
         } catch (Throwable t) {
-            // Throwable contains all Exception and Error, such as IOException and OutOfMemoryError
+            // Throwable contains all Exception and Error, such as IOException and
+            // OutOfMemoryError
             LOG.error("Fatal Error : write stream Exception", t);
             System.exit(-1);
         }
@@ -928,13 +939,13 @@ public class EditLog {
         }
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {}",
-                    txId, numTransactions, totalTimeTransactions, op);
+            LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {}", txId, numTransactions,
+                    totalTimeTransactions, op);
         }
 
         if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.",
-                    txId, Config.edit_log_roll_num);
+            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
+                    Config.edit_log_roll_num);
             rollEditLog();
             txId = 0;
         }
@@ -1460,5 +1471,13 @@ public class EditLog {
 
     public void logDatasourceLog(short id, CatalogLog log) {
         logEdit(id, log);
+    }
+
+    public Journal getJournal() {
+        return this.journal;
+    }
+
+    public void logModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info) {
+        logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS, info);
     }
 }

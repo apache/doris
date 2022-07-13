@@ -48,9 +48,7 @@ BufferedReader::~BufferedReader() {
 
 Status BufferedReader::open() {
     if (!_reader) {
-        std::stringstream ss;
-        ss << "Open buffered reader failed, reader is null";
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Open buffered reader failed, reader is null");
     }
 
     // the macro ADD_XXX is idempotent.
@@ -106,7 +104,7 @@ Status BufferedReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
 
 Status BufferedReader::_read_once(int64_t position, int64_t nbytes, int64_t* bytes_read,
                                   void* out) {
-    _read_count++;
+    ++_read_count;
     // requested bytes missed the local buffer
     if (position >= _buffer_limit || position < _buffer_offset) {
         // if requested length is larger than the capacity of buffer, do not
@@ -139,6 +137,7 @@ Status BufferedReader::_fill() {
         SCOPED_TIMER(_remote_read_timer);
         RETURN_IF_ERROR(_reader->readat(_buffer_offset, _buffer_size, &bytes_read, _buffer));
         _buffer_limit = _buffer_offset + bytes_read;
+        ++_remote_read_count;
     }
     return Status::OK();
 }

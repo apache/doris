@@ -80,8 +80,6 @@ Status VTableValuedFunctionScanNode::open(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialize.");
     }
-
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
@@ -98,7 +96,6 @@ Status VTableValuedFunctionScanNode::get_next(RuntimeState* state, vectorized::B
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is NULL pointer");
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     Status res = _table_func->get_next(state, block, eos);
     RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
@@ -110,7 +107,6 @@ Status VTableValuedFunctionScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     _table_func->close(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 

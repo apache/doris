@@ -41,4 +41,8 @@ void ArrayFunctions::init() {}
 ARRAY_FUNCTION(IntVal, TYPE_INT);
 ARRAY_FUNCTION(StringVal, TYPE_VARCHAR);
 
+doris_udf::AnyVal array_fake_function(FunctionContext* context) {
+    return doris_udf::AnyVal(true);
+}
+
 } // namespace doris

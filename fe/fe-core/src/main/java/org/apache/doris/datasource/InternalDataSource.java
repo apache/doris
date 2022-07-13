@@ -97,6 +97,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -187,11 +188,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 
 /**
  * The Internal data source will manage all self-managed meta object in a Doris cluster.
@@ -199,7 +198,7 @@ import java.util.function.Function;
  * There is only one internal data source in a cluster. And its id is always 0.
  */
 public class InternalDataSource implements DataSourceIf<Database> {
-    public static final String INTERNAL_DS_NAME = "internal_catalog";
+    public static final String INTERNAL_DS_NAME = "internal";
     public static final long INTERNAL_DS_ID = 0L;
 
     private static final Logger LOG = LogManager.getLogger(InternalDataSource.class);
@@ -261,70 +260,6 @@ public class InternalDataSource implements DataSourceIf<Database> {
     @Override
     public Database getDbNullable(long dbId) {
         return idToDb.get(dbId);
-    }
-
-    @Override
-    public Optional<Database> getDb(String dbName) {
-        return Optional.ofNullable(getDbNullable(dbName));
-    }
-
-    @Override
-    public Optional<Database> getDb(long dbId) {
-        return Optional.ofNullable(getDbNullable(dbId));
-    }
-
-    @Override
-    public <E extends Exception> Database getDbOrException(String dbName, Function<String, E> e) throws E {
-        Database db = getDbNullable(dbName);
-        if (db == null) {
-            throw e.apply(dbName);
-        }
-        return db;
-    }
-
-    @Override
-    public <E extends Exception> Database getDbOrException(long dbId, Function<Long, E> e) throws E {
-        Database db = getDbNullable(dbId);
-        if (db == null) {
-            throw e.apply(dbId);
-        }
-        return db;
-    }
-
-    @Override
-    public Database getDbOrMetaException(String dbName) throws MetaNotFoundException {
-        return getDbOrException(dbName,
-                s -> new MetaNotFoundException("unknown databases, dbName=" + s, ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    @Override
-    public Database getDbOrMetaException(long dbId) throws MetaNotFoundException {
-        return getDbOrException(dbId,
-                s -> new MetaNotFoundException("unknown databases, dbId=" + s, ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    @Override
-    public Database getDbOrDdlException(String dbName) throws DdlException {
-        return getDbOrException(dbName,
-                s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    @Override
-    public Database getDbOrDdlException(long dbId) throws DdlException {
-        return getDbOrException(dbId,
-                s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    @Override
-    public Database getDbOrAnalysisException(String dbName) throws AnalysisException {
-        return getDbOrException(dbName,
-                s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    @Override
-    public Database getDbOrAnalysisException(long dbId) throws AnalysisException {
-        return getDbOrException(dbId,
-                s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
     @Override
@@ -405,8 +340,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 Collection<Partition> allPartitions = olapTable.getAllPartitions();
                 for (Partition partition : allPartitions) {
                     long partitionId = partition.getId();
-                    TStorageMedium medium =
-                            olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+                    TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId)
+                            .getStorageMedium();
                     for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         long indexId = index.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
@@ -540,8 +475,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                     fullNameToDb.remove(db.getAttachDb());
                     db.setDbState(DbState.NORMAL);
                     info.setUpdateDbState(DbState.NORMAL);
-                    final Cluster cluster =
-                            nameToCluster.get(ClusterNamespace.getClusterNameFromFullName(db.getAttachDb()));
+                    final Cluster cluster = nameToCluster.get(
+                            ClusterNamespace.getClusterNameFromFullName(db.getAttachDb()));
                     final BaseParam param = new BaseParam();
                     param.addStringParam(db.getAttachDb());
                     param.addLongParam(db.getId());
@@ -734,7 +669,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
         String dbName = recoverStmt.getDbName();
         String tableName = recoverStmt.getTableName();
 
-        Database db = (Database) getDbOrDdlException(dbName);
+        Database db = getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
         olapTable.writeLockOrDdlException();
         try {
@@ -910,8 +845,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                     OlapTable olapTable = (OlapTable) table;
                     if ((olapTable.getState() != OlapTableState.NORMAL)) {
                         throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState()
-                                + ", cannot be dropped."
-                                + " please cancel the operation on olap table firstly."
+                                + ", cannot be dropped." + " please cancel the operation on olap table firstly."
                                 + " If you want to forcibly drop(cannot be recovered),"
                                 + " please use \"DROP table FORCE\".");
                     }
@@ -990,10 +924,9 @@ public class InternalDataSource implements DataSourceIf<Database> {
             schemaHash = olapTable.getSchemaHashByIndexId(info.getIndexId());
         }
 
-        Replica replica =
-                new Replica(info.getReplicaId(), info.getBackendId(), info.getVersion(), schemaHash, info.getDataSize(),
-                        info.getRowCount(), ReplicaState.NORMAL, info.getLastFailedVersion(),
-                        info.getLastSuccessVersion());
+        Replica replica = new Replica(info.getReplicaId(), info.getBackendId(), info.getVersion(), schemaHash,
+                info.getDataSize(), info.getRowCount(), ReplicaState.NORMAL, info.getLastFailedVersion(),
+                info.getLastSuccessVersion());
         tablet.addReplica(replica);
     }
 
@@ -1156,8 +1089,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
             } finally {
                 table.readUnlock();
             }
-            CreateTableStmt parsedCreateTableStmt =
-                    (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(createTableStmt.get(0), ConnectContext.get());
+            CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(
+                    createTableStmt.get(0), ConnectContext.get());
             parsedCreateTableStmt.setTableName(stmt.getTableName());
             parsedCreateTableStmt.setIfNotExists(stmt.isIfNotExists());
             createTable(parsedCreateTableStmt);
@@ -1167,6 +1100,9 @@ public class InternalDataSource implements DataSourceIf<Database> {
         }
     }
 
+    /**
+     * Create table for select.
+     **/
     public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
         try {
             List<String> columnNames = stmt.getColumnNames();
@@ -1192,8 +1128,11 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 }
                 TypeDef typeDef;
                 Expr resultExpr = resultExprs.get(i);
-                if (resultExpr.getType().isStringType() && resultExpr.getType().getLength() < 0) {
+                Type resultType = resultExpr.getType();
+                if (resultType.isStringType() && resultType.getLength() < 0) {
                     typeDef = new TypeDef(Type.STRING);
+                } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
+                    typeDef = new TypeDef(ScalarType.createDecimalV2Type(27, 9));
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
@@ -1237,8 +1176,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 long tableId = table.getId();
                 for (Partition partition : olapTable.getAllPartitions()) {
                     long partitionId = partition.getId();
-                    TStorageMedium medium =
-                            olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+                    TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId)
+                            .getStorageMedium();
                     for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         long indexId = mIndex.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
@@ -1322,8 +1261,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 if (distributionInfo.getType() == DistributionInfoType.HASH) {
                     HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                     List<Column> newDistriCols = hashDistributionInfo.getDistributionColumns();
-                    List<Column> defaultDistriCols =
-                            ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns();
+                    List<Column> defaultDistriCols
+                            = ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns();
                     if (!newDistriCols.equals(defaultDistriCols)) {
                         throw new DdlException(
                                 "Cannot assign hash distribution with different distribution cols. " + "default is: "
@@ -1496,9 +1435,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     long indexId = index.getId();
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                    TabletMeta tabletMeta =
-                            new TabletMeta(info.getDbId(), info.getTableId(), partition.getId(), index.getId(),
-                                    schemaHash, info.getDataProperty().getStorageMedium());
+                    TabletMeta tabletMeta = new TabletMeta(info.getDbId(), info.getTableId(), partition.getId(),
+                            index.getId(), schemaHash, info.getDataProperty().getStorageMedium());
                     for (Tablet tablet : index.getTablets()) {
                         long tabletId = tablet.getId();
                         invertedIndex.addTablet(tabletId, tabletMeta);
@@ -1658,11 +1596,10 @@ public class InternalDataSource implements DataSourceIf<Database> {
                     long backendId = replica.getBackendId();
                     long replicaId = replica.getId();
                     countDownLatch.addMark(backendId, tabletId);
-                    CreateReplicaTask task =
-                            new CreateReplicaTask(backendId, dbId, tableId, partitionId, indexId, tabletId, replicaId,
-                                    shortKeyColumnCount, schemaHash, version, keysType, storageType, storageMedium,
-                                    schema, bfColumns, bfFpp, countDownLatch, indexes, isInMemory, tabletType,
-                                    dataSortInfo, compressionType);
+                    CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tableId, partitionId, indexId,
+                            tabletId, replicaId, shortKeyColumnCount, schemaHash, version, keysType, storageType,
+                            storageMedium, schema, bfColumns, bfFpp, countDownLatch, indexes, isInMemory, tabletType,
+                            dataSortInfo, compressionType);
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -1759,9 +1696,15 @@ public class InternalDataSource implements DataSourceIf<Database> {
 
         // create table
         long tableId = Catalog.getCurrentCatalog().getNextId();
-        OlapTable olapTable =
-                new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo, defaultDistributionInfo,
-                        indexes);
+        OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo,
+                defaultDistributionInfo, indexes);
+
+        for (Column column : baseSchema) {
+            column.setUniqueId(olapTable.incAndGetMaxColUniqueId());
+            LOG.debug("table: {}, newColumn: {}, uniqueId: {}", olapTable.getName(), column.getName(),
+                    column.getUniqueId());
+        }
+
         olapTable.setComment(stmt.getComment());
 
         // set base index id
@@ -1791,8 +1734,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
         olapTable.setCompressionType(compressionType);
 
         // check data sort properties
-        DataSortInfo dataSortInfo =
-                PropertyAnalyzer.analyzeDataSortInfo(properties, keysType, keysDesc.keysColumnSize(), storageFormat);
+        DataSortInfo dataSortInfo = PropertyAnalyzer.analyzeDataSortInfo(properties, keysType,
+                keysDesc.keysColumnSize(), storageFormat);
         olapTable.setDataSortInfo(dataSortInfo);
 
         // analyze bloom filter columns
@@ -1824,8 +1767,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
         olapTable.setReplicationAllocation(replicaAlloc);
 
         // set in memory
-        boolean isInMemory =
-                PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
+        boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY,
+                false);
         olapTable.setIsInMemory(isInMemory);
 
         // set remote storage
@@ -1848,8 +1791,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
             long partitionId = partitionNameToId.get(tableName);
             DataProperty dataProperty = null;
             try {
-                dataProperty =
-                        PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_DATA_PROPERTY);
+                dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
+                        DataProperty.DEFAULT_DATA_PROPERTY);
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -1917,8 +1860,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
             // set rollup index meta to olap table
             List<Column> rollupColumns = Catalog.getCurrentCatalog().getMaterializedViewHandler()
                     .checkAndPrepareMaterializedView(addRollupClause, olapTable, baseRollupIndex, false);
-            short rollupShortKeyColumnCount =
-                    Catalog.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
+            short rollupShortKeyColumnCount = Catalog.calcShortKeyColumnCount(rollupColumns,
+                    alterClause.getProperties());
             int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = Catalog.getCurrentCatalog().getNextId();
             olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
@@ -2050,10 +1993,10 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 // we have added these index to memory, only need to persist here
                 if (Catalog.getCurrentColocateIndex().isColocateTable(tableId)) {
                     GroupId groupId = Catalog.getCurrentColocateIndex().getGroup(tableId);
-                    Map<Tag, List<List<Long>>> backendsPerBucketSeq =
-                            Catalog.getCurrentColocateIndex().getBackendsPerBucketSeq(groupId);
-                    ColocatePersistInfo info =
-                            ColocatePersistInfo.createForAddTable(groupId, tableId, backendsPerBucketSeq);
+                    Map<Tag, List<List<Long>>> backendsPerBucketSeq = Catalog.getCurrentColocateIndex()
+                            .getBackendsPerBucketSeq(groupId);
+                    ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId,
+                            backendsPerBucketSeq);
                     Catalog.getCurrentCatalog().getEditLog().logColocateAddTable(info);
                 }
                 LOG.info("successfully create table[{};{}]", tableName, tableId);
@@ -2108,13 +2051,21 @@ public class InternalDataSource implements DataSourceIf<Database> {
     private Table createEsTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
 
+        // validate props to get column from es.
+        EsTable esTable = new EsTable(tableName, stmt.getProperties());
+
         // create columns
         List<Column> baseSchema = stmt.getColumns();
+
+        if (baseSchema.isEmpty()) {
+            baseSchema = esTable.genColumnsFromEs();
+        }
         validateColumns(baseSchema);
+        esTable.setNewFullSchema(baseSchema);
 
         // create partition info
         PartitionDesc partitionDesc = stmt.getPartitionDesc();
-        PartitionInfo partitionInfo = null;
+        PartitionInfo partitionInfo;
         Map<String, Long> partitionNameToId = Maps.newHashMap();
         if (partitionDesc != null) {
             partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId, false);
@@ -2124,11 +2075,12 @@ public class InternalDataSource implements DataSourceIf<Database> {
             partitionNameToId.put(tableName, partitionId);
             partitionInfo = new SinglePartitionInfo();
         }
+        esTable.setPartitionInfo(partitionInfo);
 
         long tableId = Catalog.getCurrentCatalog().getNextId();
-        EsTable esTable = new EsTable(tableId, tableName, baseSchema, stmt.getProperties(), partitionInfo);
+        esTable.setId(tableId);
         esTable.setComment(stmt.getComment());
-
+        esTable.syncTableMetaData();
         if (!db.createTableWithLock(esTable, false, stmt.isSetIfNotExists()).first) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
         }
@@ -2161,8 +2113,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
         HiveTable hiveTable = new HiveTable(tableId, tableName, columns, stmt.getProperties());
         hiveTable.setComment(stmt.getComment());
         // check hive table whether exists in hive database
-        HiveMetaStoreClient hiveMetaStoreClient =
-                HiveMetaStoreClientHelper.getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
+        HiveMetaStoreClient hiveMetaStoreClient = HiveMetaStoreClientHelper.getClient(
+                hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
         if (!HiveMetaStoreClientHelper.tableExists(hiveMetaStoreClient, hiveTable.getHiveDb(),
                 hiveTable.getHiveTable())) {
             throw new DdlException(String.format("Table [%s] dose not exist in Hive.", hiveTable.getHiveDbTable()));
@@ -2190,9 +2142,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
             throw new DdlException(
                     String.format("Table [%s] dose not exist in Hive Metastore.", hudiTable.getHmsTableIdentifer()));
         }
-        org.apache.hadoop.hive.metastore.api.Table hiveTable =
-                HiveMetaStoreClientHelper.getTable(hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName(),
-                        metastoreUris);
+        org.apache.hadoop.hive.metastore.api.Table hiveTable = HiveMetaStoreClientHelper.getTable(
+                hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName(), metastoreUris);
         if (!HudiUtils.isHudiTable(hiveTable)) {
             throw new DdlException(String.format("Table [%s] is not a hudi table.", hudiTable.getHmsTableIdentifer()));
         }
@@ -2279,8 +2230,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
             for (List<Long> backendIds : chosenBackendIds.values()) {
                 for (long backendId : backendIds) {
                     long replicaId = Catalog.getCurrentCatalog().getNextId();
-                    Replica replica =
-                            new Replica(replicaId, backendId, replicaState, version, tabletMeta.getOldSchemaHash());
+                    Replica replica = new Replica(replicaId, backendId, replicaState, version,
+                            tabletMeta.getOldSchemaHash());
                     tablet.addReplica(replica);
                     totalReplicaNum++;
                 }
@@ -2453,8 +2404,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
             truncateTableInternal(olapTable, newPartitions, truncateEntireTable);
 
             // write edit log
-            TruncateTableInfo info =
-                    new TruncateTableInfo(db.getId(), olapTable.getId(), newPartitions, truncateEntireTable);
+            TruncateTableInfo info = new TruncateTableInfo(db.getId(), olapTable.getId(), newPartitions,
+                    truncateEntireTable);
             Catalog.getCurrentCatalog().getEditLog().logTruncateTable(info);
         } finally {
             olapTable.writeUnlock();
@@ -2499,13 +2450,13 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
                 for (Partition partition : info.getPartitions()) {
                     long partitionId = partition.getId();
-                    TStorageMedium medium =
-                            olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+                    TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId)
+                            .getStorageMedium();
                     for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         long indexId = mIndex.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                        TabletMeta tabletMeta =
-                                new TabletMeta(db.getId(), olapTable.getId(), partitionId, indexId, schemaHash, medium);
+                        TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(), partitionId, indexId,
+                                schemaHash, medium);
                         for (Tablet tablet : mIndex.getTablets()) {
                             long tabletId = tablet.getId();
                             invertedIndex.addTablet(tabletId, tabletMeta);
@@ -2558,8 +2509,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
             if (nameToCluster.containsKey(clusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_HAS_EXIST, clusterName);
             } else {
-                List<Long> backendList =
-                        Catalog.getCurrentSystemInfo().createCluster(clusterName, stmt.getInstanceNum());
+                List<Long> backendList = Catalog.getCurrentSystemInfo()
+                        .createCluster(clusterName, stmt.getInstanceNum());
                 // 1: BE returned is less than requested, throws DdlException.
                 // 2: BE returned is more than or equal to 0, succeeds.
                 if (backendList != null || stmt.getInstanceNum() == 0) {
@@ -3017,8 +2968,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 if (db.getDbState() == DbState.MOVE) {
                     int tabletTotal = 0;
                     int tabletQuorum = 0;
-                    final Set<Long> beIds =
-                            Sets.newHashSet(Catalog.getCurrentSystemInfo().getClusterBackendIds(db.getClusterName()));
+                    final Set<Long> beIds = Sets.newHashSet(
+                            Catalog.getCurrentSystemInfo().getClusterBackendIds(db.getClusterName()));
                     final Set<String> tableNames = db.getTableNamesWithLock();
                     for (String tableName : tableNames) {
 
@@ -3031,8 +2982,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                         olapTable.readLock();
                         try {
                             for (Partition partition : olapTable.getPartitions()) {
-                                ReplicaAllocation replicaAlloc =
-                                        olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
+                                ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo()
+                                        .getReplicaAllocation(partition.getId());
                                 short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
                                 for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(
                                         IndexExtState.ALL)) {
@@ -3121,8 +3072,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
 
     public void initDefaultCluster() {
         final List<Long> backendList = Lists.newArrayList();
-        final List<Backend> defaultClusterBackends =
-                Catalog.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        final List<Backend> defaultClusterBackends = Catalog.getCurrentSystemInfo()
+                .getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
         for (Backend backend : defaultClusterBackends) {
             backendList.add(backend.getId());
         }

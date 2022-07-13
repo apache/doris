@@ -32,7 +32,7 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
@@ -363,15 +363,15 @@ public class HashJoinNode extends PlanNode {
         }
 
         public double lhsNumRows() {
-            Table table = (Table) lhs.getParent().getTable();
+            TableIf table = lhs.getParent().getTable();
             Preconditions.checkState(table instanceof OlapTable);
-            return ((OlapTable) (table)).getRowCount();
+            return table.getRowCount();
         }
 
         public double rhsNumRows() {
-            Table table = (Table) rhs.getParent().getTable();
+            TableIf table = rhs.getParent().getTable();
             Preconditions.checkState(table instanceof OlapTable);
-            return ((OlapTable) (table)).getRowCount();
+            return table.getRowCount();
         }
 
         public TupleId lhsTid() {

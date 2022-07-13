@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -36,7 +36,7 @@ import java.util.List;
 public class OptimizeGroupExpressionJob extends Job<Plan> {
     private final GroupExpression groupExpression;
 
-    public OptimizeGroupExpressionJob(GroupExpression groupExpression, PlannerContext context) {
+    public OptimizeGroupExpressionJob(GroupExpression groupExpression, JobContext context) {
         super(JobType.OPTIMIZE_PLAN, context);
         this.groupExpression = groupExpression;
     }

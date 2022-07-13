@@ -18,17 +18,15 @@
 #pragma once
 
 #include "olap/rowset/rowset_writer.h"
-#include "vector"
 
 namespace doris {
-
-namespace fs {
-class WritableBlock;
-}
-
 namespace segment_v2 {
 class SegmentWriter;
 } // namespace segment_v2
+
+namespace io {
+class FileWriter;
+} // namespace io
 
 class BetaRowsetWriter : public RowsetWriter {
 public:
@@ -50,11 +48,10 @@ public:
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
                                                const SchemaMapping& schema_mapping) override;
 
-    Status add_rowset_for_migration(RowsetSharedPtr rowset) override;
-
     Status flush() override;
 
     // Return the file size flushed to disk in "flush_size"
+    // This method is thread-safe.
     Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
     Status flush_single_memtable(const vectorized::Block* block) override;
 
@@ -89,7 +86,7 @@ private:
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
     mutable SpinLock _lock; // lock to protect _wblocks.
     // TODO(lingbin): it is better to wrapper in a Batch?
-    std::vector<std::unique_ptr<fs::WritableBlock>> _wblocks;
+    std::vector<std::unique_ptr<io::FileWriter>> _file_writers;
 
     // counters and statistics maintained during data write
     std::atomic<int64_t> _num_rows_written;

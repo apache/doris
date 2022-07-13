@@ -33,6 +33,9 @@
 #include "common/logging.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
 #include "olap/fs/block_manager.h"
@@ -104,7 +107,7 @@ namespace doris {
 class BaseBenchmark {
 public:
     BaseBenchmark(const std::string& name, int iterations) : _name(name), _iterations(iterations) {}
-    virtual ~BaseBenchmark() {}
+    virtual ~BaseBenchmark() = default;
 
     void add_name(const std::string& str) { _name += str; }
 
@@ -293,7 +296,7 @@ public:
         }
     }
 
-    const Schema& get_schema() { return *_schema.get(); }
+    const Schema& get_schema() { return *_schema; }
 
     virtual void init() override {}
     virtual void run() override {}
@@ -340,15 +343,16 @@ public:
                        std::shared_ptr<Segment>* res) {
         // must use unique filename for each segment, otherwise page cache kicks in and produces
         // the wrong answer (it use (filename,offset) as cache key)
-        std::string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, ++seg_id);
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions block_opts({filename});
-        std::string storage_name;
-        fs::fs_util::block_manager(storage_name)->create_block(block_opts, &wblock);
+        std::string filename = fmt::format("seg_{}.dat", seg_id++);
+        std::string path = fmt::format("{}/{}", kSegmentDir, filename);
+        auto fs = io::global_local_filesystem();
+
+        std::unique_ptr<io::FileWriter> file_writer;
+        fs->create_file(path, &file_writer);
         SegmentWriterOptions opts;
         DataDir data_dir(kSegmentDir);
         data_dir.init();
-        SegmentWriter writer(wblock.get(), 0, &_tablet_schema, &data_dir, INT32_MAX, opts);
+        SegmentWriter writer(file_writer.get(), 0, &_tablet_schema, &data_dir, INT32_MAX, opts);
         writer.init(1024);
 
         RowCursor row;
@@ -366,9 +370,9 @@ public:
 
         uint64_t file_size, index_size;
         writer.finalize(&file_size, &index_size);
-        wblock->close();
+        file_writer->close();
 
-        Segment::open(filename, seg_id, &_tablet_schema, res);
+        Segment::open(fs, path, seg_id, &_tablet_schema, res);
     }
 
     std::vector<std::vector<std::string>> generate_dataset(int rows_number) {
@@ -402,6 +406,7 @@ private:
         return res;
     }
 
+private:
     std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
     TabletSchema _tablet_schema;

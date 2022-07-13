@@ -18,8 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalDataSource;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
 import org.junit.Assert;
@@ -31,7 +32,7 @@ public class UpdateStmtTest {
 
     @Test
     public void testAnalyze(@Injectable Analyzer analyzer) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(InternalDataSource.INTERNAL_DS_NAME, "db", "table");
         IntLiteral intLiteral = new IntLiteral(1);
         SlotRef slotRef = new SlotRef(tableName, "c1");
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, intLiteral, slotRef);

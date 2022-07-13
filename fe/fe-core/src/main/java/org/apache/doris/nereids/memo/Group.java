@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -38,7 +39,7 @@ import java.util.Optional;
  * Representation for group in cascades optimizer.
  */
 public class Group {
-    private final GroupId groupId = GroupId.newPlanSetId();
+    private final GroupId groupId;
 
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
@@ -50,13 +51,15 @@ public class Group {
     private double costLowerBound = -1;
     private boolean isExplored = false;
     private boolean hasCost = false;
+    private StatsDeriveResult statistics;
 
     /**
      * Constructor for Group.
      *
      * @param groupExpression first {@link GroupExpression} in this Group
      */
-    public Group(GroupExpression groupExpression, LogicalProperties logicalProperties) {
+    public Group(GroupId groupId, GroupExpression groupExpression, LogicalProperties logicalProperties) {
+        this.groupId = groupId;
         if (groupExpression.getOperator() instanceof LogicalOperator) {
             this.logicalExpressions.add(groupExpression);
         } else {
@@ -134,6 +137,35 @@ public class Group {
         this.costLowerBound = costLowerBound;
     }
 
+    /**
+     * Set or update lowestCostPlans: properties --> new Pair<>(cost, expression)
+     */
+    public void setBestPlan(GroupExpression expression, double cost, PhysicalProperties properties) {
+        if (lowestCostPlans.containsKey(properties)) {
+            if (lowestCostPlans.get(properties).first > cost) {
+                lowestCostPlans.put(properties, new Pair<>(cost, expression));
+            }
+        } else {
+            lowestCostPlans.put(properties, new Pair<>(cost, expression));
+        }
+    }
+
+    public GroupExpression getBestExpression(PhysicalProperties properties) {
+        if (lowestCostPlans.containsKey(properties)) {
+            return lowestCostPlans.get(properties).second;
+        }
+        return null;
+    }
+
+    public StatsDeriveResult getStatistics() {
+        return statistics;
+    }
+
+    public void setStatistics(StatsDeriveResult statistics) {
+        this.statistics = statistics;
+    }
+
+
     public List<GroupExpression> getLogicalExpressions() {
         return logicalExpressions;
     }
@@ -194,7 +226,7 @@ public class Group {
      * Get the first Plan from Memo.
      */
     public PhysicalPlan extractPlan() throws AnalysisException {
-        GroupExpression groupExpression = this.logicalExpressionsAt(0);
+        GroupExpression groupExpression = this.physicalExpressions.get(0);
 
         List<Plan> planChildren = com.google.common.collect.Lists.newArrayList();
         for (int i = 0; i < groupExpression.arity(); i++) {
@@ -230,6 +262,6 @@ public class Group {
 
     @Override
     public String toString() {
-        return "Group{" + getLogicalExpression().getOperator() + "}";
+        return "Group[" + groupId + "]";
     }
 }

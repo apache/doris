@@ -51,9 +51,7 @@ Status ScalarFnCall::prepare(RuntimeState* state, const RowDescriptor& desc, Exp
         // Having the failure in the BE (rather than during analysis) allows for
         // better FE testing.
         DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::BUILTIN);
-        std::stringstream ss;
-        ss << "Function " << _fn.name.function_name << " is not implemented.";
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Function {} is not implemented.", _fn.name.function_name);
     }
 
     FunctionContext::TypeDesc return_type = AnyValUtil::column_type_to_type_desc(_type);

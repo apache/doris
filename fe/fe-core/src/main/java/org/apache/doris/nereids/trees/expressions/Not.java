@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
 
@@ -28,10 +29,9 @@ import java.util.Objects;
 /**
  * Not expression: not a.
  */
-public class Not<CHILD_TYPE extends Expression> extends Expression
-        implements UnaryExpression<CHILD_TYPE> {
+public class Not extends Expression implements UnaryExpression {
 
-    public Not(CHILD_TYPE child) {
+    public Not(Expression child) {
         super(NodeType.NOT, child);
     }
 
@@ -46,12 +46,6 @@ public class Not<CHILD_TYPE extends Expression> extends Expression
     }
 
     @Override
-    public Not<Expression> withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Not<>(children.get(0));
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -59,12 +53,18 @@ public class Not<CHILD_TYPE extends Expression> extends Expression
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        Not<Expression> other = (Not) o;
+        Not other = (Not) o;
         return Objects.equals(child(), other.child());
     }
 
     @Override
     public String toString() {
         return "( not " + child() + ")";
+    }
+
+    @Override
+    public Not withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Not(children.get(0));
     }
 }

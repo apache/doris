@@ -28,7 +28,6 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 /**
  * Logical Sort plan operator.
@@ -76,7 +75,8 @@ public class LogicalSort extends LogicalUnaryOperator {
 
     @Override
     public List<Expression> getExpressions() {
-        return new ImmutableList.Builder<Expression>().addAll(
-                orderKeys.stream().map(OrderKey::getExpr).collect(Collectors.toList())).build();
+        return orderKeys.stream()
+                .map(OrderKey::getExpr)
+                .collect(ImmutableList.toImmutableList());
     }
 }

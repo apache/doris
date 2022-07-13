@@ -19,18 +19,27 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.NodeType;
 
+import com.google.common.base.Preconditions;
+
+import java.util.List;
+
 /**
  * And predicate expression.
  */
-public class And<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends CompoundPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class And extends CompoundPredicate {
     /**
      * Desc: Constructor for CompoundPredicate.
      *
      * @param left  left child of comparison predicate
      * @param right right child of comparison predicate
      */
-    public And(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+    public And(Expression left, Expression right) {
         super(NodeType.AND, left, right);
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new And(children.get(0), children.get(1));
     }
 }

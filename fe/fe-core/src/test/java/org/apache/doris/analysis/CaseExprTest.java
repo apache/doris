@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
 import org.junit.Assert;

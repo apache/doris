@@ -127,7 +127,7 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
                                                                                 is_nullable));
             break;
         default:
-            return Status::NotSupported("unsupported type for ColumnVectorBatch: " +
+            return Status::NotSupported("unsupported type for ColumnVectorBatch: {}",
                                         std::to_string(type_info->type()));
         }
         RETURN_IF_ERROR(local->resize(init_capacity));
@@ -161,7 +161,7 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
             return Status::OK();
         }
         default:
-            return Status::NotSupported("unsupported type for ColumnVectorBatch: " +
+            return Status::NotSupported("unsupported type for ColumnVectorBatch: {}",
                                         std::to_string(type_info->type()));
         }
     }

@@ -19,16 +19,18 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 
-import com.google.common.collect.Lists;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
  * Expression for alias, such as col1 as c1.
  */
-public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
-        implements UnaryExpression<CHILD_TYPE> {
+public class Alias extends NamedExpression implements UnaryExpression {
 
     private final ExprId exprId;
     private final String name;
@@ -40,11 +42,20 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
      * @param child expression that alias represents for
      * @param name alias name
      */
-    public Alias(CHILD_TYPE child, String name) {
+    public Alias(Expression child, String name) {
+        this(NamedExpressionUtil.newExprId(), child, name);
+    }
+
+    private Alias(ExprId exprId, Expression child, String name) {
         super(NodeType.ALIAS, child);
-        exprId = NamedExpressionUtil.newExprId();
+        this.exprId = exprId;
         this.name = name;
-        qualifier = Lists.newArrayList();
+        this.qualifier = ImmutableList.of();
+    }
+
+    @Override
+    public Slot toSlot() throws UnboundException {
+        return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier);
     }
 
     @Override
@@ -63,17 +74,33 @@ public class Alias<CHILD_TYPE extends Expression> extends NamedExpression
     }
 
     @Override
-    public Slot toSlot() throws UnboundException {
-        return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier);
+    public DataType getDataType() throws UnboundException {
+        return child().getDataType();
     }
 
     @Override
-    public String sql() {
-        return null;
+    public String toSql() {
+        return child().toSql() + " AS `" + name + "`";
+    }
+
+    @Override
+    public boolean nullable() throws UnboundException {
+        return child().nullable();
     }
 
     @Override
     public String toString() {
-        return child().toString() + " AS " + name;
+        return child().toString() + " AS `" + name + "`#" + exprId;
     }
+
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitAlias(this, context);
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Alias(exprId, children.get(0), name);
+    }
+
 }

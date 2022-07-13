@@ -207,7 +207,7 @@ public class BackupJobTest {
         };
 
         List<TableRef> tableRefs = Lists.newArrayList();
-        tableRefs.add(new TableRef(new TableName(UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME), null));
+        tableRefs.add(new TableRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME), null));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
                 catalog, repo.getId());
     }
@@ -342,7 +342,7 @@ public class BackupJobTest {
         AgentTaskQueue.clearAllTasks();
 
         List<TableRef> tableRefs = Lists.newArrayList();
-        tableRefs.add(new TableRef(new TableName(UnitTestUtil.DB_NAME, "unknown_tbl"), null));
+        tableRefs.add(new TableRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"), null));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
                 catalog, repo.getId());
         job.run();

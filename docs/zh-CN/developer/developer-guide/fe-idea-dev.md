@@ -174,7 +174,13 @@ mysql_service_nio_enabled = true
 
 ![](/images/DEBUG5.png)
 
-## 5.启动fe
+## 5.配置options
+
+由于部分依赖使用了`provided`，idea需要做下特殊配置，在`Run/Debug Configurations`设置中点击右侧`Modify options`，勾选`Add dependencies with "provided" scope to classpath`选项
+
+![](/images/idea_options.png)
+
+## 6.启动fe
 
 下面你就可以愉快的启动，调试你的FE了
 

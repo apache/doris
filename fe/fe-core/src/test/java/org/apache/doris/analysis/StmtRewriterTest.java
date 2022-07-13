@@ -380,7 +380,7 @@ public class StmtRewriterTest {
                 "CROSS JOIN",
                 "predicates: <slot 3> sum(`salary`) > <slot 8> avg(`salary`)",
                 "order by: <slot 10> `$a$1`.`$c$2` ASC",
-                "OUTPUT EXPRS:<slot 11> `$a$1`.`$c$1`");
+                "OUTPUT EXPRS:\n    <slot 11> `$a$1`.`$c$1`");
     }
 
     /**
@@ -495,7 +495,7 @@ public class StmtRewriterTest {
                 "CROSS JOIN",
                 "predicates: <slot 3> sum(`salary`) > <slot 8> avg(`salary`)",
                 "order by: <slot 10> `$a$1`.`$c$2` ASC",
-                "OUTPUT EXPRS:<slot 11> `$a$1`.`$c$1` | <slot 10> `$a$1`.`$c$2`");
+                "OUTPUT EXPRS:\n    <slot 11> `$a$1`.`$c$1`\n    <slot 10> `$a$1`.`$c$2`");
     }
 
     /**
@@ -609,7 +609,7 @@ public class StmtRewriterTest {
                 "CROSS JOIN",
                 "predicates: <slot 3> sum(`salary`) > <slot 8> avg(`salary`)",
                 "order by: <slot 10> `$a$1`.`$c$2` ASC",
-                "OUTPUT EXPRS:<slot 11> `$a$1`.`$c$1` | <slot 10> `$a$1`.`$c$2`");
+                "OUTPUT EXPRS:\n    <slot 11> `$a$1`.`$c$1`\n    <slot 10> `$a$1`.`$c$2`");
     }
 
     /**

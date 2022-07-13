@@ -267,13 +267,12 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
 
     init_doris_metrics(paths);
     init_signals();
-
-    ChunkAllocator::init_instance(config::chunk_reserved_bytes_limit);
 }
 
 void Daemon::start() {
     Status st;
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
+        !defined(USE_JEMALLOC)
     st = Thread::create(
             "Daemon", "tcmalloc_gc_thread", [this]() { this->tcmalloc_gc_thread(); },
             &_tcmalloc_gc_thread);

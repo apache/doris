@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -33,7 +34,7 @@ import com.google.common.collect.ImmutableList;
 // show data skew from tbl [partition(p1, p2, ...)]
 public class ShowDataSkewStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BucketIdx").add("AvgDataSize")
+            .add("BucketIdx").add("AvgRowCount").add("AvgDataSize")
             .add("Graph").add("Percent")
             .build();
 
@@ -47,6 +48,8 @@ public class ShowDataSkewStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         tblRef.getName().analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tblRef.getName().getCtl(), this.getClass().getSimpleName());
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblRef.getName().getDb(),
                 tblRef.getName().getTbl(),
                 PrivPredicate.SHOW)) {

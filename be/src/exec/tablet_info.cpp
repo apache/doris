@@ -31,6 +31,9 @@ void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     for (auto slot : slots) {
         pindex->add_columns(slot->col_name());
     }
+    for (auto column : columns) {
+        column->to_schema_pb(pindex->add_columns_desc());
+    }
 }
 
 Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
@@ -53,11 +56,14 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         for (auto& col : p_index.columns()) {
             auto it = slots_map.find(col);
             if (it == std::end(slots_map)) {
-                std::stringstream ss;
-                ss << "unknown index column, column=" << col;
-                return Status::InternalError(ss.str());
+                return Status::InternalError("unknown index column, column={}", col);
             }
             index->slots.emplace_back(it->second);
+        }
+        for (auto& pcolumn_desc : p_index.columns_desc()) {
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_pb(pcolumn_desc);
+            index->columns.emplace_back(tc);
         }
         _indexes.emplace_back(index);
     }
@@ -88,11 +94,14 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         for (auto& col : t_index.columns) {
             auto it = slots_map.find(col);
             if (it == std::end(slots_map)) {
-                std::stringstream ss;
-                ss << "unknown index column, column=" << col;
-                return Status::InternalError(ss.str());
+                return Status::InternalError("unknown index column, column={}", col);
             }
             index->slots.emplace_back(it->second);
+        }
+        for (auto& tcolumn_desc : t_index.columns_desc) {
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_thrift(tcolumn_desc);
+            index->columns.emplace_back(tc);
         }
         _indexes.emplace_back(index);
     }
@@ -171,18 +180,15 @@ Status OlapTablePartitionParam::init() {
     if (_t_param.__isset.partition_column) {
         auto it = slots_map.find(_t_param.partition_column);
         if (it == std::end(slots_map)) {
-            std::stringstream ss;
-            ss << "partition column not found, column=" << _t_param.partition_column;
-            return Status::InternalError(ss.str());
+            return Status::InternalError("partition column not found, column={}",
+                                         _t_param.partition_column);
         }
         _partition_slot_descs.push_back(it->second);
     } else if (_t_param.__isset.partition_columns) {
         for (auto& part_col : _t_param.partition_columns) {
             auto it = slots_map.find(part_col);
             if (it == std::end(slots_map)) {
-                std::stringstream ss;
-                ss << "partition column not found, column=" << part_col;
-                return Status::InternalError(ss.str());
+                return Status::InternalError("partition column not found, column={}", part_col);
             }
             _partition_slot_descs.push_back(it->second);
         }
@@ -194,17 +200,14 @@ Status OlapTablePartitionParam::init() {
         for (auto& col : _t_param.distributed_columns) {
             auto it = slots_map.find(col);
             if (it == std::end(slots_map)) {
-                std::stringstream ss;
-                ss << "distributed column not found, columns=" << col;
-                return Status::InternalError(ss.str());
+                return Status::InternalError("distributed column not found, columns={}", col);
             }
             _distributed_slot_descs.emplace_back(it->second);
         }
     }
     if (_distributed_slot_descs.empty()) {
-        Random random(UnixMillis());
-        _compute_tablet_index = [&random](Tuple* key, int64_t num_buckets) -> uint32_t {
-            return random.Uniform(num_buckets);
+        _compute_tablet_index = [](Tuple* key, int64_t num_buckets) -> uint32_t {
+            return butil::fast_rand() % num_buckets;
         };
     } else {
         _compute_tablet_index = [this](Tuple* key, int64_t num_buckets) -> uint32_t {
@@ -256,11 +259,10 @@ Status OlapTablePartitionParam::init() {
         part->num_buckets = t_part.num_buckets;
         auto num_indexes = _schema->indexes().size();
         if (t_part.indexes.size() != num_indexes) {
-            std::stringstream ss;
-            ss << "number of partition's index is not equal with schema's"
-               << ", num_part_indexes=" << t_part.indexes.size()
-               << ", num_schema_indexes=" << num_indexes;
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "number of partition's index is not equal with schema's,"
+                    "num_part_indexes={}, num_schema_indexes={}",
+                    t_part.indexes.size(), num_indexes);
         }
         part->indexes = t_part.indexes;
         std::sort(part->indexes.begin(), part->indexes.end(),
@@ -274,7 +276,10 @@ Status OlapTablePartitionParam::init() {
                 ss << "partition's index is not equal with schema's"
                    << ", part_index=" << part->indexes[j].index_id
                    << ", schema_index=" << _schema->indexes()[j]->index_id;
-                return Status::InternalError(ss.str());
+                return Status::InternalError(
+                        "partition's index is not equal with schema's"
+                        ", part_index={}, schema_index={}",
+                        part->indexes[j].index_id, _schema->indexes()[j]->index_id);
             }
         }
         _partitions.emplace_back(part);
@@ -388,9 +393,8 @@ Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, T
         break;
     }
     default: {
-        std::stringstream ss;
-        ss << "unsupported partition column node type, type=" << t_expr.node_type;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("unsupported partition column node type, type={}",
+                                     t_expr.node_type);
     }
     }
     return Status::OK();
@@ -437,7 +441,7 @@ Status VOlapTablePartitionParam::init() {
                                                const std::string& column_type) {
         auto it = std::find(slot_column_names.begin(), slot_column_names.end(), slot_name);
         if (it == slot_column_names.end()) {
-            return Status::InternalError(column_type + " column not found, column =" + slot_name);
+            return Status::InternalError("{} column not found, column ={}", column_type, slot_name);
         }
         locs.emplace_back(it - slot_column_names.begin());
         return Status::OK();
@@ -458,9 +462,8 @@ Status VOlapTablePartitionParam::init() {
         }
     }
     if (_distributed_slot_locs.empty()) {
-        Random random(UnixMillis());
-        _compute_tablet_index = [&random](BlockRow* key, int64_t num_buckets) -> uint32_t {
-            return random.Uniform(num_buckets);
+        _compute_tablet_index = [](BlockRow* key, int64_t num_buckets) -> uint32_t {
+            return butil::fast_rand() % num_buckets;
         };
     } else {
         _compute_tablet_index = [this](BlockRow* key, int64_t num_buckets) -> uint32_t {
@@ -510,11 +513,10 @@ Status VOlapTablePartitionParam::init() {
         part->num_buckets = t_part.num_buckets;
         auto num_indexes = _schema->indexes().size();
         if (t_part.indexes.size() != num_indexes) {
-            std::stringstream ss;
-            ss << "number of partition's index is not equal with schema's"
-               << ", num_part_indexes=" << t_part.indexes.size()
-               << ", num_schema_indexes=" << num_indexes;
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "number of partition's index is not equal with schema's"
+                    ", num_part_indexes={}, num_schema_indexes={}",
+                    t_part.indexes.size(), num_indexes);
         }
         part->indexes = t_part.indexes;
         std::sort(part->indexes.begin(), part->indexes.end(),
@@ -528,7 +530,10 @@ Status VOlapTablePartitionParam::init() {
                 ss << "partition's index is not equal with schema's"
                    << ", part_index=" << part->indexes[j].index_id
                    << ", schema_index=" << _schema->indexes()[j]->index_id;
-                return Status::InternalError(ss.str());
+                return Status::InternalError(
+                        "partition's index is not equal with schema's"
+                        ", part_index={}, schema_index={}",
+                        part->indexes[j].index_id, _schema->indexes()[j]->index_id);
             }
         }
         _partitions.emplace_back(part);
@@ -644,9 +649,8 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
         break;
     }
     default: {
-        std::stringstream ss;
-        ss << "unsupported partition column node type, type=" << t_expr.node_type;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("unsupported partition column node type, type={}",
+                                     t_expr.node_type);
     }
     }
     part_key->second = column->size() - 1;

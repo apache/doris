@@ -20,7 +20,9 @@ package org.apache.doris.regression.suite
 import groovy.transform.CompileStatic
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import groovy.util.logging.Slf4j
 
+@Slf4j
 @CompileStatic
 abstract class SuiteScript extends Script {
     public ScriptContext context
@@ -38,17 +40,22 @@ abstract class SuiteScript extends Script {
         try {
             context.createAndRunSuite(suiteName, group, suiteBody)
         } catch (Throwable t) {
-            logger.warn("Unexcept exception when run ${suiteName} in ${context.file.absolutePath} failed", t)
+            log.warn("Unexcept exception when run ${suiteName} in ${context.file.absolutePath} failed", t)
         }
     }
 
     static String getDefaultGroups(File suiteRoot, File scriptFile) {
         String path = suiteRoot.relativePath(scriptFile.parentFile)
+        String groupPath = path;
+        if (path.indexOf(File.separator + "sql") > 0) {
+            groupPath = path.substring(0, path.indexOf(File.separator + "sql"))
+        }
+        log.info("path: ${path}, groupPath: ${groupPath}".toString())
         List<String> groups = ["default"]
 
         String parentGroup = ""
 
-        path.split(File.separator)
+        groupPath.split(File.separator)
             .collect {it.trim()}
             .findAll {it != "." && it != ".." && !it.isEmpty()}
             .each {

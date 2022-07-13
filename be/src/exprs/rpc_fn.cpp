@@ -749,17 +749,16 @@ Status RPCFn::vec_call(FunctionContext* context, vectorized::Block& block,
     brpc::Controller cntl;
     _client->fn_call(&cntl, &request, &response, nullptr);
     if (cntl.Failed()) {
-        return Status::InternalError(
-                fmt::format("call to rpc function {} failed: {}", _signature, cntl.ErrorText())
-                        .c_str());
+        return Status::InternalError("call to rpc function {} failed: {}", _signature,
+                                     cntl.ErrorText());
     }
     if (!response.has_status() || response.result_size() == 0) {
-        return Status::InternalError(fmt::format(
-                "call rpc function {} failed: status or result is not set.", _signature));
+        return Status::InternalError("call rpc function {} failed: status or result is not set.",
+                                     _signature);
     }
     if (response.status().status_code() != 0) {
-        return Status::InternalError(fmt::format("call to rpc function {} failed: {}", _signature,
-                                                 response.status().DebugString()));
+        return Status::InternalError("call to rpc function {} failed: {}", _signature,
+                                     response.status().DebugString());
     }
     convert_to_block(block, response.result(0), result);
     return Status::OK();

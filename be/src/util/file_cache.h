@@ -131,7 +131,8 @@ public:
     // insert new FileType* into lru cache
     // and return file_handle
     void insert(const std::string& file_name, FileType* file,
-                OpenedFileHandle<FileType>* file_handle);
+                OpenedFileHandle<FileType>* file_handle,
+                void (*deleter)(const CacheKey&, void*) = nullptr);
 
 private:
     // Name of the cache.

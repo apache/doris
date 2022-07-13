@@ -73,7 +73,7 @@ public class EsRepository extends MasterDaemon {
     protected void runAfterCatalogReady() {
         for (EsTable esTable : esTables.values()) {
             try {
-                esTable.syncTableMetaData(esClients.get(esTable.getId()));
+                esTable.syncTableMetaData();
             } catch (Throwable e) {
                 LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster",
                         esTable.getName(), e);

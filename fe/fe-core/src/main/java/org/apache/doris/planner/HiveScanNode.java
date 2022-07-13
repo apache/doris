@@ -19,13 +19,11 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HiveTable;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.statistics.StatisticalType;
@@ -37,15 +35,12 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
-import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
-import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Map;
 
 public class HiveScanNode extends BrokerScanNode {
@@ -56,7 +51,6 @@ public class HiveScanNode extends BrokerScanNode {
 
     private HiveTable hiveTable;
     // partition column predicates of hive table
-    private List<ExprNodeDesc> hivePredicates = new ArrayList<>();
     private ExprNodeGenericFuncDesc hivePartitionPredicate;
     private List<ImportColumnDesc> parsedColumnExprList = new ArrayList<>();
     private String hdfsUri;
@@ -157,40 +151,11 @@ public class HiveScanNode extends BrokerScanNode {
         }
     }
 
-    /**
-     * Extracts partition predicate from SelectStmt.whereClause that can be pushed down to Hive
-     */
-    private void extractHivePartitionPredicate() throws DdlException {
-        ListIterator<Expr> it = conjuncts.listIterator();
-        while (it.hasNext()) {
-            ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
-                    it.next(), partitionKeys, hiveTable.getName());
-            if (hiveExpr != null) {
-                hivePredicates.add(hiveExpr);
-            }
-        }
-        int count = hivePredicates.size();
-        // combine all predicate by `and`
-        // compoundExprs must have at least 2 predicates
-        if (count >= 2) {
-            hivePartitionPredicate = HiveMetaStoreClientHelper.getCompoundExpr(hivePredicates, "and");
-        } else if (count == 1) {
-            // only one predicate
-            hivePartitionPredicate = (ExprNodeGenericFuncDesc) hivePredicates.get(0);
-        } else {
-            // have no predicate, make a dummy predicate "1=1" to get all partitions
-            HiveMetaStoreClientHelper.ExprBuilder exprBuilder =
-                    new HiveMetaStoreClientHelper.ExprBuilder(hiveTable.getName());
-            hivePartitionPredicate = exprBuilder.val(TypeInfoFactory.intTypeInfo, 1)
-                    .val(TypeInfoFactory.intTypeInfo, 1)
-                    .pred("=", 2).build();
-        }
-    }
-
     @Override
     protected void getFileStatus() throws UserException {
         if (partitionKeys.size() > 0) {
-            extractHivePartitionPredicate();
+            hivePartitionPredicate = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                    conjuncts, partitionKeys, hiveTable.getName());
         }
         List<TBrokerFileStatus> fileStatuses = new ArrayList<>();
         this.hdfsUri = HiveMetaStoreClientHelper.getHiveDataFiles(hiveTable, hivePartitionPredicate,

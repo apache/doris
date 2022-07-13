@@ -62,4 +62,8 @@ public class PhysicalLeafPlan<OP_TYPE extends PhysicalLeafOperator>
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalLeafPlan<>(operator, groupExpression, logicalProperties);
     }
+
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new PhysicalLeafPlan<>(operator, groupExpression, logicalProperties.get());
+    }
 }

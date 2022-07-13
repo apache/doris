@@ -22,8 +22,9 @@
 #include <memory>  // for unique_ptr
 
 #include "common/logging.h"
-#include "common/status.h"                              // for Status
-#include "gen_cpp/segment_v2.pb.h"                      // for ColumnMetaPB
+#include "common/status.h"         // for Status
+#include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
+#include "io/fs/file_system.h"
 #include "olap/olap_cond.h"                             // for CondColumn
 #include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
 #include "olap/rowset/segment_v2/common.h"
@@ -63,7 +64,7 @@ struct ColumnReaderOptions {
 };
 
 struct ColumnIteratorOptions {
-    fs::ReadableBlock* rblock = nullptr;
+    io::FileReader* file_reader = nullptr;
     // reader statistics
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
@@ -73,7 +74,7 @@ struct ColumnIteratorOptions {
     PageTypePB type;
 
     void sanity_check() const {
-        CHECK_NOTNULL(rblock);
+        CHECK_NOTNULL(file_reader);
         CHECK_NOTNULL(stats);
     }
 };
@@ -87,7 +88,7 @@ public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                         uint64_t num_rows, const FilePathDesc& path_desc,
+                         uint64_t num_rows, io::FileSystem* fs, const std::string& path,
                          std::unique_ptr<ColumnReader>* reader);
 
     enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
@@ -106,7 +107,7 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                     BlockCompressionCodec* codec);
+                     BlockCompressionCodec* codec) const;
 
     bool is_nullable() const { return _meta.is_nullable(); }
 
@@ -136,7 +137,7 @@ public:
 
     CompressionTypePB get_compression() const { return _meta.compression(); }
 
-    uint64_t num_rows() { return _num_rows; }
+    uint64_t num_rows() const { return _num_rows; }
 
     void set_dict_encoding_type(DictEncodingType type) {
         std::call_once(_set_dict_encoding_type_flag, [&] { _dict_encoding_type = type; });
@@ -146,7 +147,7 @@ public:
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 FilePathDesc path_desc);
+                 io::FileSystem* fs, const std::string& path);
     Status init();
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
@@ -182,7 +183,9 @@ private:
     ColumnMetaPB _meta;
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
-    FilePathDesc _path_desc;
+
+    io::FileSystem* _fs;
+    std::string _path;
 
     DictEncodingType _dict_encoding_type;
 
@@ -247,6 +250,11 @@ public:
         return Status::NotSupported("not implement");
     }
 
+    virtual Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                                  vectorized::MutableColumnPtr& dst) {
+        return Status::NotSupported("not implement");
+    }
+
     virtual ordinal_t get_current_ordinal() const = 0;
 
     virtual Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
@@ -282,6 +290,9 @@ public:
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
@@ -447,10 +458,16 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
+    static void insert_default_data(const TypeInfo* type_info, size_t type_size, void* mem_value,
+                                    vectorized::MutableColumnPtr& dst, size_t n);
+
 private:
-    void insert_default_data(vectorized::MutableColumnPtr& dst, size_t n);
+    void _insert_many_default(vectorized::MutableColumnPtr& dst, size_t n);
 
     bool _has_default_value;
     std::string _default_value;

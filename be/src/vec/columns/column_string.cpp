@@ -20,7 +20,6 @@
 
 #include "vec/columns/column_string.h"
 
-#include "vec/columns/collator.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -188,6 +187,45 @@ const char* ColumnString::deserialize_and_insert_from_arena(const char* pos) {
 
     offsets.push_back(new_size);
     return pos + string_size;
+}
+
+size_t ColumnString::get_max_row_byte_size() const {
+    size_t max_size = 0;
+    size_t num_rows = offsets.size();
+    for (size_t i = 0; i < num_rows; ++i) {
+        max_size = std::max(max_size, size_at(i));
+    }
+
+    return max_size + sizeof(size_t);
+}
+
+void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                                 size_t max_row_byte_size) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        size_t offset = offset_at(i);
+        size_t string_size = size_at(i);
+
+        auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
+        memcpy(ptr, &string_size, sizeof(string_size));
+        memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
+        keys[i].size += sizeof(string_size) + string_size;
+    }
+}
+
+void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                               const uint8_t* null_map,
+                                               size_t max_row_byte_size) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        if (null_map[i] == 0) {
+            size_t offset = offset_at(i);
+            size_t string_size = size_at(i);
+
+            auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
+            memcpy(ptr, &string_size, sizeof(string_size));
+            memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
+            keys[i].size += sizeof(string_size) + string_size;
+        }
+    }
 }
 
 template <typename Type>
@@ -362,57 +400,6 @@ void ColumnString::get_extremes(Field& min, Field& max) const {
 
     get(min_idx, min);
     get(max_idx, max);
-}
-
-int ColumnString::compare_at_with_collation(size_t n, size_t m, const IColumn& rhs_,
-                                            const Collator& collator) const {
-    const ColumnString& rhs = assert_cast<const ColumnString&>(rhs_);
-
-    return collator.compare(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n),
-                            reinterpret_cast<const char*>(&rhs.chars[rhs.offset_at(m)]),
-                            rhs.size_at(m));
-}
-
-template <bool positive>
-struct ColumnString::lessWithCollation {
-    const ColumnString& parent;
-    const Collator& collator;
-
-    lessWithCollation(const ColumnString& parent_, const Collator& collator_)
-            : parent(parent_), collator(collator_) {}
-
-    bool operator()(size_t lhs, size_t rhs) const {
-        int res = collator.compare(
-                reinterpret_cast<const char*>(&parent.chars[parent.offset_at(lhs)]),
-                parent.size_at(lhs),
-                reinterpret_cast<const char*>(&parent.chars[parent.offset_at(rhs)]),
-                parent.size_at(rhs));
-
-        return positive ? (res < 0) : (res > 0);
-    }
-};
-
-void ColumnString::get_permutation_with_collation(const Collator& collator, bool reverse,
-                                                  size_t limit, Permutation& res) const {
-    size_t s = offsets.size();
-    res.resize(s);
-    for (size_t i = 0; i < s; ++i) res[i] = i;
-
-    if (limit >= s) limit = 0;
-
-    if (limit) {
-        if (reverse)
-            std::partial_sort(res.begin(), res.begin() + limit, res.end(),
-                              lessWithCollation<false>(*this, collator));
-        else
-            std::partial_sort(res.begin(), res.begin() + limit, res.end(),
-                              lessWithCollation<true>(*this, collator));
-    } else {
-        if (reverse)
-            std::sort(res.begin(), res.end(), lessWithCollation<false>(*this, collator));
-        else
-            std::sort(res.begin(), res.end(), lessWithCollation<true>(*this, collator));
-    }
 }
 
 void ColumnString::protect() {

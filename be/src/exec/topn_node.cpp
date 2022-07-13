@@ -131,7 +131,6 @@ Status TopNNode::open(RuntimeState* state) {
 Status TopNNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(state->check_query_state("Top n, before moving result to row_batch."));
 

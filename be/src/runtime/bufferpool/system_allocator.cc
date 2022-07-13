@@ -45,7 +45,8 @@ static int64_t HUGE_PAGE_SIZE = 2LL * 1024 * 1024;
 
 SystemAllocator::SystemAllocator(int64_t min_buffer_len) : min_buffer_len_(min_buffer_len) {
     DCHECK(BitUtil::IsPowerOf2(min_buffer_len));
-#if !defined(ADDRESS_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(LEAK_SANITIZER)
+#if !defined(ADDRESS_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(USE_JEMALLOC)
     // Free() assumes that aggressive decommit is enabled for TCMalloc.
     size_t aggressive_decommit_enabled;
     MallocExtension::instance()->GetNumericProperty("tcmalloc.aggressive_memory_decommit",
@@ -128,9 +129,8 @@ Status SystemAllocator::AllocateViaMalloc(int64_t len, uint8_t** buffer_mem) {
     if (rc == 0 && *buffer_mem == nullptr && len != 0) rc = ENOMEM;
 #endif
     if (rc != 0) {
-        std::stringstream ss;
-        ss << "posix_memalign() failed to allocate buffer: " << get_str_err_msg();
-        return Status::InternalError(ss.str());
+        return Status::InternalError("posix_memalign() failed to allocate buffer: {}",
+                                     get_str_err_msg());
     }
     if (use_huge_pages) {
 #ifdef MADV_HUGEPAGE

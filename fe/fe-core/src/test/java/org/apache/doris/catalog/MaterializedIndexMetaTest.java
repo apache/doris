@@ -24,6 +24,7 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TStorageType;
 
@@ -90,7 +91,7 @@ public class MaterializedIndexMetaTest {
         out.close();
 
         List<Expr> params = Lists.newArrayList();
-        SlotRef param1 = new SlotRef(new TableName(null, "test"), "c1");
+        SlotRef param1 = new SlotRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "test"), "c1");
         params.add(param1);
         Map<String, Expr> columnNameToDefineExpr = Maps.newHashMap();
         columnNameToDefineExpr.put(mvColumnName, new FunctionCallExpr(new FunctionName("to_bitmap"), params));

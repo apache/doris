@@ -19,10 +19,13 @@ package org.apache.doris.rewrite;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -53,36 +56,61 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
      * 3) "select * from T where t1 != 2.0" is converted to "select * from T where t1 != 2"
      * 4) "select * from T where t1 != 2.1" is converted to "select * from T"
      * 5) "select * from T where t1 <= 2.0" is converted to "select * from T where t1 <= 2"
-     * 6) "select * from T where t1 <= 2.1" is converted to "select * from T where t1 <3"
+     * 6) "select * from T where t1 <= 2.1" is converted to "select * from T where t1 <=2"
      * 7) "select * from T where t1 >= 2.0" is converted to "select * from T where t1 >= 2"
      * 8) "select * from T where t1 >= 2.1" is converted to "select * from T where t1> 2"
      * 9) "select * from T where t1 <2.0" is converted to "select * from T where t1 <2"
-     * 10) "select * from T where t1 <2.1" is converted to "select * from T where t1 <3"
+     * 10) "select * from T where t1 <2.1" is converted to "select * from T where t1 <=2"
      * 11) "select * from T where t1> 2.0" is converted to "select * from T where t1> 2"
      * 12) "select * from T where t1> 2.1" is converted to "select * from T where t1> 2"
      */
-    private Expr rewriteBigintSlotRefCompareDecimalLiteral(Expr expr0, Expr expr1, BinaryPredicate.Operator op)
-            throws AnalysisException {
-        if (((DecimalLiteral) expr1).getDoubleValue() % (int) (((DecimalLiteral) expr1).getDoubleValue()) != 0) {
-            if (op == BinaryPredicate.Operator.EQ || op == BinaryPredicate.Operator.EQ_FOR_NULL) {
-                return new BoolLiteral(false);
-            } else if (op == BinaryPredicate.Operator.NE) {
-                return new BoolLiteral(true);
-            } else if (op == BinaryPredicate.Operator.LE) {
-                ((DecimalLiteral) expr1).roundCeiling();
-                op = BinaryPredicate.Operator.LT;
-            } else if (op == BinaryPredicate.Operator.GE) {
-                ((DecimalLiteral) expr1).roundFloor();
-                op = BinaryPredicate.Operator.GT;
-            } else if (op == BinaryPredicate.Operator.LT) {
-                ((DecimalLiteral) expr1).roundCeiling();
-            } else if (op == BinaryPredicate.Operator.GT) {
-                ((DecimalLiteral) expr1).roundFloor();
+    private Expr rewriteBigintSlotRefCompareDecimalLiteral(Expr expr0, DecimalLiteral expr1,
+            BinaryPredicate.Operator op) {
+        Type columnType = expr0.getSrcSlotRef().getColumn().getType();
+        try {
+            // Convert childExpr to column type and compare the converted values. There are 3 possible situations:
+            // case 1. The value of childExpr exceeds the range of the column type, then castTo() will throw an
+            //   exception. For example, the value of childExpr is 128.0 and the column type is tinyint.
+            // case 2. childExpr is converted to column type, but the value of childExpr loses precision.
+            //   For example, 2.1 is converted to 2;
+            // case 3. childExpr is precisely converted to column type. For example, 2.0 is converted to 2.
+            LiteralExpr newExpr = (LiteralExpr) expr1.castTo(columnType);
+            int compResult = expr1.compareLiteral(newExpr);
+            // case 2
+            if (compResult != 0) {
+                if (op == Operator.EQ || op == Operator.EQ_FOR_NULL) {
+                    return new BoolLiteral(false);
+                } else if (op == Operator.NE) {
+                    return new BoolLiteral(true);
+                }
+
+                if (compResult > 0) {
+                    if (op == Operator.LT) {
+                        op = Operator.LE;
+                    } else if (op == Operator.GE) {
+                        op = Operator.GT;
+                    }
+                } else {
+                    if (op == Operator.LE) {
+                        op = Operator.LT;
+                    } else if (op == Operator.GT) {
+                        op = Operator.GE;
+                    }
+                }
             }
+            // case 3
+            return new BinaryPredicate(op, expr0.castTo(columnType), newExpr);
+        } catch (AnalysisException e) {
+            // case 1
+            IntLiteral colTypeMinValue = IntLiteral.createMinValue(columnType);
+            IntLiteral colTypeMaxValue = IntLiteral.createMaxValue(columnType);
+            if (op == Operator.NE || ((expr1).compareLiteral(colTypeMinValue) < 0 && (op == Operator.GE
+                    || op == Operator.GT)) || ((expr1).compareLiteral(colTypeMaxValue) > 0 && (op == Operator.LE
+                    || op == Operator.LT))) {
+                return new BoolLiteral(true);
+            }
+            return new BoolLiteral(false);
         }
-        expr0 = expr0.getChild(0);
-        expr1 = expr1.castTo(Type.BIGINT);
-        return new BinaryPredicate(op, expr0, expr1);
     }
 
     @Override
@@ -95,7 +123,7 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
         Expr expr1 = expr.getChild(1);
         if (expr0 instanceof CastExpr && expr0.getType() == Type.DECIMALV2 && expr0.getChild(0) instanceof SlotRef
                 && expr0.getChild(0).getType().getResultType() == Type.BIGINT && expr1 instanceof DecimalLiteral) {
-            return rewriteBigintSlotRefCompareDecimalLiteral(expr0, expr1, op);
+            return rewriteBigintSlotRefCompareDecimalLiteral(expr0, (DecimalLiteral) expr1, op);
         }
         return expr;
     }

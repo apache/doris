@@ -35,8 +35,8 @@ class BlockCompressionCodec;
 class KeyCoder;
 class TypeInfo;
 
-namespace fs {
-class WritableBlock;
+namespace io {
+class FileWriter;
 }
 
 namespace segment_v2 {
@@ -70,7 +70,7 @@ struct IndexedColumnWriterOptions {
 class IndexedColumnWriter {
 public:
     explicit IndexedColumnWriter(const IndexedColumnWriterOptions& options,
-                                 const TypeInfo* type_info, fs::WritableBlock* wblock);
+                                 const TypeInfo* type_info, io::FileWriter* file_writer);
 
     ~IndexedColumnWriter();
 
@@ -88,7 +88,7 @@ private:
 
     IndexedColumnWriterOptions _options;
     const TypeInfo* _type_info;
-    fs::WritableBlock* _wblock;
+    io::FileWriter* _file_writer;
     // only used for `_first_value`
     MemPool _mem_pool;
 

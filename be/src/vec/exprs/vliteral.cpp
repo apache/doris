@@ -144,53 +144,57 @@ std::string VLiteral::debug_string() const {
     out << ", value = ";
     if (_column_ptr.get()->size() > 0) {
         StringRef ref = _column_ptr.get()->get_data_at(0);
-        switch (_type.type) {
-        case TYPE_BOOLEAN:
-        case TYPE_TINYINT:
-        case TYPE_SMALLINT:
-        case TYPE_INT: {
-            out << *(reinterpret_cast<const int32_t*>(ref.data));
-            break;
-        }
-        case TYPE_BIGINT: {
-            out << *(reinterpret_cast<const int64_t*>(ref.data));
-            break;
-        }
-        case TYPE_LARGEINT: {
-            out << fmt::format("{}", *(reinterpret_cast<const __int128_t*>(ref.data)));
-            break;
-        }
-        case TYPE_FLOAT: {
-            out << *(reinterpret_cast<const float*>(ref.data));
-            break;
-        }
-        case TYPE_TIME:
-        case TYPE_DOUBLE: {
-            out << *(reinterpret_cast<const double_t*>(ref.data));
-            break;
-        }
-        case TYPE_DATE:
-        case TYPE_DATETIME: {
-            auto value = *(reinterpret_cast<const int64_t*>(ref.data));
-            auto date_value = (VecDateTimeValue*)&value;
-            out << date_value;
-            break;
-        }
-        case TYPE_STRING:
-        case TYPE_CHAR:
-        case TYPE_VARCHAR: {
-            out << ref;
-            break;
-        }
-        case TYPE_DECIMALV2: {
-            DecimalV2Value value(*(reinterpret_cast<const int128_t*>(ref.data)));
-            out << value;
-            break;
-        }
-        default: {
-            out << "UNKNOWN TYPE: " << int(_type.type);
-            break;
-        }
+        if (ref.data == nullptr) {
+            out << "null";
+        } else {
+            switch (_type.type) {
+            case TYPE_BOOLEAN:
+            case TYPE_TINYINT:
+            case TYPE_SMALLINT:
+            case TYPE_INT: {
+                out << *(reinterpret_cast<const int32_t*>(ref.data));
+                break;
+            }
+            case TYPE_BIGINT: {
+                out << *(reinterpret_cast<const int64_t*>(ref.data));
+                break;
+            }
+            case TYPE_LARGEINT: {
+                out << fmt::format("{}", *(reinterpret_cast<const __int128_t*>(ref.data)));
+                break;
+            }
+            case TYPE_FLOAT: {
+                out << *(reinterpret_cast<const float*>(ref.data));
+                break;
+            }
+            case TYPE_TIME:
+            case TYPE_DOUBLE: {
+                out << *(reinterpret_cast<const double_t*>(ref.data));
+                break;
+            }
+            case TYPE_DATE:
+            case TYPE_DATETIME: {
+                auto value = *(reinterpret_cast<const int64_t*>(ref.data));
+                auto date_value = (VecDateTimeValue*)&value;
+                out << date_value;
+                break;
+            }
+            case TYPE_STRING:
+            case TYPE_CHAR:
+            case TYPE_VARCHAR: {
+                out << ref;
+                break;
+            }
+            case TYPE_DECIMALV2: {
+                DecimalV2Value value(*(reinterpret_cast<const int128_t*>(ref.data)));
+                out << value;
+                break;
+            }
+            default: {
+                out << "UNKNOWN TYPE: " << int(_type.type);
+                break;
+            }
+            }
         }
     }
     out << ")";

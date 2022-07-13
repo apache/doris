@@ -84,8 +84,8 @@ struct MurmurHash2Impl64 {
             }
         } else {
             DCHECK(false);
-            return Status::NotSupported(fmt::format("Illegal column {} of argument of function {}",
-                                                    column->get_name(), name));
+            return Status::NotSupported("Illegal column {} of argument of function {}",
+                                        column->get_name(), name);
         }
         return Status::OK();
     }
@@ -130,8 +130,8 @@ struct MurmurHash2Impl64 {
             }
         } else {
             DCHECK(false);
-            return Status::NotSupported(fmt::format("Illegal column {} of argument of function {}",
-                                                    column->get_name(), name));
+            return Status::NotSupported("Illegal column {} of argument of function {}",
+                                        column->get_name(), name);
         }
         return Status::OK();
     }
@@ -149,8 +149,7 @@ struct MurmurHash2Impl64 {
         return execute_int_type<TYPE, first>(icolumn, col_to, input_rows_count);
         NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
-        return Status::NotSupported(
-                fmt::format("argument_type {} not supported", from_type->get_name()));
+        return Status::NotSupported("argument_type {} not supported", from_type->get_name());
     }
 };
 using FunctionMurmurHash2_64 = FunctionVariadicArgumentsBase<DataTypeUInt64, MurmurHash2Impl64>;
@@ -215,8 +214,8 @@ struct MurmurHash3Impl32 {
             }
         } else {
             DCHECK(false);
-            return Status::NotSupported(fmt::format("Illegal column {} of argument of function {}",
-                                                    column->get_name(), name));
+            return Status::NotSupported("Illegal column {} of argument of function {}",
+                                        column->get_name(), name);
         }
         return Status::OK();
     }

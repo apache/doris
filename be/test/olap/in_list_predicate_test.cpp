@@ -26,7 +26,6 @@
 #include "olap/row_block2.h"
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.hpp"
-#include "runtime/vectorized_row_batch.h"
 #include "util/logging.h"
 
 namespace doris {
@@ -108,16 +107,12 @@ static std::string to_datetime_string(uint64_t& datetime_value) {
 
 class TestInListPredicate : public testing::Test {
 public:
-    TestInListPredicate() : _vectorized_batch(nullptr), _row_block(nullptr) {
+    TestInListPredicate() : _row_block(nullptr) {
         _mem_tracker.reset(new MemTracker(-1));
         _mem_pool.reset(new MemPool(_mem_tracker.get()));
     }
 
-    ~TestInListPredicate() {
-        if (_vectorized_batch != nullptr) {
-            delete _vectorized_batch;
-        }
-    }
+    ~TestInListPredicate() {}
 
     void SetTabletSchema(std::string name, const std::string& type, const std::string& aggregation,
                          uint32_t length, bool is_allow_null, bool is_key,
@@ -139,12 +134,6 @@ public:
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
-    void InitVectorizedBatch(const TabletSchema* tablet_schema, const std::vector<uint32_t>& ids,
-                             int size) {
-        _vectorized_batch = new VectorizedRowBatch(tablet_schema, ids, size);
-        _vectorized_batch->set_size(size);
-    }
-
     void init_row_block(const TabletSchema* tablet_schema, int size) {
         _schema = std::make_unique<Schema>(*tablet_schema);
         _row_block.reset(new RowBlockV2(*_schema, size));
@@ -152,70 +141,9 @@ public:
 
     std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
-    VectorizedRowBatch* _vectorized_batch;
     std::unique_ptr<RowBlockV2> _row_block;
     std::unique_ptr<Schema> _schema;
 };
-
-#define TEST_IN_LIST_PREDICATE(TYPE, TYPE_NAME, FIELD_TYPE)                                       \
-    TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN) {                                             \
-        TabletSchema tablet_schema;                                                               \
-        SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, "REPLACE", 1, false, true, \
-                        &tablet_schema);                                                          \
-        int size = 10;                                                                            \
-        std::vector<uint32_t> return_columns;                                                     \
-        for (int i = 0; i < tablet_schema.num_columns(); ++i) {                                   \
-            return_columns.push_back(i);                                                          \
-        }                                                                                         \
-        InitVectorizedBatch(&tablet_schema, return_columns, size);                                \
-        ColumnVector* col_vector = _vectorized_batch->column(0);                                  \
-                                                                                                  \
-        /* for no nulls */                                                                        \
-        col_vector->set_no_nulls(true);                                                           \
-        TYPE* col_data = reinterpret_cast<TYPE*>(_mem_pool->allocate(size * sizeof(TYPE)));       \
-        col_vector->set_col_data(col_data);                                                       \
-        for (int i = 0; i < size; ++i) {                                                          \
-            *(col_data + i) = i;                                                                  \
-        }                                                                                         \
-                                                                                                  \
-        phmap::flat_hash_set<TYPE> values;                                                        \
-        values.insert(4);                                                                         \
-        values.insert(5);                                                                         \
-        values.insert(6);                                                                         \
-        ColumnPredicate* pred = new InListPredicate<TYPE>(0, std::move(values));                  \
-        pred->evaluate(_vectorized_batch);                                                        \
-        EXPECT_EQ(_vectorized_batch->size(), 3);                                                  \
-        uint16_t* sel = _vectorized_batch->selected();                                            \
-        EXPECT_EQ(*(col_data + sel[0]), 4);                                                       \
-        EXPECT_EQ(*(col_data + sel[1]), 5);                                                       \
-        EXPECT_EQ(*(col_data + sel[2]), 6);                                                       \
-                                                                                                  \
-        /* for has nulls */                                                                       \
-        col_vector->set_no_nulls(false);                                                          \
-        bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));                       \
-        memset(is_null, 0, size);                                                                 \
-        col_vector->set_is_null(is_null);                                                         \
-        for (int i = 0; i < size; ++i) {                                                          \
-            if (i % 2 == 0) {                                                                     \
-                is_null[i] = true;                                                                \
-            } else {                                                                              \
-                *(col_data + i) = i;                                                              \
-            }                                                                                     \
-        }                                                                                         \
-        _vectorized_batch->set_size(size);                                                        \
-        _vectorized_batch->set_selected_in_use(false);                                            \
-        pred->evaluate(_vectorized_batch);                                                        \
-        EXPECT_EQ(_vectorized_batch->size(), 1);                                                  \
-        sel = _vectorized_batch->selected();                                                      \
-        EXPECT_EQ(*(col_data + sel[0]), 5);                                                       \
-        delete pred;                                                                              \
-    }
-
-TEST_IN_LIST_PREDICATE(int8_t, TINYINT, "TINYINT")
-TEST_IN_LIST_PREDICATE(int16_t, SMALLINT, "SMALLINT")
-TEST_IN_LIST_PREDICATE(int32_t, INT, "INT")
-TEST_IN_LIST_PREDICATE(int64_t, BIGINT, "BIGINT")
-TEST_IN_LIST_PREDICATE(int128_t, LARGEINT, "LARGEINT")
 
 #define TEST_IN_LIST_PREDICATE_V2(TYPE, TYPE_NAME, FIELD_TYPE)                                    \
     TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN_V2) {                                          \
@@ -296,22 +224,6 @@ TEST_F(TestInListPredicate, FLOAT_COLUMN) {
     values.insert(6.1);
     ColumnPredicate* pred = new InListPredicate<float>(0, std::move(values));
 
-    // for VectorizedBatch no null
-    InitVectorizedBatch(&tablet_schema, return_columns, size);
-    ColumnVector* col_vector = _vectorized_batch->column(0);
-    col_vector->set_no_nulls(true);
-    float* col_data = reinterpret_cast<float*>(_mem_pool->allocate(size * sizeof(float)));
-    col_vector->set_col_data(col_data);
-    for (int i = 0; i < size; ++i) {
-        *(col_data + i) = i + 0.1;
-    }
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 3);
-    uint16_t* sel = _vectorized_batch->selected();
-    EXPECT_FLOAT_EQ(*(col_data + sel[0]), 4.1);
-    EXPECT_FLOAT_EQ(*(col_data + sel[1]), 5.1);
-    EXPECT_FLOAT_EQ(*(col_data + sel[2]), 6.1);
-
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
@@ -326,25 +238,6 @@ TEST_F(TestInListPredicate, FLOAT_COLUMN) {
     EXPECT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 4.1);
     EXPECT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[1]).cell_ptr(), 5.1);
     EXPECT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr(), 6.1);
-
-    // for VectorizedBatch has nulls
-    col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
-    memset(is_null, 0, size);
-    col_vector->set_is_null(is_null);
-    for (int i = 0; i < size; ++i) {
-        if (i % 2 == 0) {
-            is_null[i] = true;
-        } else {
-            *(col_data + i) = i + 0.1;
-        }
-    }
-    _vectorized_batch->set_size(size);
-    _vectorized_batch->set_selected_in_use(false);
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 1);
-    sel = _vectorized_batch->selected();
-    EXPECT_FLOAT_EQ(*(col_data + sel[0]), 5.1);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -381,22 +274,6 @@ TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
 
     ColumnPredicate* pred = new InListPredicate<double>(0, std::move(values));
 
-    // for VectorizedBatch no null
-    InitVectorizedBatch(&tablet_schema, return_columns, size);
-    ColumnVector* col_vector = _vectorized_batch->column(0);
-    col_vector->set_no_nulls(true);
-    double* col_data = reinterpret_cast<double*>(_mem_pool->allocate(size * sizeof(double)));
-    col_vector->set_col_data(col_data);
-    for (int i = 0; i < size; ++i) {
-        *(col_data + i) = i + 0.1;
-    }
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 3);
-    uint16_t* sel = _vectorized_batch->selected();
-    EXPECT_DOUBLE_EQ(*(col_data + sel[0]), 4.1);
-    EXPECT_DOUBLE_EQ(*(col_data + sel[1]), 5.1);
-    EXPECT_DOUBLE_EQ(*(col_data + sel[2]), 6.1);
-
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
@@ -411,25 +288,6 @@ TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
     EXPECT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 4.1);
     EXPECT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[1]).cell_ptr(), 5.1);
     EXPECT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr(), 6.1);
-
-    // for VectorizedBatch has nulls
-    col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
-    memset(is_null, 0, size);
-    col_vector->set_is_null(is_null);
-    for (int i = 0; i < size; ++i) {
-        if (i % 2 == 0) {
-            is_null[i] = true;
-        } else {
-            *(col_data + i) = i + 0.1;
-        }
-    }
-    _vectorized_batch->set_size(size);
-    _vectorized_batch->set_selected_in_use(false);
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 1);
-    sel = _vectorized_batch->selected();
-    EXPECT_DOUBLE_EQ(*(col_data + sel[0]), 5.1);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -470,24 +328,6 @@ TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
 
     ColumnPredicate* pred = new InListPredicate<decimal12_t>(0, std::move(values));
 
-    // for VectorizedBatch no null
-    InitVectorizedBatch(&tablet_schema, return_columns, size);
-    ColumnVector* col_vector = _vectorized_batch->column(0);
-    col_vector->set_no_nulls(true);
-    decimal12_t* col_data =
-            reinterpret_cast<decimal12_t*>(_mem_pool->allocate(size * sizeof(decimal12_t)));
-    col_vector->set_col_data(col_data);
-    for (int i = 0; i < size; ++i) {
-        (*(col_data + i)).integer = i;
-        (*(col_data + i)).fraction = i;
-    }
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 3);
-    uint16_t* sel = _vectorized_batch->selected();
-    EXPECT_EQ(*(col_data + sel[0]), value1);
-    EXPECT_EQ(*(col_data + sel[1]), value2);
-    EXPECT_EQ(*(col_data + sel[2]), value3);
-
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
@@ -503,26 +343,6 @@ TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
     EXPECT_EQ(*(decimal12_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), value1);
     EXPECT_EQ(*(decimal12_t*)col_block.cell(_row_block->selection_vector()[1]).cell_ptr(), value2);
     EXPECT_EQ(*(decimal12_t*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr(), value3);
-
-    // for VectorizedBatch has nulls
-    col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
-    memset(is_null, 0, size);
-    col_vector->set_is_null(is_null);
-    for (int i = 0; i < size; ++i) {
-        if (i % 2 == 0) {
-            is_null[i] = true;
-        } else {
-            (*(col_data + i)).integer = i;
-            (*(col_data + i)).fraction = i;
-        }
-    }
-    _vectorized_batch->set_size(size);
-    _vectorized_batch->set_selected_in_use(false);
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 1);
-    sel = _vectorized_batch->selected();
-    EXPECT_EQ(*(col_data + sel[0]), value2);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -573,37 +393,12 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
 
     ColumnPredicate* pred = new InListPredicate<StringValue>(0, std::move(values));
 
-    // for VectorizedBatch no null
-    InitVectorizedBatch(&tablet_schema, return_columns, size);
-    ColumnVector* col_vector = _vectorized_batch->column(0);
-    col_vector->set_no_nulls(true);
-    StringValue* col_data =
-            reinterpret_cast<StringValue*>(_mem_pool->allocate(size * sizeof(StringValue)));
-    col_vector->set_col_data(col_data);
-
-    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
-    memset(string_buffer, 0, 60);
-    for (int i = 0; i < size; ++i) {
-        for (int j = 0; j <= 5; ++j) {
-            string_buffer[j] = 'a' + i;
-        }
-        (*(col_data + i)).len = 5;
-        (*(col_data + i)).ptr = string_buffer;
-        string_buffer += 5;
-    }
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 3);
-    uint16_t* sel = _vectorized_batch->selected();
-    EXPECT_EQ(*(col_data + sel[0]), value1);
-    EXPECT_EQ(*(col_data + sel[1]), value2);
-    EXPECT_EQ(*(col_data + sel[2]), value3);
-
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
-    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
+    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
     memset(string_buffer, 0, 60);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
@@ -619,32 +414,6 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
     EXPECT_EQ(*(StringValue*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), value1);
     EXPECT_EQ(*(StringValue*)col_block.cell(_row_block->selection_vector()[1]).cell_ptr(), value2);
     EXPECT_EQ(*(StringValue*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr(), value3);
-
-    // for VectorizedBatch has nulls
-    col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
-    memset(is_null, 0, size);
-    col_vector->set_is_null(is_null);
-    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
-    memset(string_buffer, 0, 60);
-    for (int i = 0; i < size; ++i) {
-        if (i % 2 == 0) {
-            is_null[i] = true;
-        } else {
-            for (int j = 0; j <= 5; ++j) {
-                string_buffer[j] = 'a' + i;
-            }
-            (*(col_data + i)).len = 5;
-            (*(col_data + i)).ptr = string_buffer;
-        }
-        string_buffer += 5;
-    }
-    _vectorized_batch->set_size(size);
-    _vectorized_batch->set_selected_in_use(false);
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 1);
-    sel = _vectorized_batch->selected();
-    EXPECT_EQ(*(col_data + sel[0]), value2);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -701,36 +470,12 @@ TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
 
     ColumnPredicate* pred = new InListPredicate<StringValue>(0, std::move(values));
 
-    // for VectorizedBatch no null
-    InitVectorizedBatch(&tablet_schema, return_columns, size);
-    ColumnVector* col_vector = _vectorized_batch->column(0);
-    col_vector->set_no_nulls(true);
-    StringValue* col_data =
-            reinterpret_cast<StringValue*>(_mem_pool->allocate(size * sizeof(StringValue)));
-    col_vector->set_col_data(col_data);
-
-    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(55));
-    for (int i = 0; i < size; ++i) {
-        for (int j = 0; j <= i; ++j) {
-            string_buffer[j] = 'a' + i;
-        }
-        (*(col_data + i)).len = i + 1;
-        (*(col_data + i)).ptr = string_buffer;
-        string_buffer += i + 1;
-    }
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 3);
-    uint16_t* sel = _vectorized_batch->selected();
-    EXPECT_EQ(*(col_data + sel[0]), value1);
-    EXPECT_EQ(*(col_data + sel[1]), value2);
-    EXPECT_EQ(*(col_data + sel[2]), value3);
-
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
-    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
+    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
     memset(string_buffer, 0, 60);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
@@ -746,31 +491,6 @@ TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
     EXPECT_EQ(*(StringValue*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), value1);
     EXPECT_EQ(*(StringValue*)col_block.cell(_row_block->selection_vector()[1]).cell_ptr(), value2);
     EXPECT_EQ(*(StringValue*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr(), value3);
-
-    // for VectorizedBatch has nulls
-    col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
-    memset(is_null, 0, size);
-    col_vector->set_is_null(is_null);
-    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(55));
-    for (int i = 0; i < size; ++i) {
-        if (i % 2 == 0) {
-            is_null[i] = true;
-        } else {
-            for (int j = 0; j <= i; ++j) {
-                string_buffer[j] = 'a' + i;
-            }
-            (*(col_data + i)).len = i + 1;
-            (*(col_data + i)).ptr = string_buffer;
-        }
-        string_buffer += i + 1;
-    }
-    _vectorized_batch->set_size(size);
-    _vectorized_batch->set_selected_in_use(false);
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 1);
-    sel = _vectorized_batch->selected();
-    EXPECT_EQ(*(col_data + sel[0]), value2);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -816,13 +536,6 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
     values.insert(value3);
     ColumnPredicate* pred = new InListPredicate<uint24_t>(0, std::move(values));
 
-    // for VectorizedBatch no nulls
-    InitVectorizedBatch(&tablet_schema, return_columns, size);
-    ColumnVector* col_vector = _vectorized_batch->column(0);
-    col_vector->set_no_nulls(true);
-    uint24_t* col_data = reinterpret_cast<uint24_t*>(_mem_pool->allocate(size * sizeof(uint24_t)));
-    col_vector->set_col_data(col_data);
-
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
     date_array.push_back("2017-09-08");
@@ -830,16 +543,6 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
     date_array.push_back("2017-09-10");
     date_array.push_back("2017-09-11");
     date_array.push_back("2017-09-12");
-    for (int i = 0; i < size; ++i) {
-        uint24_t timestamp = datetime::timestamp_from_date(date_array[i].c_str());
-        *(col_data + i) = timestamp;
-    }
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 3);
-    uint16_t* sel = _vectorized_batch->selected();
-    EXPECT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-09");
-    EXPECT_EQ(datetime::to_date_string(*(col_data + sel[1])), "2017-09-10");
-    EXPECT_EQ(datetime::to_date_string(*(col_data + sel[2])), "2017-09-11");
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -862,26 +565,6 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
     EXPECT_EQ(datetime::to_date_string(
                       *(uint24_t*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr()),
               "2017-09-11");
-
-    // for VectorizedBatch has nulls
-    col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
-    memset(is_null, 0, size);
-    col_vector->set_is_null(is_null);
-    for (int i = 0; i < size; ++i) {
-        if (i % 2 == 0) {
-            is_null[i] = true;
-        } else {
-            uint24_t timestamp = datetime::timestamp_from_date(date_array[i].c_str());
-            *(col_data + i) = timestamp;
-        }
-    }
-    _vectorized_batch->set_size(size);
-    _vectorized_batch->set_selected_in_use(false);
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 1);
-    sel = _vectorized_batch->selected();
-    EXPECT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-10");
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -925,13 +608,6 @@ TEST_F(TestInListPredicate, DATE_V2_COLUMN) {
     values.insert(value3);
     ColumnPredicate* pred = new InListPredicate<uint32_t>(0, std::move(values));
 
-    // for VectorizedBatch no nulls
-    InitVectorizedBatch(&tablet_schema, return_columns, size);
-    ColumnVector* col_vector = _vectorized_batch->column(0);
-    col_vector->set_no_nulls(true);
-    uint32_t* col_data = reinterpret_cast<uint32_t*>(_mem_pool->allocate(size * sizeof(uint32_t)));
-    col_vector->set_col_data(col_data);
-
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
     date_array.push_back("2017-09-08");
@@ -939,16 +615,6 @@ TEST_F(TestInListPredicate, DATE_V2_COLUMN) {
     date_array.push_back("2017-09-10");
     date_array.push_back("2017-09-11");
     date_array.push_back("2017-09-12");
-    for (int i = 0; i < size; ++i) {
-        uint32_t timestamp = datetime::timestamp_from_date_v2(date_array[i].c_str());
-        *(col_data + i) = timestamp;
-    }
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 3);
-    uint16_t* sel = _vectorized_batch->selected();
-    EXPECT_EQ(datetime::to_date_v2_string(*(col_data + sel[0])), "2017-09-09");
-    EXPECT_EQ(datetime::to_date_v2_string(*(col_data + sel[1])), "2017-09-10");
-    EXPECT_EQ(datetime::to_date_v2_string(*(col_data + sel[2])), "2017-09-11");
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -971,26 +637,6 @@ TEST_F(TestInListPredicate, DATE_V2_COLUMN) {
     EXPECT_EQ(datetime::to_date_v2_string(
                       *(uint32_t*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr()),
               "2017-09-11");
-
-    // for VectorizedBatch has nulls
-    col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
-    memset(is_null, 0, size);
-    col_vector->set_is_null(is_null);
-    for (int i = 0; i < size; ++i) {
-        if (i % 2 == 0) {
-            is_null[i] = true;
-        } else {
-            uint32_t timestamp = datetime::timestamp_from_date_v2(date_array[i].c_str());
-            *(col_data + i) = timestamp;
-        }
-    }
-    _vectorized_batch->set_size(size);
-    _vectorized_batch->set_selected_in_use(false);
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 1);
-    sel = _vectorized_batch->selected();
-    EXPECT_EQ(datetime::to_date_v2_string(*(col_data + sel[0])), "2017-09-10");
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -1035,13 +681,6 @@ TEST_F(TestInListPredicate, DATETIME_COLUMN) {
 
     ColumnPredicate* pred = new InListPredicate<uint64_t>(0, std::move(values));
 
-    // for VectorizedBatch no nulls
-    InitVectorizedBatch(&tablet_schema, return_columns, size);
-    ColumnVector* col_vector = _vectorized_batch->column(0);
-    col_vector->set_no_nulls(true);
-    uint64_t* col_data = reinterpret_cast<uint64_t*>(_mem_pool->allocate(size * sizeof(uint64_t)));
-    col_vector->set_col_data(col_data);
-
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07 00:00:00");
     date_array.push_back("2017-09-08 00:01:00");
@@ -1049,16 +688,6 @@ TEST_F(TestInListPredicate, DATETIME_COLUMN) {
     date_array.push_back("2017-09-10 01:00:00");
     date_array.push_back("2017-09-11 01:01:00");
     date_array.push_back("2017-09-12 01:01:01");
-    for (int i = 0; i < size; ++i) {
-        uint64_t timestamp = datetime::timestamp_from_datetime(date_array[i].c_str());
-        *(col_data + i) = timestamp;
-    }
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 3);
-    uint16_t* sel = _vectorized_batch->selected();
-    EXPECT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-09 00:00:01");
-    EXPECT_EQ(datetime::to_datetime_string(*(col_data + sel[1])), "2017-09-10 01:00:00");
-    EXPECT_EQ(datetime::to_datetime_string(*(col_data + sel[2])), "2017-09-11 01:01:00");
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -1081,26 +710,6 @@ TEST_F(TestInListPredicate, DATETIME_COLUMN) {
     EXPECT_EQ(datetime::to_datetime_string(
                       *(uint64_t*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr()),
               "2017-09-11 01:01:00");
-
-    // for VectorizedBatch has nulls
-    col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
-    memset(is_null, 0, size);
-    col_vector->set_is_null(is_null);
-    for (int i = 0; i < size; ++i) {
-        if (i % 2 == 0) {
-            is_null[i] = true;
-        } else {
-            uint64_t timestamp = datetime::timestamp_from_datetime(date_array[i].c_str());
-            *(col_data + i) = timestamp;
-        }
-    }
-    _vectorized_batch->set_size(size);
-    _vectorized_batch->set_selected_in_use(false);
-    pred->evaluate(_vectorized_batch);
-    EXPECT_EQ(_vectorized_batch->size(), 1);
-    sel = _vectorized_batch->selected();
-    EXPECT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-10 01:00:00");
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);

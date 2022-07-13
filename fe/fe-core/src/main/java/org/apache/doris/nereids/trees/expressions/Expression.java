@@ -20,12 +20,14 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Abstract class for all Expression in Nereids.
@@ -42,7 +44,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         throw new UnboundException("dataType");
     }
 
-    public String sql() throws UnboundException {
+    public String toSql() throws UnboundException {
         throw new UnboundException("sql");
     }
 
@@ -51,18 +53,17 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        logger.warn("accept() is not implemented by " + this.getClass());
         return visitor.visit(this, context);
     }
 
     @Override
     public List<Expression> children() {
-        return (List) children;
+        return children;
     }
 
     @Override
     public Expression child(int index) {
-        return (Expression) children.get(index);
+        return children.get(index);
     }
 
     @Override
@@ -74,12 +75,23 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
      * Whether the expression is a constant.
      */
     public boolean isConstant() {
-        for (Expression child : children()) {
-            if (child.isConstant()) {
-                return true;
-            }
-        }
-        return false;
+        return children().stream().anyMatch(Expression::isConstant);
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Expression that = (Expression) o;
+        return Objects.equals(children(), that.children());
+    }
+
+    @Override
+    public int hashCode() {
+        return 0;
+    }
 }

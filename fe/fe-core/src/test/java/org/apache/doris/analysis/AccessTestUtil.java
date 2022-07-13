@@ -33,6 +33,7 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.DataSourceMgr;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -48,6 +49,7 @@ import mockit.Expectations;
 
 import java.util.LinkedList;
 import java.util.List;
+import java.util.function.Function;
 
 public class AccessTestUtil {
     private static FakeEditLog fakeEditLog;
@@ -71,6 +73,10 @@ public class AccessTestUtil {
                     result = true;
 
                     auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                    minTimes = 0;
+                    result = true;
+
+                    auth.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                     minTimes = 0;
                     result = true;
 
@@ -138,6 +144,23 @@ public class AccessTestUtil {
                 }
             };
 
+            DataSourceMgr dsMgr = new DataSourceMgr();
+            new Expectations(dsMgr) {
+                {
+                    dsMgr.getCatalog((String) any);
+                    minTimes = 0;
+                    result = ds;
+
+                    dsMgr.getCatalogOrException((String) any, (Function) any);
+                    minTimes = 0;
+                    result = ds;
+
+                    dsMgr.getCatalogOrAnalysisException((String) any);
+                    minTimes = 0;
+                    result = ds;
+                }
+            };
+
             new Expectations(catalog, ds) {
                 {
                     catalog.getAuth();
@@ -174,6 +197,10 @@ public class AccessTestUtil {
                     catalog.getBrokerMgr();
                     minTimes = 0;
                     result = new BrokerMgr();
+
+                    catalog.getDataSourceMgr();
+                    minTimes = 0;
+                    result = dsMgr;
                 }
             };
             return catalog;
@@ -349,6 +376,23 @@ public class AccessTestUtil {
                 }
             };
 
+            DataSourceMgr dsMgr = new DataSourceMgr();
+            new Expectations(dsMgr) {
+                {
+                    dsMgr.getCatalog((String) any);
+                    minTimes = 0;
+                    result = ds;
+
+                    dsMgr.getCatalogOrException((String) any, (Function) any);
+                    minTimes = 0;
+                    result = ds;
+
+                    dsMgr.getCatalogOrAnalysisException((String) any);
+                    minTimes = 0;
+                    result = ds;
+                }
+            };
+
             new Expectations(catalog) {
                 {
                     catalog.getAuth();
@@ -366,6 +410,10 @@ public class AccessTestUtil {
                     catalog.getCurrentDataSource();
                     minTimes = 0;
                     result = ds;
+
+                    catalog.getDataSourceMgr();
+                    minTimes = 0;
+                    result = dsMgr;
                 }
             };
             return catalog;

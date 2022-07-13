@@ -105,8 +105,8 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
                 return Status::OK();
             }
         }
-        return Status::InternalError(strings::Substitute(
-                "fail to add batch in load channel. unknown load_id=$0", load_id.to_string()));
+        return Status::InternalError("fail to add batch in load channel. unknown load_id={}",
+                                     load_id.to_string());
     }
     channel = it->second;
     return Status::OK();

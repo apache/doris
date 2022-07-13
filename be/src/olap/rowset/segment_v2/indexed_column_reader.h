@@ -22,6 +22,9 @@
 #include "common/status.h"
 #include "env/env.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_system_map.h"
 #include "olap/column_block.h"
 #include "olap/fs/fs_util.h"
 #include "olap/rowset/segment_v2/common.h"
@@ -45,13 +48,14 @@ class IndexedColumnIterator;
 // thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
 class IndexedColumnReader {
 public:
-    explicit IndexedColumnReader(const FilePathDesc& path_desc, const IndexedColumnMetaPB& meta)
-            : _path_desc(path_desc), _meta(meta) {};
+    explicit IndexedColumnReader(io::FileSystem* fs, const std::string& path,
+                                 const IndexedColumnMetaPB& meta)
+            : _fs(fs), _path(path), _meta(meta) {};
 
     Status load(bool use_page_cache, bool kept_in_memory);
 
     // read a page specified by `pp' from `file' into `handle'
-    Status read_page(fs::ReadableBlock* rblock, const PagePointer& pp, PageHandle* handle,
+    Status read_page(io::FileReader* file_reader, const PagePointer& pp, PageHandle* handle,
                      Slice* body, PageFooterPB* footer, PageTypePB type,
                      BlockCompressionCodec* codec) const;
 
@@ -64,12 +68,13 @@ public:
     CompressionTypePB get_compression() const { return _meta.compression(); }
 
 private:
-    Status load_index_page(fs::ReadableBlock* rblock, const PagePointerPB& pp, PageHandle* handle,
+    Status load_index_page(io::FileReader* file_reader, const PagePointerPB& pp, PageHandle* handle,
                            IndexPageReader* reader);
 
     friend class IndexedColumnIterator;
 
-    FilePathDesc _path_desc;
+    io::FileSystem* _fs;
+    std::string _path;
     IndexedColumnMetaPB _meta;
 
     bool _use_page_cache;
@@ -96,10 +101,11 @@ public:
             : _reader(reader),
               _ordinal_iter(&reader->_ordinal_index_reader),
               _value_iter(&reader->_value_index_reader) {
-        fs::BlockManager* block_manager = fs::fs_util::block_manager(_reader->_path_desc);
-        auto st = block_manager->open_block(_reader->_path_desc, &_rblock);
+        io::FileSystem* fs = _reader->_fs;
+        auto st = fs->open_file(_reader->_path, &_file_reader);
+
         DCHECK(st.ok());
-        WARN_IF_ERROR(st, "open file failed:" + _reader->_path_desc.filepath);
+        WARN_IF_ERROR(st, "open file failed:" + _reader->_path);
     }
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.
@@ -146,7 +152,7 @@ private:
     // next_batch() will read from this position
     ordinal_t _current_ordinal = 0;
     // open file handle
-    std::unique_ptr<fs::ReadableBlock> _rblock;
+    std::unique_ptr<io::FileReader> _file_reader;
     // iterator owned compress codec, should NOT be shared by threads, initialized before used
     std::unique_ptr<BlockCompressionCodec> _compress_codec;
 };

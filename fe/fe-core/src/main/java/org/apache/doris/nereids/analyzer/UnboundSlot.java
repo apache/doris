@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
@@ -53,7 +53,7 @@ public class UnboundSlot extends Slot implements Unbound {
     }
 
     @Override
-    public String sql() {
+    public String toSql() {
         return nameParts.stream().map(Utils::quoteIfNeeded).reduce((left, right) -> left + "." + right).orElse("");
     }
 

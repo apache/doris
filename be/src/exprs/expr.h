@@ -51,7 +51,6 @@ class TColumnValue;
 class TExpr;
 class TExprNode;
 class TupleIsNullPredicate;
-class VectorizedRowBatch;
 class Literal;
 class MemTracker;
 struct UserFunctionCacheEntry;
@@ -61,9 +60,6 @@ class Expr {
 public:
     // typedef for compute functions.
     typedef void* (*ComputeFn)(Expr*, TupleRow*);
-
-    // typdef for vectorize compute functions.
-    typedef bool (*VectorComputeFn)(Expr*, VectorizedRowBatch*);
 
     // Empty virtual destructor
     virtual ~Expr();
@@ -76,10 +72,6 @@ public:
     // valid as long as 'row' doesn't change.
     // TODO: stop having the result cached in this Expr object
     void* get_value(TupleRow* row) { return nullptr; }
-
-    // Vectorize Evalute expr and return result column index.
-    // Result cached in batch and valid as long as batch.
-    bool evaluate(VectorizedRowBatch* batch);
 
     bool is_null_scalar_function(std::string& str) {
         // name and function_name both are required
@@ -374,9 +366,6 @@ protected:
     // get_const_val().
     std::shared_ptr<AnyVal> _constant_val;
 
-    // function to evaluate vectorize expr; typically set in prepare()
-    VectorComputeFn _vector_compute_fn;
-
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
         std::stringstream out;
@@ -457,17 +446,6 @@ private:
     int _fn_ctx_idx_start = 0;
     int _fn_ctx_idx_end = 0;
 };
-
-inline bool Expr::evaluate(VectorizedRowBatch* batch) {
-    DCHECK(_type.type != INVALID_TYPE);
-
-    if (_is_slotref) {
-        // return SlotRef::vector_compute_fn(this, batch);
-        return false;
-    } else {
-        return _vector_compute_fn(this, batch);
-    }
-}
 
 template <typename T>
 Status create_texpr_literal_node(const void* data, TExprNode* node) {

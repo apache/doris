@@ -24,7 +24,6 @@
 #include "gtest/gtest.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/olap_meta.h"
-#include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
@@ -108,7 +107,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = FileUtils::check_exist(tablet->tablet_path_desc().filepath);
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
     EXPECT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
@@ -167,8 +166,8 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = FileUtils::check_exist(tablet->tablet_path_desc().filepath);
-    EXPECT_TRUE(dir_exist) << tablet->tablet_path_desc().filepath;
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
+    EXPECT_TRUE(dir_exist) << tablet->tablet_path();
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
     Status check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
@@ -222,7 +221,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     EXPECT_TRUE(tablet != nullptr);
 
     // check dir exist
-    std::string tablet_path = tablet->tablet_path_desc().filepath;
+    std::string tablet_path = tablet->tablet_path();
     bool dir_exist = FileUtils::check_exist(tablet_path);
     EXPECT_TRUE(dir_exist);
 

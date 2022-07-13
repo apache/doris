@@ -35,9 +35,9 @@ class ConfigOptions {
     static Option feHttpAddressOpt
     static Option feHttpUserOpt
     static Option feHttpPasswordOpt
-    static Option beHttpAddressOpt
     static Option pathOpt
     static Option dataOpt
+    static Option realDataOpt
     static Option pluginOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
@@ -118,6 +118,14 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("dataPath")
                 .desc("the data path")
+                .build()
+        realDataOpt = Option.builder("RD")
+                .argName("realDataPath")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("realDataPath")
+                .desc("the real data path")
                 .build()
         pluginOpt = Option.builder("plugin")
                 .argName("pluginPath")
@@ -205,14 +213,6 @@ class ConfigOptions {
                 .longOpt("feHttpPassword")
                 .desc("the password of fe http server")
                 .build()
-        beHttpAddressOpt = Option.builder("ba")
-                .argName("beAddress")
-                .required(false)
-                .hasArg(true)
-                .type(String.class)
-                .longOpt("beHttpAddress")
-                .desc("the be http address, format is ip:port")
-                .build()
         genOutOpt = Option.builder("genOut")
                 .required(false)
                 .hasArg(false)
@@ -296,7 +296,6 @@ class ConfigOptions {
                 .addOption(feHttpAddressOpt)
                 .addOption(feHttpUserOpt)
                 .addOption(feHttpPasswordOpt)
-                .addOption(beHttpAddressOpt)
                 .addOption(genOutOpt)
                 .addOption(confFileOpt)
                 .addOption(forceGenOutOpt)

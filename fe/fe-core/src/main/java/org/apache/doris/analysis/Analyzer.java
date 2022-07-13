@@ -31,7 +31,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -649,17 +649,10 @@ public class Analyzer {
 
         // Resolve the table ref's path and determine what resolved table ref
         // to replace it with.
-        String dbName = tableName.getDb();
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = getDefaultDb();
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), tableName.getDb());
-        }
-        if (Strings.isNullOrEmpty(dbName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-        }
+        tableName.analyze(this);
 
-        DatabaseIf database = globalState.catalog.getCurrentDataSource().getDbOrAnalysisException(dbName);
+        DatabaseIf database = globalState.catalog.getDataSourceMgr().getCatalogOrAnalysisException(tableName.getCtl())
+                .getDbOrAnalysisException(tableName.getDb());
         TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
         if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
@@ -682,13 +675,22 @@ public class Analyzer {
             table = HudiUtils.resolveHudiTable((HudiTable) table);
         }
 
+        // Now hms table only support a bit of table kinds in the whole hive system.
+        // So Add this strong checker here to avoid some undefine behaviour in doris.
+        if (table.getType() == TableType.HMS_EXTERNAL_TABLE && !((HMSExternalTable) table).isSupportedHmsTable()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_HMS_TABLE,
+                    table.getName(),
+                    ((HMSExternalTable) table).getDbName(),
+                    tableName.getCtl());
+        }
+
         // tableName.getTbl() stores the table name specified by the user in the from statement.
         // In the case of case-sensitive table names, the value of tableName.getTbl() is the same as table.getName().
         // However, since the system view is not case-sensitive, table.getName() gets the lowercase view name,
         // which may not be the same as the user's reference to the table name, causing the table name not to be found
         // in registerColumnRef(). So here the tblName is constructed using tableName.getTbl()
         // instead of table.getName().
-        TableName tblName = new TableName(dbName, tableName.getTbl());
+        TableName tblName = new TableName(tableName.getCtl(), tableName.getDb(), tableName.getTbl());
         if (table instanceof View) {
             return new InlineViewRef((View) table, tableRef);
         } else {
@@ -698,7 +700,8 @@ public class Analyzer {
     }
 
     public TableIf getTableOrAnalysisException(TableName tblName) throws AnalysisException {
-        DatabaseIf db = globalState.catalog.getCurrentDataSource().getDbOrAnalysisException(tblName.getDb());
+        DatabaseIf db = globalState.catalog.getDataSourceMgr().getCatalogOrAnalysisException(tblName.getCtl())
+                .getDbOrAnalysisException(tblName.getDb());
         return db.getTableOrAnalysisException(tblName.getTbl());
     }
 
@@ -1887,7 +1890,7 @@ public class Analyzer {
         }
         if (compatibleType.equals(Type.VARCHAR)) {
             if (exprs.get(0).getType().isDateType()) {
-                compatibleType = Type.DATETIME;
+                compatibleType = DateLiteral.getDefaultDateType(Type.DATETIME);
             }
         }
         // Add implicit casts if necessary.

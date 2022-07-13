@@ -43,6 +43,7 @@ ArrowReaderWrap::ArrowReaderWrap(FileReader* file_reader, int64_t batch_size,
     _rb_reader = nullptr;
     _total_groups = 0;
     _current_group = 0;
+    _statistics = std::make_shared<Statistics>();
 }
 
 ArrowReaderWrap::~ArrowReaderWrap() {

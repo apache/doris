@@ -133,4 +133,24 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
     public String toString() {
         return operator.toString();
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        AbstractPlan<?> that = (AbstractPlan<?>) o;
+        return limit == that.limit
+                && Objects.equals(operator, that.operator)
+                && Objects.equals(statsDeriveResult, that.statsDeriveResult)
+                && Objects.equals(logicalProperties, that.logicalProperties);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(operator, statsDeriveResult, limit, logicalProperties);
+    }
 }

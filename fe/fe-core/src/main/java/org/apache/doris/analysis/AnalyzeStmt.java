@@ -160,6 +160,8 @@ public class AnalyzeStmt extends DdlStmt {
         // step1: analyze db, table and column
         if (this.dbTableName != null) {
             this.dbTableName.analyze(analyzer);
+            // disallow external catalog
+            Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName());
             String dbName = this.dbTableName.getDb();
             String tblName = this.dbTableName.getTbl();
             checkAnalyzePriv(dbName, tblName);

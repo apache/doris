@@ -290,11 +290,11 @@ public class TabletHealthProcDir implements ProcDirInterface {
                 this.colocateMismatchNum += other.colocateMismatchNum;
                 this.colocateRedundantNum += other.colocateRedundantNum;
                 this.needFurtherRepairNum += other.needFurtherRepairNum;
-                this.unrecoverableNum += unrecoverableNum;
-                this.replicaCompactionTooSlowNum += replicaCompactionTooSlowNum;
-                this.inconsistentNum += inconsistentNum;
-                this.oversizeNum += oversizeNum;
-                this.cloningNum += cloningNum;
+                this.unrecoverableNum += other.unrecoverableNum;
+                this.replicaCompactionTooSlowNum += other.replicaCompactionTooSlowNum;
+                this.inconsistentNum += other.inconsistentNum;
+                this.oversizeNum += other.oversizeNum;
+                this.cloningNum += other.cloningNum;
                 return this;
             } else if (other.summary) {
                 return other.reduce(this);

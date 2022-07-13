@@ -25,8 +25,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanOperatorVisitor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -76,9 +76,8 @@ public class PhysicalOlapScan extends PhysicalScan {
 
     @Override
     public String toString() {
-        return "Scan Olap Table " + StringUtils.join(qualifier, ".") + "." + olapTable.getName()
-                + " (selected index id: " + selectedTabletId + ", selected partition ids: " + selectedPartitionId
-                + ", selected tablet ids: " + selectedTabletId + ")";
+        return "PhysicalOlapScan([" + StringUtils.join(qualifier, ".") + "." + olapTable.getName()
+                + "], [index id=" + selectedIndexId + "])";
     }
 
     @Override

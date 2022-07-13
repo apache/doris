@@ -370,8 +370,8 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 // MUST hold tablet's header lock, push lock, cumulative lock and base compaction lock
 Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr tablet,
                             bool overwrite) {
-    std::string tablet_path = tablet->tablet_path_desc().filepath;
-    std::string store_path = tablet->data_dir()->path_desc().filepath;
+    auto tablet_path = tablet->tablet_path();
+    auto store_path = tablet->data_dir()->path();
     LOG(INFO) << "begin to move snapshot files. from: " << snapshot_path << ", to: " << tablet_path
               << ", store: " << store_path << ", job: " << _job_id << ", task id: " << _task_id;
 
@@ -404,16 +404,14 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         return Status::InternalError(ss.str());
     }
 
-    std::filesystem::path tablet_dir(tablet_path);
-    std::filesystem::path snapshot_dir(snapshot_path);
-    if (!std::filesystem::exists(tablet_dir)) {
+    if (!std::filesystem::exists(tablet_path)) {
         std::stringstream ss;
         ss << "tablet path does not exist: " << tablet_path;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
 
-    if (!std::filesystem::exists(snapshot_dir)) {
+    if (!std::filesystem::exists(snapshot_path)) {
         std::stringstream ss;
         ss << "snapshot path does not exist: " << snapshot_path;
         LOG(WARNING) << ss.str();
@@ -440,10 +438,10 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
             // This remove seems soft enough, because we already get
             // tablet id and schema hash from this path, which
             // means this path is a valid path.
-            std::filesystem::remove_all(tablet_dir);
-            VLOG_CRITICAL << "remove dir: " << tablet_dir;
-            std::filesystem::create_directory(tablet_dir);
-            VLOG_CRITICAL << "re-create dir: " << tablet_dir;
+            std::filesystem::remove_all(tablet_path);
+            VLOG_CRITICAL << "remove dir: " << tablet_path;
+            std::filesystem::create_directory(tablet_path);
+            VLOG_CRITICAL << "re-create dir: " << tablet_path;
         } catch (const std::filesystem::filesystem_error& e) {
             std::stringstream ss;
             ss << "failed to move tablet path: " << tablet_path << ". err: " << e.what();
@@ -455,8 +453,8 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         // files in snapshot dir will be moved in snapshot clean process
         std::vector<std::string> linked_files;
         for (auto& file : snapshot_files) {
-            std::string full_src_path = snapshot_path + "/" + file;
-            std::string full_dest_path = tablet_path + "/" + file;
+            auto full_src_path = fmt::format("{}/{}", snapshot_path, file);
+            auto full_dest_path = fmt::format("{}/{}", tablet_path, file);
             if (link(full_src_path.c_str(), full_dest_path.c_str()) != 0) {
                 LOG(WARNING) << "failed to link file from " << full_src_path << " to "
                              << full_dest_path << ", err: " << std::strerror(errno);
@@ -507,7 +505,7 @@ Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::
     // we try to extract tablet_id from path
     size_t pos = src_path.find_last_of("/");
     if (pos == std::string::npos || pos == src_path.length() - 1) {
-        return Status::InternalError("failed to get tablet id from path: " + src_path);
+        return Status::InternalError("failed to get tablet id from path: {}", src_path);
     }
 
     std::string schema_hash_str = src_path.substr(pos + 1);
@@ -518,7 +516,7 @@ Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::
     // skip schema hash part
     size_t pos2 = src_path.find_last_of("/", pos - 1);
     if (pos2 == std::string::npos) {
-        return Status::InternalError("failed to get tablet id from path: " + src_path);
+        return Status::InternalError("failed to get tablet id from path: {}", src_path);
     }
 
     std::string tablet_str = src_path.substr(pos2 + 1, pos - pos2);
@@ -581,7 +579,7 @@ Status SnapshotLoader::_replace_tablet_id(const std::string& file_name, int64_t 
         *new_file_name = file_name;
         return Status::OK();
     } else {
-        return Status::InternalError("invalid tablet file name: " + file_name);
+        return Status::InternalError("invalid tablet file name: {}", file_name);
     }
 }
 
@@ -591,7 +589,7 @@ Status SnapshotLoader::_get_tablet_id_from_remote_path(const std::string& remote
     // bos://xxx/../__tbl_10004/__part_10003/__idx_10004/__10005
     size_t pos = remote_path.find_last_of("_");
     if (pos == std::string::npos) {
-        return Status::InternalError("invalid remove file path: " + remote_path);
+        return Status::InternalError("invalid remove file path: {}", remote_path);
     }
 
     std::string tablet_id_str = remote_path.substr(pos + 1);

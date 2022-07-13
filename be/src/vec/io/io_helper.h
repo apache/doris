@@ -26,6 +26,7 @@
 #include "util/string_parser.hpp"
 #include "vec/common/arena.h"
 #include "vec/common/exception.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
