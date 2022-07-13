@@ -58,8 +58,9 @@ bool init_glog(const char* basename) {
         FLAGS_alsologtostderr = true;
     }
 
-    // don't log to stderr
-    FLAGS_stderrthreshold = 5;
+    // don't log to stderr except fatal level
+    // so fatal log can output to be.out .
+    FLAGS_stderrthreshold = google::FATAL;
     // set glog log dir
     FLAGS_log_dir = config::sys_log_dir;
     // 0 means buffer INFO only
