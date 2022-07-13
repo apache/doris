@@ -152,8 +152,8 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                 // withChildren will erase groupExpression, so we must
                 // withGroupExpression too.
                 Plan rootWithChildren = root.withChildren(children)
-                        .withGroupExpression(root.getGroupExpression())
-                        .withLogicalProperties(Optional.of(logicalProperties));
+                        .withLogicalProperties(Optional.of(logicalProperties))
+                        .withGroupExpression(root.getGroupExpression());
                 if (rootPattern.matchPredicates(rootWithChildren)) {
                     results.add(rootWithChildren);
                 }
