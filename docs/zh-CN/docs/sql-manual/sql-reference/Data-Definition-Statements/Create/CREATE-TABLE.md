@@ -307,8 +307,14 @@ distribution_info
 
         `"function_column.sequence_type" = 'Date'`
 
-    * 动态分区相关
+    * `compression`
 
+        Doris 表的默认压缩方式是 LZ4F。1.1版本后，支持将压缩方式指定为ZSTD以获得更高的压缩比。
+    
+        `"compression"="zstd"`
+    
+    * 动态分区相关
+    
         动态分区相关参数如下：
     
         * `dynamic_partition.enable`: 用于指定表级别的动态分区功能是否开启。默认为 true。
@@ -320,9 +326,9 @@ distribution_info
         * `dynamic_partition.create_history_partition`: 是否创建历史分区。
         * `dynamic_partition.history_partition_num`: 指定创建历史分区的数量。
         * `dynamic_partition.reserved_history_periods`: 用于指定保留的历史分区的时间段。
-
+    
     * 数据排序相关
-
+    
         数据排序相关参数如下:
     
         * `data_sort.sort_type`: 数据排序使用的方法，目前支持两种：lexical/z-order，默认是lexical
