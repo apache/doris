@@ -601,7 +601,9 @@ public class HashJoinNode extends PlanNode {
         // 4. replace other conjuncts and conjuncts
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
         conjuncts = Expr.substituteList(conjuncts, originToIntermediateSmap, analyzer, false);
-        vconjunct = Expr.substituteList(Arrays.asList(vconjunct), originToIntermediateSmap, analyzer, false).get(0);
+        if (vconjunct != null) {
+            vconjunct = Expr.substituteList(Arrays.asList(vconjunct), originToIntermediateSmap, analyzer, false).get(0);
+        }
         // 5. replace tuple is null expr
         TupleIsNullPredicate.substitueListForTupleIsNull(vSrcToOutputSMap.getLhs(), originTidsToIntermediateTidMap);
     }
