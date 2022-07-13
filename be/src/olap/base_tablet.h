@@ -66,7 +66,9 @@ public:
     }
 
     // properties encapsulated in TabletSchema
-    const TabletSchema& tablet_schema() const;
+    virtual const TabletSchema& tablet_schema() const;
+
+    bool set_tablet_schema_into_rowset_meta();
 
 protected:
     void _gen_tablet_path();

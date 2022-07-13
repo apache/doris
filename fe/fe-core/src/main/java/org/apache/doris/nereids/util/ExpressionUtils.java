@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.ExpressionType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -41,24 +41,24 @@ public class ExpressionUtils {
     }
 
     public static List<Expression> extractConjunct(Expression expr) {
-        return extract(NodeType.AND, expr);
+        return extract(ExpressionType.AND, expr);
     }
 
     public static List<Expression> extractDisjunct(Expression expr) {
-        return extract(NodeType.OR, expr);
+        return extract(ExpressionType.OR, expr);
     }
 
     public static List<Expression> extract(CompoundPredicate expr) {
         return extract(expr.getType(), expr);
     }
 
-    private static List<Expression> extract(NodeType op, Expression expr) {
+    private static List<Expression> extract(ExpressionType op, Expression expr) {
         List<Expression> result = Lists.newArrayList();
         extract(op, expr, result);
         return result;
     }
 
-    private static void extract(NodeType op, Expression expr, List<Expression> result) {
+    private static void extract(ExpressionType op, Expression expr, List<Expression> result) {
         if (expr instanceof CompoundPredicate && expr.getType() == op) {
             CompoundPredicate predicate = (CompoundPredicate) expr;
             extract(op, predicate.left(), result);
@@ -69,30 +69,30 @@ public class ExpressionUtils {
     }
 
     public static Expression and(List<Expression> expressions) {
-        return combine(NodeType.AND, expressions);
+        return combine(ExpressionType.AND, expressions);
     }
 
     public static Expression and(Expression... expressions) {
-        return combine(NodeType.AND, Lists.newArrayList(expressions));
+        return combine(ExpressionType.AND, Lists.newArrayList(expressions));
     }
 
     public static Expression or(Expression... expressions) {
-        return combine(NodeType.OR, Lists.newArrayList(expressions));
+        return combine(ExpressionType.OR, Lists.newArrayList(expressions));
     }
 
     public static Expression or(List<Expression> expressions) {
-        return combine(NodeType.OR, expressions);
+        return combine(ExpressionType.OR, expressions);
     }
 
     /**
      * Use AND/OR to combine expressions together.
      */
-    public static Expression combine(NodeType op, List<Expression> expressions) {
-        Preconditions.checkArgument(op == NodeType.AND || op == NodeType.OR);
+    public static Expression combine(ExpressionType op, List<Expression> expressions) {
+        Preconditions.checkArgument(op == ExpressionType.AND || op == ExpressionType.OR);
         Objects.requireNonNull(expressions, "expressions is null");
 
-        Expression shortCircuit = (op == NodeType.AND ? BooleanLiteral.FALSE : BooleanLiteral.TRUE);
-        Expression skip = (op == NodeType.AND ? BooleanLiteral.TRUE : BooleanLiteral.FALSE);
+        Expression shortCircuit = (op == ExpressionType.AND ? BooleanLiteral.FALSE : BooleanLiteral.TRUE);
+        Expression skip = (op == ExpressionType.AND ? BooleanLiteral.TRUE : BooleanLiteral.FALSE);
         LinkedHashSet<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
             if (expression.equals(shortCircuit)) {
@@ -104,6 +104,6 @@ public class ExpressionUtils {
 
         Optional<Expression> result =
                 distinctExpressions.stream().reduce((left, right) -> new CompoundPredicate(op, left, right));
-        return result.orElse(new BooleanLiteral(op == NodeType.AND));
+        return result.orElse(new BooleanLiteral(op == ExpressionType.AND));
     }
 }

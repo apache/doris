@@ -104,7 +104,15 @@ public:
     /// of the current chunk. Creates a new chunk if there aren't any chunks
     /// with enough capacity.
     uint8_t* allocate(int64_t size, Status* rst = nullptr) {
+        // TODO: rethink if DEFAULT_ALIGNMENT should be changed, malloc is aligned by 16.
         return allocate<false>(size, DEFAULT_ALIGNMENT, rst);
+    }
+
+    uint8_t* allocate_aligned(int64_t size, int alignment, Status* rst = nullptr) {
+        DCHECK_GE(alignment, 1);
+        DCHECK_LE(alignment, config::memory_max_alignment);
+        DCHECK_EQ(BitUtil::RoundUpToPowerOfTwo(alignment), alignment);
+        return allocate<false>(size, alignment, rst);
     }
 
     /// Same as Allocate() expect add a check when return a nullptr

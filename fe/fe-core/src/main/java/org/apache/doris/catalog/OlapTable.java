@@ -38,6 +38,7 @@ import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -141,6 +142,8 @@ public class OlapTable extends Table {
 
     private TableProperty tableProperty;
 
+    private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
+
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -189,6 +192,20 @@ public class OlapTable extends Table {
 
     public TableProperty getTableProperty() {
         return this.tableProperty;
+    }
+
+    //take care: only use at create olap table.
+    public int incAndGetMaxColUniqueId() {
+        this.maxColUniqueId++;
+        return this.maxColUniqueId;
+    }
+
+    public int getMaxColUniqueId() {
+        return this.maxColUniqueId;
+    }
+
+    public void setMaxColUniqueId(int maxColUniqueId) {
+        this.maxColUniqueId = maxColUniqueId;
     }
 
     public boolean dynamicPartitionExists() {
@@ -1144,6 +1161,7 @@ public class OlapTable extends Table {
         }
 
         tempPartitions.write(out);
+        out.writeInt(maxColUniqueId);
     }
 
     @Override
@@ -1235,6 +1253,10 @@ public class OlapTable extends Table {
             }
         }
         tempPartitions.unsetPartitionInfo();
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_112) {
+            maxColUniqueId = in.readInt();
+        }
         // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.

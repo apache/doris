@@ -25,25 +25,12 @@ include "PlanNodes.thrift"
 include "Descriptors.thrift"
 include "Exprs.thrift"
 
-struct TColumn {
-    1: required string column_name
-    2: required Types.TColumnType column_type
-    3: optional Types.TAggregationType aggregation_type
-    4: optional bool is_key
-    5: optional bool is_allow_null
-    6: optional string default_value
-    7: optional bool is_bloom_filter_column
-    8: optional Exprs.TExpr define_expr
-    9: optional bool visible = true
-    10: optional list<TColumn> children_column
-}
-
 struct TTabletSchema {
     1: required i16 short_key_column_count
     2: required Types.TSchemaHash schema_hash
     3: required Types.TKeysType keys_type
     4: required Types.TStorageType storage_type
-    5: required list<TColumn> columns
+    5: required list<Descriptors.TColumn> columns
     6: optional double bloom_filter_fpp
     7: optional list<Descriptors.TOlapTableIndex> indexes
     8: optional bool is_in_memory
@@ -168,6 +155,7 @@ struct TAlterTabletReqV2 {
     7: optional list<TAlterMaterializedViewParam> materialized_view_params
     8: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
     9: optional Descriptors.TDescriptorTable desc_tbl
+    10: optional list<Descriptors.TColumn> columns
 }
 
 struct TAlterMaterializedViewParam {
@@ -209,6 +197,7 @@ struct TPushReq {
     // 14 and 15 are used by spark load
     14: optional PlanNodes.TBrokerScanRange broker_scan_range
     15: optional Descriptors.TDescriptorTable desc_tbl
+    16: optional list<Descriptors.TColumn> columns_desc
 }
 
 struct TCloneReq {
