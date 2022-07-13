@@ -45,7 +45,7 @@ Path LocalFileSystem::absolute_path(const Path& path) const {
     return _root_path / path;
 }
 
-Status LocalFileSystem::create_file(const Path& path, std::unique_ptr<FileWriter>* writer) {
+Status LocalFileSystem::create_file(const Path& path, FileWriterPtr* writer) {
     auto fs_path = absolute_path(path);
     int fd = ::open(fs_path.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
     if (-1 == fd) {
@@ -56,7 +56,7 @@ Status LocalFileSystem::create_file(const Path& path, std::unique_ptr<FileWriter
     return Status::OK();
 }
 
-Status LocalFileSystem::open_file(const Path& path, std::unique_ptr<FileReader>* reader) {
+Status LocalFileSystem::open_file(const Path& path, FileReaderPtr* reader) {
     auto fs_path = absolute_path(path);
     std::shared_ptr<OpenedFileHandle<int>> file_handle(new OpenedFileHandle<int>());
     bool found = _file_cache->lookup(fs_path.native(), file_handle.get());
