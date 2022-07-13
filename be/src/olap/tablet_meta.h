@@ -206,9 +206,7 @@ public:
 
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
-    bool enable_unique_key_merge_on_write() {
-        return _enable_unique_key_merge_on_write;
-    }
+    bool enable_unique_key_merge_on_write() { return _enable_unique_key_merge_on_write; }
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -249,7 +247,7 @@ private:
     // FIXME(cyx): Currently `cooldown_resource` is equivalent to `storage_policy`.
     io::ResourceId _cooldown_resource;
 
-    // may be true iff unique keys model
+    // may be true iff unique keys model.
     bool _enable_unique_key_merge_on_write = false;
     std::unique_ptr<DeleteBitmap> _delete_bitmap;
 
