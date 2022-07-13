@@ -117,6 +117,21 @@ under the License.
             <artifactId>flink-connector-oracle-cdc</artifactId>
             <version>2.1.1</version>
         </dependency>
+        <!-- https://mvnrepository.com/artifact/com.ververica/flink-connector-sqlserver-cdc -->
+        <dependency>
+            <groupId>com.ververica</groupId>
+            <artifactId>flink-connector-sqlserver-cdc</artifactId>
+            <version>2.2.1</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/com.ververica/flink-connector-postgres-cdc -->
+        <dependency>
+            <groupId>com.ververica</groupId>
+            <artifactId>flink-connector-postgres-cdc</artifactId>
+            <version>2.2.1</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
     <build>
         <plugins>
