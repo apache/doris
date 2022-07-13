@@ -153,7 +153,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                 // withGroupExpression too.
                 Plan rootWithChildren = root.withChildren(children)
                         .withLogicalProperties(Optional.of(logicalProperties))
-                        .withGroupExpression(root.getGroupExpression());
+                        .withGroupExpression(Optional.of(groupExpression));
                 if (rootPattern.matchPredicates(rootWithChildren)) {
                     results.add(rootWithChildren);
                 }
