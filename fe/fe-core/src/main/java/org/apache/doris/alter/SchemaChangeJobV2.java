@@ -679,7 +679,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     private void cancelInternal() {
         // clear tasks if has
-        AgentTaskQueue.removeBatchTask(schemaChangeBatchTask, TTaskType.ALTER);
+        if (schemaChangeBatchTask != null) {
+            AgentTaskQueue.removeBatchTask(schemaChangeBatchTask, TTaskType.ALTER);
+        } else {
+            LOG.warn("schemaChangeBatchTask is null");
+        }
         // remove all shadow indexes, and set state to NORMAL
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
