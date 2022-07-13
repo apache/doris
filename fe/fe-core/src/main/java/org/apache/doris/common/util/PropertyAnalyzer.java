@@ -677,6 +677,7 @@ public class PropertyAnalyzer {
         if (value == null) {
             return false;
         }
+        properties.remove(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
         if (value.equals("true")) {
             return true;
         } else if (value.equals("false")) {
