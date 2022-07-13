@@ -68,10 +68,11 @@ public class OperationType {
     public static final short OP_REMOVE_ALTER_JOB_V2 = 125;
     public static final short OP_MODIFY_COMMENT = 126;
     public static final short OP_MODIFY_TABLE_ENGINE = 127;
-    public static final short OP_MODIFY_COL_SETTINGS = 128;
 
     //schema change for add and drop columns
     public static final short OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 128;
+
+    public static final short OP_MODIFY_COL_SETTINGS = 129;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load

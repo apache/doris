@@ -156,7 +156,7 @@ public class OlapScanNode extends ScanNode {
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
 
     private Map<Integer, Long> slotIdToDictId = Maps.newHashMap();
-    
+
     // a bucket seq may map to many tablets, and each tablet has a TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations =
             ArrayListMultimap.create();

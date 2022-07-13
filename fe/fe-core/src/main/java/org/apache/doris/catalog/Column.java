@@ -725,8 +725,8 @@ public class Column implements Writable {
         }
     }
 
-	public void setDictEleNum(int dictEleNum) {
-		this.dictEleNum = dictEleNum;
-	}
-    
+    public void setDictEleNum(int dictEleNum) {
+        this.dictEleNum = dictEleNum;
+    }
+
 }

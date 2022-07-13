@@ -423,10 +423,9 @@ Status ColumnReader::get_dict_data(std::set<string>& dict_words) {
         assert(compress_codec);
         Slice dict_slice;
         ColumnIteratorOptions iter_opts;
-        std::unique_ptr<fs::ReadableBlock> rblock;
-        fs::BlockManager* block_mgr = fs::fs_util::block_manager(_path_desc);
-        RETURN_IF_ERROR(block_mgr->open_block(_path_desc, &rblock));
-        iter_opts.rblock = rblock.get();
+        std::unique_ptr<io::FileReader> rblock;
+        RETURN_IF_ERROR(_fs->open_file(_path, &rblock));
+        iter_opts.file_reader = rblock.get();
         iter_opts.type = INDEX_PAGE;
         iter_opts.stats = new OlapReaderStatistics();
         if (all_pages_encoded_by_dict(iter_opts, compress_codec.get())) {
@@ -446,15 +445,13 @@ Status ColumnReader::get_dict_data(std::set<string>& dict_words) {
             return Status::OK();
         } else {
             std::stringstream ss;
-            ss << "not all pages in column(" << _meta.column_id() << ") are dict encoded, "
-               << _path_desc.debug_string();
+            ss << "not all pages in column(" << _meta.column_id() << ") are dict encoded, " << _path;
             return Status::InternalError(ss.str().c_str());
         }
 
     } else {
         std::stringstream ss;
-        ss << "column(" << _meta.column_id() << ") is not dict encoded, "
-           << _path_desc.debug_string();
+        ss << "column(" << _meta.column_id() << ") is not dict encoded, " << _path;
         return Status::InternalError(ss.str().c_str());
     }
 }

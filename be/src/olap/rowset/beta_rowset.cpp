@@ -230,7 +230,7 @@ bool BetaRowset::check_file_exist() {
 
 Status BetaRowset::get_dict_data(std::set<std::string>& dict_words, int col_id) {
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    RETURN_NOT_OK(load_segments(&segments));
+    RETURN_NOT_OK(load_segments(&segments,_schema));
     for (auto& seg_ptr : segments) {
         Status status = seg_ptr->get_dict_data(dict_words, col_id);
         RETURN_NOT_OK(status);

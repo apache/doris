@@ -448,7 +448,7 @@ public class SlotRef extends Expr {
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
     }
-    
+
     public static void getAllSlotRefFromExpr(Expr expr, List<SlotRef> slotRefList) {
         if (expr instanceof SlotRef) {
             SlotRef slotRef = (SlotRef) expr;

@@ -284,7 +284,7 @@ public class SortNode extends PlanNode {
         info.setSortTupleSlotExprs(resolvedTupleExprs);
 
     }
-    
+
     public void filterDictSlot(DecodeContext context) {
         context.setContainsUnsupportedOpt(true);
     }

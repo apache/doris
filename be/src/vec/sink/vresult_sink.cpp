@@ -93,12 +93,27 @@ Status VResultSink::send(RuntimeState* state, RowBatch* batch) {
 }
 
 
-Status VResultSink::send(RuntimeState* state, Block* block) {
+Status VResultSink::send(RuntimeState* state, Block* input_block) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultSink::send");
     // The memory consumption in the process of sending the results is not check query memory limit.
     // Avoid the query being cancelled when the memory limit is reached after the query result comes out.
     STOP_CHECK_LIMIT_THREAD_LOCAL_MEM_TRACKER();
-    return _writer->append_block(*block);
+
+    SCOPED_TIMER(_append_row_batch_timer);
+    Status status = Status::OK();
+    if (UNLIKELY(input_block->rows() == 0)) {
+        return status;
+    }
+
+    // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
+    // failed, just return the error status
+    auto block = VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
+                                                                    *input_block, status);
+    if (UNLIKELY(block.rows() == 0)) {
+        return status;
+    }
+
+    return _writer->append_block(block);
 }
 
 Status VResultSink::close(RuntimeState* state, Status exec_status) {
