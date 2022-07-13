@@ -335,9 +335,13 @@ class Config {
     }
 
     void tryCreateDbIfNotExist() {
+        tryCreateDbIfNotExist(defaultDb)
+    }
+
+    void tryCreateDbIfNotExist(String dbName) {
         // connect without specify default db
         try {
-            String sql = "CREATE DATABASE IF NOT EXISTS ${defaultDb}"
+            String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
             log.info("Try to create db, sql: ${sql}".toString())
             getConnection().withCloseable { conn ->
                 JdbcUtils.executeToList(conn, sql)
@@ -349,6 +353,13 @@ class Config {
 
     Connection getConnection() {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
+    }
+
+    Connection getConnection(String group) {
+        String dbUrl = buildUrl(defaultDb + '_' + group)
+        tryCreateDbIfNotExist(defaultDb + '_' + group)
+        log.info("connect to ${dbUrl}".toString())
+        return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
     }
 
     Predicate<String> getDirectoryFilter() {
@@ -377,25 +388,27 @@ class Config {
     }
 
     private void buildUrlWithDefaultDb() {
+        this.jdbcUrl = buildUrl(defaultDb)
+        log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
+    }
+
+    private String buildUrl(String dbName) {
         String urlWithDb = jdbcUrl
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
         if (urlWithoutSchema.indexOf("/") >= 0) {
             if (jdbcUrl.contains("?")) {
-                // e.g: jdbc:mysql://localhost:8080/?a=b
+                // e.g: jdbc:mysql://locahost:8080/?a=b
                 urlWithDb = jdbcUrl.substring(0, jdbcUrl.lastIndexOf("/"))
-                urlWithDb += ("/" + defaultDb) + jdbcUrl.substring(jdbcUrl.lastIndexOf("?"))
+                urlWithDb += ("/" + dbName) + jdbcUrl.substring(jdbcUrl.lastIndexOf("?"))
             } else {
-                // e.g: jdbc:mysql://localhost:8080/
-                urlWithDb += defaultDb
+                // e.g: jdbc:mysql://locahost:8080/
+                urlWithDb += dbName
             }
         } else {
-            // e.g: jdbc:mysql://localhost:8080
-            urlWithDb += ("/" + defaultDb)
+            // e.g: jdbc:mysql://locahost:8080
+            urlWithDb += ("/" + dbName)
         }
-        this.jdbcUrl = urlWithDb
-        log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
 
-        // check connection with default db
-        getConnection().close()
+        return urlWithDb
     }
 }

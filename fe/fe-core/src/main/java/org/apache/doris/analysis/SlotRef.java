@@ -71,7 +71,7 @@ public class SlotRef extends Expr {
     public SlotRef(SlotDescriptor desc) {
         super();
         this.tblName = null;
-        this.col = null;
+        this.col = desc.getColumn() != null ? desc.getColumn().getName() : null;
         this.desc = desc;
         this.type = desc.getType();
         // TODO(zc): label is meaningful
