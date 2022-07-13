@@ -49,8 +49,8 @@ Status VExplodeTableFunction::process_row(size_t row_idx) {
     _is_current_empty = false;
     _eos = false;
     _cur_offset = 0;
-    _array_off = (*_detail.offsets_ptr)[row_idx - 1];
-    _cur_size = (*_detail.offsets_ptr)[row_idx] - _array_off;
+    _array_offset = (*_detail.offsets_ptr)[row_idx - 1];
+    _cur_size = (*_detail.offsets_ptr)[row_idx] - _array_offset;
 
     // array is NULL, or array is empty
     if (_cur_size == 0 || (_detail.array_nullmap_data && _detail.array_nullmap_data[row_idx])) {
@@ -63,7 +63,7 @@ Status VExplodeTableFunction::process_row(size_t row_idx) {
 Status VExplodeTableFunction::process_close() {
     _array_column = nullptr;
     _detail.reset();
-    _array_off = 0;
+    _array_offset = 0;
     return Status::OK();
 }
 
@@ -79,7 +79,7 @@ Status VExplodeTableFunction::get_value(void** output) {
         return Status::OK();
     }
 
-    size_t pos = _array_off + _cur_offset;
+    size_t pos = _array_offset + _cur_offset;
     if (_detail.nested_nullmap_data && _detail.nested_nullmap_data[pos]) {
         *output = nullptr;
     } else {
@@ -95,7 +95,7 @@ Status VExplodeTableFunction::get_value_length(int64_t* length) {
         return Status::OK();
     }
 
-    size_t pos = _array_off + _cur_offset;
+    size_t pos = _array_offset + _cur_offset;
     if (_detail.nested_nullmap_data && _detail.nested_nullmap_data[pos]) {
         *length = 0;
     } else {

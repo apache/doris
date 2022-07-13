@@ -42,7 +42,7 @@ public:
 private:
     ColumnPtr _array_column;
     ColumnArrayExecutionData _detail;
-    size_t _array_off; // start offset of array[row_idx]
+    size_t _array_offset; // start offset of array[row_idx]
 };
 
 } // namespace doris::vectorized
