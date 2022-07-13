@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.statistics.StatisticalType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -73,5 +74,10 @@ public class PhysicalDistribution<CHILD_TYPE extends Plan> extends PhysicalUnary
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalDistribution<>(distributionSpec, Optional.empty(),
             logicalProperties.get(), child());
+    }
+
+    @Override
+    public StatisticalType getStatisticalType() {
+        return StatisticalType.EXCHANGE_NODE;
     }
 }

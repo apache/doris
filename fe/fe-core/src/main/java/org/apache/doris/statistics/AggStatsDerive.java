@@ -36,7 +36,7 @@ public class AggStatsDerive extends BaseStatsDerive {
     List<Expr> groupingExprs = new ArrayList<>();
 
     @Override
-    public void init(PlanStats node) throws UserException {
+    public void init(PlanStats node) {
         Preconditions.checkState(node instanceof AggregationNode);
         super.init(node);
         groupingExprs.addAll(((AggregationNode) node).getAggInfo().getGroupingExprs());

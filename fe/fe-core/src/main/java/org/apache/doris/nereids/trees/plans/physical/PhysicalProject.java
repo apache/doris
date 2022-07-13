@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.statistics.StatisticalType;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;

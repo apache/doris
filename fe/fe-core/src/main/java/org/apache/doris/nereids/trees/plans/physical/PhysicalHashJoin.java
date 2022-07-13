@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.statistics.StatisticalType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -108,5 +109,10 @@ public class PhysicalHashJoin<
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalHashJoin<>(joinType, condition, Optional.empty(),
             logicalProperties.get(), left(), right());
+    }
+
+    @Override
+    public StatisticalType getStatisticalType() {
+        return StatisticalType.HASH_JOIN_NODE;
     }
 }

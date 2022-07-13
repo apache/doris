@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.statistics.StatisticalType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -130,5 +131,10 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalAggregate<>(groupByExprList, outputExpressionList, partitionExprList, aggPhase,
             usingStream, Optional.empty(), logicalProperties.get(), child());
+    }
+
+    @Override
+    public StatisticalType getStatisticalType() {
+        return StatisticalType.AGG_NODE;
     }
 }

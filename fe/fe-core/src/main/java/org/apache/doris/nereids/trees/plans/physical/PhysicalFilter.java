@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.statistics.ExprStats;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -81,5 +83,10 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalFilter<>(predicates, Optional.empty(), logicalProperties.get(), child());
+    }
+
+    @Override
+    public List<? extends ExprStats> getConjuncts() {
+        return ExpressionUtils.extractConjunct(predicates);
     }
 }

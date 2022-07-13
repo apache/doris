@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
+import org.apache.doris.nereids.cost.StatsVisitor;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
@@ -65,7 +66,8 @@ public class DeriveStatsJob extends Job<Plan> {
                 }
             }
         } else {
-            // TODO: derive stat here
+            StatsVisitor statsVisitor = new StatsVisitor();
+            statsVisitor.gather(groupExpression);
             groupExpression.setStatDerived(true);
         }
     }

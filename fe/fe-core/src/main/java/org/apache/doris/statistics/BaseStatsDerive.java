@@ -44,13 +44,13 @@ public class BaseStatsDerive {
     protected List<ExprStats> conjuncts = Lists.newArrayList();
     protected List<StatsDeriveResult> childrenStatsResult = Lists.newArrayList();
 
-    protected void init(PlanStats node) throws UserException {
+    protected void init(PlanStats node) {
         limit = node.getLimit();
         conjuncts.addAll(node.getConjuncts());
 
         for (StatsDeriveResult result : node.getChildrenStats()) {
             if (result == null) {
-                throw new UserException(
+                throw new RuntimeException(
                         "childNode statsDeriveResult is null.");
             }
             childrenStatsResult.add(result);

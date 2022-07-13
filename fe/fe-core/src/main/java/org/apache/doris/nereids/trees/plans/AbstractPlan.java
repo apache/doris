@@ -103,7 +103,11 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     @Override
     public List<StatsDeriveResult> getChildrenStats() {
-        return Collections.emptyList();
+        List<StatsDeriveResult> deriveResultList = new ArrayList<>();
+        for (Plan child : children) {
+            deriveResultList.add(child.getStatsDeriveResult());
+        }
+        return deriveResultList;
     }
 
     @Override

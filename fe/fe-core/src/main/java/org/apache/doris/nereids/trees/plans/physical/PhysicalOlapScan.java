@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.statistics.StatisticalType;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -95,4 +96,10 @@ public class PhysicalOlapScan extends PhysicalRelation {
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalOlapScan(olapTable, qualifier, Optional.empty(), logicalProperties.get());
     }
+
+    @Override
+    public StatisticalType getStatisticalType() {
+        return StatisticalType.OLAP_SCAN_NODE;
+    }
+
 }
