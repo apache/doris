@@ -468,7 +468,9 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _remote_storage_name = tablet_meta_pb.remote_storage_name();
     _storage_medium = tablet_meta_pb.storage_medium();
     _cooldown_resource = tablet_meta_pb.storage_policy();
-    _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
+    if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
+        _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
+    }
 
     if (tablet_meta_pb.has_delete_bitmap()) {
         int rst_ids_size = tablet_meta_pb.delete_bitmap().rowset_ids_size();

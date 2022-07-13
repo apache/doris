@@ -224,6 +224,8 @@ private:
     int64_t _cumulative_layer_point = 0;
     TabletUid _tablet_uid;
     TabletTypePB _tablet_type = TabletTypePB::TABLET_TYPE_DISK;
+    // may be true iff unique keys model
+    bool _speed_up_unique_key_with_aux_index = false;
 
     TabletState _tablet_state = TABLET_NOTREADY;
     // the reference of _schema may use in tablet, so here need keep

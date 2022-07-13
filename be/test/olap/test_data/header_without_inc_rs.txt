@@ -151,5 +151,6 @@
     "remote_storage_name": "",
     "replica_id": 0,
     "storage_policy": "",
-    "delete_bitmap": {}
+    "delete_bitmap": {},
+    "speed_up_unique_key_with_aux_index": false
 }
