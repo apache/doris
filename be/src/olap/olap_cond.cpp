@@ -629,69 +629,6 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
     return true;
 }
 
-bool Conditions::rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) const {
-    // ZoneMap will store min/max of rowset.
-    // The function is to filter rowset using ZoneMaps
-    // and query predicates.
-    for (auto& cond_it : _columns) {
-        if (_cond_column_is_key_or_duplicate(cond_it.second)) {
-            if (cond_it.first < zone_maps.size() &&
-                !cond_it.second->eval(zone_maps.at(cond_it.first))) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) const {
-    if (_columns.empty()) {
-        return DEL_NOT_SATISFIED;
-    }
-    // ZoneMap and DeletePredicate are all stored in TabletMeta.
-    // This function is to filter rowset using ZoneMap and Delete Predicate.
-    /*
-     * the relationship between condcolumn A and B is A & B.
-     * if any delete condition is not satisfied, the data can't be filtered.
-     * elseif all delete condition is satisfied, the data can be filtered.
-     * else is the partial satisfied.
-    */
-    int ret = DEL_NOT_SATISFIED;
-    bool del_partial_satisfied = false;
-    bool del_not_satisfied = false;
-    for (auto& cond_it : _columns) {
-        /*
-         * this is base on the assumption that the delete condition
-         * is only about key field, not about value field except the storage model is duplicate.
-        */
-        if (_cond_column_is_key_or_duplicate(cond_it.second) && cond_it.first > zone_maps.size()) {
-            LOG(WARNING) << "where condition not equal column statistics size. "
-                         << "cond_id=" << cond_it.first << ", zone_map_size=" << zone_maps.size();
-            del_partial_satisfied = true;
-            continue;
-        }
-
-        int del_ret = cond_it.second->del_eval(zone_maps.at(cond_it.first));
-        if (DEL_SATISFIED == del_ret) {
-            continue;
-        } else if (DEL_PARTIAL_SATISFIED == del_ret) {
-            del_partial_satisfied = true;
-        } else {
-            del_not_satisfied = true;
-            break;
-        }
-    }
-
-    if (del_not_satisfied) {
-        ret = DEL_NOT_SATISFIED;
-    } else if (del_partial_satisfied) {
-        ret = DEL_PARTIAL_SATISFIED;
-    } else {
-        ret = DEL_SATISFIED;
-    }
-    return ret;
-}
-
 CondColumn* Conditions::get_column(int32_t cid) const {
     auto iter = _columns.find(cid);
     if (iter != _columns.end()) {

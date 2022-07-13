@@ -679,9 +679,9 @@ void TabletMeta::add_delete_predicate(const DeletePredicatePB& delete_predicate,
             return;
         }
     }
-    DeletePredicatePB tmp = delete_predicate;
-    tmp.set_version(version);
-    _del_predicates.emplace_back(delete_predicate);
+    DeletePredicatePB copied_pred = delete_predicate;
+    copied_pred.set_version(version);
+    _del_predicates.emplace_back(copied_pred);
 }
 
 void TabletMeta::remove_delete_predicate_by_version(const Version& version) {
