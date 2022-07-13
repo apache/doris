@@ -24,6 +24,7 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 set(EXEC_FILES
     arrow/arrow_reader.cpp
     arrow/orc_reader.cpp
+    arrow/orc_stripe_reader.cpp
     arrow/parquet_reader.cpp
     arrow/parquet_row_group_reader.cpp
     analytic_eval_node.cpp

@@ -36,6 +36,7 @@ package-lock.json
 .settings/
 **/.idea/
 **/.vscode/
+.cache
 
 # docs
 docs/contents/

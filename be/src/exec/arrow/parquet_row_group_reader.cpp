@@ -119,7 +119,7 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                 continue;
             }
             auto statistic = row_group_meta->ColumnChunk(parquet_col_id)->statistics();
-            if (!statistic->HasMinMax()) {
+            if (!statistic || !statistic->HasMinMax()) {
                 continue;
             }
             // Min-max of statistic is plain-encoded value

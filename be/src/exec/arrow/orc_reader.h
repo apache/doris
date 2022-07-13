@@ -27,7 +27,10 @@
 
 #include "common/status.h"
 #include "exec/arrow/arrow_reader.h"
+#include "exec/arrow/orc_stripe_reader.h"
+
 namespace doris {
+class StripeReader;
 
 // Reader of ORC file
 class ORCReaderWrap final : public ArrowReaderWrap {
@@ -41,13 +44,18 @@ public:
                        const std::string& timezone) override;
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
 
+    std::shared_ptr<arrow::adapters::orc::ORCFileReader> getReader() {
+        return _reader;
+    }
+
 private:
     Status _next_stripe_reader(bool* eof);
 
 private:
     // orc file reader object
-    std::unique_ptr<arrow::adapters::orc::ORCFileReader> _reader;
+    std::shared_ptr<arrow::adapters::orc::ORCFileReader> _reader;
     bool _cur_file_eof; // is read over?
+    std::unique_ptr<doris::StripeReader> _strip_reader;
 };
 
 } // namespace doris

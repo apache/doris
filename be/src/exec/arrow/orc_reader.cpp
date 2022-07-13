@@ -71,6 +71,11 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
     }
 
     RETURN_IF_ERROR(column_indices(tuple_slot_descs));
+    if (config::parquet_orc_push_down) {
+        _strip_reader.reset(new StripeReader(conjunct_ctxs, this));
+        _strip_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids);
+    }
+        
     return Status::OK();
 }
 
@@ -78,6 +83,14 @@ Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
     if (_current_group >= _total_groups) {
         *eof = true;
         return Status::OK();
+    }
+    if (config::parquet_orc_push_down) {
+        auto filter_group_set = _strip_reader->filter_groups();
+        if (filter_group_set.end() != filter_group_set.find(_current_group)) {
+            // find filter group, skip
+            _current_group++;
+            return Status::OK();
+        }
     }
     // Get a stripe level record batch iterator.
     // record batch will have up to batch_size rows.

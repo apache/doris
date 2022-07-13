@@ -165,6 +165,7 @@ private:
     friend class OlapScanNode;
     friend class EsPredicate;
     friend class RowGroupReader;
+    template <class T> friend class ArrowRange;
     friend class vectorized::VOlapScanNode;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
