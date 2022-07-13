@@ -91,7 +91,7 @@ private:
             _agg_state_offset = agg_state_offset;
         }
 
-        char* agg_places(size_t offset) { return _agg_mem + _agg_state_offset[offset]; }
+        char* agg_places(size_t offset) const { return _agg_mem + _agg_state_offset[offset]; }
     };
 
     class RowInBlockComparator {
