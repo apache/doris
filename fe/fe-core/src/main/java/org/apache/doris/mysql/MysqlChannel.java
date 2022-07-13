@@ -151,8 +151,15 @@ public class MysqlChannel {
                 return null;
             }
             if (packetId() != sequenceId) {
-                LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
-                throw new IOException("Bad packet sequence.");
+                // for bad mysql packet, let's check if it is proxy protocol header
+                // if parse succeed, let's continue to read mysql protocol.
+                try{
+                    ProxyProtocol.parseProxyProtocol(this, headerByteBuffer);
+                    continue;
+                } catch (IOException e) {
+                    LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
+                    throw new IOException("Bad packet sequence.");
+                }
             }
             int packetLen = packetLen();
             if ((result.capacity() - result.position()) < packetLen) {
@@ -280,5 +287,13 @@ public class MysqlChannel {
 
     public String getRemoteHostPortString() {
         return remoteHostPortString;
+    }
+
+    public void setRemoteHostPortString(String remoteHostPortString) {
+        this.remoteHostPortString = remoteHostPortString;
+    }
+
+    public void setRemoteIp(String remoteIp) {
+        this.remoteIp = remoteIp;
     }
 }
