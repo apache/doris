@@ -432,7 +432,7 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
 }
 
 inline bool Tablet::enable_unique_key_merge_on_write() const {
-    return _tablet_meta->_enable_unique_key_merge_on_write;
+    return _tablet_meta->enable_unique_key_merge_on_write();
 }
 
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta
