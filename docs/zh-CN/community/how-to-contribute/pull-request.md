@@ -26,11 +26,11 @@ under the License.
 
 # 代码提交指南
 
-在 [Github](https://github.com/apache/incubator-doris) 上面可以很方便地提交 [Pull Request (PR)](https://help.github.com/articles/about-pull-requests/)，下面介绍 Doris 项目的 PR 方法。
+在 [Github](https://github.com/apache/doris) 上面可以很方便地提交 [Pull Request (PR)](https://help.github.com/articles/about-pull-requests/)，下面介绍 Doris 项目的 PR 方法。
 
 ### 1. Fork仓库
 
-进入 apache/incubator-doris 的 [github 页面](https://github.com/apache/incubator-doris) ，点击右上角按钮 `Fork` 进行 Fork。
+进入 apache/doris 的 [github 页面](https://github.com/apache/doris) ，点击右上角按钮 `Fork` 进行 Fork。
 
 ![Fork](/images/fork-repo.png)
 
@@ -39,28 +39,28 @@ under the License.
 #### （1）将代码克隆到本地：
 
 ```
-git clone https://github.com/<your_github_name>/incubator-doris.git
+git clone https://github.com/<your_github_name>/doris.git
 ```
 
 注意：请将 \<your\_github\_name\> 替换为您的 github 名字。
   
 clone 完成后，origin 会默认指向 github 上的远程 fork 地址。
 
-#### （2）将 apache/incubator-doris 添加为本地仓库的远程分支 upstream：
+#### （2）将 apache/doris 添加为本地仓库的远程分支 upstream：
 
 ```
 cd  incubator-doris
-git remote add upstream https://github.com/apache/incubator-doris.git
+git remote add upstream https://github.com/apache/doris.git
 ```
 
 #### （3）检查远程仓库设置：
 
 ```
 git remote -v
-origin https://github.com/<your_github_name>/incubator-doris.git (fetch)
-origin    https://github.com/<your_github_name>/incubator-doris.git (push)
-upstream  https://github.com/apache/incubator-doris.git (fetch)
-upstream  https://github.com/apache/incubator-doris.git (push)
+origin https://github.com/<your_github_name>/doris.git (fetch)
+origin    https://github.com/<your_github_name>/doris.git (push)
+upstream  https://github.com/apache/doris.git (fetch)
+upstream  https://github.com/apache/doris.git (push)
 ```
 
 #### （4）新建分支以便在分支上做修改：
@@ -173,7 +173,7 @@ remote: Compressing objects: 100% (68/68), done.
 remote: Total 141 (delta 75), reused 108 (delta 48)
 Receiving objects: 100% (141/141), 58.28 KiB, done.
 Resolving deltas: 100% (75/75), completed with 43 local objects.
-From https://github.com/apache/incubator-doris
+From https://github.com/apache/doris
    9c36200..0c4edc2  master     -> upstream/master
 ```
 
@@ -209,7 +209,7 @@ Compressing objects: 100% (41/41), done.
 Writing objects: 100% (141/141), 56.66 KiB, done.
 Total 141 (delta 76), reused 140 (delta 75)
 remote: Resolving deltas: 100% (76/76), completed with 44 local objects.
-To https://lide-reed:fc35ff925bd8fd6629be3f6412bacee99d4e5f97@github.com/lide-reed/incubator-doris.git
+To https://lide-reed:fc35ff925bd8fd6629be3f6412bacee99d4e5f97@github.com/lide-reed/doris.git
    9c36200..0c4edc2  master -> master
 ```
 
@@ -250,9 +250,9 @@ Total 6 (delta 4), reused 0 (delta 0)
 remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
 remote: 
 remote: Create a pull request for 'my_branch' on GitHub by visiting:
-remote:      https://github.com/lide-reed/incubator-doris/pull/new/my_branch
+remote:      https://github.com/lide-reed/doris/pull/new/my_branch
 remote: 
-To https://lide-reed:fc35ff925bd8fd6629be3f6412bacee99d4e5f97@github.com/lide-reed/incubator-doris.git
+To https://lide-reed:fc35ff925bd8fd6629be3f6412bacee99d4e5f97@github.com/lide-reed/doris.git
  * [new branch]      my_branch -> my_branch
 ```
 
