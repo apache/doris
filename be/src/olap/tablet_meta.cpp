@@ -672,7 +672,7 @@ RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& 
     return nullptr;
 }
 
-void TabletMeta::add_delete_predicate(const DeletePredicatePB delete_predicate, int64_t version) {
+void TabletMeta::add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version) {
     for (auto& del_pred : _del_predicates) {
         if (del_pred.version() == version) {
             *del_pred.mutable_sub_predicates() = delete_predicate.sub_predicates();
