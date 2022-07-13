@@ -16,6 +16,13 @@
 // under the License.
 suite("test_index", "index") {
     // todo: test bitmap index, such as create, drop, alter table index
+    sql "DROP TABLE IF EXISTS t1"
+    sql """
+    CREATE TABLE IF NOT EXISTS t1 (
+        col1 int not null,
+        col2 char(10)
+    )DISTRIBUTED BY HASH(col1) BUCKETS 5 properties("replication_num" = "1");
+    """
     def tables = sql "show tables"
     def tb = tables[0][0]
     logger.info("$tb")

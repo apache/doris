@@ -3,7 +3,7 @@
 PLAN FRAGMENT 0
   OUTPUT EXPRS:
     `v1`
-  PARTITION: HASH_PARTITIONED: `default_cluster:regression_test`.`redundant_conjuncts`.`k1`
+  PARTITION: HASH_PARTITIONED: `default_cluster:regression_test_performance`.`redundant_conjuncts`.`k1`
 
   VRESULT SINK
 
@@ -17,7 +17,7 @@ PLAN FRAGMENT 0
 PLAN FRAGMENT 0
   OUTPUT EXPRS:
     `v1`
-  PARTITION: HASH_PARTITIONED: `default_cluster:regression_test`.`redundant_conjuncts`.`k1`
+  PARTITION: HASH_PARTITIONED: `default_cluster:regression_test_performance`.`redundant_conjuncts`.`k1`
 
   VRESULT SINK
 

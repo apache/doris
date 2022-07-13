@@ -17,5 +17,5 @@
 
 suite("test_nullif", "query") {
     qt_select "select nullif(k6, \"false\") k from test_query_db.test order by k1"
-    qt_select "select if(c_date is null,c_timestamp,c_date) from ${context.config.defaultDb}.datetype where c_date is null and c_timestamp is not null"
+    qt_select "select if(c_date is null,c_timestamp,c_date) from datetype where c_date is null and c_timestamp is not null"
 }

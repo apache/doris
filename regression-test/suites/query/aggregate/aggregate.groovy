@@ -19,7 +19,7 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/aggregate
 // and modified by Doris.
 
-suite("aggregate") {
+suite("aggregate", "query") {
     def tableName = "datetype"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
