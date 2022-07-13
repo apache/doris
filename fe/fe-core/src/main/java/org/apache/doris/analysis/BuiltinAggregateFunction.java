@@ -127,6 +127,7 @@ public class BuiltinAggregateFunction extends Function {
         // The intermediate type for this function if it is constant regardless of
         // input type. Set to null if it can only be determined during analysis.
         private final org.apache.doris.catalog.Type intermediateType;
+
         Operator(String description, TAggregationOp thriftOp,
                 org.apache.doris.catalog.Type intermediateType) {
             this.description = description;

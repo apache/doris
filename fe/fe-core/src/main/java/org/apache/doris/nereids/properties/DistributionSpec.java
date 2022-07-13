@@ -19,7 +19,8 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalDistribution;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.planner.DataPartition;
 
 import com.google.common.collect.Lists;
@@ -58,8 +59,9 @@ public class DistributionSpec {
     }
 
     public GroupExpression addEnforcer(Group child) {
-        return new GroupExpression(new PhysicalDistribution(new DistributionSpec(dataPartition)),
-                Lists.newArrayList(child));
+        PhysicalDistribution distribution = new PhysicalDistribution(
+                new DistributionSpec(dataPartition), child.getLogicalProperties(), new GroupPlan(child));
+        return new GroupExpression(distribution, Lists.newArrayList(child));
     }
 
     // TODO
