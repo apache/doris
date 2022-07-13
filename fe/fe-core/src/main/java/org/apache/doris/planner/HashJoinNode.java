@@ -540,7 +540,9 @@ public class HashJoinNode extends PlanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         super.finalize(analyzer);
-        computeIntermediateTuple(analyzer);
+        if (VectorizedUtil.isVectorized()) {
+            computeIntermediateTuple(analyzer);
+        }
     }
 
     private void computeIntermediateTuple(Analyzer analyzer) throws AnalysisException {
@@ -594,6 +596,7 @@ public class HashJoinNode extends PlanNode {
             }
         }
         // 3. replace srcExpr by intermediate tuple
+        Preconditions.checkState(vSrcToOutputSMap != null);
         vSrcToOutputSMap.substituteLhs(originToIntermediateSmap, analyzer);
         // 4. replace other conjuncts and conjuncts
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
