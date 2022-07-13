@@ -43,7 +43,6 @@ docs/.temp
 
 # output, thirdparty, extension
 output/
-conf/
 rpc_data/
 thirdparty/src
 thirdparty/installed
