@@ -18,13 +18,12 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 
 import java.util.List;
 import java.util.Optional;
@@ -32,34 +31,30 @@ import java.util.Optional;
 /**
  * Abstract class for all concrete physical plan.
  */
-public abstract class AbstractPhysicalPlan<OP_TYPE extends PhysicalOperator>
-        extends AbstractPlan<OP_TYPE>
-        implements PhysicalPlan {
+public abstract class AbstractPhysicalPlan extends AbstractPlan implements PhysicalPlan {
 
     protected final PhysicalProperties physicalProperties;
 
     /**
      * create physical plan by op, logicalProperties and children.
      */
-    public AbstractPhysicalPlan(NodeType type, OP_TYPE operator,
-            LogicalProperties logicalProperties, Plan... children) {
-        super(type, operator, logicalProperties, children);
+    public AbstractPhysicalPlan(PlanType type, LogicalProperties logicalProperties, Plan... children) {
+        super(type, Optional.empty(), Optional.of(logicalProperties), children);
         // TODO: compute physical properties
         this.physicalProperties = new PhysicalProperties();
     }
 
     /**
-     * create physical plan by op, logicalProperties and children.
+     * create physical plan by groupExpression, logicalProperties and children.
      *
      * @param type node type
-     * @param operator physical operator
-     * @param groupExpression group expression contains operator
+     * @param groupExpression group expression contains plan
      * @param logicalProperties logical properties of this plan
      * @param children children of this plan
      */
-    public AbstractPhysicalPlan(NodeType type, OP_TYPE operator, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, Plan... children) {
-        super(type, operator, groupExpression, logicalProperties, children);
+    public AbstractPhysicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+                                LogicalProperties logicalProperties, Plan... children) {
+        super(type, groupExpression, Optional.of(logicalProperties), children);
         // TODO: compute physical properties
         this.physicalProperties = new PhysicalProperties();
     }
@@ -74,6 +69,7 @@ public abstract class AbstractPhysicalPlan<OP_TYPE extends PhysicalOperator>
         return logicalProperties;
     }
 
+    @Override
     public PhysicalProperties getPhysicalProperties() {
         return physicalProperties;
     }

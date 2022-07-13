@@ -21,11 +21,11 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
-import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -78,9 +78,9 @@ public class ColumnPruningTest extends TestWithFeService {
         Plan l20 = l1.child(0).child(0);
         Plan l21 = l1.child(0).child(1);
 
-        LogicalProject p1 = (LogicalProject) l1.getOperator();
-        LogicalProject p20 = (LogicalProject) l20.getOperator();
-        LogicalProject p21 = (LogicalProject) l21.getOperator();
+        LogicalProject p1 = (LogicalProject) l1;
+        LogicalProject p20 = (LogicalProject) l20;
+        LogicalProject p21 = (LogicalProject) l21;
 
         List<String> target;
         List<String> source;
@@ -117,9 +117,9 @@ public class ColumnPruningTest extends TestWithFeService {
         Plan l20 = l1.child(0).child(0);
         Plan l21 = l1.child(0).child(1);
 
-        LogicalProject p1 = (LogicalProject) l1.getOperator();
-        LogicalProject p20 = (LogicalProject) l20.getOperator();
-        Assertions.assertTrue(l21.getOperator() instanceof LogicalRelation);
+        LogicalProject p1 = (LogicalProject) l1;
+        LogicalProject p20 = (LogicalProject) l20;
+        Assertions.assertTrue(l21 instanceof LogicalRelation);
 
         List<String> target;
         List<String> source;
@@ -148,7 +148,7 @@ public class ColumnPruningTest extends TestWithFeService {
         Plan out = process(memo);
 
         Plan l1 = out.child(0).child(0);
-        LogicalProject p1 = (LogicalProject) l1.getOperator();
+        LogicalProject p1 = (LogicalProject) l1;
 
         List<String> target;
         List<String> source;
@@ -180,15 +180,15 @@ public class ColumnPruningTest extends TestWithFeService {
         Plan l20Left = l20.child(0).child(0);
         Plan l20Right = l20.child(0).child(1);
 
-        Assertions.assertTrue(l20.getOperator() instanceof LogicalProject);
-        Assertions.assertTrue(l20Left.getOperator() instanceof LogicalProject);
-        Assertions.assertTrue(l20Right.getOperator() instanceof LogicalRelation);
+        Assertions.assertTrue(l20 instanceof LogicalProject);
+        Assertions.assertTrue(l20Left instanceof LogicalProject);
+        Assertions.assertTrue(l20Right instanceof LogicalRelation);
 
-        LogicalProject p1 = (LogicalProject) l1.getOperator();
-        LogicalProject p20 = (LogicalProject) l20.getOperator();
-        LogicalProject p21 = (LogicalProject) l21.getOperator();
+        LogicalProject p1 = (LogicalProject) l1;
+        LogicalProject p20 = (LogicalProject) l20;
+        LogicalProject p21 = (LogicalProject) l21;
 
-        LogicalProject p20lo = (LogicalProject) l20Left.getOperator();
+        LogicalProject p20lo = (LogicalProject) l20Left;
 
         List<String> target;
         List<String> source;
@@ -222,7 +222,7 @@ public class ColumnPruningTest extends TestWithFeService {
         return memo.copyOut();
     }
 
-    private List<String> getStringList(LogicalProject p) {
+    private List<String> getStringList(LogicalProject<Plan> p) {
         return p.getProjects().stream().map(NamedExpression::getQualifiedName).collect(Collectors.toList());
     }
 }

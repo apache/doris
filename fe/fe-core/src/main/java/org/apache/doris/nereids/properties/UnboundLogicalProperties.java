@@ -25,7 +25,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * LogicalPlanOperator must compute and return non-null LogicalProperties without exception,
+ * LogicalPlan must compute and return non-null LogicalProperties without exception,
  * so UnboundRelation.computeLogicalProperties() return a UnboundLogicalProperties temporary.
  */
 public class UnboundLogicalProperties extends LogicalProperties {

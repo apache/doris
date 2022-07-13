@@ -26,12 +26,6 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.operators.Operator;
-import org.apache.doris.nereids.operators.plans.JoinType;
-import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.operators.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -44,8 +38,12 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.Plans;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -62,7 +60,7 @@ import java.util.Optional;
  * plan rewrite ut.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class PushDownPredicateTest implements Plans {
+public class PushDownPredicateTest {
 
     private Table student;
     private Table score;
@@ -92,11 +90,11 @@ public class PushDownPredicateTest implements Plans {
                         new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
                         new Column("teacher", Type.STRING, true, AggregateType.NONE, "", "")));
 
-        rStudent = plan(new LogicalOlapScan(student, ImmutableList.of("student")));
+        rStudent = new LogicalOlapScan(student, ImmutableList.of("student"));
 
-        rScore = plan(new LogicalOlapScan(score, ImmutableList.of("score")));
+        rScore = new LogicalOlapScan(score, ImmutableList.of("score"));
 
-        rCourse = plan(new LogicalOlapScan(course, ImmutableList.of("course")));
+        rCourse = new LogicalOlapScan(course, ImmutableList.of("course"));
     }
 
     @Test
@@ -113,12 +111,13 @@ public class PushDownPredicateTest implements Plans {
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
 
 
-        Plan join = plan(new LogicalJoin(JoinType.INNER_JOIN, Optional.of(onCondition)), rStudent, rScore);
-        Plan filter = plan(new LogicalFilter(whereCondition), join);
+        Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(onCondition), rStudent, rScore);
+        Plan filter = new LogicalFilter(whereCondition, join);
 
-        Plan root = plan(new LogicalProject(
-                Lists.newArrayList(rStudent.getOutput().get(1), rCourse.getOutput().get(1), rScore.getOutput().get(2))),
-                filter);
+        Plan root = new LogicalProject(
+                Lists.newArrayList(rStudent.getOutput().get(1), rCourse.getOutput().get(1), rScore.getOutput().get(2)),
+                filter
+        );
 
         Memo memo = new Memo();
         memo.initialize(root);
@@ -137,9 +136,9 @@ public class PushDownPredicateTest implements Plans {
         System.out.println(memo.copyOut().treeString());
         System.out.println(11);
 
-        Operator op1 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getOperator();
-        Operator op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().getOperator();
-        Operator op3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(1).getLogicalExpression().getOperator();
+        Plan op1 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getPlan();
+        Plan op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().getPlan();
+        Plan op3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(1).getLogicalExpression().getPlan();
 
         Assertions.assertTrue(op1 instanceof LogicalJoin);
         Assertions.assertTrue(op2 instanceof LogicalFilter);
@@ -163,12 +162,13 @@ public class PushDownPredicateTest implements Plans {
         Expression whereCondition3 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3);
 
-        Plan join = plan(new LogicalJoin(JoinType.INNER_JOIN, Optional.empty()), rStudent, rScore);
-        Plan filter = plan(new LogicalFilter(whereCondition), join);
+        Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), rStudent, rScore);
+        Plan filter = new LogicalFilter(whereCondition, join);
 
-        Plan root = plan(new LogicalProject(
-                Lists.newArrayList(rStudent.getOutput().get(1), rCourse.getOutput().get(1), rScore.getOutput().get(2))),
-                filter);
+        Plan root = new LogicalProject(
+                Lists.newArrayList(rStudent.getOutput().get(1), rCourse.getOutput().get(1), rScore.getOutput().get(2)),
+                filter
+        );
 
         Memo memo = new Memo();
         memo.initialize(root);
@@ -186,9 +186,9 @@ public class PushDownPredicateTest implements Plans {
         Group rootGroup = memo.getRoot();
         System.out.println(memo.copyOut().treeString());
 
-        Operator op1 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getOperator();
-        Operator op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().getOperator();
-        Operator op3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(1).getLogicalExpression().getOperator();
+        Plan op1 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getPlan();
+        Plan op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().getPlan();
+        Plan op3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(1).getLogicalExpression().getPlan();
 
         Assertions.assertTrue(op1 instanceof LogicalJoin);
         Assertions.assertTrue(op2 instanceof LogicalFilter);
@@ -228,13 +228,14 @@ public class PushDownPredicateTest implements Plans {
 
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3, whereCondition4);
 
-        Plan join = plan(new LogicalJoin(JoinType.INNER_JOIN, Optional.empty()), rStudent, rScore);
-        Plan join1 = plan(new LogicalJoin(JoinType.INNER_JOIN, Optional.empty()), join, rCourse);
-        Plan filter = plan(new LogicalFilter(whereCondition), join1);
+        Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), rStudent, rScore);
+        Plan join1 = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), join, rCourse);
+        Plan filter = new LogicalFilter(whereCondition, join1);
 
-        Plan root = plan(new LogicalProject(
-                Lists.newArrayList(rStudent.getOutput().get(1), rCourse.getOutput().get(1), rScore.getOutput().get(2))),
-                filter);
+        Plan root = new LogicalProject(
+                Lists.newArrayList(rStudent.getOutput().get(1), rCourse.getOutput().get(1), rScore.getOutput().get(2)),
+                filter
+        );
 
 
         Memo memo = new Memo();
@@ -252,10 +253,10 @@ public class PushDownPredicateTest implements Plans {
 
         Group rootGroup = memo.getRoot();
         System.out.println(memo.copyOut().treeString());
-        Operator join2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getOperator();
-        Operator join3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().getOperator();
-        Operator op1 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().getOperator();
-        Operator op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().child(1).getLogicalExpression().getOperator();
+        Plan join2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getPlan();
+        Plan join3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().getPlan();
+        Plan op1 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().getPlan();
+        Plan op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().child(1).getLogicalExpression().getPlan();
 
         Assertions.assertTrue(join2 instanceof LogicalJoin);
         Assertions.assertTrue(join3 instanceof LogicalJoin);

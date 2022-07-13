@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.NodeType;
-
 import com.google.common.base.Preconditions;
 
 import java.util.List;
@@ -34,7 +32,7 @@ public class Or extends CompoundPredicate {
      * @param right right child of comparison predicate
      */
     public Or(Expression left, Expression right) {
-        super(NodeType.OR, left, right);
+        super(ExpressionType.OR, left, right);
     }
 
     @Override

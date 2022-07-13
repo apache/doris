@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
@@ -31,7 +30,7 @@ import java.util.List;
 public class Like extends StringRegexPredicate {
 
     public Like(Expression left, Expression right) {
-        super(NodeType.LIKE, left, right);
+        super(ExpressionType.LIKE, left, right);
     }
 
     @Override

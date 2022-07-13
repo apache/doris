@@ -18,8 +18,9 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.exceptions.ParseException;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -66,7 +67,7 @@ public class NereidsParserTest {
         String sql = "select `AD``D` from t1 where a = 1";
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        LogicalProject logicalProject = (LogicalProject) logicalPlan.getOperator();
+        LogicalProject<Plan> logicalProject = (LogicalProject) logicalPlan;
         Assertions.assertEquals("AD`D", logicalProject.getProjects().get(0).getName());
     }
 }

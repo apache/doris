@@ -19,15 +19,15 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.Operator;
-import org.apache.doris.nereids.operators.OperatorVisitor;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import java.util.List;
 
 /**
  * Used for property drive.
  */
-public class ChildrenOutputPropertyDeriver extends OperatorVisitor<PhysicalProperties, PlanContext> {
+public class ChildrenOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, PlanContext> {
     PhysicalProperties requirements;
     List<PhysicalProperties> childrenOutputProperties;
 
@@ -45,7 +45,7 @@ public class ChildrenOutputPropertyDeriver extends OperatorVisitor<PhysicalPrope
         ChildrenOutputPropertyDeriver childrenOutputPropertyDeriver = new ChildrenOutputPropertyDeriver(requirements,
                 childrenOutputProperties);
 
-        return groupExpression.getOperator().accept(childrenOutputPropertyDeriver, new PlanContext(groupExpression));
+        return groupExpression.getPlan().accept(childrenOutputPropertyDeriver, new PlanContext(groupExpression));
     }
 
     public PhysicalProperties getRequirements() {
@@ -54,12 +54,12 @@ public class ChildrenOutputPropertyDeriver extends OperatorVisitor<PhysicalPrope
 
     //    public List<List<PhysicalProperties>> getProperties(GroupExpression groupExpression) {
     //        properties = Lists.newArrayList();
-    //        groupExpression.getOperator().accept(this, new PlanContext(groupExpression));
+    //        groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
     //        return properties;
     //    }
 
     //    @Override
-    //    public Void visitOperator(Operator operator, PlanContext context) {
+    //    public Void visit(Plan plan, PlanContext context) {
     //        List<PhysicalProperties> props = Lists.newArrayList();
     //        for (int childIndex = 0; childIndex < context.getGroupExpression().arity(); ++childIndex) {
     //            props.add(new PhysicalProperties());
@@ -68,7 +68,7 @@ public class ChildrenOutputPropertyDeriver extends OperatorVisitor<PhysicalPrope
     //        return null;
     //    }
     @Override
-    public PhysicalProperties visitOperator(Operator node, PlanContext context) {
+    public PhysicalProperties visit(Plan plan, PlanContext context) {
         return new PhysicalProperties();
     }
 }

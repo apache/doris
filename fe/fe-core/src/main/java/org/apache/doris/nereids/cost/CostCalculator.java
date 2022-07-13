@@ -20,12 +20,12 @@ package org.apache.doris.nereids.cost;
 import org.apache.doris.common.Id;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.Operator;
-import org.apache.doris.nereids.operators.OperatorVisitor;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregate;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -43,7 +43,7 @@ public class CostCalculator {
     public static double calculateCost(GroupExpression groupExpression) {
         PlanContext planContext = new PlanContext(groupExpression);
         CostEstimator costCalculator = new CostEstimator();
-        CostEstimate costEstimate = groupExpression.getOperator().accept(costCalculator, planContext);
+        CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
         return costFormula(costEstimate);
     }
 
@@ -55,14 +55,14 @@ public class CostCalculator {
                 + costEstimate.getNetworkCost() * networkCostWeight;
     }
 
-    private static class CostEstimator extends OperatorVisitor<CostEstimate, PlanContext> {
+    private static class CostEstimator extends PlanVisitor<CostEstimate, PlanContext> {
         @Override
-        public CostEstimate visitOperator(Operator operator, PlanContext context) {
+        public CostEstimate visit(Plan plan, PlanContext context) {
             return CostEstimate.zero();
         }
 
         @Override
-        public CostEstimate visitPhysicalAggregation(PhysicalAggregate physicalAggregate, PlanContext context) {
+        public CostEstimate visitPhysicalAggregate(PhysicalAggregate<Plan> aggregate, PlanContext context) {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             return CostEstimate.ofCpu(statistics.computeSize());
         }
@@ -74,7 +74,7 @@ public class CostCalculator {
         }
 
         @Override
-        public CostEstimate visitPhysicalHashJoin(PhysicalHashJoin physicalHashJoin, PlanContext context) {
+        public CostEstimate visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> physicalHashJoin, PlanContext context) {
             Preconditions.checkState(context.getGroupExpression().arity() == 2);
             Preconditions.checkState(context.getChildrenStats().size() == 2);
 

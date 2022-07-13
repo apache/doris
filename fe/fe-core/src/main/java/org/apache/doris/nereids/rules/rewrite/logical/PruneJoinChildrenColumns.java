@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -26,7 +24,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Set;
@@ -54,7 +55,7 @@ import java.util.stream.Collectors;
  * scan                scan
  */
 public class PruneJoinChildrenColumns
-        extends AbstractPushDownProjectRule<LogicalBinaryPlan<LogicalJoin, GroupPlan, GroupPlan>> {
+        extends AbstractPushDownProjectRule<LogicalJoin<GroupPlan, GroupPlan>> {
 
     public PruneJoinChildrenColumns() {
         setRuleType(RuleType.COLUMN_PRUNE_JOIN_CHILD);
@@ -62,10 +63,10 @@ public class PruneJoinChildrenColumns
     }
 
     @Override
-    protected Plan pushDownProject(LogicalBinaryPlan<LogicalJoin, GroupPlan, GroupPlan> joinPlan,
+    protected Plan pushDownProject(LogicalJoin<GroupPlan, GroupPlan> joinPlan,
             Set<Slot> references) {
-        if (joinPlan.operator.getCondition().isPresent()) {
-            references.addAll(SlotExtractor.extractSlot(joinPlan.operator.getCondition().get()));
+        if (joinPlan.getCondition().isPresent()) {
+            references.addAll(SlotExtractor.extractSlot(joinPlan.getCondition().get()));
         }
         Set<ExprId> exprIds = references.stream().map(NamedExpression::getExprId).collect(Collectors.toSet());
 
@@ -78,12 +79,12 @@ public class PruneJoinChildrenColumns
         Plan rightPlan = joinPlan.right();
 
         if (leftInputs.size() != leftPlan.getOutput().size()) {
-            leftPlan = plan(new LogicalProject(leftInputs), leftPlan);
+            leftPlan = new LogicalProject(leftInputs, leftPlan);
         }
 
         if (rightInputs.size() != rightPlan.getOutput().size()) {
-            rightPlan = plan(new LogicalProject(rightInputs), rightPlan);
+            rightPlan = new LogicalProject(rightInputs, rightPlan);
         }
-        return plan(joinPlan.operator, leftPlan, rightPlan);
+        return joinPlan.withChildren(ImmutableList.of(leftPlan, rightPlan));
     }
 }

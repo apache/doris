@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
@@ -37,7 +36,7 @@ public class NullSafeEqual extends ComparisonPredicate {
      * @param right right child of Null Safe Equal
      */
     public NullSafeEqual(Expression left, Expression right) {
-        super(NodeType.NULL_SAFE_EQUAL, left, right);
+        super(ExpressionType.NULL_SAFE_EQUAL, left, right);
     }
 
     @Override

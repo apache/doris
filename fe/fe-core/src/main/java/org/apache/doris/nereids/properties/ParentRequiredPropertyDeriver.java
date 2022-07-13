@@ -20,8 +20,8 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.Operator;
-import org.apache.doris.nereids.operators.OperatorVisitor;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.collect.Lists;
 
@@ -30,7 +30,7 @@ import java.util.List;
 /**
  * Used for parent property drive.
  */
-public class ParentRequiredPropertyDeriver extends OperatorVisitor<Void, PlanContext> {
+public class ParentRequiredPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     PhysicalProperties requestPropertyFromParent;
     List<List<PhysicalProperties>> requiredPropertyListList;
@@ -41,12 +41,12 @@ public class ParentRequiredPropertyDeriver extends OperatorVisitor<Void, PlanCon
 
     public List<List<PhysicalProperties>> getRequiredPropertyListList(GroupExpression groupExpression) {
         requiredPropertyListList = Lists.newArrayList();
-        groupExpression.getOperator().accept(this, new PlanContext(groupExpression));
+        groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
         return requiredPropertyListList;
     }
 
     @Override
-    public Void visitOperator(Operator operator, PlanContext context) {
+    public Void visit(Plan plan, PlanContext context) {
         List<PhysicalProperties> requiredPropertyList = Lists.newArrayList();
         for (int i = 0; i < context.getGroupExpression().arity(); i++) {
             requiredPropertyList.add(new PhysicalProperties());

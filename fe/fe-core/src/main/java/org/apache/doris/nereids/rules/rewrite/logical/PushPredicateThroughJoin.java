@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRuleExecutor;
@@ -30,7 +28,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Lists;
@@ -69,20 +68,20 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
     public Rule<Plan> build() {
         return logicalFilter(innerLogicalJoin()).then(filter -> {
 
-            LogicalJoin joinOp = filter.child().operator;
+            LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
 
-            Expression wherePredicates = filter.operator.getPredicates();
+            Expression wherePredicates = filter.getPredicates();
             Expression onPredicates = Literal.TRUE_LITERAL;
 
             List<Expression> otherConditions = Lists.newArrayList();
             List<Expression> eqConditions = Lists.newArrayList();
 
-            if (joinOp.getCondition().isPresent()) {
-                onPredicates = joinOp.getCondition().get();
+            if (join.getCondition().isPresent()) {
+                onPredicates = join.getCondition().get();
             }
 
-            List<Slot> leftInput = filter.child().left().getOutput();
-            List<Slot> rightInput = filter.child().right().getOutput();
+            List<Slot> leftInput = join.left().getOutput();
+            List<Slot> rightInput = join.right().getOutput();
 
             ExpressionUtils.extractConjunct(ExpressionUtils.and(onPredicates, wherePredicates)).forEach(predicate -> {
                 if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))) {
@@ -114,11 +113,11 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             otherConditions.addAll(eqConditions);
             Expression joinConditions = ExpressionUtils.and(otherConditions);
 
-            return pushDownPredicate(filter.child(), joinConditions, leftPredicates, rightPredicates);
+            return pushDownPredicate(join, joinConditions, leftPredicates, rightPredicates);
         }).toRule(RuleType.PUSH_DOWN_PREDICATE_THROUGH_JOIN);
     }
 
-    private Plan pushDownPredicate(LogicalBinaryPlan<LogicalJoin, GroupPlan, GroupPlan> joinPlan,
+    private Plan pushDownPredicate(LogicalJoin<GroupPlan, GroupPlan> joinPlan,
             Expression joinConditions, List<Expression> leftPredicates, List<Expression> rightPredicates) {
 
         Expression left = ExpressionUtils.and(leftPredicates);
@@ -128,14 +127,14 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
         Plan leftPlan = joinPlan.left();
         Plan rightPlan = joinPlan.right();
         if (!left.equals(Literal.TRUE_LITERAL)) {
-            leftPlan = plan(new LogicalFilter(exprRewriter.rewrite(left)), leftPlan);
+            leftPlan = new LogicalFilter(exprRewriter.rewrite(left), leftPlan);
         }
 
         if (!right.equals(Literal.TRUE_LITERAL)) {
-            rightPlan = plan(new LogicalFilter(exprRewriter.rewrite(right)), rightPlan);
+            rightPlan = new LogicalFilter(exprRewriter.rewrite(right), rightPlan);
         }
 
-        return plan(new LogicalJoin(joinPlan.operator.getJoinType(), Optional.of(joinConditions)), leftPlan, rightPlan);
+        return new LogicalJoin(joinPlan.getJoinType(), Optional.of(joinConditions), leftPlan, rightPlan);
     }
 
     private Expression getJoinCondition(Expression predicate, List<Slot> leftOutputs, List<Slot> rightOutputs) {

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
@@ -34,10 +33,16 @@ import java.util.Objects;
  */
 public abstract class Expression extends AbstractTreeNode<Expression> {
 
+    protected final ExpressionType type;
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
-    public Expression(NodeType type, Expression... children) {
-        super(type, children);
+    public Expression(ExpressionType type, Expression... children) {
+        super(children);
+        this.type = Objects.requireNonNull(type, "type can not be null");
+    }
+
+    public ExpressionType getType() {
+        return type;
     }
 
     public DataType getDataType() throws UnboundException {

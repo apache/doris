@@ -60,12 +60,12 @@ import javax.tools.StandardLocation;
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 @SupportedAnnotationTypes("org.apache.doris.nereids.pattern.generator.PatternDescribable")
 public class PatternDescribableProcessor extends AbstractProcessor {
-    private List<File> operatorPaths;
+    private List<File> planPaths;
 
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
         super.init(processingEnv);
-        this.operatorPaths = Arrays.stream(processingEnv.getOptions().get("operatorPath").split(","))
+        this.planPaths = Arrays.stream(processingEnv.getOptions().get("planPath").split(","))
                 .map(path -> path.trim())
                 .filter(path -> !path.isEmpty())
                 .collect(Collectors.toSet())
@@ -80,9 +80,9 @@ public class PatternDescribableProcessor extends AbstractProcessor {
             return false;
         }
         try {
-            List<File> operatorFiles = findJavaFiles(operatorPaths);
+            List<File> planFiles = findJavaFiles(planPaths);
             PatternGeneratorAnalyzer patternGeneratorAnalyzer = new PatternGeneratorAnalyzer();
-            for (File file : operatorFiles) {
+            for (File file : planFiles) {
                 List<TypeDeclaration> asts = parseJavaFile(file);
                 patternGeneratorAnalyzer.addAsts(asts);
             }

@@ -22,7 +22,7 @@ import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
 import java.util.Set;
 import java.util.TreeSet;
 
-/** used to generate pattern for LogicalBinaryOperator. */
+/** used to generate pattern for LogicalBinary. */
 public class LogicalBinaryPatternGenerator extends PatternGenerator {
 
     public LogicalBinaryPatternGenerator(PatternGeneratorAnalyzer analyzer,
@@ -32,12 +32,12 @@ public class LogicalBinaryPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return "<LogicalBinaryPlan<" + opType.name + ", GroupPlan, GroupPlan>, Plan>";
+        return "<" + opType.name + "<GroupPlan, GroupPlan>, Plan>";
     }
 
     @Override
     public String genericTypeWithChildren() {
-        return "<LogicalBinaryPlan<" + opType.name + ", C1, C2>, Plan>";
+        return "<" + opType.name + "<C1, C2>, Plan>";
     }
 
     @Override
@@ -46,7 +46,6 @@ public class LogicalBinaryPatternGenerator extends PatternGenerator {
         imports.add(opType.getFullQualifiedName());
         imports.add("org.apache.doris.nereids.trees.plans.GroupPlan");
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
-        imports.add("org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan");
         enumFieldPatternInfos.stream()
                 .map(info -> info.enumFullName)
                 .forEach(imports::add);

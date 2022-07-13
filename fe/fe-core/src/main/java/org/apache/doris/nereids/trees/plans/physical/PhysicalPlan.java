@@ -17,13 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.nereids.operators.plans.physical.PhysicalOperator;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
  * interface for all physical plan.
  */
 public interface PhysicalPlan extends Plan {
-    @Override
-    PhysicalOperator getOperator();
+    PhysicalProperties getPhysicalProperties();
 }

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -37,7 +36,7 @@ public abstract class ComparisonPredicate extends Expression implements BinaryEx
      * @param left     left child of comparison predicate
      * @param right    right child of comparison predicate
      */
-    public ComparisonPredicate(NodeType nodeType, Expression left, Expression right) {
+    public ComparisonPredicate(ExpressionType nodeType, Expression left, Expression right) {
         super(nodeType, left, right);
     }
 

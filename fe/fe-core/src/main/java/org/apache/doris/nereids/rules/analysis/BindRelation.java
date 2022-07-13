@@ -20,11 +20,10 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.operators.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -40,23 +39,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // fixme, just for example now
         return unboundRelation().thenApply(ctx -> {
             ConnectContext connectContext = ctx.plannerContext.getConnectContext();
-            List<String> nameParts = ctx.root.operator.getNameParts();
+            List<String> nameParts = ctx.root.getNameParts();
             switch (nameParts.size()) {
                 case 1: {
                     List<String> qualifier = Lists.newArrayList(connectContext.getDatabase(), nameParts.get(0));
                     Table table = getTable(qualifier, connectContext.getCatalog());
                     // TODO: should generate different Scan sub class according to table's type
-                    LogicalOlapScan olapScan = new LogicalOlapScan(table, qualifier);
-                    return new LogicalLeafPlan<>(olapScan);
+                    return new LogicalOlapScan(table, qualifier);
                 }
                 case 2: {
                     Table table = getTable(nameParts, connectContext.getCatalog());
-                    LogicalOlapScan olapScan = new LogicalOlapScan(table, nameParts);
-                    return new LogicalLeafPlan<>(olapScan);
+                    return new LogicalOlapScan(table, nameParts);
                 }
                 default:
-                    throw new IllegalStateException("Table name ["
-                            + ctx.root.operator.getTableName() + "] is invalid.");
+                    throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
             }
         }).toRule(RuleType.BINDING_RELATION);
     }

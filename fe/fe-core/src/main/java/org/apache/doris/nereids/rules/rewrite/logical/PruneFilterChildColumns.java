@@ -17,15 +17,15 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.Set;
@@ -51,7 +51,7 @@ import java.util.stream.Stream;
  *   |
  * scan(k1,k2,k3,v1)
  */
-public class PruneFilterChildColumns extends AbstractPushDownProjectRule<LogicalUnaryPlan<LogicalFilter, GroupPlan>> {
+public class PruneFilterChildColumns extends AbstractPushDownProjectRule<LogicalFilter<GroupPlan>> {
 
     public PruneFilterChildColumns() {
         setRuleType(RuleType.COLUMN_PRUNE_FILTER_CHILD);
@@ -59,12 +59,14 @@ public class PruneFilterChildColumns extends AbstractPushDownProjectRule<Logical
     }
 
     @Override
-    protected Plan pushDownProject(LogicalUnaryPlan<LogicalFilter, GroupPlan> filterPlan, Set<Slot> references) {
-        Set<Slot> filterSlots = SlotExtractor.extractSlot(filterPlan.operator.getPredicates());
+    protected Plan pushDownProject(LogicalFilter<GroupPlan> filterPlan, Set<Slot> references) {
+        Set<Slot> filterSlots = SlotExtractor.extractSlot(filterPlan.getPredicates());
         Set<Slot> required = Stream.concat(references.stream(), filterSlots.stream()).collect(Collectors.toSet());
         if (required.containsAll(filterPlan.child().getOutput())) {
             return filterPlan;
         }
-        return plan(filterPlan.operator, plan(new LogicalProject(Lists.newArrayList(required)), filterPlan.child()));
+        return filterPlan.withChildren(
+            ImmutableList.of(new LogicalProject(Lists.newArrayList(required), filterPlan.child()))
+        );
     }
 }

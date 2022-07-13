@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import java.util.List;
@@ -31,7 +31,7 @@ public abstract class BoundFunction extends Expression {
     private final String name;
 
     public BoundFunction(String name, Expression... arguments) {
-        super(NodeType.BOUND_FUNCTION, arguments);
+        super(ExpressionType.BOUND_FUNCTION, arguments);
         this.name = Objects.requireNonNull(name, "name can not be null");
     }
 

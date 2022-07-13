@@ -60,12 +60,6 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
-import org.apache.doris.nereids.operators.plans.JoinType;
-import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
-import org.apache.doris.nereids.operators.plans.logical.LogicalSort;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -88,10 +82,13 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -174,9 +171,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
-        UnboundRelation relation = new UnboundRelation(tableId);
         // TODO: sample and time travel, alias, sub query
-        return new LogicalLeafPlan(relation);
+        return new UnboundRelation(tableId);
     }
 
     /**
@@ -441,12 +437,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // build left deep join tree
             for (RelationContext relation : ctx.relation()) {
                 LogicalPlan right = plan(relation.relationPrimary());
-                if (left == null) {
-                    left = right;
-                } else {
-                    LogicalJoin logicalJoin = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty());
-                    left = new LogicalBinaryPlan(logicalJoin, left, right);
-                }
+                left = left == null
+                        ? right
+                        : new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), left, right);
                 left = withJoinRelations(left, relation);
             }
             // TODO: pivot and lateral view
@@ -525,7 +518,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private LogicalPlan withQueryOrganization(LogicalPlan children, QueryOrganizationContext ctx) {
         List<OrderKey> orderKeys = visitQueryOrganization(ctx);
-        return orderKeys.isEmpty() ? children : new LogicalUnaryPlan(new LogicalSort(orderKeys), children);
+        return orderKeys.isEmpty() ? children : new LogicalSort(orderKeys, children);
     }
 
     /**
@@ -596,10 +589,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 condition = getExpression(joinCriteria.booleanExpression());
             }
 
-            last = new LogicalBinaryPlan(
-                    new LogicalJoin(joinType, Optional.ofNullable(condition)),
-                    last, plan(join.relationPrimary())
-            );
+            last = new LogicalJoin(joinType, Optional.ofNullable(condition), last, plan(join.relationPrimary()));
         }
         return last;
     }
@@ -612,14 +602,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 return input;
             } else {
                 List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-                return new LogicalUnaryPlan(new LogicalProject(projects), input);
+                return new LogicalProject(projects, input);
             }
         });
     }
 
     private LogicalPlan withFilter(LogicalPlan input, Optional<WhereClauseContext> whereCtx) {
         return input.optionalMap(whereCtx, () ->
-            new LogicalUnaryPlan(new LogicalFilter(getExpression((whereCtx.get().booleanExpression()))), input)
+            new LogicalFilter(getExpression((whereCtx.get().booleanExpression())), input)
         );
     }
 
@@ -628,7 +618,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return input.optionalMap(aggCtx, () -> {
             List<Expression> groupByExpressions = visit(aggCtx.get().groupByItem().expression(), Expression.class);
             List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
-            return new LogicalUnaryPlan(new LogicalAggregate(groupByExpressions, namedExpressions), input);
+            return new LogicalAggregate(groupByExpressions, namedExpressions, input);
         });
     }
 

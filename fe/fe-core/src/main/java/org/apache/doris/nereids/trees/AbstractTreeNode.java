@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees;
 
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.Operator;
 
 import com.google.common.collect.ImmutableList;
 
@@ -36,32 +35,24 @@ import java.util.Optional;
 public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
         implements TreeNode<NODE_TYPE> {
 
-    protected final NodeType type;
     protected final List<NODE_TYPE> children;
     // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
     // https://github.com/apache/doris/pull/9807#discussion_r884829067
     protected final Optional<GroupExpression> groupExpression;
 
-    public AbstractTreeNode(NodeType type, NODE_TYPE... children) {
-        this(type, Optional.empty(), children);
+    public AbstractTreeNode(NODE_TYPE... children) {
+        this(Optional.empty(), children);
     }
 
     /**
      * Constructor for plan node.
      *
-     * @param type node type
-     * @param groupExpression group expression related to the operator of this node
+     * @param groupExpression group expression related to the plan of this node
      * @param children children of this node
      */
-    public AbstractTreeNode(NodeType type, Optional<GroupExpression> groupExpression, NODE_TYPE... children) {
-        this.type = type;
+    public AbstractTreeNode(Optional<GroupExpression> groupExpression, NODE_TYPE... children) {
         this.children = ImmutableList.copyOf(children);
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
-    }
-
-    @Override
-    public Operator getOperator() {
-        throw new RuntimeException();
     }
 
     @Override
@@ -77,11 +68,6 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
     @Override
     public List<NODE_TYPE> children() {
         return children;
-    }
-
-    @Override
-    public NodeType getType() {
-        return type;
     }
 
     public int arity() {

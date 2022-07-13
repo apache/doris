@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -45,7 +44,7 @@ public class Literal extends Expression implements LeafExpression {
      * @param dataType logical data type in Nereids
      */
     public Literal(Object value, DataType dataType) {
-        super(NodeType.LITERAL);
+        super(ExpressionType.LITERAL);
         this.dataType = dataType;
         this.value = value;
     }
@@ -56,7 +55,7 @@ public class Literal extends Expression implements LeafExpression {
      * @param value real value stored in java object
      */
     public Literal(Object value) {
-        super(NodeType.LITERAL);
+        super(ExpressionType.LITERAL);
         this.value = value;
         if (value == null) {
             dataType = NullType.INSTANCE;

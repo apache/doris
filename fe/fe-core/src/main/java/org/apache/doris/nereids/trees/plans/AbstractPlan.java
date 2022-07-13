@@ -18,10 +18,8 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.PlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -37,30 +35,34 @@ import java.util.Optional;
 /**
  * Abstract class for all concrete plan node.
  */
-public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
-        extends AbstractTreeNode<Plan> implements Plan {
+public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
 
-    public final OP_TYPE operator;
     protected StatsDeriveResult statsDeriveResult;
     protected long limit;
 
+    protected final PlanType type;
     protected final LogicalProperties logicalProperties;
 
-    public AbstractPlan(NodeType type, OP_TYPE operator, LogicalProperties logicalProperties, Plan... children) {
-        this(type, operator, Optional.empty(), logicalProperties, children);
+    public AbstractPlan(PlanType type, Plan... children) {
+        this(type, Optional.empty(), Optional.empty(), children);
+    }
+
+    public AbstractPlan(PlanType type, Optional<LogicalProperties> optLogicalProperties, Plan... children) {
+        this(type, Optional.empty(), optLogicalProperties, children);
     }
 
     /** all parameter constructor. */
-    public AbstractPlan(NodeType type, OP_TYPE operator, Optional<GroupExpression> groupExpression,
-                        LogicalProperties logicalProperties, Plan... children) {
-        super(type, groupExpression, children);
-        this.operator = Objects.requireNonNull(operator, "operator can not be null");
+    public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
+                        Optional<LogicalProperties> optLogicalProperties, Plan... children) {
+        super(groupExpression, children);
+        this.type = Objects.requireNonNull(type, "type can not be null");
+        LogicalProperties logicalProperties = optLogicalProperties.orElseGet(() -> computeLogicalProperties(children));
         this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
     }
 
     @Override
-    public OP_TYPE getOperator() {
-        return operator;
+    public PlanType getType() {
+        return type;
     }
 
     /**
@@ -130,11 +132,6 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
     }
 
     @Override
-    public String toString() {
-        return operator.toString();
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -142,15 +139,14 @@ public abstract class AbstractPlan<OP_TYPE extends PlanOperator>
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        AbstractPlan<?> that = (AbstractPlan<?>) o;
+        AbstractPlan that = (AbstractPlan) o;
         return limit == that.limit
-                && Objects.equals(operator, that.operator)
                 && Objects.equals(statsDeriveResult, that.statsDeriveResult)
                 && Objects.equals(logicalProperties, that.logicalProperties);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(operator, statsDeriveResult, limit, logicalProperties);
+        return Objects.hash(statsDeriveResult, limit, logicalProperties);
     }
 }
