@@ -152,5 +152,5 @@
     "replica_id": 0,
     "storage_policy": "",
     "delete_bitmap": {},
-    "speed_up_unique_key_with_aux_index": false
+    "enable_unique_key_merge_on_write": false
 }
