@@ -585,7 +585,9 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         }
         remaining -= num_written;
         col_cursor += num_written;
+        *ptr += num_written * sizeof(CollectionValue);
     }
+
     if (is_nullable()) {
         return write_null_column(num_rows, false);
     }
