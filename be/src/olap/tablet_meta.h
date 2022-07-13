@@ -165,9 +165,9 @@ public:
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
 
-    void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
+    void add_delete_predicate(const DeletePredicatePB delete_predicate, int64_t version);
     void remove_delete_predicate_by_version(const Version& version);
-    DelPredicateArray delete_predicates() const;
+    std::vector<DeletePredicatePB>& delete_predicates() const;
     bool version_for_delete_predicate(const Version& version);
 
     std::string full_name() const;
@@ -208,7 +208,7 @@ public:
 private:
     Status _save_meta(DataDir* data_dir);
 
-    // _del_pred_array is ignored to compare.
+    // _del_predicates is ignored to compare.
     friend bool operator==(const TabletMeta& a, const TabletMeta& b);
     friend bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
@@ -235,7 +235,7 @@ private:
     // this policy is judged and computed by TimestampedVersionTracker.
     std::vector<RowsetMetaSharedPtr> _stale_rs_metas;
 
-    DelPredicateArray _del_pred_array;
+    std::vector<DeletePredicatePB> _del_predicates;
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
     std::string _remote_storage_name;
