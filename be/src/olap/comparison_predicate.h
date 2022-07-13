@@ -406,7 +406,7 @@ private:
         for (uint16_t i = 0; i < size; ++i) {
             uint16_t idx = sel[i];
             if constexpr (is_nullable) {
-                if (_opposite ^ (!null_map[i] && _operator(data_array[idx], value))) {
+                if (_opposite ^ (!null_map[idx] && _operator(data_array[idx], value))) {
                     sel[new_size++] = idx;
                 }
             } else {
