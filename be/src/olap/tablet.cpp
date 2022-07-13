@@ -1818,7 +1818,8 @@ const TabletSchema& Tablet::tablet_schema() const {
     return *rowset_meta->tablet_schema();
 
 Status Tablet::lookup_row_key(const Slice& encoded_key, RowLocation* row_location) {
-    // TODO(liaoxin01): to be implemented after the RowsetTree related code merged.
+    // TODO(zhannngchen): to be implemented in next patch, align with rowset-tree usage and
+    // update.
     return Status::NotFound("can't find key in all rowsets");
 }
 
