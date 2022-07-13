@@ -19,11 +19,11 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
@@ -58,7 +58,7 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
             ComparisonPredicate cp = (ComparisonPredicate) expr.child();
             Expression left =  rewrite(cp.left(), context);
             Expression right = rewrite(cp.right(), context);
-            NodeType type = cp.getType();
+            ExpressionType type = cp.getType();
             switch (type) {
                 case GREATER_THAN:
                     return new LessThanEqual(left, right);
@@ -75,7 +75,7 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
             CompoundPredicate cp = (CompoundPredicate) expr.child();
             Expression left =  rewrite(new Not(cp.left()), context);
             Expression right = rewrite(new Not(cp.right()), context);
-            NodeType type = cp.getType();
+            ExpressionType type = cp.getType();
             switch (type) {
                 case AND:
                     return new Or(left, right);

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -46,7 +45,7 @@ public class Between extends Expression implements TernaryExpression {
 
     public Between(Expression compareExpr, Expression lowerBound,
                    Expression upperBound) {
-        super(NodeType.BETWEEN, compareExpr, lowerBound, upperBound);
+        super(ExpressionType.BETWEEN, compareExpr, lowerBound, upperBound);
         this.compareExpr = compareExpr;
         this.lowerBound = lowerBound;
         this.upperBound = upperBound;

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 
 import org.apache.commons.collections.CollectionUtils;
 
@@ -29,7 +28,7 @@ import java.util.List;
  */
 public abstract class NamedExpression extends Expression {
 
-    public NamedExpression(NodeType type, Expression... children) {
+    public NamedExpression(ExpressionType type, Expression... children) {
         super(type, children);
     }
 
