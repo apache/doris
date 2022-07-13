@@ -240,7 +240,7 @@ To verify and build, you can refer to following instruction:
 
 Firstly, you must be install and start docker service, and then you could build Doris as following steps:
 
-$ wget https://dist.apache.org/repos/dist/dev/incubator/doris/doris-manager/1.0.0/apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz
+$ wget https://dist.apache.org/repos/dist/dev/doris/doris-manager/1.0.0/apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz
 
 Step4: Build Doris
 Now you can decompress and enter Doris source path and build Doris.
