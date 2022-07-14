@@ -118,6 +118,79 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
         dbmp->merge(other);
         ASSERT_EQ(dbmp->delete_bitmap.size(), old_size + 2);
     }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Cache test
+    ////////////////////////////////////////////////////////////////////////////
+    { // Aggregation bitmap contains all row ids that are in versions smaller or
+      // equal to the given version, boundary test
+        auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 2});
+        ASSERT_EQ(bm->cardinality(), 1005);
+        ASSERT_TRUE(bm->contains(999));
+        ASSERT_TRUE(bm->contains(1100));
+        ASSERT_TRUE(bm->contains(1101));
+        ASSERT_TRUE(bm->contains(1102));
+        ASSERT_TRUE(bm->contains(1103));
+        ASSERT_TRUE(bm->contains(1104));
+        bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 2});
+        ASSERT_EQ(bm->cardinality(), 1005);
+    }
+
+    { // Aggregation bitmap contains all row ids that are in versions smaller or
+      // equal to the given version, normal test
+        auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 1000});
+        ASSERT_EQ(bm->cardinality(), 1005);
+        ASSERT_TRUE(bm->contains(999));
+        ASSERT_TRUE(bm->contains(1100));
+        ASSERT_TRUE(bm->contains(1101));
+        ASSERT_TRUE(bm->contains(1102));
+        ASSERT_TRUE(bm->contains(1103));
+        ASSERT_TRUE(bm->contains(1104));
+        bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 1000});
+        ASSERT_EQ(bm->cardinality(), 1005);
+    }
+
+    // Check data is not messed-up
+    ASSERT_TRUE(dbmp->contains({RowsetId {2, 0, 1, 1}, 1, 2}, 1104));
+    ASSERT_FALSE(dbmp->contains({RowsetId {2, 0, 1, 1}, 1, 2}, 1103));
+    ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 2}, 1104));
+    ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 2}, 1103));
+
+    { // Test expiration
+        dbmp->_agg_cache->expiration_ms = 100; // Hack into expiration
+        dbmp->add({RowsetId {2, 0, 1, 1}, 1, 3}, 1105);
+        auto bm1 = dbmp->get({RowsetId {2, 0, 1, 1}, 1, 3});
+        ASSERT_EQ(bm1->cardinality(), 1);
+        // Newly added version will be cached immediately
+        auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 3});
+        ASSERT_EQ(bm->cardinality(), 1006);
+        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1104));
+        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1105));
+        ASSERT_TRUE(bm->contains(1104));
+        ASSERT_TRUE(bm->contains(1105));
+
+        dbmp->add({RowsetId {2, 0, 1, 1}, 1, 3}, 1106);
+        bm = dbmp->get_agg({RowsetId{2,0,1,1}, 1, 3});
+        ASSERT_EQ(bm->cardinality(), 1006); // Not changed, due to cache
+        ASSERT_TRUE(dbmp->contains({RowsetId {2, 0, 1, 1}, 1, 3}, 1106));
+        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1104));
+        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1105));
+        ASSERT_FALSE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1106));
+        ASSERT_TRUE(bm->contains(1104));
+        ASSERT_TRUE(bm->contains(1105));
+        ASSERT_FALSE(bm->contains(1106));
+
+        std::this_thread::sleep_for( // Wait for expiration
+                std::chrono::milliseconds(1 + dbmp->_agg_cache->expiration_ms));
+        bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 3});
+        ASSERT_EQ(bm->cardinality(), 1007); // Refreshed
+        ASSERT_TRUE(bm->contains(1104));
+        ASSERT_TRUE(bm->contains(1105));
+        ASSERT_TRUE(bm->contains(1106));
+        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1104));
+        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1105));
+        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1106));
+    }
 }
 
 } // namespace doris

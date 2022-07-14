@@ -203,7 +203,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _in_restore_mode(b._in_restore_mode),
           _preferred_rowset_type(b._preferred_rowset_type),
           _cooldown_resource(b._cooldown_resource),
-          _delete_bitmap(new DeleteBitmap(*b._delete_bitmap)) {};
+          _delete_bitmap(b._delete_bitmap) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
@@ -758,7 +758,10 @@ bool operator!=(const TabletMeta& a, const TabletMeta& b) {
     return !(a == b);
 }
 
-DeleteBitmap::DeleteBitmap() {}
+DeleteBitmap::DeleteBitmap() {
+    _agg_cache.reset(new AggCache(config::delete_bitmap_agg_cache_capacity,
+                                  config::delete_bitmap_agg_cache_expiration_ms));
+}
 
 DeleteBitmap::DeleteBitmap(const DeleteBitmap& o) {
     delete_bitmap = o.delete_bitmap; // just copy data
@@ -813,6 +816,10 @@ bool DeleteBitmap::contains(const BitmapKey& bmk, uint32_t row_id) const {
     return it != delete_bitmap.end() && it->second.contains(row_id);
 }
 
+bool DeleteBitmap::contains_agg(const BitmapKey& bmk, uint32_t row_id) const {
+    return get_agg(bmk)->contains(row_id);
+}
+
 int DeleteBitmap::set(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap) {
     std::lock_guard l(lock);
     auto [_, inserted] = delete_bitmap.insert_or_assign(bmk, segment_delete_bitmap);
@@ -855,5 +862,55 @@ void DeleteBitmap::merge(const DeleteBitmap& other) {
         if (!succ) j->second |= i.second;
     }
 }
+
+// FIXME: do we need a mutex here to get rid of duplicated initializations
+//        of cache entries in some cases?
+std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) const {
+    std::string key_str = AggCache::new_key(bmk);
+    CacheKey key(key_str);
+    Cache::Handle* handle = _agg_cache->lookup(key);
+
+    AggCache::Value* val = handle == nullptr
+        ? nullptr : reinterpret_cast<AggCache::Value*>(_agg_cache->value(handle));
+    static auto ts_ms = [] {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch()).count();
+    };
+    // Renew if needed
+    if (val == nullptr || (val->expiration > 0 && val->expiration < ts_ms())) {
+        if (val != nullptr) { // Expired
+            _agg_cache->release(handle); // We just looked-up this key
+            _agg_cache->erase(key);
+        }
+
+        // Put a new Value to cache
+        val = new AggCache::Value(
+                _agg_cache->expiration_ms < 0 ? -1 : ts_ms() + _agg_cache->expiration_ms);
+        {
+            std::shared_lock l(lock);
+            DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};
+            for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
+                auto& [k, bm] = *it;
+                if (std::get<0>(k) != std::get<0>(bmk)
+                        || std::get<1>(k) != std::get<1>(bmk)
+                        || std::get<2>(k) > std::get<2>(bmk)) {
+                    break;
+                }
+                val->bitmap |= bm;
+            }
+        }
+        static auto deleter = [](const CacheKey& key, void* value) {
+            delete (AggCache::Value*)value; // Just delete to reclaim
+        };
+        size_t charge = val->bitmap.getSizeInBytes() + sizeof(AggCache::Value);
+        handle = _agg_cache->insert(key, val, charge, deleter, CachePriority::NORMAL);
+    }
+
+    // It is natural for the cache to reclaim the underlying memory
+    return std::shared_ptr<roaring::Roaring>(&val->bitmap,
+                                             [this, handle](...) { _agg_cache->release(handle); });
+}
+
+decltype(DeleteBitmap::AggCache::s_unique_id) DeleteBitmap::AggCache::s_unique_id{0};
 
 } // namespace doris
