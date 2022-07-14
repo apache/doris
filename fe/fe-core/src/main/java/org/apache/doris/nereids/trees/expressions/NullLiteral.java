@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.NullType;
 
 /**
@@ -32,4 +33,10 @@ public class NullLiteral extends Literal {
     public Object getValue() {
         return null;
     }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitNullLiteral(this, context);
+    }
+
 }

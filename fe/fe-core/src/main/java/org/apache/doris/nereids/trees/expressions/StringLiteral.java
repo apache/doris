@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
 
 /**
@@ -40,4 +41,10 @@ public class StringLiteral extends Literal {
     public String getValue() {
         return value;
     }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitStringLiteral(this, context);
+    }
+
 }

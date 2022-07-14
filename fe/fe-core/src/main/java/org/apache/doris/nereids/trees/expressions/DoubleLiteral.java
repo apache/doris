@@ -18,31 +18,24 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DoubleType;
 
+public class DoubleLiteral extends Literal {
 
-/**
- * Represents Boolean literal
- */
-public class BooleanLiteral extends Literal {
+    private final double value;
 
-    public static final BooleanLiteral TRUE = new BooleanLiteral(true);
-    public static final BooleanLiteral FALSE = new BooleanLiteral(false);
-
-    private final boolean value;
-
-    public BooleanLiteral(boolean value) {
-        super(BooleanType.INSTANCE);
+    public DoubleLiteral(double value) {
+        super(DoubleType.INSTANCE);
         this.value = value;
     }
 
     @Override
-    public Boolean getValue() {
+    public Double getValue() {
         return value;
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitBooleanLiteral(this, context);
+        return visitor.visitDoubleLiteral(this, context);
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 
 /**
@@ -34,5 +35,10 @@ public class IntegerLiteral extends Literal {
     @Override
     public Integer getValue() {
         return value;
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitIntegerLiteral(this, context);
     }
 }
