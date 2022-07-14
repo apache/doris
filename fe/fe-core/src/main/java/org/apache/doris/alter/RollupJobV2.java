@@ -129,8 +129,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     @SerializedName(value = "watershedTxnId")
     protected long watershedTxnId = -1;
 
-    // save all create rollup tasks
-    private AgentBatchTask rollupBatchTask = new AgentBatchTask();
     // save failed task after retry three times, tabletId -> agentTask
     private Map<Long, List<AgentTask>> failedAgentTasks = Maps.newHashMap();
 
@@ -386,7 +384,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
                                 rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
                                 JobType.ROLLUP, defineExprs, descTable, null);
-                        rollupBatchTask.addTask(rollupTask);
+                        savedBatchTask.addTask(rollupTask);
                     }
                 }
             }
@@ -394,8 +392,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             tbl.readUnlock();
         }
 
-        AgentTaskQueue.addBatchTask(rollupBatchTask);
-        AgentTaskExecutor.submit(rollupBatchTask);
+        AgentTaskQueue.addBatchTask(savedBatchTask);
+        AgentTaskExecutor.submit(savedBatchTask);
         this.jobState = JobState.RUNNING;
 
         // DO NOT write edit log here, tasks will be send again if FE restart or master changed.
@@ -425,9 +423,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
-        if (!rollupBatchTask.isFinished()) {
+        if (!savedBatchTask.isFinished()) {
             LOG.info("rollup tasks not finished. job: {}", jobId);
-            List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(2000);
+            List<AgentTask> tasks = savedBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() >= 3) {
                     task.setFinished(true);
@@ -542,11 +540,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     private void cancelInternal() {
         // clear tasks if has
-        if (rollupBatchTask != null) {
-            AgentTaskQueue.removeBatchTask(rollupBatchTask, TTaskType.ALTER);
-        } else {
-            LOG.warn("rollupBatchTask is null");
-        }
+        AgentTaskQueue.removeBatchTask(savedBatchTask, TTaskType.ALTER);
         // remove all rollup indexes, and set state to NORMAL
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -714,8 +708,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         info.add(jobState.name());
         info.add(errMsg);
         // progress
-        if (jobState == JobState.RUNNING && rollupBatchTask.getTaskNum() > 0) {
-            info.add(rollupBatchTask.getFinishedTaskNum() + "/" + rollupBatchTask.getTaskNum());
+        if (jobState == JobState.RUNNING && savedBatchTask.getTaskNum() > 0) {
+            info.add(savedBatchTask.getFinishedTaskNum() + "/" + savedBatchTask.getTaskNum());
         } else {
             info.add(FeConstants.null_string);
         }
@@ -726,7 +720,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     public List<List<String>> getUnfinishedTasks(int limit) {
         List<List<String>> taskInfos = Lists.newArrayList();
         if (jobState == JobState.RUNNING) {
-            List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(limit);
+            List<AgentTask> tasks = savedBatchTask.getUnfinishedTasks(limit);
             for (AgentTask agentTask : tasks) {
                 AlterReplicaTask rollupTask = (AlterReplicaTask) agentTask;
                 List<String> info = Lists.newArrayList();

@@ -127,8 +127,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
-    // save all schema change tasks
-    private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
     // save failed task after retry three times, tabletId -> agentTask
     private Map<Long, List<AgentTask>> failedAgentTasks = Maps.newHashMap();
 
@@ -448,7 +446,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
                                     JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns);
-                            schemaChangeBatchTask.addTask(rollupTask);
+                            savedBatchTask.addTask(rollupTask);
                         }
                     }
                 }
@@ -457,8 +455,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.readUnlock();
         }
 
-        AgentTaskQueue.addBatchTask(schemaChangeBatchTask);
-        AgentTaskExecutor.submit(schemaChangeBatchTask);
+        AgentTaskQueue.addBatchTask(savedBatchTask);
+        AgentTaskExecutor.submit(savedBatchTask);
 
         this.jobState = JobState.RUNNING;
 
@@ -490,9 +488,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             throw new AlterCancelException(e.getMessage());
         }
 
-        if (!schemaChangeBatchTask.isFinished()) {
+        if (!savedBatchTask.isFinished()) {
             LOG.info("schema change tasks not finished. job: {}", jobId);
-            List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
+            List<AgentTask> tasks = savedBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() >= 3) {
                     task.setFinished(true);
@@ -679,11 +677,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     private void cancelInternal() {
         // clear tasks if has
-        if (schemaChangeBatchTask != null) {
-            AgentTaskQueue.removeBatchTask(schemaChangeBatchTask, TTaskType.ALTER);
-        } else {
-            LOG.warn("schemaChangeBatchTask is null");
-        }
+        AgentTaskQueue.removeBatchTask(savedBatchTask, TTaskType.ALTER);
         // remove all shadow indexes, and set state to NORMAL
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -846,8 +840,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected void getInfo(List<List<Comparable>> infos) {
         // calc progress first. all index share the same process
         String progress = FeConstants.null_string;
-        if (jobState == JobState.RUNNING && schemaChangeBatchTask.getTaskNum() > 0) {
-            progress = schemaChangeBatchTask.getFinishedTaskNum() + "/" + schemaChangeBatchTask.getTaskNum();
+        if (jobState == JobState.RUNNING && savedBatchTask.getTaskNum() > 0) {
+            progress = savedBatchTask.getFinishedTaskNum() + "/" + savedBatchTask.getTaskNum();
         }
 
         // one line for one shadow index
@@ -875,7 +869,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     public List<List<String>> getUnfinishedTasks(int limit) {
         List<List<String>> taskInfos = Lists.newArrayList();
         if (jobState == JobState.RUNNING) {
-            List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(limit);
+            List<AgentTask> tasks = savedBatchTask.getUnfinishedTasks(limit);
             for (AgentTask agentTask : tasks) {
                 AlterReplicaTask alterTask = (AlterReplicaTask) agentTask;
                 List<String> info = Lists.newArrayList();
