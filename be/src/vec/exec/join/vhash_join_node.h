@@ -243,6 +243,7 @@ private:
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
 
+    RowDescriptor _intermediate_row_desc;
     RowDescriptor _output_row_desc;
 
 private:
@@ -260,7 +261,7 @@ private:
 
     void _hash_table_init();
 
-    template <class HashTableContext>
+    static constexpr auto _MAX_BUILD_BLOCK_COUNT = 128;
 
     void _prepare_probe_block();
 
@@ -270,8 +271,7 @@ private:
 
     static std::vector<uint16_t> _convert_block_to_null(Block& block);
 
-    template <class HashTableContext, bool ignore_null, bool build_unique>
-
+    template <class HashTableContext>
     friend struct ProcessHashTableBuild;
 
     template <class HashTableContext, class JoinOpType, bool ignore_null>
