@@ -276,7 +276,7 @@ static Status convert_offset_from_list_column(const arrow::Array* array, size_t 
     auto arrow_offsets = down_cast<arrow::Int32Array*>(arrow_offsets_array.get());
     auto prev_size = offsets_data.back();
     for (int64_t i = array_idx + 1; i < array_idx + num_elements + 1; ++i) {
-        // convert to doris offset, start from offsets.bak()
+        // convert to doris offset, start from offsets.back()
         offsets_data.emplace_back(prev_size + arrow_offsets->Value(i) -
                                   arrow_offsets->Value(array_idx));
     }
