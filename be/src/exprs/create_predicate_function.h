@@ -38,17 +38,10 @@ public:
     using BasePtr = HybridSetBase*;
     template <PrimitiveType type>
     static BasePtr get_function() {
-        if constexpr (is_vec) {
-            using CppType = typename VecPrimitiveTypeTraits<type>::CppType;
-            using Set = std::conditional_t<std::is_same_v<CppType, StringValue>, StringValueSet,
-                                           HybridSet<CppType>>;
-            return new (std::nothrow) Set();
-        } else {
-            using CppType = typename PrimitiveTypeTraits<type>::CppType;
-            using Set = std::conditional_t<std::is_same_v<CppType, StringValue>, StringValueSet,
-                                           HybridSet<CppType>>;
-            return new (std::nothrow) Set();
-        }
+        using CppType = typename PrimitiveTypeTraits<type>::CppType;
+        using Set = std::conditional_t<std::is_same_v<CppType, StringValue>, StringValueSet,
+                                       HybridSet<type, is_vec>>;
+        return new (std::nothrow) Set();
     };
 };
 
@@ -109,6 +102,12 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
         return Creator::template create<TYPE_VARCHAR>();
     case TYPE_STRING:
         return Creator::template create<TYPE_STRING>();
+    case TYPE_DECIMAL32:
+        return Creator::template create<TYPE_DECIMAL32>();
+    case TYPE_DECIMAL64:
+        return Creator::template create<TYPE_DECIMAL64>();
+    case TYPE_DECIMAL128:
+        return Creator::template create<TYPE_DECIMAL128>();
 
     default:
         DCHECK(false) << "Invalid type.";

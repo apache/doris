@@ -427,7 +427,8 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, TypeInfoPtr type_info, size_t schema_length)
+                               bool is_nullable, TypeInfoPtr type_info, size_t schema_length,
+                               int precision, int scale)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
@@ -435,6 +436,8 @@ public:
               _schema_length(schema_length),
               _is_default_value_null(false),
               _type_size(0),
+              _precision(precision),
+              _scale(scale),
               _pool(new MemPool("DefaultValueColumnIterator")) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
@@ -476,6 +479,8 @@ private:
     size_t _schema_length;
     bool _is_default_value_null;
     size_t _type_size;
+    int _precision;
+    int _scale;
     void* _mem_value = nullptr;
     std::unique_ptr<MemPool> _pool;
 

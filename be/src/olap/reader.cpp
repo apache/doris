@@ -36,6 +36,7 @@
 #include "runtime/mem_pool.h"
 #include "util/date_func.h"
 #include "util/mem_util.hpp"
+#include "vec/data_types/data_type_decimal.h"
 
 using std::nothrow;
 using std::set;
@@ -479,6 +480,31 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             predicate = new PREDICATE<int16_t>(index, value, opposite);                            \
             break;                                                                                 \
         }                                                                                          \
+        case OLAP_FIELD_TYPE_DECIMAL32: {                                                          \
+            int32_t value = 0;                                                                     \
+            StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;           \
+            value = (int32_t)StringParser::string_to_decimal<int128_t>(                            \
+                    cond.data(), cond.size(), column.precision(), column.frac(), &result);         \
+                                                                                                   \
+            predicate = new PREDICATE<int32_t>(index, value, opposite);                            \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_DECIMAL64: {                                                          \
+            int64_t value = 0;                                                                     \
+            StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;           \
+            value = (int64_t)StringParser::string_to_decimal<int128_t>(                            \
+                    cond.data(), cond.size(), column.precision(), column.frac(), &result);         \
+            predicate = new PREDICATE<int64_t>(index, value, opposite);                            \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_DECIMAL128: {                                                         \
+            int128_t value = 0;                                                                    \
+            StringParser::ParseResult result;                                                      \
+            value = StringParser::string_to_decimal<int128_t>(                                     \
+                    cond.data(), cond.size(), column.precision(), column.frac(), &result);         \
+            predicate = new PREDICATE<int128_t>(index, value, opposite);                           \
+            break;                                                                                 \
+        }                                                                                          \
         case OLAP_FIELD_TYPE_INT: {                                                                \
             int32_t value = 0;                                                                     \
             std::from_chars(cond.data(), cond.data() + cond.size(), value);                        \
@@ -636,6 +662,61 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 predicate = new InListPredicate<int16_t>(index, std::move(values), opposite);
             } else {
                 predicate = new NotInListPredicate<int16_t>(index, std::move(values), opposite);
+            }
+            break;
+        }
+        case OLAP_FIELD_TYPE_DECIMAL32: {
+            phmap::flat_hash_set<int32_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;
+                int128_t val = StringParser::string_to_decimal<int128_t>(
+                        cond_val.data(), cond_val.size(), column.precision(), column.frac(),
+                        &result);
+                if (result == StringParser::ParseResult::PARSE_SUCCESS) {
+                    values.insert((int32_t)val);
+                }
+            }
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<int32_t>(index, std::move(values), opposite);
+            } else {
+                predicate = new NotInListPredicate<int32_t>(index, std::move(values), opposite);
+            }
+            break;
+        }
+        case OLAP_FIELD_TYPE_DECIMAL64: {
+            phmap::flat_hash_set<int64_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                StringParser::ParseResult result;
+                int128_t val = StringParser::string_to_decimal<int128_t>(
+                        cond_val.data(), cond_val.size(), column.precision(), column.frac(),
+                        &result);
+                if (result == StringParser::ParseResult::PARSE_SUCCESS) {
+                    values.insert((int64_t)val);
+                }
+            }
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<int64_t>(index, std::move(values), opposite);
+            } else {
+                predicate = new NotInListPredicate<int64_t>(index, std::move(values), opposite);
+            }
+            break;
+        }
+        case OLAP_FIELD_TYPE_DECIMAL128: {
+            phmap::flat_hash_set<int128_t> values;
+            int128_t val;
+            for (auto& cond_val : condition.condition_values) {
+                StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;
+                val = StringParser::string_to_decimal<int128_t>(cond_val.data(), cond_val.size(),
+                                                                column.precision(), column.frac(),
+                                                                &result);
+                if (result == StringParser::ParseResult::PARSE_SUCCESS) {
+                    values.insert(val);
+                }
+            }
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<int128_t>(index, std::move(values), opposite);
+            } else {
+                predicate = new NotInListPredicate<int128_t>(index, std::move(values), opposite);
             }
             break;
         }

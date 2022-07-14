@@ -37,7 +37,8 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL) {
             DCHECK(scalar_type.__isset.len);
             len = scalar_type.len;
-        } else if (type == TYPE_DECIMALV2) {
+        } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
+                   type == TYPE_DECIMAL128) {
             DCHECK(scalar_type.__isset.precision);
             DCHECK(scalar_type.__isset.scale);
             precision = scalar_type.precision;
@@ -113,7 +114,8 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
         if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL) {
             // DCHECK_NE(len, -1);
             scalar_type.__set_len(len);
-        } else if (type == TYPE_DECIMALV2) {
+        } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
+                   type == TYPE_DECIMAL128) {
             DCHECK_NE(precision, -1);
             DCHECK_NE(scale, -1);
             scalar_type.__set_precision(precision);
@@ -131,7 +133,8 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
     scalar_type->set_type(doris::to_thrift(type));
     if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL) {
         scalar_type->set_len(len);
-    } else if (type == TYPE_DECIMALV2) {
+    } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
+               type == TYPE_DECIMAL128) {
         DCHECK_NE(precision, -1);
         DCHECK_NE(scale, -1);
         scalar_type->set_precision(precision);
@@ -158,7 +161,8 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
         if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL) {
             DCHECK(scalar_type.has_len());
             len = scalar_type.len();
-        } else if (type == TYPE_DECIMALV2) {
+        } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
+                   type == TYPE_DECIMAL128) {
             DCHECK(scalar_type.has_precision());
             DCHECK(scalar_type.has_scale());
             precision = scalar_type.precision();
@@ -189,6 +193,15 @@ std::string TypeDescriptor::debug_string() const {
     case TYPE_DECIMALV2:
         ss << "DECIMALV2(" << precision << ", " << scale << ")";
         return ss.str();
+    case TYPE_DECIMAL32:
+        ss << "DECIMAL32(" << precision << ", " << scale << ")";
+        return ss.str();
+    case TYPE_DECIMAL64:
+        ss << "DECIMAL64(" << precision << ", " << scale << ")";
+        return ss.str();
+    case TYPE_DECIMAL128:
+        ss << "DECIMAL128(" << precision << ", " << scale << ")";
+        return ss.str();
     case TYPE_ARRAY:
         ss << "ARRAY(" << type_to_string(children[0].type) << ")";
         return ss.str();
@@ -202,15 +215,15 @@ std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type) {
     return os;
 }
 
-TTypeDesc create_type_desc(PrimitiveType type) {
+TTypeDesc create_type_desc(PrimitiveType type, int precision, int scale) {
     TTypeDesc type_desc;
     std::vector<TTypeNode> node_type;
     node_type.emplace_back();
     TScalarType scalarType;
     scalarType.__set_type(to_thrift(type));
     scalarType.__set_len(-1);
-    scalarType.__set_precision(-1);
-    scalarType.__set_scale(-1);
+    scalarType.__set_precision(precision);
+    scalarType.__set_scale(scale);
     node_type.back().__set_scalar_type(scalarType);
     type_desc.__set_types(node_type);
     return type_desc;
