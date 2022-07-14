@@ -167,12 +167,11 @@ public abstract class Type {
         arraySubTypes.add(LARGEINT);
         arraySubTypes.add(FLOAT);
         arraySubTypes.add(DOUBLE);
-        arraySubTypes.add(VARCHAR);
-        arraySubTypes.add(CHAR);
+        arraySubTypes.add(DECIMALV2);
         arraySubTypes.add(DATE);
         arraySubTypes.add(DATETIME);
-        arraySubTypes.add(DECIMALV2);
-        arraySubTypes.add(TIME);
+        arraySubTypes.add(CHAR);
+        arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
     }
 
