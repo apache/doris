@@ -273,7 +273,7 @@ public class ArithmeticExpr extends Expr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.ARITHMETIC_EXPR;
-        if (!(type.isDecimalV2() && type.isDecimalV3())) {
+        if (!(type.isDecimalV2() || type.isDecimalV3())) {
             msg.setOpcode(op.getOpcode());
             msg.setOutputColumn(outputColumn);
         }

@@ -460,7 +460,13 @@ public class Function implements Writable {
         if (location != null) {
             fn.setHdfsLocation(location.getLocation());
         }
-        fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes), Lists.newArrayList(realArgTypes)));
+        // `realArgTypes.length != argTypes.length` is true iff this is an aggregation function.
+        // For aggregation functions, `argTypes` here is already its real type with true precision and scale.
+        if (realArgTypes.length != argTypes.length) {
+            fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes)));
+        } else {
+            fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes), Lists.newArrayList(realArgTypes)));
+        }
         // For types with different precisions and scales, return type only indicates a type with default
         // precision and scale so we need to transform it to the correct type.
         if (PrimitiveType.typeWithPrecision.contains(realReturnType.getPrimitiveType())) {

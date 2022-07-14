@@ -1075,17 +1075,19 @@ public class FunctionCallExpr extends Expr {
             this.type = fn.getReturnType();
         }
 
-        // DECIMAL need to pass precision and scale to be
-        if (DECIMAL_FUNCTION_SET.contains(fn.getFunctionName().getFunction())
-                && (this.type.isDecimalV2() || this.type.isDecimalV3())) {
-            if (DECIMAL_SAME_TYPE_SET.contains(fnName.getFunction())) {
-                this.type = argTypes[0];
-            } else if (DECIMAL_WIDER_TYPE_SET.contains(fnName.getFunction())) {
-                this.type = ScalarType.createDecimalType(ScalarType.MAX_DECIMAL128_PRECISION,
-                    ((ScalarType) argTypes[0]).getScalarScale());
-            } else if (STDDEV_FUNCTION_SET.contains(fnName.getFunction())) {
-                // for all stddev function, use decimal(38,9) as computing result
-                this.type = ScalarType.createDecimalType(ScalarType.MAX_DECIMAL128_PRECISION, STDDEV_DECIMAL_SCALE);
+        if (this.type.isDecimalV3()) {
+            // DECIMAL need to pass precision and scale to be
+            if (DECIMAL_FUNCTION_SET.contains(fn.getFunctionName().getFunction())
+                    && (this.type.isDecimalV2() || this.type.isDecimalV3())) {
+                if (DECIMAL_SAME_TYPE_SET.contains(fnName.getFunction())) {
+                    this.type = argTypes[0];
+                } else if (DECIMAL_WIDER_TYPE_SET.contains(fnName.getFunction())) {
+                    this.type = ScalarType.createDecimalType(ScalarType.MAX_DECIMAL128_PRECISION,
+                            ((ScalarType) argTypes[0]).getScalarScale());
+                } else if (STDDEV_FUNCTION_SET.contains(fnName.getFunction())) {
+                    // for all stddev function, use decimal(38,9) as computing result
+                    this.type = ScalarType.createDecimalType(ScalarType.MAX_DECIMAL128_PRECISION, STDDEV_DECIMAL_SCALE);
+                }
             }
         }
         // rewrite return type if is nested type function
