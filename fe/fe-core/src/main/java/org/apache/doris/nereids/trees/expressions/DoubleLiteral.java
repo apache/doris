@@ -20,6 +20,9 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
 
+/**
+ * Double literal
+ */
 public class DoubleLiteral extends Literal {
 
     private final double value;
