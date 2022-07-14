@@ -34,6 +34,7 @@ suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
+sf1DataPath = "/data"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
