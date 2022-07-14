@@ -29,6 +29,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -43,7 +44,7 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
 
     public PhysicalHeapSort(List<OrderKey> orderKeys, long limit, int offset,
-                            LogicalProperties logicalProperties, CHILD_TYPE child) {
+            LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(orderKeys, limit, offset, Optional.empty(), logicalProperties, child);
     }
 
@@ -51,8 +52,8 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
      * Constructor of PhysicalHashJoinNode.
      */
     public PhysicalHeapSort(List<OrderKey> orderKeys, long limit, int offset,
-                            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-                            CHILD_TYPE child) {
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            CHILD_TYPE child) {
         super(PlanType.PHYSICAL_SORT, groupExpression, logicalProperties, child);
         this.offset = offset;
         this.limit = limit;
@@ -72,6 +73,23 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalHeapSort that = (PhysicalHeapSort) o;
+        return offset == that.offset && limit == that.limit && Objects.equals(orderKeys, that.orderKeys);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(orderKeys, offset, limit);
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitPhysicalHeapSort((PhysicalHeapSort<Plan>) this, context);
     }
@@ -79,8 +97,8 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     @Override
     public List<Expression> getExpressions() {
         return orderKeys.stream()
-            .map(OrderKey::getExpr)
-            .collect(ImmutableList.toImmutableList());
+                .map(OrderKey::getExpr)
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override
