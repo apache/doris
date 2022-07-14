@@ -680,6 +680,9 @@ public class HiveMetaStoreClientHelper {
                 return TypeInfoFactory.floatTypeInfo;
             case DOUBLE:
                 return TypeInfoFactory.doubleTypeInfo;
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
             case DECIMALV2:
                 return TypeInfoFactory.decimalTypeInfo;
             case DATE:
@@ -799,7 +802,7 @@ public class HiveMetaStoreClientHelper {
             if (match.find()) {
                 scale = Integer.parseInt(match.group(1));
             }
-            return ScalarType.createDecimalV2Type(precision, scale);
+            return ScalarType.createDecimalType(precision, scale);
         }
         // TODO: Handle unsupported types.
         LOG.warn("Hive type {} may not supported yet, will use STRING instead.", hiveType);
