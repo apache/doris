@@ -103,10 +103,14 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
         for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
             auto row_group_meta = _file_metadata->RowGroup(row_group_id);
             int64_t cur_group_offset = row_group_meta->file_offset();
+            // when a whole file is in a split, range_end_offset is the EOF offset
             int64_t range_end_offset = _range_start_offset + _range_size;
             if (row_group_id == total_group - 1) {
                 if (cur_group_offset < range_end_offset) {
                     tail_row_group = row_group_id;
+                }
+                if (cur_group_offset < _range_start_offset) {
+                    head_row_group = row_group_id;
                 }
                 break;
             }
