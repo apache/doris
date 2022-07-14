@@ -442,6 +442,14 @@ Status DataDir::load() {
                   << ", error tablet: " << failed_tablet_ids.size() << ", path: " << _path;
     }
 
+    for (int64_t tablet_id : tablet_ids) {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet && tablet->set_tablet_schema_into_rowset_meta()) {
+            TabletMetaManager::save(this, tablet->tablet_id(), tablet->schema_hash(),
+                                    tablet->tablet_meta());
+        }
+    }
+
     // traverse rowset
     // 1. add committed rowset to txn map
     // 2. add visible rowset to tablet
@@ -469,6 +477,11 @@ Status DataDir::load() {
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED &&
             rowset_meta->tablet_uid() == tablet->tablet_uid()) {
+            if (!rowset_meta->get_rowset_pb().has_tablet_schema()) {
+                rowset_meta->set_tablet_schema(&tablet->tablet_schema());
+                RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(),
+                                        rowset_meta->get_rowset_pb());
+            }
             Status commit_txn_status = _txn_manager->commit_txn(
                     _meta, rowset_meta->partition_id(), rowset_meta->txn_id(),
                     rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
@@ -485,13 +498,13 @@ Status DataDir::load() {
                           << " schema hash: " << rowset_meta->tablet_schema_hash()
                           << " for txn: " << rowset_meta->txn_id();
             }
+        } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
+                   rowset_meta->tablet_uid() == tablet->tablet_uid()) {
             if (!rowset_meta->get_rowset_pb().has_tablet_schema()) {
                 rowset_meta->set_tablet_schema(&tablet->tablet_schema());
                 RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(),
                                         rowset_meta->get_rowset_pb());
             }
-        } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
-                   rowset_meta->tablet_uid() == tablet->tablet_uid()) {
             Status publish_status = tablet->add_rowset(rowset);
             if (!publish_status &&
                 publish_status.precise_code() != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
@@ -509,14 +522,6 @@ Status DataDir::load() {
                          << " txn: " << rowset_meta->txn_id()
                          << " current valid tablet uid: " << tablet->tablet_uid();
             ++invalid_rowset_counter;
-        }
-    }
-
-    for (int64_t tablet_id : tablet_ids) {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-        if (tablet && tablet->set_tablet_schema_into_rowset_meta()) {
-            TabletMetaManager::save(this, tablet->tablet_id(), tablet->schema_hash(),
-                                    tablet->tablet_meta());
         }
     }
 
