@@ -1816,11 +1816,12 @@ const TabletSchema& Tablet::tablet_schema() const {
     const RowsetMetaSharedPtr rowset_meta =
             rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas());
     return *rowset_meta->tablet_schema();
+}
 
-    Status Tablet::lookup_row_key(const Slice& encoded_key, RowLocation* row_location) {
-        // TODO(zhannngchen): to be implemented in next patch, align with rowset-tree usage and
-        // update.
-        return Status::NotFound("can't find key in all rowsets");
-    }
+Status Tablet::lookup_row_key(const Slice& encoded_key, RowLocation* row_location) {
+    // TODO(zhannngchen): to be implemented in next patch, align with rowset-tree usage and
+    // update.
+    return Status::NotFound("can't find key in all rowsets");
+}
 
 } // namespace doris
