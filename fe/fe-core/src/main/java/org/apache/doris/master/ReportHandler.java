@@ -603,7 +603,9 @@ public class ReportHandler extends Daemon {
                                             olapTable.getCopiedIndexes(),
                                             olapTable.isInMemory(),
                                             olapTable.getPartitionInfo().getTabletType(partitionId),
-                                            olapTable.getCompressionType());
+                                            null,
+                                            olapTable.getCompressionType(),
+                                            olapTable.getEnableUniqueKeyMergeOnWrite());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
