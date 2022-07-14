@@ -66,6 +66,7 @@ public class ProfileManager {
     public static final String DEFAULT_DB = "Default Db";
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String IS_CACHED = "Is Cached";
+    public static final String TRACE_ID = "Trace ID";
 
     public enum ProfileType {
         QUERY,
@@ -283,6 +284,20 @@ public class ProfileManager {
                         + (element == null ? "not found" : element.errMsg));
             }
             return element.builder;
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public String getQueryIdByTraceId(String traceId) {
+        readLock.lock();
+        try {
+            for (Map.Entry<String, ProfileElement> entry : queryIdToProfileMap.entrySet()) {
+                if (entry.getValue().infoStrings.getOrDefault(TRACE_ID, "").equals(traceId)) {
+                    return entry.getKey();
+                }
+            }
+            return "";
         } finally {
             readLock.unlock();
         }
