@@ -600,6 +600,11 @@ public class HashJoinNode extends PlanNode {
         vSrcToOutputSMap.substituteLhs(originToIntermediateSmap, analyzer);
         // 4. replace other conjuncts and conjuncts
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
+        if (votherJoinConjunct != null) {
+            votherJoinConjunct =
+                    Expr.substituteList(Arrays.asList(votherJoinConjunct), originToIntermediateSmap, analyzer, false)
+                            .get(0);
+        }
         conjuncts = Expr.substituteList(conjuncts, originToIntermediateSmap, analyzer, false);
         if (vconjunct != null) {
             vconjunct = Expr.substituteList(Arrays.asList(vconjunct), originToIntermediateSmap, analyzer, false).get(0);
