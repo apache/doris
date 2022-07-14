@@ -107,13 +107,13 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
         return inputFormat.getSplits(jobConf, 0);
     }
 
-    private Configuration setConfiguration() {
+    protected Configuration setConfiguration() {
         Configuration conf = new Configuration();
         Map<String, String> dfsProperties = hmsTable.getDfsProperties();
         for (Map.Entry<String, String> entry : dfsProperties.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }
-        Map<String, String> s3Properties = hmsTable.getDfsProperties();
+        Map<String, String> s3Properties = hmsTable.getS3Properties();
         for (Map.Entry<String, String> entry : s3Properties.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }

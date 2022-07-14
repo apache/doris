@@ -88,8 +88,6 @@ public class DescribeStmt extends ShowStmt {
     private boolean isAllTables;
     private boolean isOlapTable;
 
-    private List<List<String>> hmsSchema = null;
-
     public DescribeStmt(TableName dbTableName, boolean isAllTables) {
         this.dbTableName = dbTableName;
         this.totalRows = new LinkedList<List<String>>();
@@ -236,9 +234,6 @@ public class DescribeStmt extends ShowStmt {
         if (isAllTables) {
             return totalRows;
         } else {
-            if (hmsSchema != null) {
-                return hmsSchema;
-            }
             Preconditions.checkNotNull(node);
             return node.fetchResult().getRows();
         }

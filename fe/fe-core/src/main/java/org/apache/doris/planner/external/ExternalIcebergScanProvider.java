@@ -101,7 +101,7 @@ public class ExternalIcebergScanProvider extends ExternalHiveScanProvider {
 
     private org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {
         org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-        Configuration conf = new Configuration();
+        Configuration conf = setConfiguration();
         hiveCatalog.setConf(conf);
         // initialize hive catalog
         Map<String, String> catalogProperties = new HashMap<>();
