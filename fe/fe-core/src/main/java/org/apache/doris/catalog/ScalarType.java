@@ -751,7 +751,7 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR) {
             return len == other.len;
         }
-        if (type.isDecimalV2Type() || type.isDecimalV3Type()
+        if ((type.isDecimalV2Type() && other.isDecimalV2()) || (type.isDecimalV3Type() && other.isDecimalV3())
                 || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
             return precision == other.precision && scale == other.scale;
         }
