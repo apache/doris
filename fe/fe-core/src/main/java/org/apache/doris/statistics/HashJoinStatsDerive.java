@@ -41,7 +41,7 @@ public class HashJoinStatsDerive extends BaseStatsDerive {
     private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
 
     @Override
-    public void init(PlanStats node) throws UserException {
+    public void init(PlanStats node) {
         Preconditions.checkState(node instanceof HashJoinNode);
         super.init(node);
         joinOp = ((HashJoinNode) node).getJoinOp();

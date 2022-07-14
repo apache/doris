@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.statistics.ExprStats;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,10 +32,12 @@ import java.util.Objects;
 /**
  * Abstract class for all Expression in Nereids.
  */
-public abstract class Expression extends AbstractTreeNode<Expression> {
+public abstract class Expression extends AbstractTreeNode<Expression> implements ExprStats {
 
     protected final ExpressionType type;
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
+
+    protected double selectivity;
 
     public Expression(ExpressionType type, Expression... children) {
         super(children);
@@ -97,6 +100,26 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
 
     @Override
     public int hashCode() {
+        return 0;
+    }
+
+    @Override
+    public boolean hasSelectivity() {
+        return false;
+    }
+
+    @Override
+    public double getSelectivity() {
+        return selectivity;
+    }
+
+    @Override
+    public void setSelectivity() {
+        selectivity = -1;
+    }
+
+    @Override
+    public long getNumDistinctValues() {
         return 0;
     }
 }

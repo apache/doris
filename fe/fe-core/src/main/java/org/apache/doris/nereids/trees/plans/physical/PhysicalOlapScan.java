@@ -95,4 +95,5 @@ public class PhysicalOlapScan extends PhysicalRelation {
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalOlapScan(olapTable, qualifier, Optional.empty(), logicalProperties.get());
     }
+
 }

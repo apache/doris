@@ -44,7 +44,7 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
     private Map<Id, Pair<Long, String>> slotIdToTableIdAndColumnName;
 
     @Override
-    public void init(PlanStats node) throws UserException {
+    public void init(PlanStats node) {
         Preconditions.checkState(node instanceof OlapScanNode);
         super.init(node);
         buildStructure((OlapScanNode) node);
