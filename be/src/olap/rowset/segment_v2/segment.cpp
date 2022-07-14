@@ -212,8 +212,9 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIte
     return _column_readers.at(tablet_column.unique_id())->new_iterator(iter);
 }
 
-Status Segment::new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter) {
-    auto col_unique_id = _tablet_schema.column(cid).unique_id();
+Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
+                                          BitmapIndexIterator** iter) {
+    auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.contains(col_unique_id) &&
         _column_readers.at(col_unique_id)->has_bitmap_index()) {
         return _column_readers.at(col_unique_id)->new_bitmap_index_iterator(iter);

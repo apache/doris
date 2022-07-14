@@ -72,9 +72,9 @@ public:
 
     uint32_t num_rows() const { return _footer.num_rows(); }
 
-    Status new_column_iterator(TabletColumn& tablet_column, ColumnIterator** iter);
+    Status new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter);
 
-    Status new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter);
+    Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
 
     size_t num_short_keys() const { return _tablet_schema.num_short_key_columns(); }
 
