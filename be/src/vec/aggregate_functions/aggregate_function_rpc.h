@@ -147,13 +147,13 @@ public:
         return Status::OK();
     }
 
-    #ifndef RPC_ADD
-    #define RPC_ADD
-    #define ADD_VALUE(TYPEVALUE) \
-            if (_buffer_request[j].args(i).TYPEVALUE##_##size() > 0) {  \
-                arg->add_##TYPEVALUE(_buffer_request[j].args(i).TYPEVALUE(0)); \
-            } 
-    #endif
+#ifndef RPC_ADD
+#define RPC_ADD
+#define ADD_VALUE(TYPEVALUE)                                           \
+    if (_buffer_request[j].args(i).TYPEVALUE##_##size() > 0) {         \
+        arg->add_##TYPEVALUE(_buffer_request[j].args(i).TYPEVALUE(0)); \
+    }
+#endif
 
     PFunctionCallRequest merge_buffer_request(PFunctionCallRequest& request) {
         int args_size = _buffer_request[0].args_size();
