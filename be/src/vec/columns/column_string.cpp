@@ -163,8 +163,8 @@ ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
 
 StringRef ColumnString::serialize_value_into_arena(size_t n, Arena& arena,
                                                    char const*& begin) const {
-    IColumn::Offset string_size = size_at(n);
-    size_t offset = offset_at(n);
+    uint32_t string_size(size_at(n));
+    uint32_t offset(offset_at(n));
 
     StringRef res;
     res.size = sizeof(string_size) + string_size;
@@ -177,7 +177,7 @@ StringRef ColumnString::serialize_value_into_arena(size_t n, Arena& arena,
 }
 
 const char* ColumnString::deserialize_and_insert_from_arena(const char* pos) {
-    const IColumn::Offset string_size = unaligned_load<IColumn::Offset>(pos);
+    const uint32_t string_size = unaligned_load<uint32_t>(pos);
     pos += sizeof(string_size);
 
     const size_t old_size = chars.size();
@@ -196,14 +196,14 @@ size_t ColumnString::get_max_row_byte_size() const {
         max_size = std::max(max_size, size_at(i));
     }
 
-    return max_size + sizeof(size_t);
+    return max_size + sizeof(uint32_t);
 }
 
 void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                  size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        size_t offset = offset_at(i);
-        size_t string_size = size_at(i);
+        uint32_t offset(offset_at(i));
+        uint32_t string_size(size_at(i));
 
         auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
         memcpy(ptr, &string_size, sizeof(string_size));
@@ -217,8 +217,8 @@ void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
                                                size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
-            size_t offset = offset_at(i);
-            size_t string_size = size_at(i);
+            uint32_t offset(offset_at(i));
+            uint32_t string_size(size_at(i));
 
             auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
             memcpy(ptr, &string_size, sizeof(string_size));
