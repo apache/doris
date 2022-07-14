@@ -25,9 +25,6 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.operators.plans.AggPhase;
-import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.operators.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -37,9 +34,11 @@ import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.Plans;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -52,7 +51,7 @@ import org.junit.jupiter.api.TestInstance;
 import java.util.List;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class AggregateDisassembleTest implements Plans {
+public class AggregateDisassembleTest {
     private Plan rStudent;
 
     @BeforeAll
@@ -61,7 +60,7 @@ public class AggregateDisassembleTest implements Plans {
                 ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, true, "0", ""),
                         new Column("name", Type.STRING, true, AggregateType.NONE, true, "", ""),
                         new Column("age", Type.INT, true, AggregateType.NONE, true, "", "")));
-        rStudent = plan(new LogicalOlapScan(student, ImmutableList.of("student")));
+        rStudent = new LogicalOlapScan(student, ImmutableList.of("student"));
     }
 
     /**
@@ -80,7 +79,7 @@ public class AggregateDisassembleTest implements Plans {
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
                 rStudent.getOutput().get(2).toSlot(),
                 new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
-        Plan root = plan(new LogicalAggregate(groupExpressionList, outputExpressionList), rStudent);
+        Plan root = new LogicalAggregate(groupExpressionList, outputExpressionList, rStudent);
 
         Memo memo = new Memo();
         memo.initialize(root);
@@ -94,11 +93,11 @@ public class AggregateDisassembleTest implements Plans {
 
         Plan after = memo.copyOut();
 
-        Assertions.assertTrue(after instanceof LogicalUnaryPlan);
-        Assertions.assertTrue(after.getOperator() instanceof LogicalAggregate);
-        Assertions.assertTrue(after.child(0) instanceof LogicalUnaryPlan);
-        LogicalAggregate global = (LogicalAggregate) after.getOperator();
-        LogicalAggregate local = (LogicalAggregate) after.child(0).getOperator();
+        Assertions.assertTrue(after instanceof LogicalUnary);
+        Assertions.assertTrue(after instanceof LogicalAggregate);
+        Assertions.assertTrue(after.child(0) instanceof LogicalUnary);
+        LogicalAggregate<Plan> global = (LogicalAggregate) after;
+        LogicalAggregate<Plan> local = (LogicalAggregate) after.child(0);
         Assertions.assertEquals(AggPhase.GLOBAL, global.getAggPhase());
         Assertions.assertEquals(AggPhase.LOCAL, local.getAggPhase());
 
@@ -149,7 +148,7 @@ public class AggregateDisassembleTest implements Plans {
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
                 new Alias(new Add(rStudent.getOutput().get(2).toSlot(), new Literal(1)), "key"),
                 new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
-        Plan root = plan(new LogicalAggregate(groupExpressionList, outputExpressionList), rStudent);
+        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
 
         Memo memo = new Memo();
         memo.initialize(root);
@@ -163,11 +162,11 @@ public class AggregateDisassembleTest implements Plans {
 
         Plan after = memo.copyOut();
 
-        Assertions.assertTrue(after instanceof LogicalUnaryPlan);
-        Assertions.assertTrue(after.getOperator() instanceof LogicalAggregate);
-        Assertions.assertTrue(after.child(0) instanceof LogicalUnaryPlan);
-        LogicalAggregate global = (LogicalAggregate) after.getOperator();
-        LogicalAggregate local = (LogicalAggregate) after.child(0).getOperator();
+        Assertions.assertTrue(after instanceof LogicalUnary);
+        Assertions.assertTrue(after instanceof LogicalAggregate);
+        Assertions.assertTrue(after.child(0) instanceof LogicalUnary);
+        LogicalAggregate<Plan> global = (LogicalAggregate) after;
+        LogicalAggregate<Plan> local = (LogicalAggregate) after.child(0);
         Assertions.assertEquals(AggPhase.GLOBAL, global.getAggPhase());
         Assertions.assertEquals(AggPhase.LOCAL, local.getAggPhase());
 
@@ -216,7 +215,7 @@ public class AggregateDisassembleTest implements Plans {
         List<Expression> groupExpressionList = Lists.newArrayList();
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
                 new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
-        Plan root = plan(new LogicalAggregate(groupExpressionList, outputExpressionList), rStudent);
+        Plan root = new LogicalAggregate(groupExpressionList, outputExpressionList, rStudent);
 
         Memo memo = new Memo();
         memo.initialize(root);
@@ -230,11 +229,11 @@ public class AggregateDisassembleTest implements Plans {
 
         Plan after = memo.copyOut();
 
-        Assertions.assertTrue(after instanceof LogicalUnaryPlan);
-        Assertions.assertTrue(after.getOperator() instanceof LogicalAggregate);
-        Assertions.assertTrue(after.child(0) instanceof LogicalUnaryPlan);
-        LogicalAggregate global = (LogicalAggregate) after.getOperator();
-        LogicalAggregate local = (LogicalAggregate) after.child(0).getOperator();
+        Assertions.assertTrue(after instanceof LogicalUnary);
+        Assertions.assertTrue(after instanceof LogicalAggregate);
+        Assertions.assertTrue(after.child(0) instanceof LogicalUnary);
+        LogicalAggregate<Plan> global = (LogicalAggregate) after;
+        LogicalAggregate<Plan> local = (LogicalAggregate) after.child(0);
         Assertions.assertEquals(AggPhase.GLOBAL, global.getAggPhase());
         Assertions.assertEquals(AggPhase.LOCAL, local.getAggPhase());
 
@@ -272,7 +271,7 @@ public class AggregateDisassembleTest implements Plans {
                 rStudent.getOutput().get(2).toSlot());
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
                 new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
-        Plan root = plan(new LogicalAggregate(groupExpressionList, outputExpressionList), rStudent);
+        Plan root = new LogicalAggregate(groupExpressionList, outputExpressionList, rStudent);
 
         Memo memo = new Memo();
         memo.initialize(root);
@@ -286,11 +285,11 @@ public class AggregateDisassembleTest implements Plans {
 
         Plan after = memo.copyOut();
 
-        Assertions.assertTrue(after instanceof LogicalUnaryPlan);
-        Assertions.assertTrue(after.getOperator() instanceof LogicalAggregate);
-        Assertions.assertTrue(after.child(0) instanceof LogicalUnaryPlan);
-        LogicalAggregate global = (LogicalAggregate) after.getOperator();
-        LogicalAggregate local = (LogicalAggregate) after.child(0).getOperator();
+        Assertions.assertTrue(after instanceof LogicalUnary);
+        Assertions.assertTrue(after instanceof LogicalAggregate);
+        Assertions.assertTrue(after.child(0) instanceof LogicalUnary);
+        LogicalAggregate<Plan> global = (LogicalAggregate) after;
+        LogicalAggregate<Plan> local = (LogicalAggregate) after.child(0);
         Assertions.assertEquals(AggPhase.GLOBAL, global.getAggPhase());
         Assertions.assertEquals(AggPhase.LOCAL, local.getAggPhase());
 

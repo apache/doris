@@ -23,14 +23,14 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.operators.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.operators.plans.logical.LogicalRelation;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalScan;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.Plans;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 
@@ -39,17 +39,16 @@ import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
 import java.util.List;
+import java.util.Optional;
 
-public class TestPlanOutput implements Plans {
+public class TestPlanOutput {
     @Test
     public void testComputeOutput() {
         Table table = new Table(0L, "a", Table.TableType.OLAP, ImmutableList.<Column>of(
             new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
             new Column("name", Type.STRING, true, AggregateType.NONE, "", "")
         ));
-        LogicalLeafPlan<LogicalRelation> relationPlan = plan(
-            new LogicalOlapScan(table, ImmutableList.of("a"))
-        );
+        LogicalRelation relationPlan = new LogicalOlapScan(table, ImmutableList.of("a"));
         List<Slot> output = relationPlan.getOutput();
         Assertions.assertEquals(2, output.size());
         Assertions.assertEquals(output.get(0).getName(), "id");
@@ -64,9 +63,7 @@ public class TestPlanOutput implements Plans {
     @Test
     public void testLazyComputeOutput() {
         // not throw exception when create new UnboundRelation
-        LogicalLeafPlan<UnboundRelation> relationPlan = plan(
-            new UnboundRelation(ImmutableList.of("a"))
-        );
+        UnboundRelation relationPlan = new UnboundRelation(ImmutableList.of("a"));
 
         try {
             // throw exception when getOutput
@@ -83,13 +80,11 @@ public class TestPlanOutput implements Plans {
             new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
             new Column("name", Type.STRING, true, AggregateType.NONE, "", "")
         ));
-        LogicalLeafPlan<LogicalRelation> relationPlan = plan(
-            new LogicalOlapScan(table, ImmutableList.of("a"))
-        );
+        LogicalRelation relationPlan = new LogicalOlapScan(table, ImmutableList.of("a"));
 
         List<Slot> output = relationPlan.getOutput();
         // column prune
-        LogicalLeafPlan<LogicalRelation> newPlan = relationPlan.withOutput(ImmutableList.of(output.get(0)));
+        Plan newPlan = relationPlan.withOutput(ImmutableList.of(output.get(0)));
         output = newPlan.getOutput();
         Assertions.assertEquals(1, output.size());
         Assertions.assertEquals(output.get(0).getName(), "id");
@@ -99,11 +94,16 @@ public class TestPlanOutput implements Plans {
 
     @Test(expected = NullPointerException.class)
     public void testPhysicalPlanMustHaveLogicalProperties() {
-        plan(new PhysicalScan(OperatorType.PHYSICAL_OLAP_SCAN, ImmutableList.of("tbl")) {
+        new PhysicalRelation(PlanType.PHYSICAL_OLAP_SCAN, ImmutableList.of("tbl"), Optional.empty(), null) {
             @Override
-            public List<Expression> getExpressions() {
-                return ImmutableList.of();
+            public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+                return null;
             }
-        }, null);
+
+            @Override
+            public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+                return null;
+            }
+        };
     }
 }

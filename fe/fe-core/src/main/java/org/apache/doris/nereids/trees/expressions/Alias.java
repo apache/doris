@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
@@ -47,7 +46,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
     }
 
     private Alias(ExprId exprId, Expression child, String name) {
-        super(NodeType.ALIAS, child);
+        super(ExpressionType.ALIAS, child);
         this.exprId = exprId;
         this.name = name;
         this.qualifier = ImmutableList.of();

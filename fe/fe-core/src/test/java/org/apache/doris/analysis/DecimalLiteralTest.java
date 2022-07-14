@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
@@ -47,5 +48,36 @@ public class DecimalLiteralTest {
         Assert.assertEquals(literal, literal.uncheckedCastTo(Type.DECIMALV2));
 
         Assert.assertEquals(1, literal.compareLiteral(new NullLiteral()));
+    }
+
+    @Test
+    public  void testTypePrecision() {
+        BigDecimal decimal = new BigDecimal("-123456789123456789.123456789");
+        DecimalLiteral literal = new DecimalLiteral(decimal);
+        int precision = ((ScalarType) literal.getType()).getScalarPrecision();
+        int scale = ((ScalarType) literal.getType()).getScalarScale();
+        Assert.assertEquals(27, precision);
+        Assert.assertEquals(9, scale);
+
+        decimal = new BigDecimal("-0.00123");
+        literal = new DecimalLiteral(decimal);
+        precision = ((ScalarType) literal.getType()).getScalarPrecision();
+        scale = ((ScalarType) literal.getType()).getScalarScale();
+        Assert.assertEquals(5, precision);
+        Assert.assertEquals(5, scale);
+
+        decimal = new BigDecimal("20000");
+        literal = new DecimalLiteral(decimal);
+        precision = ((ScalarType) literal.getType()).getScalarPrecision();
+        scale = ((ScalarType) literal.getType()).getScalarScale();
+        Assert.assertEquals(5, precision);
+        Assert.assertEquals(0, scale);
+
+        decimal = new BigDecimal("0.123");
+        literal = new DecimalLiteral(decimal);
+        precision = ((ScalarType) literal.getType()).getScalarPrecision();
+        scale = ((ScalarType) literal.getType()).getScalarScale();
+        Assert.assertEquals(3, precision);
+        Assert.assertEquals(3, scale);
     }
 }

@@ -79,7 +79,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_string_tag.resize(_stored_data_columns.size());
 
-    auto& tablet_schema = tablet()->tablet_schema();
+    auto& tablet_schema = *_tablet_schema;
     for (auto idx : _agg_columns_idx) {
         AggregateFunctionPtr function =
                 tablet_schema

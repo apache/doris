@@ -19,7 +19,8 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 
 import com.google.common.collect.Lists;
 
@@ -54,7 +55,7 @@ public class OrderSpec {
 
     public GroupExpression addEnforcer(Group child) {
         return new GroupExpression(
-                new PhysicalHeapSort(orderKeys, -1, 0),
+                new PhysicalHeapSort(orderKeys, -1, 0, child.getLogicalProperties(), new GroupPlan(child)),
                 Lists.newArrayList(child)
         );
     }
