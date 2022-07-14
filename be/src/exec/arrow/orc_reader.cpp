@@ -64,47 +64,53 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         _map_column.emplace(schema->field(i)->name(), i);
     }
 
+    RETURN_IF_ERROR(column_indices(tuple_slot_descs));
+    if (config::orc_predicate_push_down) {
+        _strip_reader.reset(new StripeReader(conjunct_ctxs, this));
+        _strip_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids);
+    }
+
     bool eof = false;
     RETURN_IF_ERROR(_next_stripe_reader(&eof));
     if (eof) {
         return Status::EndOfFile("end of file");
-    }
-
-    RETURN_IF_ERROR(column_indices(tuple_slot_descs));
-    if (config::parquet_orc_push_down) {
-        _strip_reader.reset(new StripeReader(conjunct_ctxs, this));
-        _strip_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids);
     }
         
     return Status::OK();
 }
 
 Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
-    if (_current_group >= _total_groups) {
-        *eof = true;
-        return Status::OK();
-    }
-    if (config::parquet_orc_push_down) {
-        auto filter_group_set = _strip_reader->filter_groups();
-        if (filter_group_set.end() != filter_group_set.find(_current_group)) {
-            // find filter group, skip
-            _current_group++;
+    bool skip_current_group = false;
+    do {
+        if (_current_group >= _total_groups) {
+            *eof = true;
             return Status::OK();
         }
-    }
-    // Get a stripe level record batch iterator.
-    // record batch will have up to batch_size rows.
-    // NextStripeReader serves as a fine grained alternative to ReadStripe
-    // which may cause OOM issues by loading the whole stripe into memory.
-    // Note this will only read rows for the current stripe, not the entire file.
-    arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> maybe_rb_reader =
-            _reader->NextStripeReader(_batch_size, _include_column_ids);
-    if (!maybe_rb_reader.ok()) {
-        LOG(WARNING) << "Get RecordBatch Failed. " << maybe_rb_reader.status();
-        return Status::InternalError(maybe_rb_reader.status().ToString());
-    }
-    _rb_reader = maybe_rb_reader.ValueOrDie();
-    _current_group++;
+        if (config::orc_predicate_push_down) {
+            auto filter_group_set = _strip_reader->filter_groups();
+            if (filter_group_set.end() != filter_group_set.find(_current_group)) {
+                // find filter group, skip
+                skip_current_group = true;
+            } else {
+                skip_current_group = false;
+            }
+        }
+
+        // Get a stripe level record batch iterator.
+        // record batch will have up to batch_size rows.
+        // NextStripeReader serves as a fine grained alternative to ReadStripe
+        // which may cause OOM issues by loading the whole stripe into memory.
+        // Note this will only read rows for the current stripe, not the entire file.
+        arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> maybe_rb_reader =
+                _reader->NextStripeReader(_batch_size, _include_column_ids);
+        if (!maybe_rb_reader.ok()) {
+            LOG(WARNING) << "Get RecordBatch Failed. " << maybe_rb_reader.status();
+            return Status::InternalError(maybe_rb_reader.status().ToString());
+        }
+        _rb_reader = maybe_rb_reader.ValueOrDie();
+        _current_group++;
+    } while(skip_current_group);
+
     return Status::OK();
 }
 

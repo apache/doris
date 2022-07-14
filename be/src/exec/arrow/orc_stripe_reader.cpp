@@ -19,18 +19,11 @@
 #include "exec/arrow/arrow_range.h"
 
 #include <exprs/expr_context.h>
-#include <exprs/in_predicate.h>
 #include <arrow/io/memory.h>
-
-#include <arrow/io/api.h>
-#include <arrow/api.h>
 #include <arrow/status.h>
 #include <parquet/file_reader.h>
-#include <parquet/statistics.h>
 #include <memory>
 #include <orc/Statistics.hh>
-
-#include <cstring>
 
 namespace doris {
 
@@ -95,9 +88,13 @@ Status StripeReader::init_filter_groups(const TupleDescriptor* tuple_desc,
             } else if (const auto * string_stats = dynamic_cast<const orc::StringColumnStatistics *>(col_stats)) {
                 StringArrowRange range(string_stats->getMinimum(), string_stats->getMaximum());
                 need_filter = range.determine_filter_row_group(slot_iter->second);
+            } else if (const auto * timestamp_stats = dynamic_cast<const orc::TimestampColumnStatistics *>(col_stats)) {
+                DateTimeArrowRange range(timestamp_stats->getMinimum(), timestamp_stats->getMaximum());
+                need_filter = range.determine_filter_row_group(slot_iter->second);
+            } else if (const auto * date_stats = dynamic_cast<const orc::DateColumnStatistics *>(col_stats)) {
+                DateArrowRange range(date_stats->getMinimum(), date_stats->getMaximum());
+                need_filter = range.determine_filter_row_group(slot_iter->second);
             }
-
-            std::cout << "HZW: " << need_filter << std::endl;
 
             if (need_filter) {
                 update_statistics = true;

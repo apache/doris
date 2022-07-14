@@ -20,12 +20,14 @@
 
 #include <arrow/type_fwd.h>
 
+#include <cstdint>
 #include <unordered_set>
 #include "common/status.h"
 
 #include <exprs/expr.h>
 #include <exprs/expr_context.h>
 #include <exprs/in_predicate.h>
+#include <runtime/datetime_value.h>
 
 namespace doris {
 template <typename ArrowType>
@@ -58,8 +60,8 @@ private:
         }
         // supported conjunct example: slot_ref < 123, slot_ref > func(123), ..
         auto conjunct_type = expr->type().type;
-        void* conjunct_value = ctx->get_value(expr, nullptr);
-        ArrowType value = convertToArrowType(conjunct_type, conjunct_value);
+        ArrowType value = convertToArrowType(conjunct_type, ctx->get_value(expr, nullptr));
+
         // use is_match var to help understand the compare logic
         bool is_match = false;
         switch (conjunct->op()) {
@@ -78,30 +80,34 @@ private:
                 }
                 break;
             case TExprOpcode::GT:
-                //    _min   value     
-                //  ----|------^------
-                if (large(value, _min)) {
-                    is_match = true;
-                }
-                break;
-            case TExprOpcode::GE:
-                //    _min   value     
-                //  ----|------^------
-                if (largeEqual(value, _min)) {
-                    is_match = true;
-                }
-                break;
-            case TExprOpcode::LT:
-                //    value  _max  
-                //  ----^------|------
+                //   value _min  value  _max  value
+                //  ---^-----|-----^------|-----^----
+                //     Y           Y            N
                 if (large(_max, value)) {
                     is_match = true;
                 }
                 break;
-            case TExprOpcode::LE:
-                //    value  _max  
-                //  ----^------|------
+            case TExprOpcode::GE:
+                //   value _min  value  _max  value
+                //  ---^-----|-----^------|-----^----
+                //     Y           Y            N
                 if (largeEqual(_max, value)) {
+                    is_match = true;
+                }
+                break;
+            case TExprOpcode::LT:
+                //   value _min  value  _max  value
+                //  ---^-----|-----^------|-----^----
+                //     N           Y            Y
+                if (large(value, _min)) {
+                    is_match = true;
+                }
+                break;
+            case TExprOpcode::LE:
+                //   value _min  value  _max  value
+                //  ---^-----|-----^------|-----^----
+                //     N           Y            Y
+                if (large(value, _min)) {
                     is_match = true;
                 }
                 break;
@@ -117,14 +123,14 @@ private:
         Expr* conjunct = ctx->root();
         std::vector<ArrowType> in_pred_values;
         const InPredicate* pred = static_cast<const InPredicate*>(conjunct);
+        std::vector<Expr*> exprs;
         HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
         auto conjunct_type = conjunct->get_child(1)->type().type;
-        // TODO: process expr: in(func(123),123)
         while (iter->has_next()) {
             if (nullptr == iter->get_value()) {
                 return;
             }
-            in_pred_values.emplace_back(convertToArrowType(conjunct_type, const_cast<void*>(iter->get_value())));
+            in_pred_values.emplace_back(convertToArrowType(conjunct_type, iter->get_value()));
             iter->next();
         }
         std::sort(in_pred_values.begin(), in_pred_values.end());
@@ -154,7 +160,7 @@ private:
     }
 
 protected:
-    virtual ArrowType convertToArrowType(PrimitiveType conjunct_type, void* conjunct_value) = 0;
+    virtual ArrowType convertToArrowType(PrimitiveType conjunct_type, const void* data) = 0;
 
     virtual bool largeEqual(ArrowType one, ArrowType another) = 0;
 
@@ -165,24 +171,24 @@ struct IntegerArrowRange: public ArrowRange<int64_t> {
 public:
     IntegerArrowRange(int64_t min, int64_t max): ArrowRange(min, max) {}
 
-    int64_t convertToArrowType(PrimitiveType conjunct_type, void* conjunct_value) override {
+    int64_t convertToArrowType(PrimitiveType conjunct_type, const void* data) override {
         int64_t out_value = 0;
-
+        TExprNode node;
         switch (conjunct_type) {
             case TYPE_TINYINT: {
-                out_value = (int64_t)(*((int8_t*)conjunct_value));
+                create_texpr_literal_node<int8_t>(data, &node);
                 break;
             }
             case TYPE_SMALLINT: {
-                out_value = (int64_t)(*((int16_t*)conjunct_value));
+                create_texpr_literal_node<int16_t>(data, &node);
                 break;
             }
             case TYPE_INT: {
-                out_value = (int64_t)(*((int32_t*)conjunct_value));
+                create_texpr_literal_node<int32_t>(data, &node);
                 break;
             }
             case TYPE_BIGINT: {
-                out_value = (int64_t)(*((int64_t*)conjunct_value));
+                create_texpr_literal_node<int128_t>(data, &node);
                 break;
             }
             default:
@@ -191,6 +197,8 @@ public:
                 DCHECK(0);
                 break;
         }
+        out_value = node.int_literal.value;
+
         return out_value;
     }
 
@@ -207,24 +215,27 @@ struct DoubleArrowRange: public ArrowRange<double> {
 public:
     DoubleArrowRange(double min, double max): ArrowRange(min, max) {}
 
-    double convertToArrowType(PrimitiveType conjunct_type, void* conjunct_value) override {
-        double out_value = 0.0;
-
+    double convertToArrowType(PrimitiveType conjunct_type, const void* data) override {
+        double out_value = 0;
+        TExprNode node;
         switch (conjunct_type) {
             case TYPE_FLOAT: {
-                out_value = (int64_t)(*((float*)conjunct_value));
+                create_texpr_literal_node<float>(data, &node);
                 break;
             }
             case TYPE_DOUBLE: {
-                out_value = (int64_t)(*((double*)conjunct_value));
+                create_texpr_literal_node<double>(data, &node);
                 break;
             }
+
             default:
                 // never go into here.
                 VLOG_CRITICAL << conjunct_type << "go to DoubleArrowRange forbid area.";
                 DCHECK(0);
                 break;
         }
+        out_value = node.float_literal.value;
+
         return out_value;
     }
 
@@ -241,23 +252,26 @@ struct StringArrowRange: public ArrowRange<std::string> {
 public:
     StringArrowRange(std::string min, std::string max): ArrowRange(min, max) {}
 
-    std::string convertToArrowType(PrimitiveType conjunct_type, void* conjunct_value) override {
-        std::string out_value = "";
-
+    std::string convertToArrowType(PrimitiveType conjunct_type, const void* data) override {
+        std::string out_value;
+        TExprNode node;
         switch (conjunct_type) {
             case TYPE_VARCHAR:
             case TYPE_STRING: {
-                out_value = ((std::string*)conjunct_value)->c_str();
+                create_texpr_literal_node<StringValue>(data, &node);
                 break;
             }
             default:
                 // never go into here.
-                VLOG_CRITICAL << conjunct_type << "go to StringArrowRange forbid area.";
+                VLOG_CRITICAL << conjunct_type << "go to DoubleArrowRange forbid area.";
                 DCHECK(0);
                 break;
         }
+        out_value = node.string_literal.value;
+
         return out_value;
     }
+
 
     bool largeEqual(std::string one, std::string another) override {
         return strcmp(one.c_str(), another.c_str()) >= 0;
@@ -265,6 +279,81 @@ public:
 
     bool large(std::string one, std::string another) override {
         return strcmp(one.c_str(), another.c_str()) > 0;
+    }
+};
+
+struct DateTimeArrowRange: public ArrowRange<int64_t> {
+public:
+    DateTimeArrowRange(int64_t min, int64_t max): ArrowRange(min, max) {}
+
+    int64_t convertToArrowType(PrimitiveType conjunct_type, const void* data) override {
+        int64_t out_value = 0;
+        TExprNode node;
+        switch (conjunct_type) {
+            case TYPE_DATETIME:
+            case TYPE_DATETIMEV2: {
+                auto origin_value = reinterpret_cast<const doris::DateTimeValue*>(data);
+                origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
+                break;
+            }
+
+            case TYPE_DATE:
+            case TYPE_DATEV2: {
+                auto origin_value = reinterpret_cast<const doris::vectorized::DateV2Value*>(data);
+                origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
+                break;
+            }
+
+            default:
+                // never go into here.
+                VLOG_CRITICAL << conjunct_type << "go to DataTimeArrowRange forbid area.";
+                DCHECK(0);
+                break;
+        }
+        // second to micro second
+        return out_value * 1000;
+    }
+
+    bool largeEqual(int64_t one, int64_t another) override {
+        return one >= another;
+    }
+
+    bool large(int64_t one, int64_t another) override {
+        return one > another;
+    }
+};
+
+struct DateArrowRange: public ArrowRange<int32_t> {
+public:
+    DateArrowRange(int32_t min, int32_t max): ArrowRange(min, max) {}
+
+    int32_t convertToArrowType(PrimitiveType conjunct_type, const void* data) override {
+        int64_t out_value = 0;
+        TExprNode node;
+        switch (conjunct_type) {
+            case TYPE_DATE:
+            case TYPE_DATEV2: {
+                auto origin_value = reinterpret_cast<const doris::vectorized::DateV2Value*>(data);
+                origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
+                break;
+            }
+
+            default:
+                // never go into here.
+                VLOG_CRITICAL << conjunct_type << "go to DataTimeArrowRange forbid area.";
+                DCHECK(0);
+                break;
+        }
+        // second to micro second
+        return (int32_t)out_value;
+    }
+
+    bool largeEqual(int32_t one, int32_t another) override {
+        return one >= another;
+    }
+
+    bool large(int32_t one, int32_t another) override {
+        return one > another;
     }
 };
 
