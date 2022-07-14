@@ -433,7 +433,8 @@ Status ColumnReader::get_dict_data(std::set<string>& dict_words) {
             PageFooterPB dict_footer;
             read_page(iter_opts, get_dict_page_pointer(), &dict_page_handle, &dict_slice,
                       &dict_footer, compress_codec.get());
-            auto dict_decoder = std::make_unique<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>>(dict_slice);
+            auto dict_decoder =
+                    std::make_unique<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>>(dict_slice);
             RETURN_IF_ERROR(dict_decoder->init());
 
             StringRef* dict_word_info = new StringRef[dict_decoder->_num_elems];
@@ -445,7 +446,8 @@ Status ColumnReader::get_dict_data(std::set<string>& dict_words) {
             return Status::OK();
         } else {
             std::stringstream ss;
-            ss << "not all pages in column(" << _meta.column_id() << ") are dict encoded, " << _path;
+            ss << "not all pages in column(" << _meta.column_id() << ") are dict encoded, "
+               << _path;
             return Status::InternalError(ss.str().c_str());
         }
 

@@ -22,8 +22,8 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/sink/vmysql_result_writer.h"
 #include "vec/sink/thrift_result_writer.h"
+#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
 namespace vectorized {
@@ -91,7 +91,6 @@ Status VResultSink::open(RuntimeState* state) {
 Status VResultSink::send(RuntimeState* state, RowBatch* batch) {
     return Status::NotSupported("Not Implemented Result Sink::send scalar");
 }
-
 
 Status VResultSink::send(RuntimeState* state, Block* input_block) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultSink::send");

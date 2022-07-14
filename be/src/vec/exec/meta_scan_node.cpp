@@ -17,8 +17,8 @@
 
 #include "vec/exec/meta_scan_node.h"
 
-#include "vec/exec/volap_scan_node.h"
 #include "olap/storage_engine.h"
+#include "vec/exec/volap_scan_node.h"
 namespace doris::vectorized {
 
 MetaScanNode::MetaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
