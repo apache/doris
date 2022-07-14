@@ -28,7 +28,7 @@ under the License.
 
 其代码库独立于 Doris 主代码库位于：
 
-- https://github.com/apache/incubator-doris-manager
+- https://github.com/apache/doris-manager
 
 ## 准备发布
 
@@ -79,7 +79,7 @@ $ git push origin 1.0.0-rc01
 Counting objects: 1, done.
 Writing objects: 100% (1/1), 165 bytes | 0 bytes/s, done.
 Total 1 (delta 0), reused 0 (delta 0)
-To git@github.com:apache/incubator-doris-manager.git
+To git@github.com:apache/doris-manager.git
  * [new tag]         1.0.0-rc01 -> 1.0.0-rc01
 
 $ git tag
@@ -104,7 +104,7 @@ sha512sum --check apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz.sha512
 然后将打包的内容上传到svn仓库中，首先下载 svn 库：
 
 ```
-svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
+svn co https://dist.apache.org/repos/dist/dev/doris/
 ```
 
 将之前得到的全部文件组织成以下svn路径
@@ -141,13 +141,13 @@ The release node:
 
 
 The release candidates:
-https://dist.apache.org/repos/dist/dev/incubator/doris/doris-manager/1.0.0/
+https://dist.apache.org/repos/dist/dev/doris/doris-manager/1.0.0/
 
 Keys to verify the Release Candidate:
-https://downloads.apache.org/incubator/doris/KEYS
+https://downloads.apache.org/doris/KEYS
 
 Look at here for how to verify this release candidate:
-http://doris.incubator.apache.org/community/release-and-verify/release-verify.html
+http://doris.apache.org/community/release-and-verify/release-verify.html
 
 Vote thread at dev@doris: [1]
 
@@ -216,18 +216,18 @@ The vote result email thread:
 https://lists.apache.org/thread.html/64d229f0ba15d66adc83306bc8d7b7ccd5910ecb7e842718ce6a61da@%3Cdev.doris.apache.org%3E
 
 The release candidate has been tagged in GitHub as 1.0.0-rc01, available here:
-https://github.com/apache/incubator-doris-manager/releases/tag/1.0.0-rc01
+https://github.com/apache/doris-manager/releases/tag/1.0.0-rc01
 
 There is no CHANGE LOG file because this is the first release of Apache Doris.
 Thanks to everyone who has contributed to this release, and there is a simple release notes can be found here:
-https://github.com/apache/incubator-doris/issues/406
+https://github.com/apache/doris/issues/406
 
 The artifacts (source, signature and checksum) corresponding to this release candidate can be found here:
-https://dist.apache.org/repos/dist/dev/incubator/doris/doris-manager/1.0.0/
+https://dist.apache.org/repos/dist/dev/doris/doris-manager/1.0.0/
 
 This has been signed with PGP key 33DBF2E0, corresponding to lide@apache.org.
 KEYS file is available here:
-https://downloads.apache.org/incubator/doris/KEYS
+https://downloads.apache.org/doris/KEYS
 It is also listed here:
 https://people.apache.org/keys/committer/lide.asc
 
@@ -240,7 +240,7 @@ To verify and build, you can refer to following instruction:
 
 Firstly, you must be install and start docker service, and then you could build Doris as following steps:
 
-$ wget https://dist.apache.org/repos/dist/dev/incubator/doris/doris-manager/1.0.0/apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz
+$ wget https://dist.apache.org/repos/dist/dev/doris/doris-manager/1.0.0/apache-doris-incubating-manager-src-1.0.0-rc01.tar.gz
 
 Step4: Build Doris
 Now you can decompress and enter Doris source path and build Doris.

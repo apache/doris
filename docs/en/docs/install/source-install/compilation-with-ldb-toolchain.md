@@ -28,7 +28,7 @@ under the License.
 
 This document describes how to compile Doris using the LDB toolchain. This method is currently used as a supplement to the Docker compilation method to facilitate developers and users without a Docker environment to compile Doris source code.
 
-> You can still compile the latest code using the Docker development image: `apache/incubator-doris:build-env-ldb-toolchain-latest`
+> You can still compile the latest code using the Docker development image: `apache/doris:build-env-ldb-toolchain-latest`
 
 > Thanks to [Amos Bird](https://github.com/amosbird) for this contribution.
 
@@ -93,7 +93,7 @@ This works for most Linux distributions (CentOS, Ubuntu, etc.).
 4. Download Doris source code
 
     ```
-    git clone https://github.com/apache/incubator-doris.git
+    git clone https://github.com/apache/doris.git
     ```
     
     After downloading, go to the Doris source directory, create the `custom_env.sh`, file, and set the PATH environment variable, e.g.

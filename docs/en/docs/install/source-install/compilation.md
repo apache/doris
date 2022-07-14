@@ -35,34 +35,34 @@ This document focuses on how to code Doris through source code.
 
 1. Download Docker Mirror
 
-    `$ docker pull apache/incubator-doris:build-env-ldb-toolchain-latest`
+    `$ docker pull apache/doris:build-env-ldb-toolchain-latest`
 
     Check mirror download completed:
 
     ```
     $ docker images
     REPOSITORY               TAG                              IMAGE ID            CREATED             SIZE
-    apache/incubator-doris   build-env-ldb-toolchain-latest   49f68cecbc1a        4 days ago          3.76GB
+    apache/doris   build-env-ldb-toolchain-latest   49f68cecbc1a        4 days ago          3.76GB
     ```
 
-> Note1: For different versions of Doris, you need to download the corresponding mirror version. From Apache Doris 0.15 version, the docker image will keep same version number with Doris. For example, you can use  `apache/incubator-doris:build-env-for-0.15.0` to compile Apache Doris 0.15.0.
+> Note1: For different versions of Doris, you need to download the corresponding mirror version. From Apache Doris 0.15 version, the docker image will keep same version number with Doris. For example, you can use  `apache/doris:build-env-for-0.15.0` to compile Apache Doris 0.15.0.
 >
-> Node2: `apache/incubator-doris:build-env-ldb-toolchain-latest` is for compiling trunk code, and will be updated along with trunk code. View the update time in `docker/README.md`
+> Node2: `apache/doris:build-env-ldb-toolchain-latest` is for compiling trunk code, and will be updated along with trunk code. View the update time in `docker/README.md`
 
 | image version | commit id | release version |
 |---|---|---|
-| apache/incubator-doris:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
-| apache/incubator-doris:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
-| apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
-| apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x |
-| apache/incubator-doris:build-env-for-0.15.0 | [a81f4da](https://github.com/apache/incubator-doris/commit/a81f4da4e461a54782a96433b746d07be89e6b54) or later | 0.15.0          |
-| apache/incubator-doris:build-env-latest | before [0efef1b](https://github.com/apache/incubator-doris/commit/0efef1b332300887ee0473f9df9bdd9d7297d824) | |
-| apache/incubator-doris:build-env-for-1.0.0| | 1.0.0 |
-| apache/incubator-doris:build-env-ldb-toolchain-latest | trunk | trunk |
+| apache/incubator-doris:build-env | before [ff0dd0d](https://github.com/apache/doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
+| apache/incubator-doris:build-env-1.1 | [ff0dd0d](https://github.com/apache/doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
+| apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
+| apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x |
+| apache/doris:build-env-for-0.15.0 | [a81f4da](https://github.com/apache/doris/commit/a81f4da4e461a54782a96433b746d07be89e6b54) or later | 0.15.0          |
+| apache/incubator-doris:build-env-latest | before [0efef1b](https://github.com/apache/doris/commit/0efef1b332300887ee0473f9df9bdd9d7297d824) | |
+| apache/doris:build-env-for-1.0.0| | 1.0.0 |
+| apache/doris:build-env-ldb-toolchain-latest | trunk | trunk |
 
 **note**:
 
-> 1. Dev docker image [ChangeLog](https://github.com/apache/incubator-doris/blob/master/thirdparty/CHANGELOG.md)
+> 1. Dev docker image [ChangeLog](https://github.com/apache/doris/blob/master/thirdparty/CHANGELOG.md)
 
 > 2. Doris version 0.14.0 still uses apache/incubator-doris:build-env-1.2 to compile, and the 0.14.x code will use apache/incubator-doris:build-env-1.3.1.
 
@@ -86,14 +86,14 @@ This document focuses on how to code Doris through source code.
 
 2. Running Mirror
 
-    `$ docker run -it apache/incubator-doris:build-env-ldb-toolchain-latest`
+    `$ docker run -it apache/doris:build-env-ldb-toolchain-latest`
 
     It is recommended to run the container by mounting the local Doris source directory, so that the compiled binary file will be stored in the host machine and will not disappear because the container exits.
 
      At the same time, it is recommended to mount the maven `.m2` directory in the mirror to the host directory at the same time to prevent repeated downloading of maven's dependent libraries each time the compilation is started.
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-ldb-toolchain-latest
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/doris-DORIS-x.x.x-release/:/root/doris-DORIS-x.x.x-release/ apache/doris:build-env-ldb-toolchain-latest
     ```
 
 3. Download source code
@@ -101,9 +101,9 @@ This document focuses on how to code Doris through source code.
     After starting the mirror, you should be in the container. The Doris source code can be downloaded from the following command (local source directory mounted is not required):
 
     ```
-    $ wget https://dist.apache.org/repos/dist/dev/incubator/doris/xxx.tar.gz
+    $ wget https://dist.apache.org/repos/dist/dev/doris/xxx.tar.gz
     or
-    $ git clone https://github.com/apache/incubator-doris.git
+    $ git clone https://github.com/apache/doris.git
     ```
 
 4. Compile Doris
@@ -148,7 +148,7 @@ You can also create a Doris development environment mirror yourself, referring s
 You can try to compile Doris directly in your own Linux environment.
 
 1. System Dependence
-    * Before commit [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) will use the dependencies as follows:
+    * Before commit [ad67dd3](https://github.com/apache/doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) will use the dependencies as follows:
 
        `GCC 7.3+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+ Bison 3.0+`
 
@@ -164,7 +164,7 @@ You can try to compile Doris directly in your own Linux environment.
 
        `sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk`
 
-    * After commit [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) will use the dependencies as follows:
+    * After commit [ad67dd3](https://github.com/apache/doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) will use the dependencies as follows:
 
        `GCC 10+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.19.2+ Bison 3.0+`
 
@@ -227,7 +227,7 @@ You can try to compile Doris directly in your own Linux environment.
 
 1. `Could not transfer artifact net.sourceforge.czt.dev:cup-maven-plugin:pom:1.6-cdh from/to xxx`
 
-    If you encounter the above error, please refer to [PR #4769](https://github.com/apache/incubator-doris/pull/4769/files) to modify the cloudera-related repo configuration in `fe/pom.xml`.
+    If you encounter the above error, please refer to [PR #4769](https://github.com/apache/doris/pull/4769/files) to modify the cloudera-related repo configuration in `fe/pom.xml`.
 
 2. The third party relies on download connection errors, failures, etc.
 

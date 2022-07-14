@@ -26,7 +26,7 @@ under the License.
 
 # 代码提交指南
 
-在 [Github](https://github.com/apache/incubator-doris) 上面可以很方便地提交 [Pull Request (PR)](https://help.github.com/articles/about-pull-requests/)，下面介绍 Doris 项目的 PR 方法。
+在 [Github](https://github.com/apache/doris) 上面可以很方便地提交 [Pull Request (PR)](https://help.github.com/articles/about-pull-requests/)，下面介绍 Doris 项目的 PR 方法。
 
 ### 1. Fork仓库
 
@@ -46,7 +46,7 @@ git clone https://github.com/<your_github_name>/doris.git
 
 clone 完成后，origin 会默认指向 github 上的远程 fork 地址。
 
-#### （2）将 apache/incubator-doris 添加为本地仓库的远程分支 upstream：
+#### （2）将 apache/doris 添加为本地仓库的远程分支 upstream：
 
 ```
 cd  incubator-doris
