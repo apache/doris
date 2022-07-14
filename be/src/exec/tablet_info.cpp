@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "butil/fast_rand.h"
 #include "exec/tablet_info.h"
 
 #include "runtime/mem_pool.h"
