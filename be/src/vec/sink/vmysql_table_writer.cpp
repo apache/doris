@@ -174,6 +174,13 @@ Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
             fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
             break;
         }
+        case TYPE_DECIMAL32:
+        case TYPE_DECIMAL64:
+        case TYPE_DECIMAL128: {
+            auto val = type_ptr->to_string(*column, row);
+            fmt::format_to(_insert_stmt_buffer, "{}", val);
+            break;
+        }
         case TYPE_DATE:
         case TYPE_DATETIME: {
             int64_t int_val = assert_cast<const vectorized::ColumnInt64&>(*column).get_data()[row];
