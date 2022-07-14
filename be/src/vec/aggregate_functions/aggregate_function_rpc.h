@@ -50,18 +50,18 @@ private:
     std::string _merge_fn;
     std::string _server_addr;
     std::string _finalize_fn;
-    bool saved_last_result;
+    bool _saved_last_result;
     std::shared_ptr<PFunctionService_Stub> _client;
-    PFunctionCallResponse res;
+    PFunctionCallResponse _res;
     std::vector<PFunctionCallRequest> _buffer_request;
 
 public:
     AggregateRpcUdafData() = default;
     AggregateRpcUdafData(int64_t num_args) { set_last_result(false); }
 
-    bool has_last_result() { return saved_last_result == true; }
+    bool has_last_result() { return _saved_last_result == true; }
 
-    void set_last_result(bool flag) { saved_last_result = flag; }
+    void set_last_result(bool flag) { _saved_last_result = flag; }
 
     ~AggregateRpcUdafData() {}
 
@@ -75,15 +75,15 @@ public:
             request.set_function_name(_merge_fn);
             //last result
             PValues* arg = request.add_args();
-            arg->CopyFrom(res.result(0));
+            arg->CopyFrom(_res.result(0));
             arg = request.add_args();
             //current result
             arg->CopyFrom(current_res.result(0));
             //send to rpc server  that impl the merge op, the will save the result
             RETURN_IF_ERROR(send_rpc_request(cntl, request, response));
-            res = response;
+            _res = response;
         } else {
-            res = rhs.get_result();
+            _res = rhs.get_result();
             set_last_result(true);
         }
         return Status::OK();
@@ -209,10 +209,10 @@ public:
                 request.mutable_context()
                         ->mutable_function_context()
                         ->mutable_args_data()
-                        ->CopyFrom(res.result());
+                        ->CopyFrom(_res.result());
             }
             RETURN_IF_ERROR(send_rpc_request(cntl, request, response));
-            res = response;
+            _res = response;
             set_last_result(true);
             _buffer_request.clear();
         }
@@ -227,17 +227,17 @@ public:
         gen_request_data(request, columns, start, end, argument_types);
         if (has_last_result()) {
             request.mutable_context()->mutable_function_context()->mutable_args_data()->CopyFrom(
-                    res.result());
+                    _res.result());
         }
         RETURN_IF_ERROR(send_rpc_request(cntl, request, response));
-        res = response;
+        _res = response;
         set_last_result(true);
         return Status::OK();
     }
 
     void serialize(BufferWritable& buf) {
         send_buffer_to_rpc_server();
-        std::string serialize_data = res.SerializeAsString();
+        std::string serialize_data = _res.SerializeAsString();
         write_binary(serialize_data, buf);
     }
 
@@ -245,7 +245,7 @@ public:
         send_buffer_to_rpc_server();
         std::string serialize_data;
         read_binary(serialize_data, buf);
-        res.ParseFromString(serialize_data);
+        _res.ParseFromString(serialize_data);
         set_last_result(true);
     }
 
@@ -256,7 +256,7 @@ public:
         brpc::Controller cntl;
         request.set_function_name(_finalize_fn);
         request.mutable_context()->mutable_function_context()->mutable_args_data()->CopyFrom(
-                res.result());
+                _res.result());
         send_rpc_request(cntl, request, response);
 
         DataTypePtr result_type = return_type;
@@ -302,7 +302,7 @@ public:
 
     PFunctionCallResponse get_result() {
         send_buffer_to_rpc_server();
-        return res;
+        return _res;
     }
 };
 
