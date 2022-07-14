@@ -71,6 +71,9 @@ public:
     virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*) override;
     virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
     virtual doris_udf::CollectionVal get_array_val(ExprContext* context, TupleRow*) override;
+    virtual Decimal32Val get_decimal32_val(ExprContext* context, TupleRow*) override;
+    virtual Decimal64Val get_decimal64_val(ExprContext* context, TupleRow*) override;
+    virtual Decimal128Val get_decimal128_val(ExprContext* context, TupleRow*) override;
 
 private:
     int _tuple_idx;                             // within row

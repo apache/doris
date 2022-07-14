@@ -100,6 +100,14 @@ Literal::Literal(const TExprNode& node) : Expr(node) {
         _value.decimalv2_val = DecimalV2Value(node.decimal_literal.value);
         break;
     }
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128: {
+        DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
+        DCHECK(node.__isset.decimal_literal);
+        _value.set_string_val(node.decimal_literal.value);
+        break;
+    }
     case TYPE_ARRAY: {
         DCHECK_EQ(node.node_type, TExprNodeType::ARRAY_LITERAL);
         // init in prepare
@@ -129,18 +137,54 @@ SmallIntVal Literal::get_small_int_val(ExprContext* context, TupleRow* row) {
 }
 
 IntVal Literal::get_int_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_INT) << _type;
+    DCHECK(_type.type == TYPE_INT) << _type;
     return IntVal(_value.int_val);
 }
 
 BigIntVal Literal::get_big_int_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_BIGINT) << _type;
+    DCHECK(_type.type == TYPE_BIGINT) << _type;
     return BigIntVal(_value.bigint_val);
 }
 
 LargeIntVal Literal::get_large_int_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_LARGEINT) << _type;
+    DCHECK(_type.type == TYPE_LARGEINT) << _type;
     return LargeIntVal(_value.large_int_val);
+}
+
+Decimal32Val Literal::get_decimal32_val(ExprContext* context, TupleRow* row) {
+    DCHECK(_type.type == TYPE_DECIMAL32) << _type;
+    StringParser::ParseResult result;
+    auto decimal32_value = StringParser::string_to_decimal<int32_t>(
+            _value.string_val.ptr, _value.string_val.len, _type.precision, _type.scale, &result);
+    if (result == StringParser::ParseResult::PARSE_SUCCESS) {
+        return Decimal32Val(decimal32_value);
+    } else {
+        return Decimal32Val::null();
+    }
+}
+
+Decimal64Val Literal::get_decimal64_val(ExprContext* context, TupleRow* row) {
+    DCHECK(_type.type == TYPE_DECIMAL64) << _type;
+    StringParser::ParseResult result;
+    auto decimal_value = StringParser::string_to_decimal<int64_t>(
+            _value.string_val.ptr, _value.string_val.len, _type.precision, _type.scale, &result);
+    if (result == StringParser::ParseResult::PARSE_SUCCESS) {
+        return Decimal64Val(decimal_value);
+    } else {
+        return Decimal64Val::null();
+    }
+}
+
+Decimal128Val Literal::get_decimal128_val(ExprContext* context, TupleRow* row) {
+    DCHECK(_type.type == TYPE_DECIMAL128) << _type;
+    StringParser::ParseResult result;
+    auto decimal_value = StringParser::string_to_decimal<int128_t>(
+            _value.string_val.ptr, _value.string_val.len, _type.precision, _type.scale, &result);
+    if (result == StringParser::ParseResult::PARSE_SUCCESS) {
+        return Decimal128Val(decimal_value);
+    } else {
+        return Decimal128Val::null();
+    }
 }
 
 FloatVal Literal::get_float_val(ExprContext* context, TupleRow* row) {

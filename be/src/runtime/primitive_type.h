@@ -65,6 +65,9 @@ enum PrimitiveType {
     TYPE_DATEV2,         /* 25 */
     TYPE_DATETIMEV2,     /* 26 */
     TYPE_TIMEV2,         /* 27 */
+    TYPE_DECIMAL32,      /* 28 */
+    TYPE_DECIMAL64,      /* 29 */
+    TYPE_DECIMAL128,     /* 30 */
 };
 
 PrimitiveType convert_type_to_primitive(FunctionContext::Type type);
@@ -151,6 +154,21 @@ struct PrimitiveTypeTraits<TYPE_DATEV2> {
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using CppType = DecimalV2Value;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128>;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
+    using CppType = int32_t;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal32>;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
+    using CppType = int64_t;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal64>;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DECIMAL128> {
+    using CppType = __int128_t;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128>;
 };
 template <>

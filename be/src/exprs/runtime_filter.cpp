@@ -68,6 +68,9 @@ TExprNodeType::type get_expr_node_type(PrimitiveType type) {
         return TExprNodeType::FLOAT_LITERAL;
         break;
 
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128:
     case TYPE_DECIMALV2:
         return TExprNodeType::DECIMAL_LITERAL;
 
@@ -118,6 +121,12 @@ PColumnType to_proto(PrimitiveType type) {
         return PColumnType::COLUMN_TYPE_DATETIME;
     case TYPE_DECIMALV2:
         return PColumnType::COLUMN_TYPE_DECIMALV2;
+    case TYPE_DECIMAL32:
+        return PColumnType::COLUMN_TYPE_DECIMAL32;
+    case TYPE_DECIMAL64:
+        return PColumnType::COLUMN_TYPE_DECIMAL64;
+    case TYPE_DECIMAL128:
+        return PColumnType::COLUMN_TYPE_DECIMAL128;
     case TYPE_CHAR:
         return PColumnType::COLUMN_TYPE_CHAR;
     case TYPE_VARCHAR:
@@ -159,6 +168,12 @@ PrimitiveType to_primitive_type(PColumnType type) {
         return TYPE_DATETIME;
     case PColumnType::COLUMN_TYPE_DECIMALV2:
         return TYPE_DECIMALV2;
+    case PColumnType::COLUMN_TYPE_DECIMAL32:
+        return TYPE_DECIMAL32;
+    case PColumnType::COLUMN_TYPE_DECIMAL64:
+        return TYPE_DECIMAL64;
+    case PColumnType::COLUMN_TYPE_DECIMAL128:
+        return TYPE_DECIMAL128;
     case PColumnType::COLUMN_TYPE_VARCHAR:
         return TYPE_VARCHAR;
     case PColumnType::COLUMN_TYPE_CHAR:
@@ -204,59 +219,80 @@ PFilterType get_type(RuntimeFilterType type) {
 }
 
 template <bool is_vectorized = false>
-Status create_literal(ObjectPool* pool, PrimitiveType type, const void* data, void** expr) {
+Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* data, void** expr) {
     TExprNode node;
 
-    switch (type) {
+    switch (type.type) {
     case TYPE_BOOLEAN: {
-        create_texpr_literal_node<bool>(data, &node);
+        create_texpr_literal_node<TYPE_BOOLEAN>(data, &node);
         break;
     }
     case TYPE_TINYINT: {
-        create_texpr_literal_node<int8_t>(data, &node);
+        create_texpr_literal_node<TYPE_TINYINT>(data, &node);
         break;
     }
     case TYPE_SMALLINT: {
-        create_texpr_literal_node<int16_t>(data, &node);
+        create_texpr_literal_node<TYPE_SMALLINT>(data, &node);
         break;
     }
     case TYPE_INT: {
-        create_texpr_literal_node<int32_t>(data, &node);
+        create_texpr_literal_node<TYPE_INT>(data, &node);
         break;
     }
     case TYPE_BIGINT: {
-        create_texpr_literal_node<int64_t>(data, &node);
+        create_texpr_literal_node<TYPE_BIGINT>(data, &node);
         break;
     }
     case TYPE_LARGEINT: {
-        create_texpr_literal_node<int128_t>(data, &node);
+        create_texpr_literal_node<TYPE_LARGEINT>(data, &node);
         break;
     }
     case TYPE_FLOAT: {
-        create_texpr_literal_node<float_t>(data, &node);
+        create_texpr_literal_node<TYPE_FLOAT>(data, &node);
         break;
     }
     case TYPE_DOUBLE: {
-        create_texpr_literal_node<double_t>(data, &node);
+        create_texpr_literal_node<TYPE_DOUBLE>(data, &node);
         break;
     }
     case TYPE_DATEV2: {
-        create_texpr_literal_node<doris::vectorized::DateV2Value>(data, &node);
+        create_texpr_literal_node<TYPE_DATEV2>(data, &node);
         break;
     }
-    case TYPE_DATE:
+    case TYPE_DATE: {
+        create_texpr_literal_node<TYPE_DATE>(data, &node);
+        break;
+    }
     case TYPE_DATETIME: {
-        create_texpr_literal_node<DateTimeValue>(data, &node);
+        create_texpr_literal_node<TYPE_DATETIME>(data, &node);
         break;
     }
     case TYPE_DECIMALV2: {
-        create_texpr_literal_node<DecimalV2Value>(data, &node);
+        create_texpr_literal_node<TYPE_DECIMALV2>(data, &node, type.precision, type.scale);
         break;
     }
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
+    case TYPE_DECIMAL32: {
+        create_texpr_literal_node<TYPE_DECIMAL32>(data, &node, type.precision, type.scale);
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        create_texpr_literal_node<TYPE_DECIMAL64>(data, &node, type.precision, type.scale);
+        break;
+    }
+    case TYPE_DECIMAL128: {
+        create_texpr_literal_node<TYPE_DECIMAL128>(data, &node, type.precision, type.scale);
+        break;
+    }
+    case TYPE_CHAR: {
+        create_texpr_literal_node<TYPE_CHAR>(data, &node);
+        break;
+    }
+    case TYPE_VARCHAR: {
+        create_texpr_literal_node<TYPE_VARCHAR>(data, &node);
+        break;
+    }
     case TYPE_STRING: {
-        create_texpr_literal_node<StringValue>(data, &node);
+        create_texpr_literal_node<TYPE_STRING>(data, &node);
         break;
     }
     default:
@@ -293,7 +329,7 @@ BinaryPredicate* create_bin_predicate(ObjectPool* pool, PrimitiveType prim_type,
     return (BinaryPredicate*)pool->add(BinaryPredicate::from_thrift(node));
 }
 
-Status create_vbin_predicate(ObjectPool* pool, PrimitiveType prim_type, TExprOpcode::type opcode,
+Status create_vbin_predicate(ObjectPool* pool, const TypeDescriptor& type, TExprOpcode::type opcode,
                              doris::vectorized::VExpr** expr, TExprNode* tnode) {
     TExprNode node;
     TScalarType tscalar_type;
@@ -306,9 +342,9 @@ Status create_vbin_predicate(ObjectPool* pool, PrimitiveType prim_type, TExprOpc
     node.__set_type(t_type_desc);
     node.__set_opcode(opcode);
     node.__set_vector_opcode(opcode);
-    node.__set_child_type(to_thrift(prim_type));
+    node.__set_child_type(to_thrift(type.type));
     node.__set_num_children(2);
-    node.__set_output_scale(-1);
+    node.__set_output_scale(type.scale);
     node.__set_node_type(TExprNodeType::BINARY_PRED);
     TFunction fn;
     TFunctionName fn_name;
@@ -330,7 +366,9 @@ Status create_vbin_predicate(ObjectPool* pool, PrimitiveType prim_type, TExprOpc
     TTypeNode type_node;
     type_node.__set_type(TTypeNodeType::SCALAR);
     TScalarType scalar_type;
-    scalar_type.__set_type(to_thrift(prim_type));
+    scalar_type.__set_type(to_thrift(type.type));
+    scalar_type.__set_precision(type.precision);
+    scalar_type.__set_scale(type.scale);
     type_node.__set_scalar_type(scalar_type);
 
     std::vector<TTypeNode> type_nodes;
@@ -708,6 +746,34 @@ public:
             });
             break;
         }
+        case TYPE_DECIMAL32: {
+            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+                                       ObjectPool* pool) {
+                int32_t decimal_32_val = column.intval();
+                set->insert(&decimal_32_val);
+            });
+            break;
+        }
+        case TYPE_DECIMAL64: {
+            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+                                       ObjectPool* pool) {
+                int64_t decimal_64_val = column.longval();
+                set->insert(&decimal_64_val);
+            });
+            break;
+        }
+        case TYPE_DECIMAL128: {
+            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+                                       ObjectPool* pool) {
+                auto string_val = column.stringval();
+                StringParser::ParseResult result;
+                int128_t int128_val = StringParser::string_to_int<int128_t>(
+                        string_val.c_str(), string_val.length(), &result);
+                DCHECK(result == StringParser::PARSE_SUCCESS);
+                set->insert(&int128_val);
+            });
+            break;
+        }
         case TYPE_VARCHAR:
         case TYPE_CHAR:
         case TYPE_STRING: {
@@ -812,6 +878,28 @@ public:
             auto& max_val_ref = minmax_filter->max_val().stringval();
             DecimalV2Value min_val(min_val_ref);
             DecimalV2Value max_val(max_val_ref);
+            return _minmax_func->assign(&min_val, &max_val);
+        }
+        case TYPE_DECIMAL32: {
+            int32_t min_val = minmax_filter->min_val().intval();
+            int32_t max_val = minmax_filter->max_val().intval();
+            return _minmax_func->assign(&min_val, &max_val);
+        }
+        case TYPE_DECIMAL64: {
+            int64_t min_val = minmax_filter->min_val().longval();
+            int64_t max_val = minmax_filter->max_val().longval();
+            return _minmax_func->assign(&min_val, &max_val);
+        }
+        case TYPE_DECIMAL128: {
+            auto min_string_val = minmax_filter->min_val().stringval();
+            auto max_string_val = minmax_filter->max_val().stringval();
+            StringParser::ParseResult result;
+            int128_t min_val = StringParser::string_to_int<int128_t>(
+                    min_string_val.c_str(), min_string_val.length(), &result);
+            DCHECK(result == StringParser::PARSE_SUCCESS);
+            int128_t max_val = StringParser::string_to_int<int128_t>(
+                    max_string_val.c_str(), max_string_val.length(), &result);
+            DCHECK(result == StringParser::PARSE_SUCCESS);
             return _minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_VARCHAR:
@@ -1299,6 +1387,24 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
                                    });
         return;
     }
+    case TYPE_DECIMAL32: {
+        batch_copy<int32_t>(filter, it, [](PColumnValue* column, const int32_t* value) {
+            column->set_intval(*value);
+        });
+        return;
+    }
+    case TYPE_DECIMAL64: {
+        batch_copy<int64_t>(filter, it, [](PColumnValue* column, const int64_t* value) {
+            column->set_longval(*value);
+        });
+        return;
+    }
+    case TYPE_DECIMAL128: {
+        batch_copy<int128_t>(filter, it, [](PColumnValue* column, const int128_t* value) {
+            column->set_stringval(LargeIntValue::to_string(*value));
+        });
+        return;
+    }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
@@ -1386,6 +1492,23 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
                 reinterpret_cast<const DecimalV2Value*>(max_data)->to_string());
         return;
     }
+    case TYPE_DECIMAL32: {
+        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int32_t*>(min_data));
+        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
+        return;
+    }
+    case TYPE_DECIMAL64: {
+        filter->mutable_min_val()->set_longval(*reinterpret_cast<const int64_t*>(min_data));
+        filter->mutable_max_val()->set_longval(*reinterpret_cast<const int64_t*>(max_data));
+        return;
+    }
+    case TYPE_DECIMAL128: {
+        filter->mutable_min_val()->set_stringval(
+                LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(min_data)));
+        filter->mutable_max_val()->set_stringval(
+                LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(max_data)));
+        return;
+    }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
@@ -1465,16 +1588,16 @@ Status RuntimePredicateWrapper::get_push_context(T* container, RuntimeState* sta
         // create max filter
         Expr* max_literal = nullptr;
         auto max_pred = create_bin_predicate(_pool, _column_return_type, TExprOpcode::LE);
-        RETURN_IF_ERROR(create_literal<false>(_pool, _column_return_type, _minmax_func->get_max(),
-                                              (void**)&max_literal));
+        RETURN_IF_ERROR(create_literal<false>(_pool, prob_expr->root()->type(),
+                                              _minmax_func->get_max(), (void**)&max_literal));
         max_pred->add_child(Expr::copy(_pool, prob_expr->root()));
         max_pred->add_child(max_literal);
         container->push_back(_pool->add(new ExprContext(max_pred)));
         // create min filter
         Expr* min_literal = nullptr;
         auto min_pred = create_bin_predicate(_pool, _column_return_type, TExprOpcode::GE);
-        RETURN_IF_ERROR(create_literal<false>(_pool, _column_return_type, _minmax_func->get_min(),
-                                              (void**)&min_literal));
+        RETURN_IF_ERROR(create_literal<false>(_pool, prob_expr->root()->type(),
+                                              _minmax_func->get_min(), (void**)&min_literal));
         min_pred->add_child(Expr::copy(_pool, prob_expr->root()));
         min_pred->add_child(min_literal);
         container->push_back(_pool->add(new ExprContext(min_pred)));
@@ -1533,7 +1656,8 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
             expr->add_child(cloned_vexpr);
 
             auto& children = const_cast<std::vector<doris::vectorized::VExpr*>&>(expr->children());
-            _hybrid_set->to_vexpr_list(_pool, &children);
+            _hybrid_set->to_vexpr_list(_pool, &children, vprob_expr->root()->type().precision,
+                                       vprob_expr->root()->type().scale);
             container->push_back(
                     _pool->add(new doris::vectorized::VRuntimeFilterWrapper(node, expr)));
         }
@@ -1543,11 +1667,11 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
         doris::vectorized::VExpr* max_pred = nullptr;
         // create max filter
         TExprNode max_pred_node;
-        RETURN_IF_ERROR(create_vbin_predicate(_pool, _column_return_type, TExprOpcode::LE,
+        RETURN_IF_ERROR(create_vbin_predicate(_pool, vprob_expr->root()->type(), TExprOpcode::LE,
                                               &max_pred, &max_pred_node));
         doris::vectorized::VExpr* max_literal = nullptr;
-        RETURN_IF_ERROR(create_literal<true>(_pool, _column_return_type, _minmax_func->get_max(),
-                                             (void**)&max_literal));
+        RETURN_IF_ERROR(create_literal<true>(_pool, vprob_expr->root()->type(),
+                                             _minmax_func->get_max(), (void**)&max_literal));
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         max_pred->add_child(cloned_vexpr);
         max_pred->add_child(max_literal);
@@ -1557,11 +1681,11 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
         // create min filter
         doris::vectorized::VExpr* min_pred = nullptr;
         TExprNode min_pred_node;
-        RETURN_IF_ERROR(create_vbin_predicate(_pool, _column_return_type, TExprOpcode::GE,
+        RETURN_IF_ERROR(create_vbin_predicate(_pool, vprob_expr->root()->type(), TExprOpcode::GE,
                                               &min_pred, &min_pred_node));
         doris::vectorized::VExpr* min_literal = nullptr;
-        RETURN_IF_ERROR(create_literal<true>(_pool, _column_return_type, _minmax_func->get_min(),
-                                             (void**)&min_literal));
+        RETURN_IF_ERROR(create_literal<true>(_pool, vprob_expr->root()->type(),
+                                             _minmax_func->get_min(), (void**)&min_literal));
         cloned_vexpr = vprob_expr->root()->clone(_pool);
         min_pred->add_child(cloned_vexpr);
         min_pred->add_child(min_literal);

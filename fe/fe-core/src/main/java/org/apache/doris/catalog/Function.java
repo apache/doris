@@ -452,7 +452,7 @@ public class Function implements Writable {
         }
     }
 
-    public TFunction toThrift() {
+    public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
         TFunction fn = new TFunction();
         fn.setSignature(signatureString());
         fn.setName(name.toThrift());
@@ -460,8 +460,14 @@ public class Function implements Writable {
         if (location != null) {
             fn.setHdfsLocation(location.getLocation());
         }
-        fn.setArgTypes(Type.toThrift(argTypes));
-        fn.setRetType(getReturnType().toThrift());
+        fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes), Lists.newArrayList(realArgTypes)));
+        // For types with different precisions and scales, return type only indicates a type with default
+        // precision and scale so we need to transform it to the correct type.
+        if (PrimitiveType.typeWithPrecision.contains(realReturnType.getPrimitiveType())) {
+            fn.setRetType(realReturnType.toThrift());
+        } else {
+            fn.setRetType(getReturnType().toThrift());
+        }
         fn.setHasVarArgs(hasVarArgs);
         // TODO: Comment field is missing?
         // fn.setComment(comment)
@@ -512,6 +518,12 @@ public class Function implements Writable {
                 return "datetime_val";
             case DECIMALV2:
                 return "decimalv2_val";
+            case DECIMAL32:
+                return "decimal32_val";
+            case DECIMAL64:
+                return "decimal64_val";
+            case DECIMAL128:
+                return "decimal128_val";
             default:
                 Preconditions.checkState(false, t.toString());
                 return "";
@@ -554,6 +566,12 @@ public class Function implements Writable {
                 return "DateTimeVal";
             case DECIMALV2:
                 return "DecimalV2Val";
+            case DECIMAL32:
+                return "Decimal32Val";
+            case DECIMAL64:
+                return "Decimal64Val";
+            case DECIMAL128:
+                return "Decimal128Val";
             default:
                 Preconditions.checkState(false, t.toString());
                 return "";

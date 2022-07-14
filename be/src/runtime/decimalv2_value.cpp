@@ -352,7 +352,8 @@ int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
     int32_t error = E_DEC_OK;
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-    _value = StringParser::string_to_decimal(decimal_str, length, PRECISION, SCALE, &result);
+    _value = StringParser::string_to_decimal<__int128>(decimal_str, length, PRECISION, SCALE,
+                                                       &result);
 
     if (result == StringParser::PARSE_FAILURE) {
         error = E_DEC_BAD_NUM;

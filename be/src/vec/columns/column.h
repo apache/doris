@@ -497,15 +497,18 @@ public:
     virtual bool is_date_type() const { return is_date; }
     virtual bool is_date_v2_type() const { return is_date_v2; }
     virtual bool is_datetime_type() const { return is_date_time; }
+    virtual bool is_decimalv2_type() const { return is_decimalv2; }
 
     virtual void set_date_type() { is_date = true; }
     virtual void set_date_v2_type() { is_date_v2 = true; }
     virtual void set_datetime_type() { is_date_time = true; }
+    virtual void set_decimalv2_type() { is_decimalv2 = true; }
 
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;
     bool is_date_time = false;
     bool is_date_v2 = false;
+    bool is_decimalv2 = false;
 
 protected:
     /// Template is to devirtualize calls to insert_from method.

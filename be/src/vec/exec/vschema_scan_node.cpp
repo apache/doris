@@ -358,13 +358,15 @@ Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescript
         break;
     }
 
-    case TYPE_INT: {
+    case TYPE_INT:
+    case TYPE_DECIMAL32: {
         int32_t num = *reinterpret_cast<int32_t*>(slot);
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(num);
         break;
     }
 
-    case TYPE_BIGINT: {
+    case TYPE_BIGINT:
+    case TYPE_DECIMAL64: {
         int64_t num = *reinterpret_cast<int64_t*>(slot);
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
         break;
@@ -415,7 +417,8 @@ Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescript
         break;
     }
 
-    case TYPE_DECIMALV2: {
+    case TYPE_DECIMALV2:
+    case TYPE_DECIMAL128: {
         __int128 num = (reinterpret_cast<PackedInt128*>(slot))->value;
         reinterpret_cast<vectorized::ColumnVector<doris::PackedInt128>*>(col_ptr)->insert_value(
                 num);

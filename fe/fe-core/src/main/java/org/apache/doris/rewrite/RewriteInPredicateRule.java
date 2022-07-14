@@ -26,6 +26,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.collect.Lists;
@@ -82,7 +83,8 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
             // cannot be directly converted to LargeIntLiteral, so it is converted to decimal first.
             if (childExpr.getType().getPrimitiveType().isCharFamily() || childExpr.getType().isFloatingPointType()) {
                 try {
-                    childExpr = (LiteralExpr) childExpr.castTo(Type.DECIMALV2);
+                    childExpr = (LiteralExpr) childExpr.castTo(Config.enable_decimalv3
+                            ? Type.DECIMAL32 : Type.DECIMALV2);
                 } catch (AnalysisException e) {
                     continue;
                 }

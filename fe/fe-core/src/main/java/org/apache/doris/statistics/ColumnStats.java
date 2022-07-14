@@ -149,6 +149,9 @@ public class ColumnStats {
             case DOUBLE:
                 return new FloatLiteral(columnValue);
             case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(columnValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 return decimalLiteral;

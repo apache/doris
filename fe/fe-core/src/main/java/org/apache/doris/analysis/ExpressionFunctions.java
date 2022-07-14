@@ -233,7 +233,7 @@ public enum ExpressionFunctions {
                 exprs = new IntLiteral[args.size()];
             } else if (argType.isDateType()) {
                 exprs = new DateLiteral[args.size()];
-            } else if (argType.isDecimalV2()) {
+            } else if (argType.isDecimalV2() || argType.isDecimalV3()) {
                 exprs = new DecimalLiteral[args.size()];
             } else if (argType.isFloatingPointType()) {
                 exprs = new FloatLiteral[args.size()];

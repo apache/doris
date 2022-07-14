@@ -217,10 +217,10 @@ public class ColumnTypeTest {
         ScalarType type2 = ScalarType.createType(PrimitiveType.BIGINT);
         ColumnType.write(dos, type2);
 
-        ScalarType type3 = ScalarType.createDecimalV2Type(1, 1);
+        ScalarType type3 = ScalarType.createDecimalType(1, 1);
         ColumnType.write(dos, type3);
 
-        ScalarType type4 = ScalarType.createDecimalV2Type(1, 1);
+        ScalarType type4 = ScalarType.createDecimalType(1, 1);
         ColumnType.write(dos, type4);
 
         // 2. Read objects from file

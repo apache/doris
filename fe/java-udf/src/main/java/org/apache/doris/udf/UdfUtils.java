@@ -76,7 +76,7 @@ public class UdfUtils {
                 } else if (scalarType.getType() == TPrimitiveType.DECIMALV2) {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetScale());
-                    type = ScalarType.createDecimalV2Type(scalarType.getPrecision(),
+                    type = ScalarType.createDecimalType(scalarType.getPrecision(),
                             scalarType.getScale());
                 } else {
                     type = ScalarType.createType(

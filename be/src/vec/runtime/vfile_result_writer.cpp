@@ -291,6 +291,18 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     _plain_text_outstream << decimal_str;
                     break;
                 }
+                case TYPE_DECIMAL32: {
+                    _plain_text_outstream << col.type->to_string(*col.column, i);
+                    break;
+                }
+                case TYPE_DECIMAL64: {
+                    _plain_text_outstream << col.type->to_string(*col.column, i);
+                    break;
+                }
+                case TYPE_DECIMAL128: {
+                    _plain_text_outstream << col.type->to_string(*col.column, i);
+                    break;
+                }
                 default: {
                     // not supported type, like BITMAP, HLL, just export null
                     _plain_text_outstream << NULL_IN_CSV;

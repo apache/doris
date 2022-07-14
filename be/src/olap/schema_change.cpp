@@ -2402,6 +2402,8 @@ Status SchemaChangeHandler::_parse_request(
             auto column_new = new_tablet_schema.column(i);
             auto column_old = ref_tablet_schema.column(column_mapping->ref_column);
             if (column_new.type() != column_old.type() ||
+                column_new.precision() != column_old.precision() ||
+                column_new.frac() != column_old.frac() ||
                 column_new.length() != column_old.length() ||
                 column_new.is_bf_column() != column_old.is_bf_column() ||
                 column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
@@ -2437,7 +2439,8 @@ Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
     if (column_schema.is_nullable() && value.length() == 0) {
         column_mapping->default_value->set_null();
     } else {
-        column_mapping->default_value->from_string(value);
+        column_mapping->default_value->from_string(value, column_schema.precision(),
+                                                   column_schema.frac());
     }
 
     return Status::OK();

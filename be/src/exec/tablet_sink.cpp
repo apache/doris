@@ -768,6 +768,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         auto slot = _output_tuple_desc->slots()[i];
         switch (slot->type().type) {
+        // For DECIMAL32,DECIMAL64,DECIMAL128, we have done precision and scale conversion so just
+        // skip data validation here.
         case TYPE_DECIMALV2:
             _max_decimalv2_val[i].to_max_decimal(slot->type().precision, slot->type().scale);
             _min_decimalv2_val[i].to_min_decimal(slot->type().precision, slot->type().scale);

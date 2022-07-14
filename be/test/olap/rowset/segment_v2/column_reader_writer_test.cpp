@@ -463,10 +463,10 @@ void test_read_default_value(string value, void* result) {
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
-        DefaultValueColumnIterator iter(tablet_column.has_default_value(),
-                                        tablet_column.default_value(), tablet_column.is_nullable(),
-                                        create_static_type_info_ptr(scalar_type_info),
-                                        tablet_column.length());
+        DefaultValueColumnIterator iter(
+                tablet_column.has_default_value(), tablet_column.default_value(),
+                tablet_column.is_nullable(), create_static_type_info_ptr(scalar_type_info),
+                tablet_column.length(), tablet_column.precision(), tablet_column.frac());
         ColumnIteratorOptions iter_opts;
         auto st = iter.init(iter_opts);
         EXPECT_TRUE(st.ok());
@@ -575,10 +575,10 @@ void test_v_read_default_value(string value, void* result) {
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
-        DefaultValueColumnIterator iter(tablet_column.has_default_value(),
-                                        tablet_column.default_value(), tablet_column.is_nullable(),
-                                        create_static_type_info_ptr(scalar_type_info),
-                                        tablet_column.length());
+        DefaultValueColumnIterator iter(
+                tablet_column.has_default_value(), tablet_column.default_value(),
+                tablet_column.is_nullable(), create_static_type_info_ptr(scalar_type_info),
+                tablet_column.length(), tablet_column.precision(), tablet_column.frac());
         ColumnIteratorOptions iter_opts;
         auto st = iter.init(iter_opts);
         EXPECT_TRUE(st.ok());

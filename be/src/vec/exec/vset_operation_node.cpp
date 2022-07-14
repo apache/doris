@@ -163,16 +163,19 @@ void VSetOperationNode::hash_table_init() {
         case TYPE_INT:
         case TYPE_FLOAT:
         case TYPE_DATEV2:
+        case TYPE_DECIMAL32:
             _hash_table_variants.emplace<I32HashTableContext>();
             break;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
         case TYPE_DATETIME:
         case TYPE_DATE:
+        case TYPE_DECIMAL64:
             _hash_table_variants.emplace<I64HashTableContext>();
             break;
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
+        case TYPE_DECIMAL128:
             _hash_table_variants.emplace<I128HashTableContext>();
             break;
         default:

@@ -392,6 +392,18 @@ public:
             reinterpret_cast<doris_udf::DecimalV2Val*>(dst)->val =
                     reinterpret_cast<const PackedInt128*>(slot)->value;
             return;
+        case TYPE_DECIMAL32:
+            reinterpret_cast<doris_udf::Decimal32Val*>(dst)->val =
+                    *reinterpret_cast<const int32_t*>(slot);
+            return;
+        case TYPE_DECIMAL64:
+            reinterpret_cast<doris_udf::Decimal64Val*>(dst)->val =
+                    *reinterpret_cast<const int64_t*>(slot);
+            return;
+        case TYPE_DECIMAL128:
+            memcpy(&reinterpret_cast<doris_udf::Decimal128Val*>(dst)->val, slot, sizeof(__int128));
+            return;
+
         case TYPE_DATE:
             reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
                     reinterpret_cast<doris_udf::DateTimeVal*>(dst));

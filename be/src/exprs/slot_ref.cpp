@@ -235,6 +235,36 @@ DecimalV2Val SlotRef::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     return DecimalV2Val(reinterpret_cast<PackedInt128*>(t->get_slot(_slot_offset))->value);
 }
 
+Decimal32Val SlotRef::get_decimal32_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_DECIMAL32);
+    Tuple* t = row->get_tuple(_tuple_idx);
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
+        return Decimal32Val::null();
+    }
+
+    return Decimal32Val(*reinterpret_cast<int32_t*>(t->get_slot(_slot_offset)));
+}
+
+Decimal64Val SlotRef::get_decimal64_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_DECIMAL64);
+    Tuple* t = row->get_tuple(_tuple_idx);
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
+        return Decimal64Val::null();
+    }
+
+    return Decimal64Val(*reinterpret_cast<int64_t*>(t->get_slot(_slot_offset)));
+}
+
+Decimal128Val SlotRef::get_decimal128_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_DECIMAL128);
+    Tuple* t = row->get_tuple(_tuple_idx);
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
+        return Decimal128Val::null();
+    }
+
+    return Decimal128Val(reinterpret_cast<PackedInt128*>(t->get_slot(_slot_offset))->value);
+}
+
 doris_udf::CollectionVal SlotRef::get_array_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_ARRAY);
 

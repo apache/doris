@@ -63,7 +63,10 @@ public abstract class ColumnParser implements Serializable {
                 || columnType.equalsIgnoreCase("BITMAP")
                 || columnType.equalsIgnoreCase("HLL")) {
             return new StringParser(etlColumn);
-        } else if (columnType.equalsIgnoreCase("DECIMALV2")) {
+        } else if (columnType.equalsIgnoreCase("DECIMALV2")
+                || columnType.equalsIgnoreCase("DECIMAL32")
+                || columnType.equalsIgnoreCase("DECIMAL64")
+                || columnType.equalsIgnoreCase("DECIMAL128")) {
             return new DecimalParser(etlColumn);
         } else if (columnType.equalsIgnoreCase("LARGEINT")) {
             return new LargeIntParser();

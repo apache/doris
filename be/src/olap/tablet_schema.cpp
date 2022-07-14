@@ -63,6 +63,12 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_DATEV2;
     } else if (0 == upper_type_str.compare("DATETIME")) {
         type = OLAP_FIELD_TYPE_DATETIME;
+    } else if (0 == upper_type_str.compare("DECIMAL32")) {
+        type = OLAP_FIELD_TYPE_DECIMAL32;
+    } else if (0 == upper_type_str.compare("DECIMAL64")) {
+        type = OLAP_FIELD_TYPE_DECIMAL64;
+    } else if (0 == upper_type_str.compare("DECIMAL128")) {
+        type = OLAP_FIELD_TYPE_DECIMAL128;
     } else if (0 == upper_type_str.compare(0, 7, "DECIMAL")) {
         type = OLAP_FIELD_TYPE_DECIMAL;
     } else if (0 == upper_type_str.compare(0, 7, "VARCHAR")) {
@@ -177,6 +183,15 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case OLAP_FIELD_TYPE_DECIMAL:
         return "DECIMAL";
 
+    case OLAP_FIELD_TYPE_DECIMAL32:
+        return "DECIMAL32";
+
+    case OLAP_FIELD_TYPE_DECIMAL64:
+        return "DECIMAL64";
+
+    case OLAP_FIELD_TYPE_DECIMAL128:
+        return "DECIMAL128";
+
     case OLAP_FIELD_TYPE_VARCHAR:
         return "VARCHAR";
 
@@ -277,6 +292,12 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
     case TPrimitiveType::ARRAY:
         return OLAP_ARRAY_MAX_LENGTH;
+    case TPrimitiveType::DECIMAL32:
+        return 4;
+    case TPrimitiveType::DECIMAL64:
+        return 8;
+    case TPrimitiveType::DECIMAL128:
+        return 16;
     case TPrimitiveType::DECIMALV2:
         return 12; // use 12 bytes in olap engine.
     default:

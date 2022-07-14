@@ -29,18 +29,34 @@
 #include "olap/tuple.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
+#include "vec/io/io_helper.h"
 
 namespace doris {
 
-template <class T>
-std::string cast_to_string(T value) {
-    return boost::lexical_cast<std::string>(value);
+template <PrimitiveType primitive_type, class T>
+std::string cast_to_string(T value, int scale) {
+    if constexpr (primitive_type == TYPE_DECIMAL32) {
+        std::stringstream ss;
+        vectorized::write_text<int32_t>((int32_t)value, scale, ss);
+        return ss.str();
+    } else if constexpr (primitive_type == TYPE_DECIMAL64) {
+        std::stringstream ss;
+        vectorized::write_text<int64_t>((int64_t)value, scale, ss);
+        return ss.str();
+    } else if constexpr (primitive_type == TYPE_DECIMAL128) {
+        std::stringstream ss;
+        vectorized::write_text<int128_t>((int128_t)value, scale, ss);
+        return ss.str();
+    } else if constexpr (primitive_type == TYPE_TINYINT) {
+        return std::to_string(static_cast<int>(value));
+    } else if constexpr (primitive_type == TYPE_LARGEINT) {
+        std::stringstream ss;
+        ss << value;
+        return ss.str();
+    } else {
+        return boost::lexical_cast<std::string>(value);
+    }
 }
-
-// TYPE_TINYINT should cast to int32_t to first
-// because it need to convert to num not char for build Olap fetch Query
-template <>
-std::string cast_to_string(int8_t);
 
 /**
  * @brief Column's value range
@@ -57,6 +73,11 @@ public:
 
     ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
                      bool contain_null);
+
+    ColumnValueRange(std::string col_name, int precision, int scale);
+
+    ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
+                     bool contain_null, int precision, int scale);
 
     // should add fixed value before add range
     Status add_fixed_value(const CppType& value);
@@ -138,7 +159,8 @@ public:
             if (TYPE_MIN != _low_value || FILTER_LARGER_OR_EQUAL != _low_op) {
                 low.__set_column_name(_column_name);
                 low.__set_condition_op((_low_op == FILTER_LARGER_OR_EQUAL ? ">=" : ">>"));
-                low.condition_values.push_back(cast_to_string(_low_value));
+                low.condition_values.push_back(
+                        cast_to_string<primitive_type, CppType>(_low_value, _scale));
             }
 
             if (low.condition_values.size() != 0) {
@@ -149,7 +171,8 @@ public:
             if (TYPE_MAX != _high_value || FILTER_LESS_OR_EQUAL != _high_op) {
                 high.__set_column_name(_column_name);
                 high.__set_condition_op((_high_op == FILTER_LESS_OR_EQUAL ? "<=" : "<<"));
-                high.condition_values.push_back(cast_to_string(_high_value));
+                high.condition_values.push_back(
+                        cast_to_string<primitive_type, CppType>(_high_value, _scale));
             }
 
             if (high.condition_values.size() != 0) {
@@ -176,7 +199,8 @@ public:
         condition.__set_condition_op(is_in ? "*=" : "!*=");
 
         for (const auto& value : _fixed_values) {
-            condition.condition_values.push_back(cast_to_string(value));
+            condition.condition_values.push_back(
+                    cast_to_string<primitive_type, CppType>(value, _scale));
         }
 
         if (condition.condition_values.size() != 0) {
@@ -214,6 +238,8 @@ public:
         _contain_null = contain_null;
     };
 
+    const int scale() { return _scale; }
+
     static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
         range.add_fixed_value(*value);
     }
@@ -229,6 +255,18 @@ public:
     static ColumnValueRange<primitive_type> create_empty_column_value_range(
             const std::string& col_name) {
         return ColumnValueRange<primitive_type>(col_name, TYPE_MAX, TYPE_MIN, false);
+    }
+
+    static ColumnValueRange<primitive_type> create_empty_column_value_range(int precision,
+                                                                            int scale) {
+        return ColumnValueRange<primitive_type>::create_empty_column_value_range("", precision,
+                                                                                 scale);
+    }
+
+    static ColumnValueRange<primitive_type> create_empty_column_value_range(
+            const std::string& col_name, int precision, int scale) {
+        return ColumnValueRange<primitive_type>(col_name, TYPE_MAX, TYPE_MIN, false, precision,
+                                                scale);
     }
 
 protected:
@@ -247,6 +285,8 @@ private:
     std::set<CppType> _fixed_values; // Column's fixed int value
 
     bool _contain_null;
+    int _precision;
+    int _scale;
 };
 
 class OlapScanKeys {
@@ -314,13 +354,14 @@ private:
     bool _is_convertible;
 };
 
-typedef std::variant<ColumnValueRange<TYPE_TINYINT>, ColumnValueRange<TYPE_SMALLINT>,
-                     ColumnValueRange<TYPE_INT>, ColumnValueRange<TYPE_BIGINT>,
-                     ColumnValueRange<TYPE_LARGEINT>, ColumnValueRange<TYPE_CHAR>,
-                     ColumnValueRange<TYPE_VARCHAR>, ColumnValueRange<TYPE_STRING>,
-                     ColumnValueRange<TYPE_DATE>, ColumnValueRange<TYPE_DATEV2>,
-                     ColumnValueRange<TYPE_DATETIME>, ColumnValueRange<TYPE_DECIMALV2>,
-                     ColumnValueRange<TYPE_BOOLEAN>, ColumnValueRange<TYPE_HLL>>
+typedef std::variant<
+        ColumnValueRange<TYPE_TINYINT>, ColumnValueRange<TYPE_SMALLINT>, ColumnValueRange<TYPE_INT>,
+        ColumnValueRange<TYPE_BIGINT>, ColumnValueRange<TYPE_LARGEINT>, ColumnValueRange<TYPE_CHAR>,
+        ColumnValueRange<TYPE_VARCHAR>, ColumnValueRange<TYPE_STRING>, ColumnValueRange<TYPE_DATE>,
+        ColumnValueRange<TYPE_DATEV2>, ColumnValueRange<TYPE_DATETIME>,
+        ColumnValueRange<TYPE_DECIMALV2>, ColumnValueRange<TYPE_BOOLEAN>,
+        ColumnValueRange<TYPE_HLL>, ColumnValueRange<TYPE_DECIMAL32>,
+        ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128>>
         ColumnValueRangeType;
 
 template <PrimitiveType primitive_type>
@@ -333,7 +374,8 @@ const typename ColumnValueRange<primitive_type>::CppType
                 type_limit<typename ColumnValueRange<primitive_type>::CppType>::max();
 
 template <PrimitiveType primitive_type>
-ColumnValueRange<primitive_type>::ColumnValueRange() : _column_type(INVALID_TYPE) {}
+ColumnValueRange<primitive_type>::ColumnValueRange()
+        : _column_type(INVALID_TYPE), _precision(-1), _scale(-1) {}
 
 template <PrimitiveType primitive_type>
 ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name)
@@ -348,7 +390,27 @@ ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const C
           _high_value(max),
           _low_op(FILTER_LARGER_OR_EQUAL),
           _high_op(FILTER_LESS_OR_EQUAL),
-          _contain_null(contain_null) {}
+          _contain_null(contain_null),
+          _precision(-1),
+          _scale(-1) {}
+
+template <PrimitiveType primitive_type>
+ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const CppType& min,
+                                                   const CppType& max, bool contain_null,
+                                                   int precision, int scale)
+        : _column_name(std::move(col_name)),
+          _column_type(primitive_type),
+          _low_value(min),
+          _high_value(max),
+          _low_op(FILTER_LARGER_OR_EQUAL),
+          _high_op(FILTER_LESS_OR_EQUAL),
+          _contain_null(contain_null),
+          _precision(precision),
+          _scale(scale) {}
+
+template <PrimitiveType primitive_type>
+ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, int precision, int scale)
+        : ColumnValueRange(std::move(col_name), TYPE_MIN, TYPE_MAX, true, precision, scale) {}
 
 template <PrimitiveType primitive_type>
 Status ColumnValueRange<primitive_type>::add_fixed_value(const CppType& value) {
@@ -803,9 +865,11 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
 
             for (; iter != fixed_value_set.end(); ++iter) {
                 _begin_scan_keys.emplace_back();
-                _begin_scan_keys.back().add_value(cast_to_string(*iter));
+                _begin_scan_keys.back().add_value(
+                        cast_to_string<primitive_type, CppType>(*iter, range.scale()));
                 _end_scan_keys.emplace_back();
-                _end_scan_keys.back().add_value(cast_to_string(*iter));
+                _end_scan_keys.back().add_value(
+                        cast_to_string<primitive_type, CppType>(*iter, range.scale()));
             }
 
             if (range.contain_null()) {
@@ -828,14 +892,18 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                 for (; iter != fixed_value_set.end(); ++iter) {
                     // alter the first ScanKey in original place
                     if (iter == fixed_value_set.begin()) {
-                        _begin_scan_keys[i].add_value(cast_to_string(*iter));
-                        _end_scan_keys[i].add_value(cast_to_string(*iter));
+                        _begin_scan_keys[i].add_value(
+                                cast_to_string<primitive_type, CppType>(*iter, range.scale()));
+                        _end_scan_keys[i].add_value(
+                                cast_to_string<primitive_type, CppType>(*iter, range.scale()));
                     } // append follow ScanKey
                     else {
                         _begin_scan_keys.push_back(start_base_key_range);
-                        _begin_scan_keys.back().add_value(cast_to_string(*iter));
+                        _begin_scan_keys.back().add_value(
+                                cast_to_string<primitive_type, CppType>(*iter, range.scale()));
                         _end_scan_keys.push_back(end_base_key_range);
-                        _end_scan_keys.back().add_value(cast_to_string(*iter));
+                        _end_scan_keys.back().add_value(
+                                cast_to_string<primitive_type, CppType>(*iter, range.scale()));
                     }
                 }
 
@@ -856,18 +924,22 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
 
         if (_begin_scan_keys.empty()) {
             _begin_scan_keys.emplace_back();
-            _begin_scan_keys.back().add_value(cast_to_string(range.get_range_min_value()),
+            _begin_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
+                                                      range.get_range_min_value(), range.scale()),
                                               range.contain_null());
             _end_scan_keys.emplace_back();
-            _end_scan_keys.back().add_value(cast_to_string(range.get_range_max_value()));
+            _end_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
+                    range.get_range_max_value(), range.scale()));
         } else {
             for (int i = 0; i < _begin_scan_keys.size(); ++i) {
-                _begin_scan_keys[i].add_value(cast_to_string(range.get_range_min_value()),
+                _begin_scan_keys[i].add_value(cast_to_string<primitive_type, CppType>(
+                                                      range.get_range_min_value(), range.scale()),
                                               range.contain_null());
             }
 
             for (int i = 0; i < _end_scan_keys.size(); ++i) {
-                _end_scan_keys[i].add_value(cast_to_string(range.get_range_max_value()));
+                _end_scan_keys[i].add_value(cast_to_string<primitive_type, CppType>(
+                        range.get_range_max_value(), range.scale()));
             }
         }
 

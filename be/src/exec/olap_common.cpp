@@ -30,18 +30,6 @@
 namespace doris {
 
 template <>
-std::string cast_to_string(__int128 value) {
-    std::stringstream ss;
-    ss << value;
-    return ss.str();
-}
-
-template <>
-std::string cast_to_string(int8_t value) {
-    return std::to_string(static_cast<int>(value));
-}
-
-template <>
 void ColumnValueRange<PrimitiveType::TYPE_STRING>::convert_to_fixed_value() {
     return;
 }

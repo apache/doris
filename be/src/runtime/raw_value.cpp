@@ -22,10 +22,12 @@
 
 #include <sstream>
 
+#include "common/consts.h"
 #include "runtime/collection_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/tuple.h"
 #include "util/types.h"
+#include "vec/io/io_helper.h"
 
 namespace doris {
 
@@ -90,6 +92,18 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
 
     case TYPE_DECIMALV2:
         stream->write(chars, sizeof(DecimalV2Value));
+        break;
+
+    case TYPE_DECIMAL32:
+        stream->write(chars, 4);
+        break;
+
+    case TYPE_DECIMAL64:
+        stream->write(chars, 8);
+        break;
+
+    case TYPE_DECIMAL128:
+        stream->write(chars, 16);
         break;
 
     case TYPE_LARGEINT:
@@ -173,6 +187,24 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
     case TYPE_DECIMALV2:
         *stream << DecimalV2Value(reinterpret_cast<const PackedInt128*>(value)->value).to_string();
         break;
+
+    case TYPE_DECIMAL32: {
+        auto decimal_val = reinterpret_cast<const doris::vectorized::Decimal32*>(value);
+        write_text(*decimal_val, type.scale, *stream);
+        break;
+    }
+
+    case TYPE_DECIMAL64: {
+        auto decimal_val = reinterpret_cast<const doris::vectorized::Decimal64*>(value);
+        write_text(*decimal_val, type.scale, *stream);
+        break;
+    }
+
+    case TYPE_DECIMAL128: {
+        auto decimal_val = reinterpret_cast<const doris::vectorized::Decimal128*>(value);
+        write_text(*decimal_val, type.scale, *stream);
+        break;
+    }
 
     case TYPE_LARGEINT:
         *stream << reinterpret_cast<const PackedInt128*>(value)->value;
@@ -310,6 +342,19 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
         *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
         break;
 
+    case TYPE_DECIMAL32:
+        *reinterpret_cast<doris::vectorized::Decimal32*>(dst) =
+                *reinterpret_cast<const doris::vectorized::Decimal32*>(value);
+        break;
+    case TYPE_DECIMAL64:
+        *reinterpret_cast<doris::vectorized::Decimal64*>(dst) =
+                *reinterpret_cast<const doris::vectorized::Decimal64*>(value);
+        break;
+    case TYPE_DECIMAL128:
+        *reinterpret_cast<doris::vectorized::Decimal128*>(dst) =
+                *reinterpret_cast<const doris::vectorized::Decimal128*>(value);
+        break;
+
     case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_QUANTILE_STATE:
@@ -412,6 +457,19 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
         *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
         break;
 
+    case TYPE_DECIMAL32:
+        *reinterpret_cast<doris::vectorized::Decimal32*>(dst) =
+                *reinterpret_cast<const doris::vectorized::Decimal32*>(value);
+        break;
+    case TYPE_DECIMAL64:
+        *reinterpret_cast<doris::vectorized::Decimal64*>(dst) =
+                *reinterpret_cast<const doris::vectorized::Decimal64*>(value);
+        break;
+    case TYPE_DECIMAL128:
+        *reinterpret_cast<doris::vectorized::Decimal128*>(dst) =
+                *reinterpret_cast<const doris::vectorized::Decimal128*>(value);
+        break;
+
     default:
         DCHECK(false) << "RawValue::write(): bad type: " << type.debug_string();
     }
@@ -508,6 +566,25 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
         DecimalV2Value decimal_value1(reinterpret_cast<const PackedInt128*>(v1)->value);
         DecimalV2Value decimal_value2(reinterpret_cast<const PackedInt128*>(v2)->value);
         return (decimal_value1 > decimal_value2) ? 1 : (decimal_value1 < decimal_value2 ? -1 : 0);
+    }
+
+    case TYPE_DECIMAL32: {
+        i1 = *reinterpret_cast<const int32_t*>(v1);
+        i2 = *reinterpret_cast<const int32_t*>(v2);
+        return i1 > i2 ? 1 : (i1 < i2 ? -1 : 0);
+    }
+
+    case TYPE_DECIMAL64: {
+        b1 = *reinterpret_cast<const int64_t*>(v1);
+        b2 = *reinterpret_cast<const int64_t*>(v2);
+        return b1 > b2 ? 1 : (b1 < b2 ? -1 : 0);
+    }
+
+    case TYPE_DECIMAL128: {
+        __int128 large_int_value1 = reinterpret_cast<const PackedInt128*>(v1)->value;
+        __int128 large_int_value2 = reinterpret_cast<const PackedInt128*>(v2)->value;
+        return large_int_value1 > large_int_value2 ? 1
+                                                   : (large_int_value1 < large_int_value2 ? -1 : 0);
     }
 
     case TYPE_LARGEINT: {

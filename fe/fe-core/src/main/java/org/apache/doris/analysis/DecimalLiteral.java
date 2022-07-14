@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
@@ -72,9 +73,35 @@ public class DecimalLiteral extends LiteralExpr {
         return new DecimalLiteral(this);
     }
 
+    /**
+     * Get precision and scale of java BigDecimal.
+     * The precision is the number of digits in the unscaled value for BigDecimal.
+     * The unscaled value of BigDecimal computes this * 10^this.scale().
+     * If zero or positive, the scale is the number of digits to the right of the decimal point.
+     * If negative, the unscaled value of the number is multiplied by ten to the power of the negation of the scale.
+     * There are two scenarios that do not meet the limit: 0 < P and 0 <= S <= P
+     * case1: S >= 0 and S > P. i.e. BigDecimal(0.01234), precision = 4, scale = 5
+     * case2: S < 0. i.e. BigDecimal(2000), precision = 1, scale = -3
+     */
+    public static int getBigDecimalPrecision(BigDecimal decimal) {
+        int scale = decimal.scale();
+        int precision = decimal.precision();
+        if (scale < 0) {
+            return Math.abs(scale) + precision;
+        } else {
+            return Math.max(scale, precision);
+        }
+    }
+
+    public static int getBigDecimalScale(BigDecimal decimal) {
+        return Math.max(0, decimal.scale());
+    }
+
     private void init(BigDecimal value) {
         this.value = value;
-        type = Type.DECIMALV2;
+        int precision = getBigDecimalPrecision(this.value);
+        int scale = getBigDecimalScale(this.value);
+        type = ScalarType.createDecimalType(precision, scale);
     }
 
     public BigDecimal getValue() {
@@ -132,6 +159,9 @@ public class DecimalLiteral extends LiteralExpr {
                 buffer.putLong(value.longValue());
                 break;
             case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
                 buffer = ByteBuffer.allocate(12);
                 buffer.order(ByteOrder.LITTLE_ENDIAN);
 
@@ -232,16 +262,32 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     public void roundCeiling() {
-        value = value.setScale(0, RoundingMode.CEILING);
+        roundCeiling(0);
     }
 
     public void roundFloor() {
-        value = value.setScale(0, RoundingMode.FLOOR);
+        roundFloor(0);
+    }
+
+    public void roundCeiling(int newScale) {
+        value = value.setScale(newScale, RoundingMode.CEILING);
+        type = ScalarType.createDecimalType(((ScalarType) type)
+                .getPrimitiveType(), ((ScalarType) type).getScalarPrecision(), newScale);
+    }
+
+    public void roundFloor(int newScale) {
+        value = value.setScale(newScale, RoundingMode.FLOOR);
+        type = ScalarType.createDecimalType(((ScalarType) type)
+                .getPrimitiveType(), ((ScalarType) type).getScalarPrecision(), newScale);
     }
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (targetType.isDecimalV2()) {
+        if (targetType.isDecimalV2() && type.isDecimalV2()) {
+            return this;
+        } else if (targetType.isDecimalV3() && type.isDecimalV3()
+                && (((ScalarType) targetType).decimalPrecision() == value.precision())
+                && (((ScalarType) targetType).decimalScale() == value.precision())) {
             return this;
         } else if (targetType.isFloatingPointType()) {
             return new FloatLiteral(value.doubleValue(), targetType);

@@ -98,6 +98,9 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_FLOAT>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DOUBLE>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL32>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL64>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL128>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATE>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATEV2>();
@@ -135,6 +138,12 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
                           OLAP_FIELD_TYPE_DECIMAL>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
+                          OLAP_FIELD_TYPE_DECIMAL32>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
+                          OLAP_FIELD_TYPE_DECIMAL64>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
+                          OLAP_FIELD_TYPE_DECIMAL128>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
                           OLAP_FIELD_TYPE_ARRAY>();
 
     // Min Aggregate Function
@@ -146,6 +155,9 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_FLOAT>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_DOUBLE>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_DECIMAL>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_DECIMAL32>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_DECIMAL64>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_DECIMAL128>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_DATE>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_DATETIME>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_DATEV2>();
@@ -162,6 +174,9 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_FLOAT>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_DOUBLE>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_DECIMAL>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_DECIMAL32>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_DECIMAL64>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_DECIMAL128>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_DATE>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_DATETIME>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_DATEV2>();
@@ -178,6 +193,9 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_FLOAT>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_DOUBLE>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_DECIMAL>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_DECIMAL32>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_DECIMAL64>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_DECIMAL128>();
 
     // Replace Aggregate Function
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_BOOL>();
@@ -189,6 +207,9 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_FLOAT>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_DOUBLE>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_DECIMAL>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_DECIMAL32>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_DECIMAL64>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_DECIMAL128>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_DATE>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_DATETIME>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_DATEV2>();
@@ -206,6 +227,9 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_FLOAT>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_DOUBLE>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_DECIMAL>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_DECIMAL32>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_DECIMAL64>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_DECIMAL128>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_DATE>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_DATETIME>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_DATEV2>();

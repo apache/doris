@@ -23,6 +23,7 @@
 #include <string>
 
 #include "arrow/type.h"
+#include "common/consts.h"
 #include "gen_cpp/data.pb.h"
 #include "olap/field.h"
 #include "olap/tablet_schema.h"
@@ -66,6 +67,12 @@ public:
                     {"DateTime", std::make_shared<DataTypeDateTime>()},
                     {"String", std::make_shared<DataTypeString>()},
                     {"Decimal", std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)},
+                    {"Decimal32", std::make_shared<DataTypeDecimal<Decimal32>>(
+                                          BeConsts::MAX_DECIMAL32_PRECISION, 0)},
+                    {"Decimal64", std::make_shared<DataTypeDecimal<Decimal64>>(
+                                          BeConsts::MAX_DECIMAL64_PRECISION, 0)},
+                    {"Decimal128", std::make_shared<DataTypeDecimal<Decimal128>>(
+                                           BeConsts::MAX_DECIMAL128_PRECISION, 0)},
 
             };
             for (auto const& [key, val] : base_type_map) {
@@ -89,6 +96,9 @@ public:
             if (entity.first->equals(*type_ptr)) {
                 return entity.second;
             }
+            if (is_decimal(type_ptr) && type_ptr->get_type_id() == entity.first->get_type_id()) {
+                return entity.second;
+            }
         }
         return _empty_string;
     }
@@ -107,7 +117,7 @@ public:
     }
 
 private:
-    DataTypePtr _create_primitive_data_type(const FieldType& type) const;
+    DataTypePtr _create_primitive_data_type(const FieldType& type, int precision, int scale) const;
 
     void register_data_type(const std::string& name, const DataTypePtr& data_type) {
         _data_type_map.emplace(name, data_type);

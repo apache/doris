@@ -87,6 +87,10 @@ protected:
     virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
     virtual CollectionVal get_array_val(ExprContext* context, TupleRow*) override;
 
+    virtual Decimal32Val get_decimal32_val(ExprContext* context, TupleRow*) override;
+    virtual Decimal64Val get_decimal64_val(ExprContext* context, TupleRow*) override;
+    virtual Decimal128Val get_decimal128_val(ExprContext* context, TupleRow*) override;
+
 private:
     /// If this function has var args, children()[_vararg_start_idx] is the first vararg
     /// argument.

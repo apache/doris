@@ -87,6 +87,9 @@ enum TPrimitiveType {
   DATEV2,
   DATETIMEV2,
   TIMEV2,
+  DECIMAL32,
+  DECIMAL64,
+  DECIMAL128,
 }
 
 enum TTypeNodeType {

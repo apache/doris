@@ -96,7 +96,7 @@ public class ColumnGsonSerializationTest {
 
         Column c1 = new Column("c1", Type.fromPrimitiveType(PrimitiveType.BIGINT), true, null, true, "1", "abc");
         Column c2 = new Column("c2", ScalarType.createType(PrimitiveType.VARCHAR, 32, -1, -1), true, null, true, "cmy", "");
-        Column c3 = new Column("c3", ScalarType.createDecimalV2Type(27, 9), false, AggregateType.SUM, false, "1.1", "decimalv2");
+        Column c3 = new Column("c3", ScalarType.createDecimalType(27, 9), false, AggregateType.SUM, false, "1.1", "decimalv2");
 
         ColumnList columnList = new ColumnList();
         columnList.columns.add(c1);

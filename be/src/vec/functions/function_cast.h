@@ -365,8 +365,9 @@ struct NameToDateTime {
     static constexpr auto name = "toDateTime";
 };
 
-template <typename DataType>
-bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateLUTImpl*) {
+template <typename DataType, typename Additions = void*>
+bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateLUTImpl*,
+                    Additions additions [[maybe_unused]] = Additions()) {
     if constexpr (IsDateTimeType<DataType>) {
         return try_read_datetime_text(x, rb);
     }
@@ -393,7 +394,8 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
     }
 
     if constexpr (IsDataTypeDecimal<DataType>) {
-        return try_read_decimal_text(x, rb);
+        UInt32 scale = additions;
+        return try_read_decimal_text(x, rb, DataType::max_precision(), scale);
     }
 }
 
@@ -806,7 +808,8 @@ struct ConvertThroughParsing {
         typename ColVecTo::MutablePtr col_to = nullptr;
 
         if constexpr (IsDataTypeDecimal<ToDataType>) {
-            col_to = ColVecTo::create(size, 9);
+            UInt32 scale = additions;
+            col_to = ColVecTo::create(size, scale);
         } else
             col_to = ColVecTo::create(size);
 
@@ -838,9 +841,14 @@ struct ConvertThroughParsing {
 
             ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
-            (*vec_null_map_to)[i] =
-                    !try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone) ||
-                    !is_all_read(read_buffer);
+            bool parsed;
+            if constexpr (IsDataTypeDecimal<ToDataType>) {
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone,
+                                                    vec_to.get_scale());
+            } else {
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone);
+            }
+            (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
 
             current_offset = next_offset;
         }
@@ -850,6 +858,16 @@ struct ConvertThroughParsing {
         return Status::OK();
     }
 };
+
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal32>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal32>, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal64>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal64>, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128>, Name> {};
 
 template <typename ToDataType, typename Name>
 class FunctionConvertFromString : public IFunction {
@@ -869,11 +887,7 @@ public:
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         DataTypePtr res;
         if constexpr (IsDataTypeDecimal<ToDataType>) {
-            res = create_decimal(27, 9);
-
-            if (!res) {
-                LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
-            }
+            LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
 
         } else
             res = std::make_shared<ToDataType>();
@@ -1046,20 +1060,6 @@ private:
             LOG(FATAL) << fmt::format(
                     "Conversion from {} to {} to_type->get_name() is not supported",
                     from_type->get_name(), to_type->get_name());
-        }
-
-        if (which.is_string_or_fixed_string()) {
-            auto function =
-                    FunctionConvertFromString<DataTypeDecimal<FieldType>, NameCast>::create();
-
-            /// Check conversion using underlying function
-            { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
-
-            return [function](FunctionContext* context, Block& block,
-                              const ColumnNumbers& arguments, const size_t result,
-                              size_t input_rows_count) {
-                return function->execute(context, block, arguments, result, input_rows_count);
-            };
         }
 
         return [type_index, precision, scale](FunctionContext* context, Block& block,

@@ -55,6 +55,16 @@ template <typename T>
 void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
                                    BufferWritable& ostr) const {
     // TODO: Reduce the copy in std::string mem to ostr, like DataTypeNumber
+    if (config::enable_decimalv3) {
+        T value = assert_cast<const ColumnType&>(*column.convert_to_full_column_if_const().get())
+                          .get_data()[row_num];
+        std::ostringstream buf;
+        write_text(value, scale, buf);
+        std::string str = buf.str();
+        ostr.write(str.data(), str.size());
+        return;
+    }
+
     DecimalV2Value value = (DecimalV2Value)assert_cast<const ColumnType&>(
                                    *column.convert_to_full_column_if_const().get())
                                    .get_data()[row_num];
@@ -66,7 +76,7 @@ template <typename T>
 Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto& column_data = static_cast<ColumnType&>(*column).get_data();
     T val = 0;
-    if (!read_decimal_text_impl<T>(val, rb)) {
+    if (!read_decimal_text_impl<T>(val, rb, precision, scale)) {
         return Status::InvalidArgument("parse decimal fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
@@ -127,7 +137,24 @@ DataTypePtr DataTypeDecimal<T>::promote_numeric_type() const {
 
 template <typename T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
-    return ColumnType::create(0, scale);
+    if (config::enable_decimalv3) {
+        return ColumnType::create(0, scale);
+    } else {
+        auto col = ColumnDecimal128::create(0, scale);
+        col->set_decimalv2_type();
+        return col;
+    }
+}
+
+template <typename T>
+T DataTypeDecimal<T>::parse_from_string(const std::string& str) const {
+    StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+    T value = StringParser::string_to_decimal<__int128>(str.c_str(), str.size(), precision, scale,
+                                                        &result);
+    if (result != StringParser::PARSE_SUCCESS) {
+        LOG(FATAL) << "Failed to parse string of decimal";
+    }
+    return value;
 }
 
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value) {
@@ -148,18 +175,86 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value) {
 }
 
 template <>
-Decimal32 DataTypeDecimal<Decimal32>::get_scale_multiplier(UInt32 scale_) {
-    return common::exp10_i32(scale_);
+Decimal32 DataTypeDecimal<Decimal32>::get_scale_multiplier(UInt32 scale) {
+    return common::exp10_i32(scale);
 }
 
 template <>
-Decimal64 DataTypeDecimal<Decimal64>::get_scale_multiplier(UInt32 scale_) {
-    return common::exp10_i64(scale_);
+Decimal64 DataTypeDecimal<Decimal64>::get_scale_multiplier(UInt32 scale) {
+    return common::exp10_i64(scale);
 }
 
 template <>
-Decimal128 DataTypeDecimal<Decimal128>::get_scale_multiplier(UInt32 scale_) {
-    return common::exp10_i128(scale_);
+Decimal128 DataTypeDecimal<Decimal128>::get_scale_multiplier(UInt32 scale) {
+    return common::exp10_i128(scale);
+}
+
+template <typename T>
+void convert_to_decimal(T* from_value, T* to_value, int32_t from_scale, int32_t to_scale,
+                        bool* loss_accuracy) {
+    if (from_scale == to_scale) {
+        *to_value = *from_value;
+        return;
+    }
+    if (from_scale > to_scale) {
+        *to_value =
+                (*from_value) / static_cast<T>(DataTypeDecimal<Decimal<T>>::get_scale_multiplier(
+                                        from_scale - to_scale));
+        *loss_accuracy =
+                ((*from_value) % static_cast<T>(DataTypeDecimal<Decimal<T>>::get_scale_multiplier(
+                                         from_scale - to_scale))) != 0;
+    } else {
+        if (common::mul_overflow(*from_value,
+                                 static_cast<T>(DataTypeDecimal<Decimal<T>>::get_scale_multiplier(
+                                         to_scale - from_scale)),
+                                 *to_value)) {
+            LOG(FATAL) << "Decimal convert overflow";
+        }
+    }
+}
+
+template <typename T>
+typename T::NativeType max_decimal_value(UInt32 precision) {
+    return 0;
+}
+template <>
+Int32 max_decimal_value<Decimal32>(UInt32 precision) {
+    return 999999999 / DataTypeDecimal<Decimal32>::get_scale_multiplier(
+                               (UInt32)(max_decimal_precision<Decimal32>() - precision));
+}
+template <>
+Int64 max_decimal_value<Decimal64>(UInt32 precision) {
+    return 999999999999999999 / DataTypeDecimal<Decimal64>::get_scale_multiplier(
+                                        (UInt64)max_decimal_precision<Decimal64>() - precision);
+}
+template <>
+Int128 max_decimal_value<Decimal128>(UInt32 precision) {
+    return (static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+            static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll) /
+           DataTypeDecimal<Decimal128>::get_scale_multiplier(
+                   (UInt64)max_decimal_precision<Decimal128>() - precision);
+}
+
+template <typename T>
+typename T::NativeType min_decimal_value(UInt32 precision) {
+    return 0;
+}
+template <>
+Int32 min_decimal_value<Decimal32>(UInt32 precision) {
+    return -999999999 / DataTypeDecimal<Decimal32>::get_scale_multiplier(
+                                (UInt32)max_decimal_precision<Decimal32>() - precision);
+}
+template <>
+Int64 min_decimal_value<Decimal64>(UInt32 precision) {
+    return -999999999999999999 / DataTypeDecimal<Decimal64>::get_scale_multiplier(
+                                         (UInt64)max_decimal_precision<Decimal64>() - precision);
+}
+template <>
+Int128 min_decimal_value<Decimal128>(UInt32 precision) {
+    return -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+             static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll) /
+           DataTypeDecimal<Decimal128>::get_scale_multiplier(
+                   (UInt64)max_decimal_precision<Decimal128>() - precision);
 }
 
 /// Explicit template instantiations.

@@ -138,7 +138,8 @@ public class CastExpr extends Expr {
 
     private static boolean disableRegisterCastingFunction(Type fromType, Type toType) {
         // Disable casting from boolean to decimal or datetime or date
-        if (fromType.isBoolean() && (toType.equals(Type.DECIMALV2) || toType.isDateType())) {
+        if (fromType.isBoolean() && (toType.equals(Type.DECIMALV2) || toType.isDecimalV3()
+                || toType.isDateType())) {
             return true;
         }
 
@@ -159,8 +160,8 @@ public class CastExpr extends Expr {
                 if (toType.isNull() || disableRegisterCastingFunction(fromType, toType)) {
                     continue;
                 }
-                String beClass = toType.isDecimalV2()
-                        || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
+                String beClass = toType.isDecimalV2() || fromType.isDecimalV2()
+                        ? "DecimalV2Operators" : "CastFunctions";
                 if (fromType.isTime()) {
                     beClass = "TimeOperators";
                 }
@@ -264,8 +265,14 @@ public class CastExpr extends Expr {
 
         // this cast may result in loss of precision, but the user requested it
         if (childType.matchesType(type)) {
-            noOp = true;
-            return;
+            // For types which has precision and scale, we also need to check quality between precisions and scales
+            if (!PrimitiveType.typeWithPrecision.contains(
+                    type.getPrimitiveType()) || ((((ScalarType) type).decimalPrecision()
+                    == ((ScalarType) childType).decimalPrecision()) && (((ScalarType) type).decimalScale()
+                    == ((ScalarType) childType).decimalScale()))) {
+                noOp = true;
+                return;
+            }
         }
         // select stmt will make BE coredump when its castExpr is like cast(int as array<>),
         // it is necessary to check if it is castable before creating fn.
@@ -387,7 +394,7 @@ public class CastExpr extends Expr {
             return new IntLiteral(value.getLongValue(), type);
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());
-        } else if (type.isDecimalV2()) {
+        } else if (type.isDecimalV2() || type.isDecimalV3()) {
             return new DecimalLiteral(value.getStringValue());
         } else if (type.isFloatingPointType()) {
 
@@ -456,6 +463,9 @@ public class CastExpr extends Expr {
         ScalarType newTargetType = null;
         switch (primitiveType) {
             case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
                 // normal decimal
                 if (targetType.getPrecision() != 0) {
                     newTargetType = targetType;
@@ -465,7 +475,7 @@ public class CastExpr extends Expr {
                 int scale = getDigital(targetType.getScalarScaleStr(), parameters, inputParamsExprs);
                 if (precision != -1 && scale != -1) {
                     newTargetType = ScalarType.createType(primitiveType, 0, precision, scale);
-                } else if (precision != -1 && scale == -1) {
+                } else if (precision != -1) {
                     newTargetType = ScalarType.createType(primitiveType, 0, precision, ScalarType.DEFAULT_SCALE);
                 }
                 break;

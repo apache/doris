@@ -30,7 +30,8 @@ DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
         DCHECK(col_desc.get_sub_field_count() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(*col_desc.get_sub_field(0)));
     } else {
-        nested = _create_primitive_data_type(col_desc.type());
+        nested = _create_primitive_data_type(col_desc.type(), col_desc.get_precision(),
+                                             col_desc.get_scale());
     }
 
     if (col_desc.is_nullable() && nested) {
@@ -45,7 +46,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
         DCHECK(col_desc.get_subtype_count() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(col_desc.get_sub_column(0)));
     } else {
-        nested = _create_primitive_data_type(col_desc.type());
+        nested =
+                _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac());
     }
 
     if ((is_nullable || col_desc.is_nullable()) && nested) {
@@ -106,6 +108,11 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_DECIMALV2:
         nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
         break;
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128:
+        nested = vectorized::create_decimal(col_desc.precision, col_desc.scale);
+        break;
     // Just Mock A NULL Type in Vec Exec Engine
     case TYPE_NULL:
         nested = std::make_shared<vectorized::DataTypeUInt8>();
@@ -127,7 +134,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     return nested;
 }
 
-DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type) const {
+DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, int precision,
+                                                         int scale) const {
     DataTypePtr result = nullptr;
     switch (type) {
     case OLAP_FIELD_TYPE_BOOL:
@@ -176,6 +184,11 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type) 
         break;
     case OLAP_FIELD_TYPE_DECIMAL:
         result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
+        break;
+    case OLAP_FIELD_TYPE_DECIMAL32:
+    case OLAP_FIELD_TYPE_DECIMAL64:
+    case OLAP_FIELD_TYPE_DECIMAL128:
+        result = vectorized::create_decimal(precision, scale);
         break;
     default:
         DCHECK(false) << "Invalid FieldType:" << (int)type;

@@ -222,6 +222,9 @@ public class StringLiteral extends LiteralExpr {
                     }
                     break;
                 case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
                     return new DecimalLiteral(value);
                 default:
                     break;

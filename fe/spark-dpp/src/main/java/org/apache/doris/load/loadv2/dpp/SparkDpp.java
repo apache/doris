@@ -379,6 +379,9 @@ public final class SparkDpp implements java.io.Serializable {
 
         switch (etlColumn.columnType.toUpperCase()) {
             case "DECIMALV2":
+            case "DECIMAL32":
+            case "DECIMAL64":
+            case "DECIMAL128":
                 // TODO(wb):  support decimal round; see be DecimalV2Value::round
                 DecimalParser decimalParser = (DecimalParser) columnParser;
                 BigDecimal srcBigDecimal = (BigDecimal) srcValue;

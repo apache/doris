@@ -49,7 +49,8 @@ public:
     virtual bool find(void* data, size_t) = 0;
 
     virtual Status to_vexpr_list(doris::ObjectPool* pool,
-                                 std::vector<doris::vectorized::VExpr*>* vexpr_list) = 0;
+                                 std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
+                                 int scale) = 0;
     class IteratorBase {
     public:
         IteratorBase() {}
@@ -62,21 +63,25 @@ public:
     virtual IteratorBase* begin() = 0;
 };
 
-template <class T>
+template <PrimitiveType T, bool is_vec = false>
 class HybridSet : public HybridSetBase {
 public:
+    using CppType = std::conditional_t<is_vec, typename VecPrimitiveTypeTraits<T>::CppType,
+                                       typename PrimitiveTypeTraits<T>::CppType>;
+
     HybridSet() = default;
 
     ~HybridSet() override = default;
 
-    virtual Status to_vexpr_list(doris::ObjectPool* pool,
-                                 std::vector<doris::vectorized::VExpr*>* vexpr_list) override {
+    Status to_vexpr_list(doris::ObjectPool* pool,
+                         std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
+                         int scale) override {
         HybridSetBase::IteratorBase* it = begin();
         DCHECK(it != nullptr);
         while (it->has_next()) {
             TExprNode node;
             const void* v = it->get_value();
-            create_texpr_literal_node<T>(v, &node);
+            create_texpr_literal_node<T>(v, &node, precision, scale);
             vexpr_list->push_back(pool->add(new doris::vectorized::VLiteral(node)));
             it->next();
         }
@@ -86,26 +91,26 @@ public:
     void insert(const void* data) override {
         if (data == nullptr) return;
 
-        if constexpr (sizeof(T) >= 16) {
-            // for largeint, it will core dump with no memcpy
-            T value;
-            memcpy(&value, data, sizeof(T));
+        if constexpr (sizeof(CppType) >= 16) {
+            // for large int, it will core dump with no memcpy
+            CppType value;
+            memcpy(&value, data, sizeof(CppType));
             _set.insert(value);
         } else {
-            _set.insert(*reinterpret_cast<const T*>(data));
+            _set.insert(*reinterpret_cast<const CppType*>(data));
         }
     }
     void insert(void* data, size_t) override { insert(data); }
 
     void insert(HybridSetBase* set) override {
-        HybridSet<T>* hybrid_set = reinterpret_cast<HybridSet<T>*>(set);
+        HybridSet<T, is_vec>* hybrid_set = reinterpret_cast<HybridSet<T, is_vec>*>(set);
         _set.insert(hybrid_set->_set.begin(), hybrid_set->_set.end());
     }
 
     int size() override { return _set.size(); }
 
     bool find(void* data) override {
-        auto it = _set.find(*reinterpret_cast<T*>(data));
+        auto it = _set.find(*reinterpret_cast<CppType*>(data));
         return !(it == _set.end());
     }
 
@@ -128,11 +133,11 @@ public:
     };
 
     IteratorBase* begin() override {
-        return _pool.add(new (std::nothrow) Iterator<T>(_set.begin(), _set.end()));
+        return _pool.add(new (std::nothrow) Iterator<CppType>(_set.begin(), _set.end()));
     }
 
 private:
-    phmap::flat_hash_set<T> _set;
+    phmap::flat_hash_set<CppType> _set;
     ObjectPool _pool;
 };
 
@@ -142,14 +147,15 @@ public:
 
     ~StringValueSet() override = default;
 
-    virtual Status to_vexpr_list(doris::ObjectPool* pool,
-                                 std::vector<doris::vectorized::VExpr*>* vexpr_list) override {
+    Status to_vexpr_list(doris::ObjectPool* pool,
+                         std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
+                         int scale) override {
         HybridSetBase::IteratorBase* it = begin();
         DCHECK(it != nullptr);
         while (it->has_next()) {
             TExprNode node;
             const void* v = it->get_value();
-            create_texpr_literal_node<StringValue>(v, &node);
+            create_texpr_literal_node<TYPE_STRING>(v, &node);
             vexpr_list->push_back(pool->add(new doris::vectorized::VLiteral(node)));
             it->next();
         }

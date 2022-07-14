@@ -299,6 +299,13 @@ public:
                 is_date_v2(get_return_type(arguments)->is_nullable()
                                    ? ((DataTypeNullable*)get_return_type(arguments).get())
                                              ->get_nested_type()
+                                   : get_return_type(arguments))) ||
+               (is_decimal(return_type->is_nullable()
+                                   ? ((DataTypeNullable*)return_type.get())->get_nested_type()
+                                   : return_type) &&
+                is_decimal(get_return_type(arguments)->is_nullable()
+                                   ? ((DataTypeNullable*)get_return_type(arguments).get())
+                                             ->get_nested_type()
                                    : get_return_type(arguments))))
                 << " with " << return_type->get_name() << " and " << func_return_type->get_name();
 
