@@ -1813,12 +1813,8 @@ void Tablet::remove_all_remote_rowsets() {
 
 const TabletSchema& Tablet::tablet_schema() const {
     std::shared_lock wrlock(_meta_lock);
-    _tablet_meta->all_rs_metas();
     const RowsetMetaSharedPtr rowset_meta =
             rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas());
-    if (rowset_meta->tablet_schema() == nullptr) {
-        return _schema;
-    }
     return *rowset_meta->tablet_schema();
 }
 
