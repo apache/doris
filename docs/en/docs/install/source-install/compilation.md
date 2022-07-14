@@ -58,6 +58,7 @@ This document focuses on how to code Doris through source code.
 | apache/doris:build-env-for-0.15.0 | [a81f4da](https://github.com/apache/doris/commit/a81f4da4e461a54782a96433b746d07be89e6b54) or later | 0.15.0          |
 | apache/incubator-doris:build-env-latest | before [0efef1b](https://github.com/apache/doris/commit/0efef1b332300887ee0473f9df9bdd9d7297d824) | |
 | apache/doris:build-env-for-1.0.0| | 1.0.0 |
+| apache/doris:build-env-for-1.1.0| | 1.1.0 |
 | apache/doris:build-env-ldb-toolchain-latest | trunk | trunk |
 
 **note**:

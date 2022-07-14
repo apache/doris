@@ -39,6 +39,9 @@ https://dist.apache.org/repos/dist/dev/doris/
 
 To:
 https://dist.apache.org/repos/dist/release/doris/
+
+Eg:
+svn mv -m "move doris 1.1.0-rc05 to release" https://dist.apache.org/repos/dist/dev/doris/1.1 https://dist.apache.org/repos/dist/release/doris/1.1
 ```
 
 For the first release, you need to copy the KEYS file as well. Then add it to the svn release.
