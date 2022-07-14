@@ -133,6 +133,13 @@ public:
     }
 
     template <typename Data>
+    ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t hash_value, size_t row,
+                                            Arena& pool) {
+        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
+        return emplaceImpl(key_holder, hash_value, data);
+    }
+
+    template <typename Data>
     ALWAYS_INLINE FindResult find_key(Data& data, size_t row, Arena& pool) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         return find_key_impl(key_holder_get_key(key_holder), data);
@@ -178,6 +185,49 @@ protected:
         typename Data::LookupResult it;
         bool inserted = false;
         data.emplace(key_holder, it, inserted);
+
+        [[maybe_unused]] Mapped* cached = nullptr;
+        if constexpr (has_mapped) cached = lookup_result_get_mapped(it);
+
+        if (inserted) {
+            if constexpr (has_mapped) {
+                new (lookup_result_get_mapped(it)) Mapped();
+            }
+        }
+
+        if constexpr (consecutive_keys_optimization) {
+            cache.found = true;
+            cache.empty = false;
+
+            if constexpr (has_mapped) {
+                cache.value.first = *lookup_result_get_key(it);
+                cache.value.second = *lookup_result_get_mapped(it);
+                cached = &cache.value.second;
+            } else {
+                cache.value = *lookup_result_get_key(it);
+            }
+        }
+
+        if constexpr (has_mapped)
+            return EmplaceResult(*lookup_result_get_mapped(it), *cached, inserted);
+        else
+            return EmplaceResult(inserted);
+    }
+
+    template <typename Data, typename KeyHolder>
+    ALWAYS_INLINE EmplaceResult emplaceImpl(KeyHolder& key_holder, size_t hash_value, Data& data) {
+        if constexpr (Cache::consecutive_keys_optimization) {
+            if (cache.found && cache.check(key_holder_get_key(key_holder))) {
+                if constexpr (has_mapped)
+                    return EmplaceResult(cache.value.second, cache.value.second, false);
+                else
+                    return EmplaceResult(false);
+            }
+        }
+
+        typename Data::LookupResult it;
+        bool inserted = false;
+        data.emplace(key_holder, it, hash_value, inserted);
 
         [[maybe_unused]] Mapped* cached = nullptr;
         if constexpr (has_mapped) cached = lookup_result_get_mapped(it);

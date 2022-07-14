@@ -106,7 +106,7 @@ private:
 };
 
 using AggregatedDataWithoutKey = AggregateDataPtr;
-using AggregatedDataWithStringKey = HashMapWithSavedHash<StringRef, AggregateDataPtr>;
+using AggregatedDataWithStringKey = PHHashMap<StringRef, AggregateDataPtr, DefaultHash<StringRef>>;
 
 /// For the case where there is one numeric key.
 /// FieldType is UInt8/16/32/64 for any type with corresponding bit width.

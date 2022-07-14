@@ -32,6 +32,9 @@
 
 namespace doris::vectorized {
 
+// Here is an empirical value.
+static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
+
 /// The minimum reduction factor (input rows divided by output rows) to grow hash tables
 /// in a streaming preaggregation, given that the hash tables are currently the given
 /// size or above. The sizes roughly correspond to hash table sizes where the bucket
@@ -778,17 +781,38 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
         std::visit(
                 [&](auto&& agg_method) -> void {
                     using HashMethodType = std::decay_t<decltype(agg_method)>;
+                    using HashTableType = std::decay_t<decltype(agg_method.data)>;
                     using AggState = typename HashMethodType::State;
                     AggState state(key_columns, _probe_key_sz, nullptr);
 
                     _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
 
+                    std::vector<size_t> hash_values;
+
+                    if constexpr (IsPhmapTraits<HashTableType>::value) {
+                        if (hash_values.size() < rows) hash_values.resize(rows);
+                        for (size_t i = 0; i < rows; ++i) {
+                            hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                        }
+                    }
+
                     /// For all rows.
                     for (size_t i = 0; i < rows; ++i) {
                         AggregateDataPtr aggregate_data = nullptr;
 
-                        auto emplace_result =
-                                state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                        auto emplace_result = [&]() {
+                            if constexpr (IsPhmapTraits<HashTableType>::value) {
+                                if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
+                                    agg_method.data.prefetch_by_hash(
+                                            hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                                }
+
+                                return state.emplace_key(agg_method.data, hash_values[i], i,
+                                                         _agg_arena_pool);
+                            } else {
+                                return state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                            }
+                        }();
 
                         /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
                         if (emplace_result.is_inserted()) {
@@ -842,16 +866,38 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
     std::visit(
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
+                using HashTableType = std::decay_t<decltype(agg_method.data)>;
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
                 _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
 
+                std::vector<size_t> hash_values;
+
+                if constexpr (IsPhmapTraits<HashTableType>::value) {
+                    if (hash_values.size() < rows) hash_values.resize(rows);
+                    for (size_t i = 0; i < rows; ++i) {
+                        hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                    }
+                }
+
                 /// For all rows.
                 for (size_t i = 0; i < rows; ++i) {
                     AggregateDataPtr aggregate_data = nullptr;
 
-                    auto emplace_result = state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                    auto emplace_result = [&]() {
+                        if constexpr (IsPhmapTraits<HashTableType>::value) {
+                            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
+                                agg_method.data.prefetch_by_hash(
+                                        hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                            }
+
+                            return state.emplace_key(agg_method.data, hash_values[i], i,
+                                                     _agg_arena_pool);
+                        } else {
+                            return state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                        }
+                    }();
 
                     /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
                     if (emplace_result.is_inserted()) {
@@ -1064,16 +1110,38 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
     std::visit(
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
+                using HashTableType = std::decay_t<decltype(agg_method.data)>;
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
                 _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
 
+                std::vector<size_t> hash_values;
+
+                if constexpr (IsPhmapTraits<HashTableType>::value) {
+                    if (hash_values.size() < rows) hash_values.resize(rows);
+                    for (size_t i = 0; i < rows; ++i) {
+                        hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                    }
+                }
+
                 /// For all rows.
                 for (size_t i = 0; i < rows; ++i) {
                     AggregateDataPtr aggregate_data = nullptr;
 
-                    auto emplace_result = state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                    auto emplace_result = [&]() {
+                        if constexpr (IsPhmapTraits<HashTableType>::value) {
+                            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
+                                agg_method.data.prefetch_by_hash(
+                                        hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                            }
+
+                            return state.emplace_key(agg_method.data, hash_values[i], i,
+                                                     _agg_arena_pool);
+                        } else {
+                            return state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                        }
+                    }();
 
                     /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
                     if (emplace_result.is_inserted()) {
