@@ -19,6 +19,7 @@
 
 #include <sstream>
 
+#include "common/consts.h"
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -215,14 +216,12 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
     column->set_type(data_type);
 
-    if (tcolumn.column_type.type == TPrimitiveType::DECIMALV2) {
-        column->set_precision(tcolumn.column_type.precision);
-        column->set_frac(tcolumn.column_type.scale);
-    }
     uint32_t length = TabletColumn::get_field_length_by_type(tcolumn.column_type.type,
                                                              tcolumn.column_type.len);
     column->set_length(length);
     column->set_index_length(length);
+    column->set_precision(tcolumn.column_type.precision);
+    column->set_frac(tcolumn.column_type.scale);
     if (tcolumn.column_type.type == TPrimitiveType::VARCHAR ||
         tcolumn.column_type.type == TPrimitiveType::STRING) {
         if (!tcolumn.column_type.__isset.index_len) {

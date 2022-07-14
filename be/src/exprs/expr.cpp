@@ -701,6 +701,18 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         _constant_val.reset(new DecimalV2Val(get_decimalv2_val(context, nullptr)));
         break;
     }
+    case TYPE_DECIMAL32: {
+        _constant_val.reset(new Decimal32Val(get_decimal32_val(context, nullptr)));
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        _constant_val.reset(new Decimal64Val(get_decimal64_val(context, nullptr)));
+        break;
+    }
+    case TYPE_DECIMAL128: {
+        _constant_val.reset(new Decimal128Val(get_decimal128_val(context, nullptr)));
+        break;
+    }
     case TYPE_NULL: {
         _constant_val.reset(new AnyVal(true));
         break;
@@ -758,6 +770,18 @@ BigIntVal Expr::get_big_int_val(ExprContext* context, TupleRow* row) {
 
 LargeIntVal Expr::get_large_int_val(ExprContext* context, TupleRow* row) {
     return LargeIntVal::null(); // (*(int64_t*)get_value(row));
+}
+
+Decimal32Val Expr::get_decimal32_val(ExprContext* context, TupleRow* row) {
+    return Decimal32Val::null(); // (*(int32_t*)get_value(row));
+}
+
+Decimal64Val Expr::get_decimal64_val(ExprContext* context, TupleRow* row) {
+    return Decimal64Val::null();
+}
+
+Decimal128Val Expr::get_decimal128_val(ExprContext* context, TupleRow* row) {
+    return Decimal128Val::null();
 }
 
 FloatVal Expr::get_float_val(ExprContext* context, TupleRow* row) {

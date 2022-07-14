@@ -17,6 +17,7 @@
 
 #include "vec/olap/olap_data_convertor.h"
 
+#include "common/consts.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
@@ -65,6 +66,15 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
         return std::make_unique<OlapColumnDataConvertorDecimal>();
     }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
+        return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal32>>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
+        return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal64>>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128: {
+        return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal128>>();
+    }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::UInt8>>();
     }
@@ -99,7 +109,7 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return nullptr;
     }
     }
-}
+} // namespace doris::vectorized
 
 void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, size_t row_pos,
                                                 size_t num_rows) {
@@ -630,7 +640,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::convert_to_olap()
     const DecimalV2Value* decimal_end = decimal_cur + _num_rows;
     decimal12_t* value = _values.data();
     if (_nullmap) {
-        const UInt8* nullmap_cur = _nullmap;
+        const UInt8* nullmap_cur = _nullmap + _row_pos;
         while (decimal_cur != decimal_end) {
             if (!*nullmap_cur) {
                 value->integer = decimal_cur->int_value();
