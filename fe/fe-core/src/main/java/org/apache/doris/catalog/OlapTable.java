@@ -328,6 +328,14 @@ public class OlapTable extends Table {
                 }
             }
         }
+        if (defaultDistributionInfo instanceof HashDistributionInfo) {
+            try {
+                ((HashDistributionInfo) defaultDistributionInfo).rebuildDistributionColumns(getBaseSchema());
+                LOG.debug("after rebuild. defaultDistributionInfo {}", defaultDistributionInfo);
+            } catch (DdlException e) {
+                LOG.warn("rebuild defaultDistributionInfo failed. Error: " + e.getMessage());
+            }
+        }
         LOG.debug("after rebuild full schema. table {}, schema: {}", id, fullSchema);
     }
 
@@ -1239,6 +1247,7 @@ public class OlapTable extends Table {
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
         rebuildFullSchema();
+
     }
 
     @Override

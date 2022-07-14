@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
+import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -114,6 +115,16 @@ public class HashDistributionInfo extends DistributionInfo {
         }
         DistributionDesc distributionDesc = new HashDistributionDesc(bucketNum, distriColNames);
         return distributionDesc;
+    }
+
+
+    public void rebuildDistributionColumns(List<Column> baseSchema) throws DdlException {
+        /*** already check column info in method
+         * @method hashDistributionDesc.buildDistributionColumns()
+         */
+        HashDistributionDesc hashDistributionDesc = (HashDistributionDesc) toDistributionDesc();
+        distributionColumns.clear();
+        hashDistributionDesc.buildDistributionColumns(baseSchema, distributionColumns);
     }
 
     @Override

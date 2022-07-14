@@ -111,7 +111,13 @@ public class HashDistributionDesc extends DistributionDesc {
     @Override
     public DistributionInfo toDistributionInfo(List<Column> columns) throws DdlException {
         List<Column> distributionColumns = Lists.newArrayList();
+        buildDistributionColumns(columns, distributionColumns);
 
+        HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(numBucket, distributionColumns);
+        return hashDistributionInfo;
+    }
+
+    public void buildDistributionColumns(List<Column> columns, List<Column> distributionColumns) throws DdlException {
         // check and get distribution column
         for (String colName : distributionColumnNames) {
             boolean find = false;
@@ -134,9 +140,6 @@ public class HashDistributionDesc extends DistributionDesc {
                 throw new DdlException("Distribution column[" + colName + "] does not found");
             }
         }
-
-        HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(numBucket, distributionColumns);
-        return hashDistributionInfo;
     }
 
     @Override
