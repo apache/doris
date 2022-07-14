@@ -96,21 +96,36 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                                           const std::map<std::string, int>& map_column,
                                           const std::vector<int>& include_column_ids) {
     int total_group = _file_metadata->num_row_groups();
-    int head_row_group = 0;
-    int tail_row_group = total_group - 1;
-    for (int row_group_id = 0; row_group_id < total_group - 1; row_group_id++) {
-        auto row_group_meta = _file_metadata->RowGroup(row_group_id);
-        int64_t cur_offset = row_group_meta->file_offset();
-        int64_t next_offset = _file_metadata->RowGroup(row_group_id + 1)->file_offset();
-        if (_range_start_offset > cur_offset && _range_start_offset < next_offset) {
-            // Enter the branch only the fist time to find head group
-            head_row_group = row_group_id;
+    int head_row_group = total_group;
+    int tail_row_group = -1;
+
+    if (_range_size != 0) {
+        for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
+            auto row_group_meta = _file_metadata->RowGroup(row_group_id);
+            int64_t cur_group_offset = row_group_meta->file_offset();
+            int64_t range_end_offset = _range_start_offset + _range_size;
+            if (row_group_id == total_group - 1) {
+                if (cur_group_offset < range_end_offset) {
+                    tail_row_group = row_group_id;
+                }
+                break;
+            }
+            int64_t next_group_offset = _file_metadata->RowGroup(row_group_id + 1)->file_offset();
+            if (_range_start_offset >= cur_group_offset &&
+                _range_start_offset < next_group_offset) {
+                // Enter the branch only the fist time to find head group
+                head_row_group = row_group_id;
+            }
+            if (range_end_offset < next_group_offset) {
+                tail_row_group = row_group_id - 1;
+                // find tail group, break
+                break;
+            }
         }
-        int64_t range_end_offset = _range_start_offset + _range_size;
-        if (range_end_offset != 0 && range_end_offset < next_offset) {
-            tail_row_group = row_group_id;
-            // find tail group, break
-            break;
+
+        if (head_row_group != total_group && tail_row_group != -1 &&
+            tail_row_group < head_row_group) {
+            tail_row_group = head_row_group;
         }
     }
 
@@ -124,8 +139,7 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
     for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
         auto row_group_meta = _file_metadata->RowGroup(row_group_id);
         if (row_group_id < head_row_group || row_group_id > tail_row_group) {
-            update_statistics = true;
-            _add_filter_group(row_group_id, row_group_meta);
+            _filter_group.emplace(row_group_id);
             VLOG_DEBUG << "Filter extra row group id: " << row_group_id;
             continue;
         }
