@@ -168,6 +168,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
         {
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
