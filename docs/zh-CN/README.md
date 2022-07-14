@@ -57,6 +57,19 @@ under the License.
 <div class="newsBox">
   <ul class="wow fadeInUp">
     <li>
+      <a href="/zh-CN/blogs/ReleaseNote/release-1.1.html">
+        <div class="newsboxTitle">
+          <p class="t">[Doris 发版通告] Apache Doris 1.1.0 Release</p>
+          <i class="doris doris-jiantou_xiangyouliangci"></i>
+        </div>
+        <div class="newsboxImg">
+          <div class="newsboxImgBox">
+            <img src="/blog-images/news3.jpg" alt="img">
+          </div>
+        </div>
+      </a>
+    </li>
+    <li>
       <a href="/zh-CN/blogs/ReleaseNote/Announcing.html">
         <div class="newsboxTitle">
           <p class="t">[Doris 毕业通告] Apache Doris 正式成为顶级项目</p>
@@ -78,19 +91,6 @@ under the License.
         <div class="newsboxImg">
           <div class="newsboxImgBox">
             <img src="/blog-images/news2.jpg" alt="img">
-          </div>
-        </div>
-      </a>
-    </li>
-    <li>
-      <a href="/zh-CN/blogs/ReleaseNote/release-note-0.15.0.html">
-        <div class="newsboxTitle">
-          <p class="t">[Doris 发版通告] Apache Doris(Incubating) 0.15.0 Release</p>
-          <i class="doris doris-jiantou_xiangyouliangci"></i>
-        </div>
-        <div class="newsboxImg">
-          <div class="newsboxImgBox">
-            <img src="/blog-images/news3.jpg" alt="img">
           </div>
         </div>
       </a>
