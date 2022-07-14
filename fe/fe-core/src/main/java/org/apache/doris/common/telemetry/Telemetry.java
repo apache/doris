@@ -27,7 +27,7 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import io.opentelemetry.context.propagation.ContextPropagators;
-import io.opentelemetry.exporter.otlp.trace.OtlpGrpcSpanExporter;
+import io.opentelemetry.exporter.otlp.http.trace.OtlpHttpSpanExporter;
 import io.opentelemetry.exporter.zipkin.ZipkinSpanExporter;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.resources.Resource;
@@ -56,11 +56,13 @@ public class Telemetry {
             return;
         }
 
-        // todo: It may be possible to use oltp exporter to export telemetry data to otel collector,
-        //  which in turn processes and sends telemetry data to multiple back-ends (e.g. zipkin, Prometheus,
-        //  Fluent Bit, etc.) to improve scalability.
-        String httpUrl = Config.trace_export_url;
-        SpanExporter spanExporter = zipkinExporter(httpUrl);
+        String traceExportUrl = Config.trace_export_url;
+        SpanExporter spanExporter;
+        if (Config.enable_otel_collector) {
+            spanExporter = oltpExporter(traceExportUrl);
+        } else {
+            spanExporter = zipkinExporter(traceExportUrl);
+        }
 
         String serviceName = "FRONTEND:" + Env.getCurrentEnv().getSelfNode().first;
         Resource serviceNameResource = Resource.create(
@@ -84,7 +86,7 @@ public class Telemetry {
     }
 
     private static SpanExporter oltpExporter(String httpUrl) {
-        return OtlpGrpcSpanExporter.builder().setEndpoint(httpUrl).build();
+        return OtlpHttpSpanExporter.builder().setEndpoint(httpUrl).build();
     }
 
     public static OpenTelemetry getOpenTelemetry() {

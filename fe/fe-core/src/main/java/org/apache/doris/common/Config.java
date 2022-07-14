@@ -1631,9 +1631,24 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_default_sample_percentage = 10;
 
+    /**
+     * If this configuration is enabled, you should also specify the trace_export_url.
+     */
     @ConfField(mutable = false, masterOnly = false)
     public static boolean enable_tracing = false;
 
+    /**
+     * Enable opentelemtry collector.
+     * If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static boolean enable_otel_collector = false;
+
+    /**
+     * The endpoint to export spans to.
+     * export to zipkin like: http://127.0.0.1:9411/api/v2/spans
+     * export to collector like: http://127.0.0.1:4318/v1/traces
+     */
     @ConfField(mutable = false, masterOnly = false)
     public static String trace_export_url = "http://127.0.0.1:9411/api/v2/spans";
 
