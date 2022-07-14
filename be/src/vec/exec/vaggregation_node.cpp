@@ -77,10 +77,6 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
-          _aggregate_evaluators_changed_flags(
-                  tnode.agg_node.__isset.aggregate_function_changed_flags
-                          ? tnode.agg_node.aggregate_function_changed_flags
-                          : std::vector<bool> {}),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(NULL),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -100,6 +96,13 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
         }
     } else {
         _is_streaming_preagg = false;
+    }
+
+    if (tnode.agg_node.__isset.aggregate_function_changed_flags) {
+        _aggregate_evaluators_changed_flags = tnode.agg_node.aggregate_function_changed_flags;
+    } else {
+        _aggregate_evaluators_changed_flags.resize(tnode.agg_node.aggregate_functions.size(),
+                                                   false);
     }
 }
 
