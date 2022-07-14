@@ -583,6 +583,7 @@ public class HashJoinNode extends PlanNode {
                 originToIntermediateSmap.put(new SlotRef(slotDescriptor), new SlotRef(intermediateSlotDesc));
             }
         }
+        vIntermediateLeftTupleDesc.computeMemLayout();
         // right
         originTidsToIntermediateTidMap.put(getChild(1).getOutputTupleIds(), vIntermediateRightTupleDesc.getId());
         for (TupleDescriptor tupleDescriptor : analyzer.getDescTbl().getTupleDesc(getChild(1).getOutputTupleIds())) {
@@ -595,6 +596,7 @@ public class HashJoinNode extends PlanNode {
                 originToIntermediateSmap.put(new SlotRef(slotDescriptor), new SlotRef(intermediateSlotDesc));
             }
         }
+        vIntermediateRightTupleDesc.computeMemLayout();
         // 3. replace srcExpr by intermediate tuple
         Preconditions.checkState(vSrcToOutputSMap != null);
         vSrcToOutputSMap.substituteLhs(originToIntermediateSmap, analyzer);
