@@ -26,7 +26,7 @@ under the License.
 
 # 发布 Doris Core
 
-Doris Core 指发布 https://github.com/apache/incubator-doris 中的内容。
+Doris Core 指发布 https://github.com/apachedoris 中的内容。
 
 ## 准备发布
 
@@ -81,7 +81,7 @@ $ git push origin 0.9.0-rc01
 Counting objects: 1, done.
 Writing objects: 100% (1/1), 165 bytes | 0 bytes/s, done.
 Total 1 (delta 0), reused 0 (delta 0)
-To git@github.com:apache/incubator-doris.git
+To git@github.com:apache/doris.git
  * [new tag]         0.9.0-rc01 -> 0.9.0-rc01
 
 $ git tag
@@ -108,7 +108,7 @@ $ sha512sum --check apache-doris-0.9.0-incubating-src.tar.gz.sha512
 然后将打包的内容上传到svn仓库中，首先下载 svn 库：
 
 ```
-svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
+svn co https://dist.apache.org/repos/dist/dev/doris/
 ```
 
 将之前得到的全部文件组织成以下svn路径
@@ -225,18 +225,18 @@ The vote result email thread:
 https://lists.apache.org/thread.html/64d229f0ba15d66adc83306bc8d7b7ccd5910ecb7e842718ce6a61da@%3Cdev.doris.apache.org%3E
 
 The release candidate has been tagged in GitHub as 0.9.0-rc01, available here:
-https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
+https://github.com/apache/doris/releases/tag/0.9.0-rc01
 
 There is no CHANGE LOG file because this is the first release of Apache Doris.
 Thanks to everyone who has contributed to this release, and there is a simple release notes can be found here:
-https://github.com/apache/incubator-doris/issues/406
+https://github.com/apache/doris/issues/406
 
 The artifacts (source, signature and checksum) corresponding to this release candidate can be found here:
 https://dist.apache.org/repos/dist/dev/incubator/doris/0.9/0.9.0-rc01/
 
 This has been signed with PGP key 33DBF2E0, corresponding to lide@apache.org.
 KEYS file is available here:
-https://downloads.apache.org/incubator/doris/KEYS
+https://downloads.apache.org/doris/KEYS
 It is also listed here:
 https://people.apache.org/keys/committer/lide.asc
 
@@ -250,17 +250,17 @@ To verify and build, you can refer to following instruction:
 Firstly, you must be install and start docker service, and then you could build Doris as following steps:
 
 Step1: Pull the docker image with Doris building environment
-$ docker pull apache/incubator-doris:build-env-1.3.1
+$ docker pull apache/doris:build-env-1.3.1
 You can check it by listing images, its size is about 3.28GB.
 
 Step2: Run the Docker image
 You can run image directly:
-$ docker run -it apache/incubator-doris:build-env-1.3.1
+$ docker run -it apache/doris:build-env-1.3.1
 
 Step3: Download Doris source
 Now you should in docker environment, and you can download Doris source package.
 (If you have downloaded source and it is not in image, you can map its path to image in Step2.)
-$ wget https://dist.apache.org/repos/dist/dev/incubator/doris/0.9/0.9.0-rc01/apache-doris-0.9.0.rc01-incubating-src.tar.gz
+$ wget https://dist.apache.org/repos/dist/dev/doris/0.9/0.9.0-rc01/apache-doris-0.9.0.rc01-incubating-src.tar.gz
 
 Step4: Build Doris
 Now you can decompress and enter Doris source path and build Doris.

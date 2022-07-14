@@ -98,6 +98,9 @@ public class DppUtils {
             case "OBJECT":
                 return String.class;
             case "DECIMALV2":
+            case "DECIMAL32":
+            case "DECIMAL64":
+            case "DECIMAL128":
                 return BigDecimal.valueOf(column.precision, column.scale).getClass();
             default:
                 return String.class;
@@ -147,6 +150,9 @@ public class DppUtils {
                 dataType = regardDistinctColumnAsBinary ? DataTypes.BinaryType : DataTypes.StringType;
                 break;
             case "DECIMALV2":
+            case "DECIMAL32":
+            case "DECIMAL64":
+            case "DECIMAL128":
                 dataType = DecimalType.apply(column.precision, column.scale);
                 break;
             default:

@@ -43,9 +43,20 @@ static IAggregateFunction* create_function_single_value(const String& name,
 
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
-    if (which.is_decimal()) {
-        return new AggregateFunctionTemplate<NameData<Data<Decimal128, BaseDatadecimal<is_stddev>>>,
-                                             is_nullable>(argument_types);
+    if (which.is_decimal32()) {
+        return new AggregateFunctionTemplate<
+                NameData<Data<Decimal32, BaseDatadecimal<Decimal32, is_stddev>>>, is_nullable>(
+                argument_types);
+    }
+    if (which.is_decimal64()) {
+        return new AggregateFunctionTemplate<
+                NameData<Data<Decimal64, BaseDatadecimal<Decimal64, is_stddev>>>, is_nullable>(
+                argument_types);
+    }
+    if (which.is_decimal128()) {
+        return new AggregateFunctionTemplate<
+                NameData<Data<Decimal128, BaseDatadecimal<Decimal128, is_stddev>>>, is_nullable>(
+                argument_types);
     }
     DCHECK(false) << "with unknowed type, failed in  create_aggregate_function_stddev_variance";
     return nullptr;
