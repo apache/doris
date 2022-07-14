@@ -164,6 +164,20 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                         column->set_has_bitmap_index(true);
                         break;
                     }
+                } else if (index.index_type == TIndexType::type::NGRAM_BF) {
+                    DCHECK_EQ(index.columns.size(), 1);
+                    if (iequal(tcolumn.column_name, index.columns[0])) {
+                        // for ngram bloom filter params, validated in FE
+                        DCHECK_EQ(index.arguments.size(), 2);
+                        const auto & exprNode0 = index.arguments[0].nodes;
+                        DCHECK_EQ(exprNode0.size(), 1);
+                        column->set_gram_size(exprNode0[0].int_literal.value);
+                        const auto & exprNode1 = index.arguments[1].nodes;
+                        DCHECK_EQ(exprNode1.size(), 1);
+                        column->set_gram_bf_size(exprNode1[0].int_literal.value);
+                        column->set_ngram_bf_column(true);
+                        break;
+                    }
                 }
             }
         }
@@ -244,6 +258,12 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.is_bloom_filter_column) {
         column->set_is_bf_column(tcolumn.is_bloom_filter_column);
     }
+    if (tcolumn.has_ngram_bf_index) {
+        column->set_ngram_bf_column(true);
+        column->set_gram_size(tcolumn.gram_size);
+        column->set_gram_bf_size(tcolumn.gram_bf_size);
+    }
+
     if (tcolumn.column_type.type == TPrimitiveType::ARRAY) {
         ColumnPB* children_column = column->add_children_columns();
         init_column_from_tcolumn(0, tcolumn.children_column[0], children_column);

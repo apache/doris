@@ -267,6 +267,17 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 column_cond, &column_bf_row_ranges));
         RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
     }
+
+    // check the ngram bloom filter for like query
+    for (const auto& column_condition : _opts.conditions->like_columns()) {
+        auto cid = column_condition.first;
+        RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
+        CondColumn* column_cond = _opts.conditions->get_like_column(cid);
+        RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_bloom_filter(
+                column_cond, &column_bf_row_ranges));
+        RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
+    }
+
     size_t pre_size = condition_row_ranges->count();
     RowRanges::ranges_intersection(*condition_row_ranges, bf_row_ranges, condition_row_ranges);
     _opts.stats->rows_bf_filtered += (pre_size - condition_row_ranges->count());

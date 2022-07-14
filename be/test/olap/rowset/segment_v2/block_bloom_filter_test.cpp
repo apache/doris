@@ -174,21 +174,19 @@ TEST_F(BlockBloomFilterTest, slice) {
     EXPECT_FALSE(bf->test_bytes(s.data, s.size));
 }
 
-// Test contains
-TEST_F(BlockBloomFilterTest, contains) {
+// Test ngram bloom filter
+TEST_F(BlockBloomFilterTest, ngram) {
     std::unique_ptr<BloomFilter> bf1;
-    auto st1 = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf1);
+    auto st1 = BloomFilter::create(NGRAM_BLOOM_FILTER, &bf1, 1024);
     ASSERT_TRUE(st1.ok());
     ASSERT_NE(nullptr, bf1);
-    st1 = bf1->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
     ASSERT_TRUE(st1.ok());
     ASSERT_TRUE(bf1->size() > 0);
 
     std::unique_ptr<BloomFilter> bf2;
-    auto st2 = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf2);
+    auto st2 = BloomFilter::create(NGRAM_BLOOM_FILTER, &bf2, 1024);
     ASSERT_TRUE(st2.ok());
     ASSERT_NE(nullptr, bf2);
-    st2 = bf2->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
     ASSERT_TRUE(st2.ok());
     ASSERT_TRUE(bf2->size() > 0);
 

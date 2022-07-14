@@ -37,16 +37,17 @@ class WrapperField;
 struct RowCursorCell;
 
 enum CondOp {
-    OP_NULL = -1, // invalid op
-    OP_EQ = 0,    // equal
-    OP_NE = 1,    // not equal
-    OP_LT = 2,    // less than
-    OP_LE = 3,    // less or equal
-    OP_GT = 4,    // greater than
-    OP_GE = 5,    // greater or equal
-    OP_IN = 6,    // in
-    OP_IS = 7,    // is null or not null
-    OP_NOT_IN = 8 // not in
+    OP_NULL = -1,  // invalid op
+    OP_EQ = 0,     // equal
+    OP_NE = 1,     // not equal
+    OP_LT = 2,     // less than
+    OP_LE = 3,     // less or equal
+    OP_GT = 4,     // greater than
+    OP_GE = 5,     // greater or equal
+    OP_IN = 6,     // in
+    OP_IS = 7,     // is null or not null
+    OP_NOT_IN = 8, // not in
+    OP_LIKE = 9,   // support ngram bloom filter
 };
 
 // Hash functor for IN set
@@ -81,7 +82,9 @@ public:
     bool eval(const BloomFilter& bf) const;
     bool eval(const segment_v2::BloomFilter* bf) const;
 
-    bool can_do_bloom_filter() const { return op == OP_EQ || op == OP_IN || op == OP_IS; }
+    bool can_do_bloom_filter() const {
+        return op == OP_EQ || op == OP_IN || op == OP_IS || op == OP_LIKE;
+    }
 
     CondOp op = OP_NULL;
     // valid when op is not OP_IN and OP_NOT_IN
@@ -92,6 +95,7 @@ public:
     // valid when op is OP_IN or OP_NOT_IN, represents the minimum or maximum value of in elements
     WrapperField* min_value_field = nullptr;
     WrapperField* max_value_field = nullptr;
+    std::unique_ptr<segment_v2::BloomFilter> _bf;
 };
 
 // 所有归属于同一列上的条件二元组，聚合在一个CondColumn上
@@ -103,6 +107,8 @@ public:
     ~CondColumn();
 
     Status add_cond(const TCondition& tcond, const TabletColumn& column);
+    Status add_like_cond(const TabletColumn& column, const std::string& pattern, int32_t bf_size,
+                         int32_t gram_size);
 
     // 对一行数据中的指定列，用所有过滤条件进行比较，如果所有条件都满足，则过滤此行
     // Return true means this row should be filtered out, otherwise return false
@@ -170,14 +176,17 @@ public:
     // 1. column不属于key列
     // 2. column类型是double, float
     Status append_condition(const TCondition& condition);
-
+    Status append_like_condition(const TabletColumn& column, const std::string& pattern,
+                                     int32_t field_index, int32_t bf_size, int32_t gram_size);
     // 通过所有列上的删除条件对RowCursor进行过滤
     // Return true means this row should be filtered out, otherwise return false
     bool delete_conditions_eval(const RowCursor& row) const;
 
     const CondColumns& columns() const { return _columns; }
+    const CondColumns& like_columns() const { return _like_columns; }
 
     CondColumn* get_column(int32_t cid) const;
+    CondColumn* get_like_column(int32_t cid) const;
 
 private:
     bool _cond_column_is_key_or_duplicate(const CondColumn* cc) const {
@@ -187,7 +196,8 @@ private:
 private:
     const TabletSchema* _schema = nullptr;
     // CondColumns in _index_conds are in 'AND' relationship
-    CondColumns _columns; // list of condition column
+    CondColumns _columns;      // list of condition column
+    CondColumns _like_columns; // only work for like query
 
     DISALLOW_COPY_AND_ASSIGN(Conditions);
 };

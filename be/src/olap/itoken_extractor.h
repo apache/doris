@@ -42,16 +42,17 @@ struct ITokenExtractor {
     virtual bool nextInStringLike(const char* data, size_t length, size_t* pos,
                                   std::string& out) const = 0;
 
-    virtual void stringToBloomFilter(char* data, size_t length,
+    virtual void stringToBloomFilter(const char* data, size_t length,
                                      segment_v2::BloomFilter& bloom_filter) const = 0;
 
-    virtual void stringLikeToBloomFilter(const char* data, size_t length,
+    virtual bool stringLikeToBloomFilter(const char* data, size_t length,
                                          segment_v2::BloomFilter& bloom_filter) const = 0;
 };
 
 template <typename Derived>
 class ITokenExtractorHelper : public ITokenExtractor {
-    void stringToBloomFilter(char* data, size_t length,
+public:
+    void stringToBloomFilter(const char* data, size_t length,
                              segment_v2::BloomFilter& bloom_filter) const override {
         size_t cur = 0;
         size_t token_start = 0;
@@ -62,13 +63,19 @@ class ITokenExtractorHelper : public ITokenExtractor {
             bloom_filter.add_bytes(data + token_start, token_len);
     }
 
-    void stringLikeToBloomFilter(const char* data, size_t length,
+    bool stringLikeToBloomFilter(const char* data, size_t length,
                                  segment_v2::BloomFilter& bloom_filter) const override {
         size_t cur = 0;
+        bool added = false;
         std::string token;
         while (cur < length &&
                static_cast<const Derived*>(this)->nextInStringLike(data, length, &cur, token))
+        {
             bloom_filter.add_bytes(token.data(), token.size());
+            added = true;
+        }
+
+        return added;
     }
 };
 

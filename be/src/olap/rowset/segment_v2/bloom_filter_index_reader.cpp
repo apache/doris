@@ -50,8 +50,8 @@ Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
     RETURN_IF_ERROR(_bloom_filter_iter.next_batch(&num_read, &column_block_view));
     DCHECK(num_to_read == num_read);
     // construct bloom filter
-    BloomFilter::create(_reader->_bloom_filter_index_meta->algorithm(), bf);
     const Slice* value_ptr = reinterpret_cast<const Slice*>(block.data());
+    BloomFilter::create(_reader->_bloom_filter_index_meta->algorithm(), bf, value_ptr->size);
     RETURN_IF_ERROR((*bf)->init(value_ptr->data, value_ptr->size,
                                 _reader->_bloom_filter_index_meta->hash_strategy()));
     _pool->clear();

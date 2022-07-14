@@ -2406,7 +2406,8 @@ Status SchemaChangeHandler::_parse_request(
                 column_new.frac() != column_old.frac() ||
                 column_new.length() != column_old.length() ||
                 column_new.is_bf_column() != column_old.is_bf_column() ||
-                column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
+                column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
+                column_new.is_ngram_bf_column() != column_old.is_ngram_bf_column()) {
                 *sc_directly = true;
                 return Status::OK();
             }

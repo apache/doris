@@ -73,8 +73,14 @@ public:
                                                             std::string suffix) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
-    bool visible() const { return _visible; }
-    // Add a sub column.
+    inline bool visible() const { return _visible; }
+    inline bool is_ngram_bf_column() const { return _is_ngram_bf_column; }
+    inline uint8_t get_gram_size() const { return _gram_size; }
+    inline uint16_t get_gram_bf_size() const { return _gram_bf_size; }
+
+    /**
+     * Add a sub column.
+     */
     void add_sub_column(TabletColumn& sub_column);
 
     uint32_t get_subtype_count() const { return _sub_column_count; }
@@ -119,6 +125,9 @@ private:
     TabletColumn* _parent = nullptr;
     std::vector<TabletColumn> _sub_columns;
     uint32_t _sub_column_count = 0;
+    bool _is_ngram_bf_column = false;
+    uint8_t _gram_size;
+    uint16_t _gram_bf_size;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);

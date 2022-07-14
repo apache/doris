@@ -44,7 +44,13 @@ public:
                     uint32_t num_rows, roaring::Roaring* roaring) const override {
         return Status::OK();
     }
+    void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
+                         bool* flags) const override {
+        evaluate_vec(column, size, flags);
+    }
 
+    std::string get_search_str() const { return std::string(reinterpret_cast<char*>(pattern.ptr), pattern.len);}
+    bool is_opposite() const { return _opposite; }
 private:
     template <bool is_nullable>
     void _base_evaluate(const ColumnBlock* block, uint16_t* sel, uint16_t* size) const {

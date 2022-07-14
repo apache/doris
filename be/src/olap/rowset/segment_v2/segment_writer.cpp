@@ -92,6 +92,13 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         // and not support zone map for array type.
         opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
         opts.need_bloom_filter = column.is_bf_column();
+        if (column.is_ngram_bf_column()) {
+            opts.need_bloom_filter = true;
+            opts.is_ngram_bf_index = true;
+            opts.gram_size = column.get_gram_size();
+            opts.gram_bf_size = column.get_gram_bf_size();
+        }
+
         opts.need_bitmap_index = column.has_bitmap_index();
         if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             opts.need_zone_map = false;

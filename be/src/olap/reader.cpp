@@ -468,6 +468,19 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     // Function filter push down to storage engine
     for (const auto& filter : read_params.function_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
+        if (config::enable_query_like_bloom_filter) {
+            if (LikeColumnPredicate *pred = dynamic_cast<LikeColumnPredicate *>(_col_predicates.back())) {
+                if (pred->is_opposite())
+                    continue; // not support not like for ngram bloom filter
+
+                const auto& col = _tablet->tablet_schema().column(pred->column_id());
+                std::string pattern = pred->get_search_str();
+                if (col.is_ngram_bf_column()) {
+                    _conditions.append_like_condition(col, pattern, pred->column_id(),
+                                        col.get_gram_bf_size(), col.get_gram_size());
+                }
+            }
+        }
     }
 }
 

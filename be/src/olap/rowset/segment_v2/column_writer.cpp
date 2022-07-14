@@ -296,8 +296,13 @@ Status ScalarColumnWriter::init() {
         RETURN_IF_ERROR(
                 BitmapIndexWriter::create(get_field()->type_info(), &_bitmap_index_builder));
     }
+
     if (_opts.need_bloom_filter) {
-        RETURN_IF_ERROR(BloomFilterIndexWriter::create(
+        if (_opts.is_ngram_bf_index)
+            RETURN_IF_ERROR(BloomFilterIndexWriter::create(
+                BloomFilterOptions(), get_field()->type_info(), _opts.gram_size, _opts.gram_bf_size, &_bloom_filter_index_builder));
+        else
+            RETURN_IF_ERROR(BloomFilterIndexWriter::create(
                 BloomFilterOptions(), get_field()->type_info(), &_bloom_filter_index_builder));
     }
     return Status::OK();

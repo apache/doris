@@ -37,8 +37,8 @@ public class IndexDef {
     private List<Expr> arguments;
     private String comment;
 
-    private static final Expr DEFAULT_NGRAM_SIZE = new IntLiteral(2);
-    private static final Expr DEFAULT_NGRAM_BF_SIZE = new IntLiteral(256);
+    public static final Expr DEFAULT_NGRAM_SIZE = new IntLiteral(2);
+    public static final Expr DEFAULT_NGRAM_BF_SIZE = new IntLiteral(256);
 
     public IndexDef(String indexName, boolean ifNotExists, List<String> columns,
                     IndexTypeWithArgument indexTypeWithArguments, String comment

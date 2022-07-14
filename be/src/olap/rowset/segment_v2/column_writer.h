@@ -50,6 +50,9 @@ struct ColumnWriterOptions {
     bool need_zone_map = false;
     bool need_bitmap_index = false;
     bool need_bloom_filter = false;
+    bool is_ngram_bf_index = false;
+    uint8_t gram_size;
+    uint16_t gram_bf_size;
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()

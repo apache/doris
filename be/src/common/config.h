@@ -798,6 +798,8 @@ CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 CONF_Bool(enable_time_lut, "true");
 
+CONF_mBool(enable_query_like_bloom_filter, "true");
+
 } // namespace config
 
 } // namespace doris

@@ -386,6 +386,13 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_visible()) {
         _visible = column.visible();
     }
+    // ngram bloom filter index
+    if (column.has_ngram_bf_column()) {
+        _is_ngram_bf_column = true;
+        _gram_size = column.gram_size();
+        _gram_bf_size = column.gram_bf_size();
+    }
+
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(column.children_columns_size() == 1) << "ARRAY type has more than 1 children types.";
         TabletColumn child_column;
@@ -420,6 +427,12 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
     column->set_visible(_visible);
+
+    if (_is_ngram_bf_column) {
+        column->set_ngram_bf_column(true);
+        column->set_gram_size(_gram_size);
+        column->set_gram_bf_size(_gram_bf_size);
+    }
 
     if (_type == OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
@@ -701,6 +714,7 @@ bool operator==(const TabletColumn& a, const TabletColumn& b) {
         if (a._referenced_column != b._referenced_column) return false;
     }
     if (a._has_bitmap_index != b._has_bitmap_index) return false;
+    if (a._is_ngram_bf_column != b._is_ngram_bf_column) return false;
     return true;
 }
 

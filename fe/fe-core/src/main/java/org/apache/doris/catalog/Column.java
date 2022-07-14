@@ -21,6 +21,7 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
@@ -717,6 +718,17 @@ public class Column implements Writable {
                 List<String> columns = index.getColumns();
                 if (tColumn.getColumnName().equals(columns.get(0))) {
                     tColumn.setHasBitmapIndex(true);
+                }
+            } else if (index.getIndexType() == IndexDef.IndexType.NGRAM_BF) {
+                List<String> columns = index.getColumns();
+                if (tColumn.getColumnName().equals(columns.get(0))) {
+                    tColumn.setHasNgramBfIndex(true);
+                    Expr ngramSize = index.getArguments().size() >= 1 ? index.getArguments().get(0)
+                            : IndexDef.DEFAULT_NGRAM_SIZE;
+                    Expr bfSize = index.getArguments().size() >= 2 ? index.getArguments().get(1)
+                            : IndexDef.DEFAULT_NGRAM_BF_SIZE;
+                    tColumn.setGramSize(Math.toIntExact(((IntLiteral) ngramSize).getLongValue()));
+                    tColumn.setGramBfSize(Math.toIntExact(((IntLiteral) bfSize).getLongValue()));
                 }
             }
         }
