@@ -83,11 +83,11 @@ public class CostAndEnforcerJob extends Job<Plan> {
      * execute.
      */
     public void execute1() {
-        // Do init logic of root operator/groupExpr of `subplan`, only run once per task.
+        // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
         if (curChildIndex != -1) {
             curTotalCost = 0;
 
-            // Get property from groupExpression operator (it's root of subplan).
+            // Get property from groupExpression plan (it's root of subplan).
             ParentRequiredPropertyDeriver parentRequiredPropertyDeriver = new ParentRequiredPropertyDeriver(context);
             propertiesListList = parentRequiredPropertyDeriver.getRequiredPropertyListList(groupExpression);
 

@@ -28,6 +28,7 @@
 #include "vec/common/columns_hashing_impl.h"
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
+#include "vec/common/hash_table/ph_hash_map.h"
 #include "vec/common/unaligned.h"
 
 namespace doris::vectorized {

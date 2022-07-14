@@ -889,7 +889,7 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
                 // TODO llj for Array default value
                 return Status::NotSupported("Array default type is unsupported");
             } else {
-                s = _type_info->from_string(_mem_value, _default_value);
+                s = _type_info->from_string(_mem_value, _default_value, _precision, _scale);
             }
             if (!s.ok()) {
                 return s;

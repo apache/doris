@@ -139,6 +139,12 @@ bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column
         return valid_unsigned_number<uint64_t>(value_str);
     case OLAP_FIELD_TYPE_DECIMAL:
         return valid_decimal(value_str, column.precision(), column.frac());
+    case OLAP_FIELD_TYPE_DECIMAL32:
+        return valid_decimal(value_str, column.precision(), column.frac());
+    case OLAP_FIELD_TYPE_DECIMAL64:
+        return valid_decimal(value_str, column.precision(), column.frac());
+    case OLAP_FIELD_TYPE_DECIMAL128:
+        return valid_decimal(value_str, column.precision(), column.frac());
     case OLAP_FIELD_TYPE_CHAR:
     case OLAP_FIELD_TYPE_VARCHAR:
         return value_str.size() <= column.length();

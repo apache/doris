@@ -93,11 +93,13 @@ public class OriginalPlanner extends Planner {
                 for (Expr expr : outputExprs) {
                     List<SlotId> slotList = Lists.newArrayList();
                     expr.getIds(null, slotList);
-                    if (PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
+                    if ((!expr.getType().getPrimitiveType().isDecimalV2Type()
+                            && expr.getType().getPrimitiveType().isDecimalV3Type())) {
                         continue;
                     }
 
-                    if (PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
+                    if (!slotDesc.getType().getPrimitiveType().isDecimalV2Type()
+                            && !slotDesc.getType().getPrimitiveType().isDecimalV3Type()) {
                         continue;
                     }
 

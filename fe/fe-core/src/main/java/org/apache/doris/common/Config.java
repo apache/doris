@@ -1670,6 +1670,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false)
     public static long file_scan_node_split_num = 128;
 
+    /*
+     * If set to TRUE, the precision of decimal will be broaden to [1, 38].
+     * Decimalv3 of storage layer needs to be enabled first.
+     */
+    @ConfField
+    public static boolean enable_decimalv3 = false;
+
     /**
      * If set to TRUE, FE will:
      * 1. divide BE into high load and low load(no mid load) to force triggering tablet scheduling;
