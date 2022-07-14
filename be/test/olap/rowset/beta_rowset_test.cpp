@@ -432,8 +432,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
             std::make_shared<io::S3FileSystem>(properties, "bucket", "test prefix", resource_id);
     Aws::SDKOptions aws_options = Aws::SDKOptions {};
     Aws::InitAPI(aws_options);
-
-    TabletSchema dummy_schema;
     // failed to head object
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
@@ -447,7 +445,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        Status st = rowset.load_segments(&segments, &dummy_schema);
+        Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
 
@@ -462,7 +460,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        Status st = rowset.load_segments(&segments, &dummy_schema);
+        Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
 
@@ -477,7 +475,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        Status st = rowset.load_segments(&segments, &dummy_schema);
+        Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
 

@@ -69,8 +69,7 @@ Status BetaRowset::do_load(bool /*use_cache*/) {
     return Status::OK();
 }
 
-Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
-                                 const TabletSchema* read_tablet_schema) {
+Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
@@ -78,7 +77,7 @@ Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segm
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         auto seg_path = segment_file_path(seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, read_tablet_schema, &segment);
+        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, _schema, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset "
                          << unique_id() << " : " << s.to_string();

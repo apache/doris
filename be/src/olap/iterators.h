@@ -83,6 +83,8 @@ public:
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
     int block_row_max = 4096;
+
+    const TabletSchema* tablet_schema = nullptr;
 };
 
 // Used to read data in RowBlockV2 one by one
