@@ -721,6 +721,9 @@ public class ScalarType extends Type {
         if (isDecimalV3() && scalarType.isDecimalV3()) {
             return precision == scalarType.precision && scale == scalarType.scale;
         }
+        if (isDatetimeV2() && scalarType.isDatetimeV2()) {
+            return true;
+        }
         return false;
     }
 

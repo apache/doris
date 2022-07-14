@@ -74,15 +74,10 @@ static std::string to_date_string(uint24_t& date_value) {
 }
 
 static std::string to_date_v2_string(uint32_t& date_value) {
-    tm time_tm;
-    uint32_t value = date_value;
-    memset(&time_tm, 0, sizeof(time_tm));
-    time_tm.tm_mday = static_cast<int>(value & 0x000000FF);
-    time_tm.tm_mon = static_cast<int>((value & 0x0000FF00) >> 8);
-    time_tm.tm_year = static_cast<int>((value & 0xFFFF0000) >> 16);
-    char buf[20] = {'\0'};
-    strftime(buf, sizeof(buf), "%Y-%m-%d", &time_tm);
-    return std::string(buf);
+    auto val = binary_cast<uint32_t, vectorized::DateV2Value>(date_value);
+    std::stringstream ss;
+    ss << val;
+    return ss.str();
 }
 
 static std::string to_datetime_string(uint64_t& datetime_value) {
