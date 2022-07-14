@@ -64,6 +64,9 @@ struct RowsetReaderContext {
     int batch_size = 1024;
     bool is_vec = false;
     bool is_unique = false;
+
+    // need pass this info to VMergeIterator
+    std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
 };
 
 } // namespace doris
