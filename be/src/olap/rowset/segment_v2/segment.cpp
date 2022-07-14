@@ -71,7 +71,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     if (read_options.conditions != nullptr) {
         for (auto& column_condition : read_options.conditions->columns()) {
             int32_t column_unique_id = _tablet_schema.column(column_condition.first).unique_id();
-            if (!_column_readers.contains(column_unique_id) ||
+            if (_column_readers.count(column_unique_id) < 1 ||
                 !_column_readers.at(column_unique_id)->has_zone_map()) {
                 continue;
             }
@@ -193,7 +193,7 @@ Status Segment::_create_column_readers() {
 // but in the old schema column b's cid == 2
 // but they are not the same column
 Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter) {
-    if (!_column_readers.contains(tablet_column.unique_id())) {
+    if (_column_readers.count(tablet_column.unique_id()) < 1) {
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
         }
@@ -215,7 +215,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIte
 Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
                                           BitmapIndexIterator** iter) {
     auto col_unique_id = tablet_column.unique_id();
-    if (_column_readers.contains(col_unique_id) &&
+    if (_column_readers.count(col_unique_id) > 0 &&
         _column_readers.at(col_unique_id)->has_bitmap_index()) {
         return _column_readers.at(col_unique_id)->new_bitmap_index_iterator(iter);
     }
