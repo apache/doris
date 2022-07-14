@@ -528,19 +528,16 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     public boolean compactionRecovered() {
         Replica chosenReplica = null;
         long maxVersionCount = -1;
-        long minVersionCount = Integer.MAX_VALUE;
         for (Replica replica : tablet.getReplicas()) {
             if (replica.getVersionCount() > maxVersionCount) {
                 maxVersionCount = replica.getVersionCount();
                 chosenReplica = replica;
             }
-            if (replica.getVersionCount() < minVersionCount) {
-                minVersionCount = replica.getVersionCount();
-            }
         }
         boolean recovered = false;
         for (Replica replica : tablet.getReplicas()) {
-            if (replica.isAlive() && replica.tooSlow() && !chosenReplica.equals(replica)) {
+            if (replica.isAlive() && !replica.isBad() && replica.tooSlow() && (!chosenReplica.equals(replica)
+                    || replica.getVersionCount() < Config.min_version_count_indicate_replica_compaction_too_slow)) {
                 chosenReplica.setState(ReplicaState.NORMAL);
                 recovered = true;
             }
@@ -548,7 +545,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return recovered;
     }
 
-    // database lock should be held.
+    // table lock should be held.
     // If exceptBeId != -1, should not choose src replica with same BE id as exceptBeId
     public void chooseSrcReplica(Map<Long, PathSlot> backendsWorkingSlots, long exceptBeId) throws SchedException {
         /*
