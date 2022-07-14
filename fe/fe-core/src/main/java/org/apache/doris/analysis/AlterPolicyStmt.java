@@ -38,15 +38,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-
-
 @Data
-public class AlterStoragePolicyStmt extends DdlStmt {
-    private final String storagePolicyName;
+public class AlterPolicyStmt extends DdlStmt {
+    private final String policyName;
     private final Map<String, String> properties;
 
-    public AlterStoragePolicyStmt(String storagePolicyName, Map<String, String> properties) {
-        this.storagePolicyName = storagePolicyName;
+    public AlterPolicyStmt(String policyName, Map<String, String> properties) {
+        this.policyName = policyName;
         this.properties = properties;
     }
 
@@ -60,11 +58,26 @@ public class AlterStoragePolicyStmt extends DdlStmt {
         }
 
         if (properties == null || properties.isEmpty()) {
-            throw new AnalysisException("Storage policy properties can't be null");
+            throw new AnalysisException("policy properties can't be null");
         }
 
+        if (Catalog.getCurrentCatalog().getPolicyMgr()
+                .findPolicy(this.policyName, PolicyTypeEnum.ROW).isPresent()) {
+            throw new AnalysisException("Current not support alter row policy");
+        }
+
+        // check resource existence
+        List<Policy> policiesByType = Catalog.getCurrentCatalog()
+                .getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
+        Optional<Policy> hasPolicy = policiesByType.stream()
+                .filter(policy -> policy.getPolicyName().equals(this.policyName)).findAny();
+        if (!hasPolicy.isPresent()) {
+            throw new AnalysisException("Unknown storage policy: " + this.policyName);
+        }
+        StoragePolicy storagePolicy = (StoragePolicy) hasPolicy.get();
+
         // default storage policy use alter storage policy to add s3 resource.
-        if (!storagePolicyName.equalsIgnoreCase(Config.default_storage_policy)
+        if (!policyName.equalsIgnoreCase(Config.default_storage_policy)
                 && properties.containsKey(StoragePolicy.STORAGE_RESOURCE)) {
             throw new AnalysisException("not support change storage policy's storage resource"
                 + ", you can change s3 properties by alter resource");
@@ -100,19 +113,8 @@ public class AlterStoragePolicyStmt extends DdlStmt {
                 + StoragePolicy.COOLDOWN_TTL + " must be set");
         }
 
-        // check resource existence
-        List<Policy> policiesByType = Catalog.getCurrentCatalog()
-                .getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
-        Optional<Policy> hasPolicy = policiesByType.stream()
-                .filter(policy -> policy.getPolicyName().equals(this.storagePolicyName)).findAny();
-        if (!hasPolicy.isPresent()) {
-            throw new AnalysisException("Unknown storage policy: " + this.storagePolicyName);
-        }
-
-        StoragePolicy storagePolicy = (StoragePolicy) hasPolicy.get();
-
         do {
-            if (storagePolicyName.equalsIgnoreCase(Config.default_storage_policy)) {
+            if (policyName.equalsIgnoreCase(Config.default_storage_policy)) {
                 // default storage policy
                 if (storagePolicy.getStorageResource() != null && hasCooldownDatetime) {
                     // alter cooldown datetime, can do
@@ -142,7 +144,7 @@ public class AlterStoragePolicyStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuffer sb = new StringBuffer();
-        sb.append("ALTER STORAGE POLICY '").append(storagePolicyName).append("' ");
+        sb.append("ALTER POLICY '").append(policyName).append("' ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
     }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.policy;
 
-import org.apache.doris.analysis.AlterStoragePolicyStmt;
+import org.apache.doris.analysis.AlterPolicyStmt;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
@@ -90,7 +90,7 @@ public class PolicyMgr implements Writable {
     }
 
     public void createDefaultStoragePolicy() throws DdlException {
-        Optional<Policy> hasDefault = findStoragePolicy(Config.default_storage_policy);
+        Optional<Policy> hasDefault = findPolicy(Config.default_storage_policy, PolicyTypeEnum.STORAGE);
         if (hasDefault.isPresent()) {
             // already exist default storage policy, just return.
             return;
@@ -399,20 +399,25 @@ public class PolicyMgr implements Writable {
         return policyMgr;
     }
 
-    public Optional<Policy> findStoragePolicy(final String storagePolicyName) {
-        List<Policy> policiesByType = getPoliciesByType(PolicyTypeEnum.STORAGE);
+    public Optional<Policy> findPolicy(final String storagePolicyName, PolicyTypeEnum policyType) {
+        List<Policy> policiesByType = getPoliciesByType(policyType);
         return policiesByType.stream()
             .filter(policy -> policy.getPolicyName().equals(storagePolicyName)).findAny();
     }
 
-    public void alterStoragePolicy(AlterStoragePolicyStmt stmt) throws DdlException, AnalysisException {
-        String storagePolicyName = stmt.getStoragePolicyName();
+    public void alterPolicy(AlterPolicyStmt stmt) throws DdlException, AnalysisException {
+        String storagePolicyName = stmt.getPolicyName();
         Map<String, String> properties = stmt.getProperties();
+
+        if (findPolicy(storagePolicyName, PolicyTypeEnum.ROW).isPresent()) {
+            throw new DdlException("Current not support alter row policy");
+        }
+
         if (storagePolicyName.equalsIgnoreCase(Config.default_storage_policy)) {
             createDefaultStoragePolicy();
         }
 
-        Optional<Policy> policy = findStoragePolicy(storagePolicyName);
+        Optional<Policy> policy = findPolicy(storagePolicyName, PolicyTypeEnum.STORAGE);
 
         if (!policy.isPresent()) {
             throw new DdlException("Storage policy(" + storagePolicyName + ") dose not exist.");

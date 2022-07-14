@@ -907,7 +907,7 @@ alter_stmt ::=
     :}
     | KW_ALTER KW_STORAGE KW_POLICY ident_or_text:policyName opt_properties:properties
     {:
-        RESULT = new AlterStoragePolicyStmt(policyName, properties);
+        RESULT = new AlterPolicyStmt(policyName, properties);
     :}
     ;
 
