@@ -63,8 +63,8 @@ AggregateFunctionPtr create_aggregate_function_ntile(const std::string& name,
 }
 
 template <template <typename> class AggregateFunctionTemplate,
-          template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable> class Data,
-          template <typename> class Impl, bool result_is_nullable, bool arg_is_nullable>
+          template <typename ColVecType, bool, bool> class Data, template <typename> class Impl,
+          bool result_is_nullable, bool arg_is_nullable>
 static IAggregateFunction* create_function_lead_lag_first_last(const String& name,
                                                                const DataTypes& argument_types,
                                                                const Array& parameters) {
@@ -134,17 +134,22 @@ AggregateFunctionPtr create_aggregate_function_window_first(const std::string& n
                                                             const Array& parameters,
                                                             const bool result_is_nullable) {
     const bool arg_is_nullable = argument_types[0]->is_nullable();
-    if (arg_is_nullable) {
-        return AggregateFunctionPtr(
-                create_function_lead_lag_first_last<WindowFunctionData, FirstLastData,
-                                                    WindowFunctionFirstImpl, true, true>(
-                        name, argument_types, parameters));
-    } else {
-        return AggregateFunctionPtr(
-                create_function_lead_lag_first_last<WindowFunctionData, FirstLastData,
-                                                    WindowFunctionFirstImpl, true, false>(
-                        name, argument_types, parameters));
+    AggregateFunctionPtr res = nullptr;
+
+    std::visit(
+            [&](auto result_is_nullable, auto arg_is_nullable) {
+                res = AggregateFunctionPtr(
+                        create_function_lead_lag_first_last<WindowFunctionData, FirstLastData,
+                                                            WindowFunctionFirstImpl,
+                                                            result_is_nullable, arg_is_nullable>(
+                                name, argument_types, parameters));
+            },
+            make_bool_variant(result_is_nullable), make_bool_variant(arg_is_nullable));
+    if (!res) {
+        LOG(WARNING) << " failed in  create_aggregate_function_" << name
+                     << " and type is: " << argument_types[0]->get_name();
     }
+    return res;
 }
 
 AggregateFunctionPtr create_aggregate_function_window_last(const std::string& name,
@@ -152,17 +157,22 @@ AggregateFunctionPtr create_aggregate_function_window_last(const std::string& na
                                                            const Array& parameters,
                                                            const bool result_is_nullable) {
     const bool arg_is_nullable = argument_types[0]->is_nullable();
-    if (arg_is_nullable) {
-        return AggregateFunctionPtr(
-                create_function_lead_lag_first_last<WindowFunctionData, FirstLastData,
-                                                    WindowFunctionLastImpl, true, true>(
-                        name, argument_types, parameters));
-    } else {
-        return AggregateFunctionPtr(
-                create_function_lead_lag_first_last<WindowFunctionData, FirstLastData,
-                                                    WindowFunctionLastImpl, true, false>(
-                        name, argument_types, parameters));
+    AggregateFunctionPtr res = nullptr;
+
+    std::visit(
+            [&](auto result_is_nullable, auto arg_is_nullable) {
+                res = AggregateFunctionPtr(
+                        create_function_lead_lag_first_last<WindowFunctionData, FirstLastData,
+                                                            WindowFunctionLastImpl,
+                                                            result_is_nullable, arg_is_nullable>(
+                                name, argument_types, parameters));
+            },
+            make_bool_variant(result_is_nullable), make_bool_variant(arg_is_nullable));
+    if (!res) {
+        LOG(WARNING) << " failed in  create_aggregate_function_" << name
+                     << " and type is: " << argument_types[0]->get_name();
     }
+    return res;
 }
 
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory) {
