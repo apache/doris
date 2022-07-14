@@ -328,7 +328,6 @@ public class ScalarType extends Type {
     public static ScalarType createDecimalTypeInternal(int precision, int scale) {
         ScalarType type = new ScalarType(getSuitableDecimalType(precision));
         type.precision = Math.min(precision, MAX_PRECISION);
-        System.out.println("============1 " + type.precision);
         type.scale = Math.min(type.precision, scale);
         return type;
     }
@@ -770,7 +769,6 @@ public class ScalarType extends Type {
         } else if (isNull()) {
             return ScalarType.NULL;
         } else if (isDecimalV2()) {
-            System.out.println("============2 " + scale);
             return createDecimalTypeInternal(MAX_PRECISION, scale);
         } else if (getPrimitiveType() == PrimitiveType.DECIMAL32) {
             return createDecimalTypeInternal(MAX_DECIMAL32_PRECISION, scale);
