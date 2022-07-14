@@ -239,6 +239,15 @@ public class TableProperty implements Writable {
         return compressionType;
     }
 
+    public void setEnableUniqueKeyMergeOnWrite(boolean enable) {
+        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
+    }
+
+    public boolean getEnableUniqueKeyMergeOnWrite() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+                    PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
+    }
+
     public void buildReplicaAllocation() {
         try {
             // Must copy the properties because "analyzeReplicaAllocation" with remove the property

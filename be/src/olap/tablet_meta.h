@@ -89,7 +89,8 @@ public:
                TabletUid tablet_uid, TTabletType::type tabletType,
                TStorageMedium::type t_storage_medium, const std::string& remote_storage_name,
                TCompressionType::type compression_type,
-               const std::string& storage_policy = std::string());
+               const std::string& storage_policy = std::string(),
+               bool enable_unique_key_merge_on_write = false);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -205,6 +206,8 @@ public:
 
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
+    bool enable_unique_key_merge_on_write() { return _enable_unique_key_merge_on_write; }
+
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -244,6 +247,8 @@ private:
     // FIXME(cyx): Currently `cooldown_resource` is equivalent to `storage_policy`.
     io::ResourceId _cooldown_resource;
 
+    // may be true iff unique keys model.
+    bool _enable_unique_key_merge_on_write = false;
     std::unique_ptr<DeleteBitmap> _delete_bitmap;
 
     mutable std::shared_mutex _meta_lock;

@@ -45,7 +45,10 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
             col_ordinal_to_unique_id, tablet_uid,
             request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK,
             request.storage_medium, request.storage_param.storage_name, request.compression_type,
-            request.storage_policy));
+            request.storage_policy,
+            request.__isset.enable_unique_key_merge_on_write
+                    ? request.enable_unique_key_merge_on_write
+                    : false));
     return Status::OK();
 }
 
@@ -58,7 +61,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                        TabletUid tablet_uid, TTabletType::type tabletType,
                        TStorageMedium::type t_storage_medium, const std::string& storage_name,
-                       TCompressionType::type compression_type, const std::string& storage_policy)
+                       TCompressionType::type compression_type, const std::string& storage_policy,
+                       bool enable_unique_key_merge_on_write)
         : _tablet_uid(0, 0), _schema(new TabletSchema), _delete_bitmap(new DeleteBitmap()) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
@@ -77,6 +81,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                                            : TabletTypePB::TABLET_TYPE_MEMORY);
     tablet_meta_pb.set_storage_medium(fs::fs_util::get_storage_medium_pb(t_storage_medium));
     tablet_meta_pb.set_remote_storage_name(storage_name);
+    tablet_meta_pb.set_enable_unique_key_merge_on_write(enable_unique_key_merge_on_write);
     tablet_meta_pb.set_storage_policy(storage_policy);
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
@@ -462,6 +467,9 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _remote_storage_name = tablet_meta_pb.remote_storage_name();
     _storage_medium = tablet_meta_pb.storage_medium();
     _cooldown_resource = tablet_meta_pb.storage_policy();
+    if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
+        _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
+    }
 
     if (tablet_meta_pb.has_delete_bitmap()) {
         int rst_ids_size = tablet_meta_pb.delete_bitmap().rowset_ids_size();
@@ -528,6 +536,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_remote_storage_name(_remote_storage_name);
     tablet_meta_pb->set_storage_medium(_storage_medium);
     tablet_meta_pb->set_storage_policy(_cooldown_resource);
+    tablet_meta_pb->set_enable_unique_key_merge_on_write(_enable_unique_key_merge_on_write);
 
     {
         std::shared_lock l(delete_bitmap().lock);

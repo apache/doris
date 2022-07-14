@@ -121,6 +121,7 @@ struct TCreateTabletReq {
     16: optional TCompressionType compression_type = TCompressionType.LZ4F
     17: optional Types.TReplicaId replica_id = 0
     18: optional string storage_policy
+    19: optional bool enable_unique_key_merge_on_write = false
 }
 
 struct TDropTabletReq {
