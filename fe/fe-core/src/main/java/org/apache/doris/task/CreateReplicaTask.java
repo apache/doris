@@ -89,38 +89,7 @@ public class CreateReplicaTask extends AgentTask {
 
     private DataSortInfo dataSortInfo;
 
-    public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                             long replicaId, short shortKeyColumnCount, int schemaHash, long version,
-                             KeysType keysType, TStorageType storageType,
-                             TStorageMedium storageMedium, List<Column> columns,
-                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
-                             List<Index> indexes,
-                             boolean isInMemory,
-                             TTabletType tabletType, TCompressionType compressionType) {
-        super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
-
-        this.replicaId = replicaId;
-        this.shortKeyColumnCount = shortKeyColumnCount;
-        this.schemaHash = schemaHash;
-
-        this.version = version;
-
-        this.keysType = keysType;
-        this.storageType = storageType;
-        this.storageMedium = storageMedium;
-        this.compressionType = compressionType;
-
-        this.columns = columns;
-
-        this.bfColumns = bfColumns;
-        this.indexes = indexes;
-        this.bfFpp = bfFpp;
-
-        this.latch = latch;
-
-        this.isInMemory = isInMemory;
-        this.tabletType = tabletType;
-    }
+    private boolean enableUniqueKeyMergeOnWrite;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -131,7 +100,8 @@ public class CreateReplicaTask extends AgentTask {
                              boolean isInMemory,
                              TTabletType tabletType,
                              DataSortInfo dataSortInfo,
-                             TCompressionType compressionType) {
+                             TCompressionType compressionType,
+                             boolean enableUniqueKeyMergeOnWrite) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -156,6 +126,7 @@ public class CreateReplicaTask extends AgentTask {
         this.isInMemory = isInMemory;
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
+        this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -277,6 +248,7 @@ public class CreateReplicaTask extends AgentTask {
 
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
+        createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
         return createTabletReq;
     }
 }
