@@ -147,6 +147,14 @@ public:
         return Status::OK();
     }
 
+    #ifndef RPC_ADD
+    #define RPC_ADD
+    #define ADD_VALUE(TYPEVALUE) \
+            if (_buffer_request[j].args(i).TYPEVALUE##_##size() > 0) {  \
+                arg->add_##TYPEVALUE(_buffer_request[j].args(i).TYPEVALUE(0)); \
+            } 
+    #endif
+
     PFunctionCallRequest merge_buffer_request(PFunctionCallRequest& request) {
         int args_size = _buffer_request[0].args_size();
         request.set_function_name(_update_fn);
@@ -154,33 +162,15 @@ public:
             PValues* arg = request.add_args();
             arg->mutable_type()->CopyFrom(_buffer_request[0].args(i).type());
             for (int j = 0; j < _buffer_request.size(); j++) {
-                if (_buffer_request[j].args(i).double_value_size() > 0) {
-                    arg->add_double_value(_buffer_request[j].args(i).double_value(0));
-                }
-                if (_buffer_request[j].args(i).float_value_size() > 0) {
-                    arg->add_float_value(_buffer_request[j].args(i).float_value(0));
-                }
-                if (_buffer_request[j].args(i).int32_value_size() > 0) {
-                    arg->add_int32_value(_buffer_request[j].args(i).int32_value(0));
-                }
-                if (_buffer_request[j].args(i).int64_value_size() > 0) {
-                    arg->add_int64_value(_buffer_request[j].args(i).int64_value(0));
-                }
-                if (_buffer_request[j].args(i).uint32_value_size() > 0) {
-                    arg->add_uint32_value(_buffer_request[j].args(i).uint32_value(0));
-                }
-                if (_buffer_request[j].args(i).uint64_value_size() > 0) {
-                    arg->add_uint64_value(_buffer_request[j].args(i).uint64_value(0));
-                }
-                if (_buffer_request[j].args(i).bool_value_size() > 0) {
-                    arg->add_bool_value(_buffer_request[j].args(i).bool_value(0));
-                }
-                if (_buffer_request[j].args(i).string_value_size() > 0) {
-                    arg->add_string_value(_buffer_request[j].args(i).string_value(0));
-                }
-                if (_buffer_request[j].args(i).bytes_value_size() > 0) {
-                    arg->add_bytes_value(_buffer_request[j].args(i).bytes_value(0));
-                }
+                ADD_VALUE(double_value);
+                ADD_VALUE(float_value);
+                ADD_VALUE(int32_value);
+                ADD_VALUE(int64_value);
+                ADD_VALUE(uint32_value);
+                ADD_VALUE(uint64_value);
+                ADD_VALUE(bool_value);
+                ADD_VALUE(string_value);
+                ADD_VALUE(bytes_value);
             }
         }
         return request;
