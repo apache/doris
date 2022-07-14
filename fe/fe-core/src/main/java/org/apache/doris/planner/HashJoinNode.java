@@ -554,6 +554,8 @@ public class HashJoinNode extends PlanNode {
         vIntermediateTupleDescList.add(vIntermediateRightTupleDesc);
         boolean leftNullable = false;
         boolean rightNullable = false;
+        boolean copyleft = true;
+        boolean copyRight = true;
         switch (joinOp) {
             case LEFT_OUTER_JOIN:
                 rightNullable = true;
@@ -565,6 +567,19 @@ public class HashJoinNode extends PlanNode {
                 leftNullable = true;
                 rightNullable = true;
                 break;
+            case LEFT_ANTI_JOIN:
+            case LEFT_SEMI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                if (otherJoinConjuncts == null || otherJoinConjuncts.isEmpty()) {
+                    copyRight = false;
+                }
+                break;
+            case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
+                if (otherJoinConjuncts == null || otherJoinConjuncts.isEmpty()) {
+                    copyleft = false;
+                }
+                break;
             default:
                 break;
         }
@@ -572,28 +587,34 @@ public class HashJoinNode extends PlanNode {
         ExprSubstitutionMap originToIntermediateSmap = new ExprSubstitutionMap();
         Map<List<TupleId>, TupleId> originTidsToIntermediateTidMap = Maps.newHashMap();
         // left
-        originTidsToIntermediateTidMap.put(getChild(0).getOutputTupleIds(), vIntermediateLeftTupleDesc.getId());
-        for (TupleDescriptor tupleDescriptor : analyzer.getDescTbl().getTupleDesc(getChild(0).getOutputTupleIds())) {
-            for (SlotDescriptor slotDescriptor : tupleDescriptor.getMaterializedSlots()) {
-                SlotDescriptor intermediateSlotDesc =
-                        analyzer.getDescTbl().copySlotDescriptor(vIntermediateLeftTupleDesc, slotDescriptor);
-                if (leftNullable) {
-                    intermediateSlotDesc.setIsNullable(true);
+        if (copyleft) {
+            originTidsToIntermediateTidMap.put(getChild(0).getOutputTupleIds(), vIntermediateLeftTupleDesc.getId());
+            for (TupleDescriptor tupleDescriptor : analyzer.getDescTbl()
+                    .getTupleDesc(getChild(0).getOutputTupleIds())) {
+                for (SlotDescriptor slotDescriptor : tupleDescriptor.getMaterializedSlots()) {
+                    SlotDescriptor intermediateSlotDesc =
+                            analyzer.getDescTbl().copySlotDescriptor(vIntermediateLeftTupleDesc, slotDescriptor);
+                    if (leftNullable) {
+                        intermediateSlotDesc.setIsNullable(true);
+                    }
+                    originToIntermediateSmap.put(new SlotRef(slotDescriptor), new SlotRef(intermediateSlotDesc));
                 }
-                originToIntermediateSmap.put(new SlotRef(slotDescriptor), new SlotRef(intermediateSlotDesc));
             }
         }
         vIntermediateLeftTupleDesc.computeMemLayout();
         // right
-        originTidsToIntermediateTidMap.put(getChild(1).getOutputTupleIds(), vIntermediateRightTupleDesc.getId());
-        for (TupleDescriptor tupleDescriptor : analyzer.getDescTbl().getTupleDesc(getChild(1).getOutputTupleIds())) {
-            for (SlotDescriptor slotDescriptor : tupleDescriptor.getMaterializedSlots()) {
-                SlotDescriptor intermediateSlotDesc =
-                        analyzer.getDescTbl().copySlotDescriptor(vIntermediateRightTupleDesc, slotDescriptor);
-                if (rightNullable) {
-                    intermediateSlotDesc.setIsNullable(true);
+        if (copyRight) {
+            originTidsToIntermediateTidMap.put(getChild(1).getOutputTupleIds(), vIntermediateRightTupleDesc.getId());
+            for (TupleDescriptor tupleDescriptor : analyzer.getDescTbl()
+                    .getTupleDesc(getChild(1).getOutputTupleIds())) {
+                for (SlotDescriptor slotDescriptor : tupleDescriptor.getMaterializedSlots()) {
+                    SlotDescriptor intermediateSlotDesc =
+                            analyzer.getDescTbl().copySlotDescriptor(vIntermediateRightTupleDesc, slotDescriptor);
+                    if (rightNullable) {
+                        intermediateSlotDesc.setIsNullable(true);
+                    }
+                    originToIntermediateSmap.put(new SlotRef(slotDescriptor), new SlotRef(intermediateSlotDesc));
                 }
-                originToIntermediateSmap.put(new SlotRef(slotDescriptor), new SlotRef(intermediateSlotDesc));
             }
         }
         vIntermediateRightTupleDesc.computeMemLayout();
