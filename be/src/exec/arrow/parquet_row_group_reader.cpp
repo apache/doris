@@ -57,22 +57,22 @@
         return true;                                  \
     }
 
-#define _FILTER_GROUP_BY_IN(T, in_pred_values, min_bytes, max_bytes) \
-    std::vector<T> in_values;                                        \
-    for (auto val : in_pred_values) {                                \
-        T value = reinterpret_cast<T*>(val)[0];                      \
-        in_values.emplace_back(value);                               \
-    }                                                                \
-    if (in_values.empty()) {                                         \
-        return false;                                                \
-    }                                                                \
-    std::sort(in_values.begin(), in_values.end());                   \
-    T in_min = in_values.front();                                    \
-    T in_max = in_values.back();                                     \
-    const T group_min = reinterpret_cast<const T*>(min_bytes)[0];    \
-    const T group_max = reinterpret_cast<const T*>(max_bytes)[0];    \
-    if (in_max < group_min || in_min > group_max) {                  \
-        return true;                                                 \
+#define _FILTER_GROUP_BY_IN(T, in_pred_values, min_bytes, max_bytes)       \
+    std::vector<T> in_values;                                              \
+    for (auto val : in_pred_values) {                                      \
+        T value = reinterpret_cast<T*>(val)[0];                            \
+        in_values.emplace_back(value);                                     \
+    }                                                                      \
+    if (in_values.empty()) {                                               \
+        return false;                                                      \
+    }                                                                      \
+    auto result = std::minmax_element(in_values.begin(), in_values.end()); \
+    T in_min = *result.first;                                              \
+    T in_max = *result.second;                                             \
+    const T group_min = reinterpret_cast<const T*>(min_bytes)[0];          \
+    const T group_max = reinterpret_cast<const T*>(max_bytes)[0];          \
+    if (in_max < group_min || in_min > group_max) {                        \
+        return true;                                                       \
     }
 
 namespace doris {
@@ -143,9 +143,11 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
     for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
         auto row_group_meta = _file_metadata->RowGroup(row_group_id);
         if (row_group_id < head_row_group || row_group_id > tail_row_group) {
-            _filter_group.emplace(row_group_id);
-            VLOG_DEBUG << "Filter extra row group id: " << row_group_id;
-            continue;
+            if (head_row_group != total_group && tail_row_group != -1) {
+                _filter_group.emplace(row_group_id);
+                VLOG_DEBUG << "Filter extra row group id: " << row_group_id;
+                continue;
+            }
         }
         for (SlotId slot_id = 0; slot_id < tuple_desc->slots().size(); slot_id++) {
             const std::string& col_name = tuple_desc->slots()[slot_id]->col_name();
@@ -348,9 +350,9 @@ bool RowGroupReader::_eval_in_val(PrimitiveType conjunct_type, std::vector<void*
         if (in_values.empty()) {
             return false;
         }
-        std::sort(in_values.begin(), in_values.end());
-        const char* in_min = in_values.front();
-        const char* in_max = in_values.back();
+        auto result = std::minmax_element(in_values.begin(), in_values.end());
+        const char* in_min = *result.first;
+        const char* in_max = *result.second;
         if (strcmp(in_max, min_bytes) < 0 || strcmp(in_min, max_bytes) > 0) {
             return true;
         }
