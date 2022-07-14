@@ -248,7 +248,7 @@ Status VArrowScanner::_cast_src_block(Block* block) {
         ColumnsWithTypeAndName arguments {
                 arg,
                 {DataTypeString().create_column_const(
-                         arg.column->size(), remove_nullable(return_type)->get_family_name()),
+                         arg.column->size(), remove_nullable(return_type)->get_name()),
                  std::make_shared<DataTypeString>(), ""}};
         auto func_cast =
                 SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type);
