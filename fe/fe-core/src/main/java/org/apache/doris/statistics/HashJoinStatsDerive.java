@@ -24,7 +24,6 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.common.CheckedMath;
-import org.apache.doris.common.UserException;
 import org.apache.doris.planner.HashJoinNode;
 
 import com.google.common.base.Preconditions;

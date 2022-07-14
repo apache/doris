@@ -21,7 +21,6 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.planner.OlapScanNode;
 
 import com.google.common.base.Preconditions;

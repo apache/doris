@@ -28,7 +28,9 @@ public interface PlanStats {
 
     StatsDeriveResult getStatsDeriveResult();
 
-    StatisticalType getStatisticalType();
+    default StatisticalType getStatisticalType() {
+        throw new RuntimeException("Not implemented method");
+    }
 
     void setStatsDeriveResult(StatsDeriveResult result);
 

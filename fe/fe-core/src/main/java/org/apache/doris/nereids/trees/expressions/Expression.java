@@ -35,9 +35,9 @@ import java.util.Objects;
 public abstract class Expression extends AbstractTreeNode<Expression> implements ExprStats {
 
     protected final ExpressionType type;
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
-
     protected double selectivity;
+
+    private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
     public Expression(ExpressionType type, Expression... children) {
         super(children);

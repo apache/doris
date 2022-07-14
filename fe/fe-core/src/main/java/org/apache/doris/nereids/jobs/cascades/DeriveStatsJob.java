@@ -17,12 +17,12 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.nereids.cost.StatsVisitor;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
@@ -66,9 +66,8 @@ public class DeriveStatsJob extends Job<Plan> {
                 }
             }
         } else {
-            StatsVisitor statsVisitor = new StatsVisitor();
-            statsVisitor.gather(groupExpression);
-            groupExpression.setStatDerived(true);
+            StatsCalculator statsCalculator = new StatsCalculator();
+            statsCalculator.estimate(groupExpression);
         }
     }
 }

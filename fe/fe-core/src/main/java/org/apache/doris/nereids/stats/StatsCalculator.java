@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.cost;
+package org.apache.doris.nereids.stats;
 
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -34,72 +34,62 @@ import org.apache.doris.statistics.FilterStatsDerive;
 import org.apache.doris.statistics.HashJoinStatsDerive;
 import org.apache.doris.statistics.OlapScanStatsDerive;
 import org.apache.doris.statistics.SelectStatsDerive;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 /**
  * This class is used to get the statistics info for each group.
  */
-public class StatsVisitor extends DefaultPlanVisitor<Void, PlanContext> {
+public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, PlanContext> {
 
     /**
      * Gather statistic information of GroupExpression's parent group.
      */
-    public void gather(GroupExpression groupExpression) {
+    public void estimate(GroupExpression groupExpression) {
         Plan plan = groupExpression.getPlan();
         PlanContext planContext = new PlanContext(groupExpression);
-        groupExpression.getParent().setStatistics(planContext.getStatistics());
-        plan.accept(this, planContext);
+        planContext.setStatsDeriveResult(plan.accept(this, planContext));
     }
 
     @Override
-    public Void visitPhysicalAggregate(PhysicalAggregate<Plan> agg, PlanContext context) {
+    public StatsDeriveResult visitPhysicalAggregate(PhysicalAggregate<Plan> agg, PlanContext context) {
         AggStatsDerive aggStatsDerive = new AggStatsDerive();
-        aggStatsDerive.init(agg);
-        context.setStatistics(aggStatsDerive.deriveStats());
-        return null;
+        aggStatsDerive.init(context);
+        return aggStatsDerive.deriveStats();
     }
 
     @Override
-    public Void visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanContext context) {
+    public StatsDeriveResult visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanContext context) {
         OlapScanStatsDerive olapScanStatsDerive = new OlapScanStatsDerive();
-        olapScanStatsDerive.init(olapScan);
-        context.setStatistics(olapScanStatsDerive.deriveStats());
-        return null;
+        olapScanStatsDerive.init(context);
+        return olapScanStatsDerive.deriveStats();
     }
 
     @Override
-    public Void visitPhysicalHeapSort(PhysicalHeapSort<Plan> sort, PlanContext context) {
-        SelectStatsDerive selectStatsDerive = new SelectStatsDerive();
-        context.setStatistics(selectStatsDerive.deriveStats());
-        return null;
+    public StatsDeriveResult visitPhysicalHeapSort(PhysicalHeapSort<Plan> sort, PlanContext context) {
+        return new SelectStatsDerive().deriveStats();
     }
 
     @Override
-    public Void visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, PlanContext context) {
+    public StatsDeriveResult visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, PlanContext context) {
         HashJoinStatsDerive hashJoinStatsDerive = new HashJoinStatsDerive();
-        hashJoinStatsDerive.init(hashJoin);
-        context.setStatistics(hashJoinStatsDerive.deriveStats());
-        return null;
+        hashJoinStatsDerive.init(context);
+        return hashJoinStatsDerive.deriveStats();
     }
 
     @Override
-    public Void visitPhysicalProject(PhysicalProject<Plan> project, PlanContext context) {
-        SelectStatsDerive selectStatsDerive = new SelectStatsDerive();
-        context.setStatistics(selectStatsDerive.deriveStats());
-        return null;
+    public StatsDeriveResult visitPhysicalProject(PhysicalProject<Plan> project, PlanContext context) {
+        return new SelectStatsDerive().deriveStats();
     }
 
     @Override
-    public Void visitPhysicalFilter(PhysicalFilter<Plan> filter, PlanContext context) {
+    public StatsDeriveResult visitPhysicalFilter(PhysicalFilter<Plan> filter, PlanContext context) {
         FilterStatsDerive filterStatsDerive = new FilterStatsDerive();
-        filterStatsDerive.init(filter);
-        context.setStatistics(filterStatsDerive.deriveStats());
-        return null;
+        filterStatsDerive.init(context);
+        return filterStatsDerive.deriveStats();
     }
 
     @Override
-    public Void visitPhysicalDistribution(PhysicalDistribution<Plan> distribution, PlanContext context) {
-        ExchangeStatsDerive exchangeStatsDerive = new ExchangeStatsDerive();
-        context.setStatistics(exchangeStatsDerive.deriveStats());
-        return null;
+    public StatsDeriveResult visitPhysicalDistribution(PhysicalDistribution<Plan> distribution, PlanContext context) {
+        return new ExchangeStatsDerive().deriveStats();
     }
 }

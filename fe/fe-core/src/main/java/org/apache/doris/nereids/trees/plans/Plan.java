@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.statistics.PlanStats;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import java.util.List;
 import java.util.Optional;
@@ -31,7 +31,7 @@ import java.util.Optional;
 /**
  * Abstract class for all plan node.
  */
-public interface Plan extends TreeNode<Plan>, PlanStats {
+public interface Plan extends TreeNode<Plan> {
 
     PlanType getType();
 
@@ -60,4 +60,10 @@ public interface Plan extends TreeNode<Plan>, PlanStats {
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 
     Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties);
+
+    long getLimit();
+
+    void setStats(StatsDeriveResult stats);
+
+    StatsDeriveResult getStats();
 }

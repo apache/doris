@@ -19,7 +19,6 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.Id;
-import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;

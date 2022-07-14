@@ -18,7 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.common.UserException;
 import org.apache.doris.planner.AggregationNode;
 
 import com.google.common.base.Preconditions;

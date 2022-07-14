@@ -20,14 +20,11 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.statistics.ExprStats;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -102,37 +99,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
-    public List<StatsDeriveResult> getChildrenStats() {
-        List<StatsDeriveResult> deriveResultList = new ArrayList<>();
-        for (Plan child : children) {
-            deriveResultList.add(child.getStatsDeriveResult());
-        }
-        return deriveResultList;
-    }
-
-    @Override
-    public StatsDeriveResult getStatsDeriveResult() {
-        return statsDeriveResult;
-    }
-
-    @Override
-    public StatisticalType getStatisticalType() {
-        return null;
-    }
-
-    @Override
-    public void setStatsDeriveResult(StatsDeriveResult result) {
-        this.statsDeriveResult = result;
-    }
-
-    @Override
     public long getLimit() {
         return limit;
-    }
-
-    @Override
-    public List<? extends ExprStats> getConjuncts() {
-        return Collections.emptyList();
     }
 
     @Override
@@ -152,5 +120,15 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public int hashCode() {
         return Objects.hash(statsDeriveResult, limit, logicalProperties);
+    }
+
+    @Override
+    public void setStats(StatsDeriveResult stats) {
+        this.statsDeriveResult = stats;
+    }
+
+    @Override
+    public StatsDeriveResult getStats() {
+        return statsDeriveResult;
     }
 }
