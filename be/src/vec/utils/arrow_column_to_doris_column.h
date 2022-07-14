@@ -35,6 +35,6 @@ const PrimitiveType arrow_type_to_primitive_type(::arrow::Type::type type);
 
 Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,
                                     ColumnPtr& doris_column, const DataTypePtr& type,
-                                    size_t num_elements, const std::string& timezone);
+                                    size_t num_elements, const cctz::time_zone& ctz);
 
 } // namespace doris::vectorized
