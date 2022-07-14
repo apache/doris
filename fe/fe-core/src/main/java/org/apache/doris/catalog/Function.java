@@ -457,6 +457,8 @@ public class Function implements Writable {
         fn.setSignature(signatureString());
         fn.setName(name.toThrift());
         fn.setBinaryType(binaryType);
+        System.out.println("==========21=3=21=3=2= "
+                + realReturnType.getPrimitiveType() + " " + realArgTypes[0].getPrimitiveType());
         if (location != null) {
             fn.setHdfsLocation(location.getLocation());
         }

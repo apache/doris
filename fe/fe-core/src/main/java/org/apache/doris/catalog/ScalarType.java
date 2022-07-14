@@ -328,6 +328,7 @@ public class ScalarType extends Type {
     public static ScalarType createDecimalTypeInternal(int precision, int scale) {
         ScalarType type = new ScalarType(getSuitableDecimalType(precision));
         type.precision = Math.min(precision, MAX_PRECISION);
+        System.out.println("============1 " + type.precision);
         type.scale = Math.min(type.precision, scale);
         return type;
     }
@@ -719,7 +720,7 @@ public class ScalarType extends Type {
             return true;
         }
         if (isDecimalV3() && scalarType.isDecimalV3()) {
-            return true;
+            return precision == scalarType.precision && scale == scalarType.scale;
         }
         return false;
     }
@@ -742,6 +743,9 @@ public class ScalarType extends Type {
         if ((this.isDatetimeV2() && other.isDatetimeV2()) || (this.isTimeV2() && other.isTimeV2())) {
             return this.decimalScale() == other.decimalScale();
         }
+        if (type.isDecimalV3Type() && other.isDecimalV3()) {
+            return precision == other.precision && scale == other.scale;
+        }
         if (type != other.type) {
             return false;
         }
@@ -751,8 +755,7 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR) {
             return len == other.len;
         }
-        if ((type.isDecimalV2Type() && other.isDecimalV2()) || (type.isDecimalV3Type() && other.isDecimalV3())
-                || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
+        if (type.isDecimalV2Type() || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
             return precision == other.precision && scale == other.scale;
         }
         return true;
@@ -767,6 +770,7 @@ public class ScalarType extends Type {
         } else if (isNull()) {
             return ScalarType.NULL;
         } else if (isDecimalV2()) {
+            System.out.println("============2 " + scale);
             return createDecimalTypeInternal(MAX_PRECISION, scale);
         } else if (getPrimitiveType() == PrimitiveType.DECIMAL32) {
             return createDecimalTypeInternal(MAX_DECIMAL32_PRECISION, scale);
