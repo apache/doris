@@ -21,21 +21,20 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
-import org.apache.doris.nereids.operators.plans.logical.LogicalSort;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -56,46 +55,40 @@ public class BindSlotReference implements AnalysisRuleFactory {
             RuleType.BINDING_PROJECT_SLOT.build(
                 logicalProject().then(project -> {
                     List<NamedExpression> boundSlots =
-                            bind(project.operator.getProjects(), project.children(), project);
-                    return plan(new LogicalProject(flatBoundStar(boundSlots)), project.child());
+                            bind(project.getProjects(), project.children(), project);
+                    return new LogicalProject(flatBoundStar(boundSlots), project.child());
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
                 logicalFilter().then(filter -> {
-                    Expression boundPredicates = bind(
-                            filter.operator.getPredicates(), filter.children(), filter);
-                    return plan(new LogicalFilter(boundPredicates), filter.child());
+                    Expression boundPredicates = bind(filter.getPredicates(), filter.children(), filter);
+                    return new LogicalFilter(boundPredicates, filter.child());
                 })
             ),
             RuleType.BINDING_JOIN_SLOT.build(
                 logicalJoin().then(join -> {
-                    Optional<Expression> cond = join.operator.getCondition()
+                    Optional<Expression> cond = join.getCondition()
                             .map(expr -> bind(expr, join.children(), join));
-                    LogicalJoin op = new LogicalJoin(join.operator.getJoinType(), cond);
-                    return plan(op, join.left(), join.right());
+                    return new LogicalJoin(join.getJoinType(), cond, join.left(), join.right());
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
                 logicalAggregate().then(agg -> {
-                    List<Expression> groupBy = bind(
-                            agg.operator.getGroupByExpressionList(), agg.children(), agg);
-                    List<NamedExpression> output = bind(
-                            agg.operator.getOutputExpressionList(), agg.children(), agg);
-                    LogicalAggregate op = agg.operator.withGroupByAndOutput(groupBy, output);
-                    return plan(op, agg.child());
+                    List<Expression> groupBy = bind(agg.getGroupByExpressionList(), agg.children(), agg);
+                    List<NamedExpression> output = bind(agg.getOutputExpressionList(), agg.children(), agg);
+                    return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),
             RuleType.BINDING_SORT_SLOT.build(
                 logicalSort().then(sort -> {
-                    List<OrderKey> sortItemList = sort.operator.getOrderKeys()
+                    List<OrderKey> sortItemList = sort.getOrderKeys()
                             .stream()
                             .map(orderKey -> {
                                 Expression item = bind(orderKey.getExpr(), sort.children(), sort);
                                 return new OrderKey(item, orderKey.isAsc(), orderKey.isNullFirst());
                             }).collect(Collectors.toList());
 
-                    LogicalSort op = new LogicalSort(sortItemList);
-                    return plan(op, sort.child());
+                    return new LogicalSort(sortItemList, sort.child());
                 })
             )
         );
@@ -168,7 +161,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         @Override
         public Expression visitUnboundStar(UnboundStar unboundStar, Void context) {
-            if (!(plan.getOperator() instanceof LogicalProject)) {
+            if (!(plan instanceof LogicalProject)) {
                 throw new AnalysisException("UnboundStar must exists in Projection");
             }
             List<String> qualifier = unboundStar.getQualifier();
@@ -260,7 +253,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
     /** BoundStar is used to wrap list of slots for temporary. */
     private class BoundStar extends NamedExpression {
         public BoundStar(List<Slot> children) {
-            super(NodeType.BOUND_STAR, children.toArray(new Slot[0]));
+            super(ExpressionType.BOUND_STAR, children.toArray(new Slot[0]));
             Preconditions.checkArgument(children.stream().allMatch(slot -> !(slot instanceof UnboundSlot)),
                     "BoundStar can not wrap UnboundSlot"
             );

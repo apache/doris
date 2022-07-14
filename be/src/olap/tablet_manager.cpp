@@ -791,10 +791,11 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
               << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash
               << " path = " << schema_hash_path << " force = " << force << " restore = " << restore;
     // not add lock here, because load_tablet_from_meta already add lock
-    string header_path = TabletMeta::construct_header_file_path(schema_hash_path, tablet_id);
+    std::string header_path = TabletMeta::construct_header_file_path(schema_hash_path, tablet_id);
     // should change shard id before load tablet
-    string shard_path = path_util::dir_name(path_util::dir_name(path_util::dir_name(header_path)));
-    string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
+    std::string shard_path =
+            path_util::dir_name(path_util::dir_name(path_util::dir_name(header_path)));
+    std::string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
     int32_t shard = stol(shard_str);
     // load dir is called by clone, restore, storage migration
     // should change tablet uid when tablet object changed
@@ -817,7 +818,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     // has to change shard id here, because meta file maybe copied from other source
     // its shard is different from local shard
     tablet_meta->set_shard_id(shard);
-    string meta_binary;
+    std::string meta_binary;
     tablet_meta->serialize(&meta_binary);
     RETURN_NOT_OK_LOG(load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force,
                                             restore, true),

@@ -175,7 +175,7 @@ public class AnalyzeSSBTest extends TestWithFeService {
             }
         }
 
-        List<Expression> expressions = plan.getOperator().getExpressions();
+        List<Expression> expressions = plan.getExpressions();
         return expressions.stream().allMatch(this::checkExpressionBound);
     }
 

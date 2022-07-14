@@ -1132,7 +1132,10 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 if (resultType.isStringType() && resultType.getLength() < 0) {
                     typeDef = new TypeDef(Type.STRING);
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
-                    typeDef = new TypeDef(ScalarType.createDecimalV2Type(27, 9));
+                    typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
+                } else if (resultType.isDecimalV3()) {
+                    typeDef = new TypeDef(ScalarType.createDecimalType(resultType.getPrecision(),
+                            ((ScalarType) resultType).getScalarScale()));
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
@@ -1318,7 +1321,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                     dataProperty.getStorageMedium(), singlePartitionDesc.getReplicaAlloc(),
                     singlePartitionDesc.getVersionInfo(), bfColumns, olapTable.getBfFpp(), tabletIdSet,
                     olapTable.getCopiedIndexes(), singlePartitionDesc.isInMemory(), olapTable.getStorageFormat(),
-                    singlePartitionDesc.getTabletType(), olapTable.getCompressionType(), olapTable.getDataSortInfo());
+                    singlePartitionDesc.getTabletType(), olapTable.getCompressionType(), olapTable.getDataSortInfo(),
+                    olapTable.getEnableUniqueKeyMergeOnWrite());
 
             // check again
             table = db.getOlapTableOrDdlException(tableName);
@@ -1539,7 +1543,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
             DistributionInfo distributionInfo, TStorageMedium storageMedium, ReplicaAllocation replicaAlloc,
             Long versionInfo, Set<String> bfColumns, double bfFpp, Set<Long> tabletIdSet, List<Index> indexes,
             boolean isInMemory, TStorageFormat storageFormat, TTabletType tabletType, TCompressionType compressionType,
-            DataSortInfo dataSortInfo) throws DdlException {
+            DataSortInfo dataSortInfo, boolean enableUniqueKeyMergeOnWrite) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -1599,7 +1603,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                     CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tableId, partitionId, indexId,
                             tabletId, replicaId, shortKeyColumnCount, schemaHash, version, keysType, storageType,
                             storageMedium, schema, bfColumns, bfFpp, countDownLatch, indexes, isInMemory, tabletType,
-                            dataSortInfo, compressionType);
+                            dataSortInfo, compressionType, enableUniqueKeyMergeOnWrite);
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -1737,6 +1741,14 @@ public class InternalDataSource implements DataSourceIf<Database> {
         DataSortInfo dataSortInfo = PropertyAnalyzer.analyzeDataSortInfo(properties, keysType,
                 keysDesc.keysColumnSize(), storageFormat);
         olapTable.setDataSortInfo(dataSortInfo);
+
+        boolean enableUniqueKeyMergeOnWrite = false;
+        try {
+            enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
         // analyze bloom filter columns
         Set<String> bfColumns = null;
@@ -1916,7 +1928,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                         partitionDistributionInfo, partitionInfo.getDataProperty(partitionId).getStorageMedium(),
                         partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
                         olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
-                        olapTable.getDataSortInfo());
+                        olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
@@ -1967,7 +1979,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                             partitionInfo.getReplicaAllocation(entry.getValue()), versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(), isInMemory, storageFormat,
                             partitionInfo.getTabletType(entry.getValue()), compressionType,
-                            olapTable.getDataSortInfo());
+                            olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite());
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -2345,7 +2357,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                         copiedTbl.getCopiedBfColumns(), copiedTbl.getBfFpp(), tabletIdSet, copiedTbl.getCopiedIndexes(),
                         copiedTbl.isInMemory(), copiedTbl.getStorageFormat(),
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId), copiedTbl.getCompressionType(),
-                        copiedTbl.getDataSortInfo());
+                        copiedTbl.getDataSortInfo(), copiedTbl.getEnableUniqueKeyMergeOnWrite());
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

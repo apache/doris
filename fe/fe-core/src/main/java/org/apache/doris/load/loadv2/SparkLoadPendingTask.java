@@ -314,7 +314,7 @@ public class SparkLoadPendingTask extends LoadTask {
         // decimal precision scale
         int precision = 0;
         int scale = 0;
-        if (type.isDecimalV2Type()) {
+        if (type.isDecimalV2Type() || type.isDecimalV3Type()) {
             precision = column.getPrecision();
             scale = column.getScale();
         }
