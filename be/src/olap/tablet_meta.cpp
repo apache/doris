@@ -690,7 +690,8 @@ void TabletMeta::remove_delete_predicate_by_version(const Version& version) {
     for (int i = 0; i < _del_predicates.size(); ++i) {
         if (_del_predicates[i].version() == version.first) {
             pred_to_del = i;
-            // add_delete_predicate already make sure there is only one predicate for specific version
+            // one DeletePredicatePB stands for a nested predicate, such as user submit a delete predicate a=1 and b=2
+            // they could be saved as a one DeletePredicatePB
             break;
         }
     }
