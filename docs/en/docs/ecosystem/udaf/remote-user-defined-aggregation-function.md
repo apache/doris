@@ -34,7 +34,7 @@ Remote UDAF Service The Remote UDAF Service can be accessed through RPC to imple
 
 2. Restrictions on use
    * Performance: Compared to Native UDAFs, UDAF services incur extra network overhead and thus have much lower performance than Native UDAFs. At the same time, the implementation of the UDAF Service also affects the execution efficiency of the function. Users need to deal with problems such as high concurrency and thread safety by themselves.
-   * Single line mode and batch mode: Doris's original query execution framework based on row memory would execute one UDAF RPC call for each row of data, so the execution efficiency was very poor. However, under the new vectorization execution framework, one UDAF RPC call would be executed for each batch of data (2048 rows by default), so the performance was significantly improved. In actual tests, the performance of Remote UDAF based on vectorization and batch processing is similar to that of Native UDAF based on rowmemory, which can be used for reference.
+   * Single line mode and batch mode: Doris's original query execution framework based on row memory would execute one UDAF RPC call for each row of data, so the execution efficiency was very poor. However, under the new vectorization execution framework, one UDAF RPC call would be executed for each batch of data, so the performance was significantly improved. In actual tests, the performance of Remote UDAF based on vectorization and batch processing is similar to that of Native UDAF based on rowmemory, which can be used for reference.
 
 ## Write UDAF functions
 
