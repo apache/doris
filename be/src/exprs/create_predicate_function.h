@@ -95,6 +95,8 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
         return Creator::template create<TYPE_DATETIME>();
     case TYPE_DATEV2:
         return Creator::template create<TYPE_DATEV2>();
+    case TYPE_DATETIMEV2:
+        return Creator::template create<TYPE_DATETIMEV2>();
 
     case TYPE_CHAR:
         return Creator::template create<TYPE_CHAR>();

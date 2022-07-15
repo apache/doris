@@ -52,6 +52,7 @@ struct IntVal;
 struct BigIntVal;
 struct StringVal;
 struct DateTimeVal;
+struct DateV2Val;
 struct DecimalV2Val;
 struct HllVal;
 struct CollectionVal;
@@ -678,6 +679,32 @@ struct DateTimeVal : public AnyVal {
         return packed_time == other.packed_time;
     }
     bool operator!=(const DateTimeVal& other) const { return !(*this == other); }
+};
+
+struct DateV2Val : public AnyVal {
+    uint32_t datev2_value;
+
+    DateV2Val() {}
+    DateV2Val(uint32_t val) : datev2_value(val) {}
+
+    static DateV2Val null() {
+        DateV2Val result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const DateV2Val& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return datev2_value == other.datev2_value;
+    }
+    bool operator!=(const DateV2Val& other) const { return !(*this == other); }
 };
 
 // Note: there is a difference between a nullptr string (is_null == true) and an

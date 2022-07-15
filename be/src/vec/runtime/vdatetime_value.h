@@ -934,6 +934,16 @@ public:
 
     bool get_date_from_daynr(uint64_t);
 
+    void to_datev2_val(doris_udf::DateV2Val* tv) const {
+        tv->datev2_value = this->to_date_uint32();
+    }
+
+    static DateV2Value from_datev2_val(const doris_udf::DateV2Val& tv) {
+        DateV2Value value;
+        value.from_date(tv.datev2_value);
+        return value;
+    }
+
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
                              const uint8_t& day, uint8_t mode, uint16_t* to_year);

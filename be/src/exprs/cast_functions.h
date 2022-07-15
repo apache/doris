@@ -128,6 +128,8 @@ public:
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const DoubleVal& val);
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const DateTimeVal& val);
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const StringVal& val);
+    static DateTimeVal cast_to_datetime_val(FunctionContext* context,
+                                            const doris_udf::DateV2Val& val);
 
     static DateTimeVal cast_to_date_val(FunctionContext* context, const TinyIntVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const SmallIntVal& val);
@@ -138,6 +140,22 @@ public:
     static DateTimeVal cast_to_date_val(FunctionContext* context, const DoubleVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const DateTimeVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const StringVal& val);
+    static DateTimeVal cast_to_date_val(FunctionContext* context, const doris_udf::DateV2Val& val);
+
+    static doris_udf::DateV2Val cast_to_datev2_val(FunctionContext* context, const TinyIntVal& val);
+    static doris_udf::DateV2Val cast_to_datev2_val(FunctionContext* context,
+                                                   const SmallIntVal& val);
+    static doris_udf::DateV2Val cast_to_datev2_val(FunctionContext* context, const IntVal& val);
+    static doris_udf::DateV2Val cast_to_datev2_val(FunctionContext* context, const BigIntVal& val);
+    static doris_udf::DateV2Val cast_to_datev2_val(FunctionContext* context,
+                                                   const LargeIntVal& val);
+    static doris_udf::DateV2Val cast_to_datev2_val(FunctionContext* context, const FloatVal& val);
+    static doris_udf::DateV2Val cast_to_datev2_val(FunctionContext* context, const DoubleVal& val);
+    static doris_udf::DateV2Val cast_to_datev2_val(FunctionContext* context,
+                                                   const doris_udf::DateV2Val& val);
+    static doris_udf::DateV2Val cast_to_datev2_val(FunctionContext* context, const StringVal& val);
+    static doris_udf::DateV2Val cast_to_datev2_val(FunctionContext* context,
+                                                   const DateTimeVal& val);
 
 #define DECLARE_CAST_TO_DECIMAL(width)                                                             \
     static Decimal##width##Val cast_to_decimal##width##_val(FunctionContext*, const TinyIntVal&);  \

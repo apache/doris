@@ -45,6 +45,7 @@ struct ExprValue {
     std::string string_data;
     StringValue string_val;
     DateTimeValue datetime_val;
+    doris::vectorized::DateV2Value datev2_val;
     DecimalV2Value decimalv2_val;
     CollectionValue array_val;
 

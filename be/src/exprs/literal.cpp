@@ -81,10 +81,13 @@ Literal::Literal(const TExprNode& node) : Expr(node) {
         break;
     case TYPE_DATE:
     case TYPE_DATETIME:
-    case TYPE_DATEV2:
     case TYPE_DATETIMEV2:
         _value.datetime_val.from_date_str(node.date_literal.value.c_str(),
                                           node.date_literal.value.size());
+        break;
+    case TYPE_DATEV2:
+        _value.datev2_val.from_date_str(node.date_literal.value.c_str(),
+                                        node.date_literal.value.size());
         break;
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -207,6 +210,12 @@ DecimalV2Val Literal::get_decimalv2_val(ExprContext* context, TupleRow* row) {
 DateTimeVal Literal::get_datetime_val(ExprContext* context, TupleRow* row) {
     DateTimeVal dt_val;
     _value.datetime_val.to_datetime_val(&dt_val);
+    return dt_val;
+}
+
+DateV2Val Literal::get_datev2_val(ExprContext* context, TupleRow* row) {
+    DateV2Val dt_val;
+    _value.datev2_val.to_datev2_val(&dt_val);
     return dt_val;
 }
 

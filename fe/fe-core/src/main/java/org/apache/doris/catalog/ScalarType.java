@@ -730,15 +730,6 @@ public class ScalarType extends Type {
             return false;
         }
         ScalarType other = (ScalarType) o;
-        if ((this.isDate() && other.isDateV2()) || (this.isDateV2() && other.isDate())) {
-            return true;
-        }
-        if ((this.isDatetime() && other.isDatetimeV2()) || (this.isTime() && other.isTimeV2())) {
-            return other.decimalScale() == 0;
-        }
-        if ((this.isDatetimeV2() && other.isDatetime()) || (this.isTimeV2() && other.isTime())) {
-            return this.decimalScale() == 0;
-        }
         if ((this.isDatetimeV2() && other.isDatetimeV2()) || (this.isTimeV2() && other.isTimeV2())) {
             return this.decimalScale() == other.decimalScale();
         }
@@ -756,6 +747,10 @@ public class ScalarType extends Type {
         }
         if (type.isDecimalV2Type() || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
             return precision == other.precision && scale == other.scale;
+        }
+        if (type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
+            return precision == other.precision && scale == other.scale
+                    && type == ((ScalarType) o).getPrimitiveType();
         }
         return true;
     }
