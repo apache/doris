@@ -22,12 +22,11 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
  * Job to optimize {@link Group} in {@link org.apache.doris.nereids.memo.Memo}.
  */
-public class OptimizeGroupJob extends Job<Plan> {
+public class OptimizeGroupJob extends Job {
     private final Group group;
 
     public OptimizeGroupJob(Group group, JobContext context) {

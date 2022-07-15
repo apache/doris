@@ -265,7 +265,7 @@ public abstract class PatternGenerator {
                     .collect(Collectors.joining(", ", "<", ">"));
 
             String methodParam = Arrays.stream(new IntRange(1, childrenNum).toArray())
-                    .mapToObj(i -> "PatternDescriptor<C" + i + ", Plan> child" + i)
+                    .mapToObj(i -> "PatternDescriptor<C" + i + "> child" + i)
                     .collect(Collectors.joining(", "));
 
             String childrenPattern = Arrays.stream(new IntRange(1, childrenNum).toArray())

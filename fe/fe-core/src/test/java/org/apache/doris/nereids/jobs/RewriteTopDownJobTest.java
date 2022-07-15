@@ -53,7 +53,7 @@ import java.util.Optional;
 public class RewriteTopDownJobTest {
     public static class FakeRule extends OneRewriteRuleFactory {
         @Override
-        public Rule<Plan> build() {
+        public Rule build() {
             return unboundRelation().then(unboundRelation -> {
                         Table olapTable = new Table(0, "test", TableType.OLAP, ImmutableList.of(
                                 new Column("id", Type.INT),
@@ -78,7 +78,7 @@ public class RewriteTopDownJobTest {
         PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
         JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
         plannerContext.setCurrentJobContext(jobContext);
-        List<Rule<Plan>> fakeRules = Lists.newArrayList(new FakeRule().build());
+        List<Rule> fakeRules = Lists.newArrayList(new FakeRule().build());
         RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), fakeRules,
                 plannerContext.getCurrentJobContext());
         plannerContext.pushJob(rewriteTopDownJob);
