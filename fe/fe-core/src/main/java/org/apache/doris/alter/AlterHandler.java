@@ -222,7 +222,8 @@ public abstract class AlterHandler extends MasterDaemon {
                     task.getSignature(), replica, task.getVersion());
             boolean versionChanged = false;
             if (replica.getVersion() < task.getVersion()) {
-                replica.updateVersionInfo(task.getVersion(), replica.getDataSize(), replica.getRowCount());
+                replica.updateVersionInfo(task.getVersion(), replica.getDataSize(), replica.getRemoteDataSize(),
+                        replica.getRowCount());
                 versionChanged = true;
             }
 
@@ -230,7 +231,7 @@ public abstract class AlterHandler extends MasterDaemon {
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
                         task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
                         replica.getId(), replica.getVersion(), -1,
-                        replica.getDataSize(), replica.getRowCount(),
+                        replica.getDataSize(), replica.getRemoteDataSize(), replica.getRowCount(),
                         replica.getLastFailedVersion(), replica.getLastSuccessVersion());
                 Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
             }

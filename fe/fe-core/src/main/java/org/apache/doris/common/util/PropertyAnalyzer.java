@@ -109,6 +109,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_LOAD = "disable_load";
 
+    public static final String PROPERTIES_STORAGE_POLICY = "storage_policy";
+
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
@@ -134,6 +136,7 @@ public class PropertyAnalyzer {
         long cooldownTimeStamp = oldDataProperty.getCooldownTimeMs();
         String remoteStoragePolicy = oldDataProperty.getRemoteStoragePolicy();
         long remoteCooldownTimeMs = oldDataProperty.getRemoteCooldownTimeMs();
+        boolean hasStoragePolicy = false;
 
         long dataBaseTimeMs = 0;
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -155,6 +158,10 @@ public class PropertyAnalyzer {
             } else if (key.equalsIgnoreCase(PROPERTIES_DATA_BASE_TIME)) {
                 DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
                 dataBaseTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+            } else if (!hasStoragePolicy && key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
+                if (!Strings.isNullOrEmpty(value)) {
+                    hasStoragePolicy = true;
+                }
             }
         } // end for properties
 
@@ -192,6 +199,7 @@ public class PropertyAnalyzer {
             if (!(policy instanceof StoragePolicy)) {
                 throw new AnalysisException("No PolicyStorage: " + remoteStoragePolicy);
             }
+
             StoragePolicy storagePolicy = (StoragePolicy) policy;
             // check remote storage cool down timestamp
             if (storagePolicy.getCooldownDatetime() != null) {
@@ -519,6 +527,15 @@ public class PropertyAnalyzer {
         }
 
         return remoteStoragePolicy;
+    }
+
+    public static String analyzeStoragePolicy(Map<String, String> properties) throws AnalysisException {
+        String storagePolicy = "";
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
+            storagePolicy = properties.get(PROPERTIES_STORAGE_POLICY);
+        }
+
+        return storagePolicy;
     }
 
     // analyze property like : "type" = "xxx";
