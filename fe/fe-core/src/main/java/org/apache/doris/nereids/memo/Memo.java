@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -71,10 +72,10 @@ public class Memo {
      * @param rewrite whether to rewrite the node to the target group
      * @return Reference of node in Memo
      */
-    public GroupExpression copyIn(Plan node, @Nullable Group target, boolean rewrite) {
+    public Pair<Boolean, GroupExpression> copyIn(Plan node, @Nullable Group target, boolean rewrite) {
         Optional<GroupExpression> groupExpr = node.getGroupExpression();
         if (!rewrite && groupExpr.isPresent() && groupExpressions.containsKey(groupExpr.get())) {
-            return groupExpr.get();
+            return new Pair(true, groupExpr.get());
         }
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < node.children().size(); i++) {
@@ -84,13 +85,15 @@ public class Memo {
             } else if (child.getGroupExpression().isPresent()) {
                 childrenGroups.add(child.getGroupExpression().get().getOwnerGroup());
             } else {
-                childrenGroups.add(copyIn(child, null, rewrite).getOwnerGroup());
+                childrenGroups.add(copyIn(child, null, rewrite).second.getOwnerGroup());
             }
         }
         node = replaceChildrenToGroupPlan(node, childrenGroups);
         GroupExpression newGroupExpression = new GroupExpression(node);
         newGroupExpression.setChildren(childrenGroups);
-        return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite, node.getLogicalProperties());
+        newGroupExpression = insertOrRewriteGroupExpression(newGroupExpression, target, rewrite,
+                node.getLogicalProperties());
+        return new Pair(groupExpressions.containsKey(newGroupExpression), newGroupExpression);
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
 

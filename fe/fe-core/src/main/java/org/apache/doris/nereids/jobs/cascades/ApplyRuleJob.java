@@ -63,7 +63,7 @@ public class ApplyRuleJob extends Job {
             List<Plan> newPlans = rule.transform(plan, context.getPlannerContext());
             for (Plan newPlan : newPlans) {
                 GroupExpression newGroupExpression = context.getPlannerContext().getMemo()
-                        .copyIn(newPlan, groupExpression.getOwnerGroup(), rule.isRewrite());
+                        .copyIn(newPlan, groupExpression.getOwnerGroup(), rule.isRewrite()).second;
                 if (newPlan instanceof LogicalPlan) {
                     pushTask(new DeriveStatsJob(newGroupExpression, context));
                     if (exploredOnly) {

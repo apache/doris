@@ -73,7 +73,7 @@ public class RewriteTopDownJob extends Job {
                 Plan after = afters.get(0);
                 if (after != before) {
                     GroupExpression expression = context.getPlannerContext()
-                            .getMemo().copyIn(after, group, rule.isRewrite());
+                            .getMemo().copyIn(after, group, rule.isRewrite()).second;
                     expression.setApplied(rule);
                     pushTask(new RewriteTopDownJob(group, rules, context));
                     return;

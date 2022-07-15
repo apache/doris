@@ -83,7 +83,7 @@ public class RewriteBottomUpJob extends Job {
                 if (after != before) {
                     GroupExpression groupExpr = context.getPlannerContext()
                             .getMemo()
-                            .copyIn(after, group, rule.isRewrite());
+                            .copyIn(after, group, rule.isRewrite()).second;
                     groupExpr.setApplied(rule);
                     pushTask(new RewriteBottomUpJob(group, rules, context, false));
                     return;
