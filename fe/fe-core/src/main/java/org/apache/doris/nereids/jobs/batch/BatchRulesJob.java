@@ -49,7 +49,7 @@ public class BatchRulesJob {
         for (RuleFactory<Plan> ruleFactory : ruleFactories) {
             rules.addAll(ruleFactory.buildRules());
         }
-        Collections.reverse(rules);
+        Collections.reverse(rules); // 看起来没啥用
         return new RewriteBottomUpJob(
                 plannerContext.getMemo().getRoot(),
                 rules,

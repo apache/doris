@@ -64,6 +64,5 @@ public class OptimizeGroupExpressionJob extends Job<Plan> {
                 }
             }
         }
-
     }
 }
