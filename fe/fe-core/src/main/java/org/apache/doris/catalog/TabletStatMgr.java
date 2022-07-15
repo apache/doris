@@ -127,7 +127,8 @@ public class TabletStatMgr extends MasterDaemon {
                 if (invertedIndex.getTabletMeta(stat.getTabletId()) != null) {
                     Replica replica = invertedIndex.getReplica(stat.getTabletId(), beId);
                     if (replica != null) {
-                        replica.updateStat(stat.getDataSize(), stat.getRowNum(), stat.getVersionCount());
+                        replica.updateStat(stat.getDataSize(), stat.getRemoteDataSize(), stat.getRowNum(),
+                                stat.getVersionCount());
                     }
                 }
             }
