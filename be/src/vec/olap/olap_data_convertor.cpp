@@ -640,7 +640,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::convert_to_olap()
     const DecimalV2Value* decimal_end = decimal_cur + _num_rows;
     decimal12_t* value = _values.data();
     if (_nullmap) {
-        const UInt8* nullmap_cur = _nullmap + _row_pos;
+        const UInt8* nullmap_cur = _nullmap;
         while (decimal_cur != decimal_end) {
             if (!*nullmap_cur) {
                 value->integer = decimal_cur->int_value();
