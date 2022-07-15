@@ -42,16 +42,16 @@ void doris::telemetry::init_tracer() {
         return;
     }
 
-    std::unique_ptr<trace_sdk::SpanExporter> exporter {};
+    std::unique_ptr<trace_sdk::SpanExporter> exporter = nullptr;
     if (doris::config::enable_otel_collector) {
         otlp::OtlpHttpExporterOptions opts {};
         opts.url = doris::config::trace_export_url;
-        exporter.reset(new otlp::OtlpHttpExporter(opts));
+        exporter = std::make_unique<otlp::OtlpHttpExporter>(opts);
     } else {
         // ZipkinExporter converts span to zipkin's format and exports span to zipkin.
-        zipkin::ZipkinExporterOptions opts;
+        zipkin::ZipkinExporterOptions opts {};
         opts.endpoint = doris::config::trace_export_url;
-        exporter.reset(new zipkin::ZipkinExporter(opts));
+        exporter = std::make_unique<zipkin::ZipkinExporter>(opts);
     }
 
     // BatchSpanProcessor exports span by batch.
