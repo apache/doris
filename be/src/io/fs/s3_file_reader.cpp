@@ -42,10 +42,12 @@ S3FileReader::~S3FileReader() {
 }
 
 Status S3FileReader::close() {
+    _closed = true;
     return Status::OK();
 }
 
 Status S3FileReader::read_at(size_t offset, Slice result, size_t* bytes_read) {
+    DCHECK(!closed());
     if (offset > _file_size) {
         return Status::IOError(
                 fmt::format("offset exceeds file size(offset: {), file size: {}, path: {})", offset,

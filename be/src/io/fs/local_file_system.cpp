@@ -20,21 +20,12 @@
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
-#include "olap/storage_engine.h"
 
 namespace doris {
 namespace io {
 
 LocalFileSystem::LocalFileSystem(Path root_path, ResourceId resource_id)
-        : FileSystem(std::move(root_path), std::move(resource_id), FileSystemType::LOCAL) {
-#ifdef BE_TEST
-    _file_cache.reset(
-            new FileCache<int>("Readable_file_cache", config::file_descriptor_cache_capacity));
-#else
-    _file_cache.reset(new FileCache<int>("Readable_file_cache",
-                                         doris::StorageEngine::instance()->file_cache()));
-#endif
-}
+        : FileSystem(std::move(root_path), std::move(resource_id), FileSystemType::LOCAL) {}
 
 LocalFileSystem::~LocalFileSystem() = default;
 
@@ -58,26 +49,14 @@ Status LocalFileSystem::create_file(const Path& path, FileWriterPtr* writer) {
 
 Status LocalFileSystem::open_file(const Path& path, FileReaderPtr* reader) {
     auto fs_path = absolute_path(path);
-    std::shared_ptr<OpenedFileHandle<int>> file_handle(new OpenedFileHandle<int>());
-    bool found = _file_cache->lookup(fs_path.native(), file_handle.get());
-    if (!found) {
-        int fd = -1;
-        RETRY_ON_EINTR(fd, open(fs_path.c_str(), O_RDONLY));
-        if (fd < 0) {
-            return Status::IOError(
-                    fmt::format("cannot open {}: {}", fs_path.native(), std::strerror(errno)));
-        }
-        int* p_fd = new int(fd);
-        _file_cache->insert(fs_path.native(), p_fd, file_handle.get(),
-                            [](const CacheKey& key, void* value) {
-                                auto fd = reinterpret_cast<int*>(value);
-                                ::close(*fd);
-                                delete fd;
-                            });
-    }
     size_t fsize = 0;
     RETURN_IF_ERROR(file_size(fs_path, &fsize));
-    *reader = std::make_unique<LocalFileReader>(std::move(fs_path), fsize, std::move(file_handle));
+    int fd = -1;
+    RETRY_ON_EINTR(fd, open(fs_path.c_str(), O_RDONLY));
+    if (fd < 0) {
+        return Status::IOError("cannot open {}: {}", fs_path.native(), std::strerror(errno));
+    }
+    *reader = std::make_unique<LocalFileReader>(std::move(fs_path), fsize, fd);
     return Status::OK();
 }
 

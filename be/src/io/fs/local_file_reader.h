@@ -19,15 +19,13 @@
 
 #include "io/fs/file_reader.h"
 #include "io/fs/path.h"
-#include "util/file_cache.h"
 
 namespace doris {
 namespace io {
 
 class LocalFileReader final : public FileReader {
 public:
-    LocalFileReader(Path path, size_t file_size,
-                    std::shared_ptr<OpenedFileHandle<int>> file_handle);
+    LocalFileReader(Path path, size_t file_size, int fd);
 
     ~LocalFileReader() override;
 
@@ -39,13 +37,12 @@ public:
 
     size_t size() const override { return _file_size; }
 
+    bool closed() const override { return _fd == -1; }
+
 private:
-    std::shared_ptr<OpenedFileHandle<int>> _file_handle;
-    int _fd; // ref
+    int _fd = -1; // owned
     Path _path;
     size_t _file_size;
-
-    std::atomic_bool _closed;
 };
 
 } // namespace io

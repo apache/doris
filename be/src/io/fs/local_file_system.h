@@ -48,8 +48,6 @@ public:
 
 private:
     Path absolute_path(const Path& path) const;
-
-    std::unique_ptr<FileCache<int>> _file_cache;
 };
 
 LocalFileSystem* global_local_filesystem();

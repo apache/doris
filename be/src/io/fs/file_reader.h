@@ -40,6 +40,8 @@ public:
     virtual const Path& path() const = 0;
 
     virtual size_t size() const = 0;
+
+    virtual bool closed() const = 0;
 };
 
 using FileReaderPtr = std::shared_ptr<FileReader>;

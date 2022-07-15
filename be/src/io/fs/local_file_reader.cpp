@@ -23,13 +23,8 @@
 namespace doris {
 namespace io {
 
-LocalFileReader::LocalFileReader(Path path, size_t file_size,
-                                 std::shared_ptr<OpenedFileHandle<int>> file_handle)
-        : _file_handle(std::move(file_handle)),
-          _path(std::move(path)),
-          _file_size(file_size),
-          _closed(false) {
-    _fd = *_file_handle->file();
+LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd)
+        : _fd(fd), _path(std::move(path)), _file_size(file_size) {
     DorisMetrics::instance()->local_file_open_reading->increment(1);
     DorisMetrics::instance()->local_file_reader_total->increment(1);
 }
@@ -39,16 +34,18 @@ LocalFileReader::~LocalFileReader() {
 }
 
 Status LocalFileReader::close() {
-    bool expected = false;
-    if (_closed.compare_exchange_strong(expected, true)) {
-        _file_handle.reset();
-        DorisMetrics::instance()->local_file_open_reading->increment(-1);
+    if (!closed()) {
+        auto res = ::close(_fd);
+        if (-1 == res) {
+            return Status::IOError("failed to close {}: {}", _path.native(), std::strerror(errno));
+        }
+        _fd = -1;
     }
     return Status::OK();
 }
 
 Status LocalFileReader::read_at(size_t offset, Slice result, size_t* bytes_read) {
-    DCHECK(!_closed.load());
+    DCHECK(!closed());
     if (offset > _file_size) {
         return Status::IOError(
                 fmt::format("offset exceeds file size(offset: {), file size: {}, path: {})", offset,
