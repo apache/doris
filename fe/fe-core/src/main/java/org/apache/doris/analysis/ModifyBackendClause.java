@@ -55,6 +55,9 @@ public class ModifyBackendClause extends BackendClause {
             if (!Config.enable_multi_tags && tagMap.size() > 1) {
                 throw new AnalysisException(MUTLI_TAG_DISABLED_MSG);
             }
+            // TODO:
+            //  here we can add some privilege check so that only authorized user can modify specified type of tag.
+            //  For example, only root user can set tag with type 'computation'
             for (Map.Entry<String, String> entry : tagMap.entrySet()) {
                 analyzedProperties.put("tag." + entry.getKey(), entry.getValue());
             }
