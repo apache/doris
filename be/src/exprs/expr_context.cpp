@@ -257,7 +257,6 @@ void* ExprContext::get_value(Expr* e, TupleRow* row, int precision, int scale) {
     }
     case TYPE_DATE:
     case TYPE_DATETIME:
-    case TYPE_DATEV2:
     case TYPE_DATETIMEV2: {
         doris_udf::DateTimeVal v = e->get_datetime_val(this, row);
         if (v.is_null) {
@@ -265,6 +264,14 @@ void* ExprContext::get_value(Expr* e, TupleRow* row, int precision, int scale) {
         }
         _result.datetime_val = DateTimeValue::from_datetime_val(v);
         return &_result.datetime_val;
+    }
+    case TYPE_DATEV2: {
+        doris_udf::DateV2Val v = e->get_datev2_val(this, row);
+        if (v.is_null) {
+            return nullptr;
+        }
+        _result.datev2_val = doris::vectorized::DateV2Value::from_datev2_val(v);
+        return &_result.datev2_val;
     }
     case TYPE_DECIMALV2: {
         DecimalV2Val v = e->get_decimalv2_val(this, row);
@@ -368,6 +375,10 @@ StringVal ExprContext::get_string_val(TupleRow* row) {
 
 DateTimeVal ExprContext::get_datetime_val(TupleRow* row) {
     return _root->get_datetime_val(this, row);
+}
+
+DateV2Val ExprContext::get_datev2_val(TupleRow* row) {
+    return _root->get_datev2_val(this, row);
 }
 
 DecimalV2Val ExprContext::get_decimalv2_val(TupleRow* row) {

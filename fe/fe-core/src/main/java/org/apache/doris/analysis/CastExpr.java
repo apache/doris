@@ -167,9 +167,11 @@ public class CastExpr extends Expr {
                 }
                 String typeName = Function.getUdfTypeName(toType.getPrimitiveType());
                 // only refactor date/datetime for vectorized engine.
-                if (toType.getPrimitiveType() == PrimitiveType.DATE
-                        || toType.getPrimitiveType() == PrimitiveType.DATEV2) {
+                if (toType.getPrimitiveType() == PrimitiveType.DATE) {
                     typeName = "date_val";
+                }
+                if (toType.getPrimitiveType() == PrimitiveType.DATEV2) {
+                    typeName = "datev2_val";
                 }
                 String beSymbol = "doris::" + beClass + "::cast_to_"
                         + typeName;

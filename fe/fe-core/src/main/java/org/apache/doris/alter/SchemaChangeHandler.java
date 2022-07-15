@@ -1816,12 +1816,15 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
-        if (isInMemory == olapTable.isInMemory()) {
+        String storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
+        if (isInMemory == olapTable.isInMemory() && storagePolicy.equalsIgnoreCase("")) {
+            LOG.info("isInMemory == olapTable.isInMemory() and storagePolicy empty"
+                    + isInMemory + " " + olapTable.isInMemory() + " " + storagePolicy);
             return;
         }
 
         for (Partition partition : partitions) {
-            updatePartitionInMemoryMeta(db, olapTable.getName(), partition.getName(), isInMemory);
+            updatePartitionInMemoryMeta(db, olapTable.getName(), partition.getName(), storagePolicy, isInMemory);
         }
 
         olapTable.writeLockOrDdlException();
@@ -1839,13 +1842,16 @@ public class SchemaChangeHandler extends AlterHandler {
             Map<String, String> properties) throws DdlException, MetaNotFoundException {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
-        if (isInMemory == olapTable.isInMemory()) {
+        String storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
+        if (isInMemory == olapTable.isInMemory() && storagePolicy.equalsIgnoreCase("")) {
+            LOG.info("isInMemory == olapTable.isInMemory() and storagePolicy empty"
+                    + isInMemory + " " + olapTable.isInMemory() + " " + storagePolicy);
             return;
         }
 
         for (String partitionName : partitionNames) {
             try {
-                updatePartitionInMemoryMeta(db, olapTable.getName(), partitionName, isInMemory);
+                updatePartitionInMemoryMeta(db, olapTable.getName(), partitionName, storagePolicy, isInMemory);
             } catch (Exception e) {
                 String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. "
                         + "The reason is [" + e.getMessage() + "]";
@@ -1858,8 +1864,12 @@ public class SchemaChangeHandler extends AlterHandler {
      * Update one specified partition's in-memory property by partition name of table
      * This operation may return partial successfully, with a exception to inform user to retry
      */
-    public void updatePartitionInMemoryMeta(Database db, String tableName, String partitionName, boolean isInMemory)
-            throws UserException {
+    public void updatePartitionInMemoryMeta(Database db,
+                                            String tableName,
+                                            String partitionName,
+                                            String storagePolicy,
+                                            boolean isInMemory) throws UserException {
+
         // be id -> <tablet id,schemaHash>
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
@@ -1890,8 +1900,8 @@ public class SchemaChangeHandler extends AlterHandler {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Map.Entry<Long, Set<Pair<Long, Integer>>> kv : beIdToTabletIdWithHash.entrySet()) {
             countDownLatch.addMark(kv.getKey(), kv.getValue());
-            UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(kv.getKey(), kv.getValue(), isInMemory,
-                    countDownLatch);
+            UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(kv.getKey(), kv.getValue(),
+                    isInMemory, storagePolicy, countDownLatch);
             batchTask.addTask(task);
         }
         if (!FeConstants.runningUnitTest) {

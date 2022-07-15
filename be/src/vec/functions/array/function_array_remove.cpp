@@ -15,30 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_V2_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_V2_H
+#include "vec/functions/array/function_array_remove.h"
 
-#include "gen_cpp/AgentService_types.h"
-#include "olap/olap_define.h"
-#include "olap/task/engine_task.h"
+#include "vec/functions/simple_function_factory.h"
 
-namespace doris {
+namespace doris::vectorized {
 
-// base class for storage engine
-// add "Engine" as task prefix to prevent duplicate name with agent task
-class EngineStorageMigrationTaskV2 : public EngineTask {
-public:
-    virtual Status execute();
+void register_function_array_remove(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArrayRemove>();
+}
 
-public:
-    EngineStorageMigrationTaskV2(const TStorageMigrationReqV2& request);
-    ~EngineStorageMigrationTaskV2() {}
-
-private:
-    const TStorageMigrationReqV2& _storage_migration_req;
-
-    std::shared_ptr<MemTracker> _mem_tracker;
-}; // EngineTask
-
-} // namespace doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_V2_H
+} // namespace doris::vectorized

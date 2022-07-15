@@ -56,7 +56,6 @@ import com.google.common.collect.Maps;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.File;
@@ -170,7 +169,8 @@ public class AlterTest {
                         + "   \"s3_endpoint\" = \"bj\",\n" + "   \"s3_region\" = \"bj\",\n"
                         + "   \"s3_root_path\" = \"/path/to/root\",\n" + "   \"s3_access_key\" = \"bbb\",\n"
                         + "   \"s3_secret_key\" = \"aaaa\",\n" + "   \"s3_max_connections\" = \"50\",\n"
-                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\"\n"
+                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\",\n"
+                        + "   \"s3_bucket\" = \"test-bucket\"\n"
                         + ");");
 
         createRemoteStorageResource(
@@ -178,7 +178,8 @@ public class AlterTest {
                         + "   \"s3_endpoint\" = \"bj\",\n" + "   \"s3_region\" = \"bj\",\n"
                         + "   \"s3_root_path\" = \"/path/to/root\",\n" + "   \"s3_access_key\" = \"bbb\",\n"
                         + "   \"s3_secret_key\" = \"aaaa\",\n" + "   \"s3_max_connections\" = \"50\",\n"
-                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\"\n"
+                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\",\n"
+                        + "   \"s3_bucket\" = \"test-bucket\"\n"
                         + ");");
 
         createRemoteStoragePolicy(
@@ -187,7 +188,7 @@ public class AlterTest {
 
         createRemoteStoragePolicy(
                 "CREATE STORAGE POLICY testPolicy2\n" + "PROPERTIES(\n" + "  \"storage_resource\" = \"remote_s3\",\n"
-                        + "  \"cooldown_ttl\" = \"1d\"\n" + ");");
+                        + "  \"cooldown_ttl\" = \"1\"\n" + ");");
 
         createTable("CREATE TABLE test.tbl_remote\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n"
                 + ")\n" + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
@@ -960,8 +961,6 @@ public class AlterTest {
         alterTable(changeOrderStmt, true);
     }
 
-    // Open it when date v2 is ready
-    @Ignore
     @Test
     public void testAlterDateV2Schema() throws Exception {
         createTable("CREATE TABLE test.unique_partition_datev2\n" + "(\n" + "    k1 date,\n" + "    k2 datetime(3),\n"

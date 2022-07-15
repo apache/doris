@@ -238,7 +238,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tabletType,
                                 null,
                                 tbl.getCompressionType(),
-                                tbl.getEnableUniqueKeyMergeOnWrite());
+                                tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy());
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
