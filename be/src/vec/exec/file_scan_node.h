@@ -119,6 +119,8 @@ private:
     std::vector<TExpr> _pre_filter_texprs;
 
     RuntimeProfile::Counter* _wait_scanner_timer;
+    RuntimeProfile::Counter* _num_rows_filtered;
+    RuntimeProfile::Counter* _filter_timer;
 
     std::deque<std::shared_ptr<vectorized::Block>> _block_queue;
     std::unique_ptr<MutableBlock> _mutable_block;
@@ -139,6 +141,7 @@ protected:
     std::vector<bool> _runtime_filter_ready_flag;
     std::vector<std::unique_ptr<std::mutex>> _rf_locks;
     std::map<int, RuntimeFilterContext*> _conjunctid_to_runtime_filter_ctxs;
+    std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
 
 };
 } // namespace vectorized

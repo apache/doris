@@ -30,6 +30,8 @@
 #include "vec/exec/file_arrow_scanner.h"
 #include "vec/exec/file_text_scanner.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vcompound_pred.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
 
@@ -99,6 +101,8 @@ Status FileScanNode::prepare(RuntimeState* state) {
 
     // Profile
     _wait_scanner_timer = ADD_TIMER(runtime_profile(), "WaitScannerTime");
+    _filter_timer = ADD_TIMER(runtime_profile(), "FilterTime");
+    _num_rows_filtered = ADD_COUNTER(runtime_profile(), "NumRowsFiltered", TUnit::UNIT);
 
     return Status::OK();
 }
@@ -111,7 +115,6 @@ Status FileScanNode::open(RuntimeState* state) {
 
     // acquire runtime filter
     _runtime_filter_ctxs.resize(_runtime_filter_descs.size());
-
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         auto& filter_desc = _runtime_filter_descs[i];
         IRuntimeFilter* runtime_filter = nullptr;
@@ -125,22 +128,69 @@ Status FileScanNode::open(RuntimeState* state) {
             ready = runtime_filter->await();
         }
         if (ready) {
-            std::list<ExprContext*> expr_context;
-            RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(&expr_context));
+            // std::list<ExprContext*> expr_context;
+            // RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(&expr_context));
             _runtime_filter_ctxs[i].apply_mark = true;
             _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
 
-            for (auto ctx : expr_context) {
-                ctx->prepare(state, row_desc(), _expr_mem_tracker);
-                ctx->open(state);
-                int index = _conjunct_ctxs.size();
-                _conjunct_ctxs.push_back(ctx);
-                LOG(INFO) << "cmy open receive rf conjunct size: " << _conjunct_ctxs.size();
-                // it's safe to store address from a fix-resized vector
-                _conjunctid_to_runtime_filter_ctxs[index] = &_runtime_filter_ctxs[i];
-            }
+            // for (auto ctx : expr_context) {
+            //     ctx->prepare(state, row_desc(), _expr_mem_tracker);
+            //     ctx->open(state);
+            //     int index = _conjunct_ctxs.size();
+            //     _conjunct_ctxs.push_back(ctx);
+            //     LOG(INFO) << "cmy open receive rf conjunct size: " << _conjunct_ctxs.size() << " idx " << i;
+            //     // it's safe to store address from a fix-resized vector
+            //     _conjunctid_to_runtime_filter_ctxs[index] = &_runtime_filter_ctxs[i];
+            // }
         }
     }
+
+    // rebuild vexpr
+    for (int i = 0; i < _runtime_filter_ctxs.size(); ++i) {
+        if (!_runtime_filter_ctxs[i].apply_mark) {
+            continue;
+        }
+        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtimefilter;
+        std::vector<VExpr*> vexprs;
+        LOG(INFO) << "cmy get runtime_filter->get_prepared_vexprs: " << i;
+        runtime_filter->get_prepared_vexprs(&vexprs, row_desc(), _expr_mem_tracker);
+        if (vexprs.empty()) {
+            continue;
+        }
+        auto last_expr = _vconjunct_ctx_ptr ? (*_vconjunct_ctx_ptr)->root() : vexprs[0];
+        for (size_t j = _vconjunct_ctx_ptr ? 0 : 1; j < vexprs.size(); j++) {
+            TExprNode texpr_node;
+            texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+            texpr_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+            texpr_node.__set_opcode(TExprOpcode::COMPOUND_AND);
+            VExpr* new_node = _pool->add(new VcompoundPred(texpr_node));
+            new_node->add_child(last_expr);
+            new_node->add_child(vexprs[j]);
+            last_expr = new_node;
+        }
+        auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
+        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc(), expr_mem_tracker());
+        if (UNLIKELY(!expr_status.OK())) {
+            LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
+            vexprs.clear();
+            break;
+        }
+
+        expr_status = new_vconjunct_ctx_ptr->open(state);
+        if (UNLIKELY(!expr_status.OK())) {
+            LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
+            vexprs.clear();
+            break;
+        }
+        if (_vconjunct_ctx_ptr) {
+            _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
+        }
+        _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
+        *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
+        _runtime_filter_ready_flag[i] = true;
+        LOG(INFO) << "cmy success apply rf filter"; 
+    }
+    
 
     RETURN_IF_ERROR(start_scanners());
 
@@ -269,6 +319,18 @@ Status FileScanNode::close(RuntimeState* state) {
     }
     // Close
     _batch_queue.clear();
+
+    for (auto& filter_desc : _runtime_filter_descs) {
+        IRuntimeFilter* runtime_filter = nullptr;
+        state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id, &runtime_filter);
+        DCHECK(runtime_filter != nullptr);
+        runtime_filter->consumer_close();
+    }
+
+    for (auto& ctx : _stale_vexpr_ctxs) {
+        (*ctx)->close(state);
+    }
+
     return ExecNode::close(state);
 }
 
@@ -290,9 +352,13 @@ Status FileScanNode::scanner_scan(const TFileScanRange& scan_range, ScannerCount
             continue;
         }
         auto old_rows = block->rows();
-        RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block.get(),
-                                                   _tuple_desc->slots().size()));
+        {
+            SCOPED_TIMER(_filter_timer);
+            RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block.get(),
+                        _tuple_desc->slots().size()));
+        }
         counter->num_rows_unselected += old_rows - block->rows();
+        
         if (block->rows() == 0) {
             continue;
         }
@@ -342,6 +408,7 @@ void FileScanNode::scanner_worker(int start_idx, int length, std::promise<Status
     // Update stats
     _runtime_state->update_num_rows_load_filtered(counter.num_rows_filtered);
     _runtime_state->update_num_rows_load_unselected(counter.num_rows_unselected);
+    COUNTER_UPDATE(_num_rows_filtered, counter.num_rows_unselected);
 
     // scanner is going to finish
     {

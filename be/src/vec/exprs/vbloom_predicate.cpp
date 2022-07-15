@@ -73,7 +73,15 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
     size_t sz = argument_column->size();
     res_data_column->resize(sz);
     auto ptr = ((ColumnVector<UInt8>*)res_data_column.get())->get_data().data();
+    if (_filter == nullptr) {
+        LOG(INFO) << "cmy bf filter is null";
+        return Status::InternalError("cmy bf filter is null");
+    }
     for (size_t i = 0; i < sz; i++) {
+        if (argument_column->get_data_at(i).data == nullptr) {
+            LOG(INFO) << "cmy data is null";
+            return Status::InternalError("cmy data is null");
+        } 
         ptr[i] = _filter->find(reinterpret_cast<const void*>(argument_column->get_data_at(i).data));
     }
     if (_data_type->is_nullable()) {

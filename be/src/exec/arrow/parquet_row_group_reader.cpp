@@ -100,8 +100,10 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
     std::vector<int64_t> start_vec;
     for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
         auto row_group_meta = _file_metadata->RowGroup(row_group_id);
-        start_vec.push_back(row_group_meta->file_offset());
-        LOG(INFO) << "get row group offset: " << row_group_meta->file_offset();
+        auto column_chunk_meta = row_group_meta->ColumnChunk(0);
+        int64_t offset = column_chunk_meta->file_offset() - 4;
+        start_vec.push_back(offset);
+        LOG(INFO) << "get row group offset: " << offset;
     }
 
     int32_t filtered_num_row_groups = 0;

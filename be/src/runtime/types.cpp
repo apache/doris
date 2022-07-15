@@ -26,8 +26,8 @@ namespace doris {
 
 TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         : len(-1), precision(-1), scale(-1) {
-    DCHECK_GE(*idx, 0);
-    DCHECK_LT(*idx, types.size());
+    CHECK_GE(*idx, 0);
+    CHECK_LT(*idx, types.size());
     const TTypeNode& node = types[*idx];
     switch (node.type) {
     case TTypeNodeType::SCALAR: {

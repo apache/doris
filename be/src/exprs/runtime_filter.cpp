@@ -40,6 +40,7 @@
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
+#include "util/stack_util.h"
 
 namespace doris {
 // PrimitiveType->TExprNodeType
@@ -222,6 +223,7 @@ template <bool is_vectorized = false>
 Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* data, void** expr) {
     TExprNode node;
 
+    LOG(INFO) << "cmy create_literal type.type: " << type.type;
     switch (type.type) {
     case TYPE_BOOLEAN: {
         create_texpr_literal_node<TYPE_BOOLEAN>(data, &node);
@@ -296,7 +298,7 @@ Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* 
         break;
     }
     default:
-        DCHECK(false);
+        CHECK(false);
         return Status::InvalidArgument("Invalid type!");
     }
 
@@ -421,12 +423,14 @@ public:
         }
         case RuntimeFilterType::BLOOM_FILTER: {
             _is_bloomfilter = true;
+            LOG(INFO) << "cmy init RuntimePredicateWrapper BLOOM_FILTER";
             _bloomfilter_func.reset(create_bloom_filter(_column_return_type));
             return _bloomfilter_func->init_with_fixed_length(params->bloom_filter_size);
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             _hybrid_set.reset(create_set(_column_return_type));
             _bloomfilter_func.reset(create_bloom_filter(_column_return_type));
+            LOG(INFO) << "cmy _bloomfilter_func: " << (_bloomfilter_func == nullptr);
             return _bloomfilter_func->init_with_fixed_length(params->bloom_filter_size);
         }
         default:
@@ -801,6 +805,7 @@ public:
         _is_bloomfilter = true;
         // we won't use this class to insert or find any data
         // so any type is ok
+        LOG(INFO) << "cmy assign bf";
         _bloomfilter_func.reset(create_bloom_filter(PrimitiveType::TYPE_INT));
         return _bloomfilter_func->assign(data, bloom_filter->filter_length());
     }
@@ -1033,6 +1038,7 @@ void IRuntimeFilter::publish_finally() {
 
 Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs) {
     DCHECK(is_consumer());
+    LOG(INFO) << "cmy get_push_expr_ctxs _is_ignored: " << _is_ignored;
     if (!_is_ignored) {
         return _wrapper->get_push_context(push_expr_ctxs, _state, _probe_ctx);
     }
@@ -1075,6 +1081,7 @@ Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*
     DCHECK(is_consumer());
     std::lock_guard<std::mutex> guard(_inner_mutex);
 
+    LOG(INFO) << "cmy _push_down_vexprs.size(): " << _push_down_vexprs.size();
     if (_push_down_vexprs.empty()) {
         RETURN_IF_ERROR(_wrapper->get_push_vexprs(&_push_down_vexprs, _state, _vprobe_ctx));
     }
@@ -1562,9 +1569,11 @@ Status RuntimePredicateWrapper::get_push_context(T* container, RuntimeState* sta
     DCHECK(prob_expr->root()->type().type == _column_return_type ||
            (is_string_type(prob_expr->root()->type().type) && is_string_type(_column_return_type)));
 
+    LOG(INFO) << "cmy get_push_context";
     auto real_filter_type = get_real_type();
     switch (real_filter_type) {
     case RuntimeFilterType::IN_FILTER: {
+        LOG(INFO) << "cmy RuntimeFilterType::IN_FILTER";
         if (!_is_ignored_in_filter) {
             TTypeDesc type_desc = create_type_desc(_column_return_type);
             TExprNode node;
@@ -1583,6 +1592,7 @@ Status RuntimePredicateWrapper::get_push_context(T* container, RuntimeState* sta
         break;
     }
     case RuntimeFilterType::MINMAX_FILTER: {
+        LOG(INFO) << "cmy RuntimeFilterType::MINMAX_FILTER";
         // create max filter
         Expr* max_literal = nullptr;
         auto max_pred = create_bin_predicate(_pool, _column_return_type, TExprOpcode::LE);
@@ -1635,6 +1645,7 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
             is_string_type(_column_return_type)));
 
     auto real_filter_type = get_real_type();
+    // LOG(INFO) << "cmy get_push_vexprs rf type: " << real_filter_type;
     switch (real_filter_type) {
     case RuntimeFilterType::IN_FILTER: {
         if (!_is_ignored_in_filter) {

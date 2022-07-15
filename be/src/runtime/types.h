@@ -123,7 +123,7 @@ struct TypeDescriptor {
     static TypeDescriptor from_thrift(const TTypeDesc& t) {
         int idx = 0;
         TypeDescriptor result(t.types, &idx);
-        DCHECK_EQ(idx, t.types.size() - 1);
+        CHECK_EQ(idx, t.types.size() - 1);
         return result;
     }
 
