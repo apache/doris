@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
@@ -46,7 +47,8 @@ public class Alias extends NamedExpression implements UnaryExpression {
         this(NamedExpressionUtil.newExprId(), child, name);
     }
 
-    private Alias(ExprId exprId, Expression child, String name) {
+    @VisibleForTesting
+    Alias(ExprId exprId, Expression child, String name) {
         super(ExpressionType.ALIAS, child);
         this.exprId = exprId;
         this.name = name;
