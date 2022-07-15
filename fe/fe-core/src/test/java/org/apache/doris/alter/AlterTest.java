@@ -56,7 +56,6 @@ import com.google.common.collect.Maps;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.File;
@@ -962,8 +961,6 @@ public class AlterTest {
         alterTable(changeOrderStmt, true);
     }
 
-    // Open it when date v2 is ready
-    @Ignore
     @Test
     public void testAlterDateV2Schema() throws Exception {
         createTable("CREATE TABLE test.unique_partition_datev2\n" + "(\n" + "    k1 date,\n" + "    k2 datetime(3),\n"

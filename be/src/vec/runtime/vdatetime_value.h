@@ -142,8 +142,8 @@ static constexpr const char* s_day_name[] = {"Monday", "Tuesday",  "Wednesday", 
 static constexpr size_t MAX_DAY_NAME_LEN = max_char_length(s_day_name, std::size(s_day_name));
 static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::size(s_month_name));
 
-const uint32_t MAX_DATE_V2 = 31 | (12 << 8) | (9999 << 16);
-const uint32_t MIN_DATE_V2 = 1 | (1 << 8) | (1000 << 16);
+const uint32_t MAX_DATE_V2 = 31 | (12 << 5) | (9999 << 9);
+const uint32_t MIN_DATE_V2 = 1 | (1 << 5) | (1000 << 9);
 
 const uint32_t MAX_YEAR = 9999;
 const uint32_t MIN_YEAR = 1000;
@@ -665,9 +665,9 @@ private:
 };
 
 struct DateV2ValueType {
-    uint32_t day_ : 8;
-    uint32_t month_ : 8;
-    uint32_t year_ : 16;
+    uint32_t day_ : 5;
+    uint32_t month_ : 4;
+    uint32_t year_ : 23;
 
     DateV2ValueType(uint16_t year, uint8_t month, uint8_t day)
             : day_(day), month_(month), year_(year) {}

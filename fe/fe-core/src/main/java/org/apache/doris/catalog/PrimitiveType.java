@@ -87,6 +87,7 @@ public enum PrimitiveType {
         builder.add(DECIMAL32);
         builder.add(DECIMAL64);
         builder.add(DECIMAL128);
+        builder.add(DATETIMEV2);
         typeWithPrecision = builder.build();
     }
 

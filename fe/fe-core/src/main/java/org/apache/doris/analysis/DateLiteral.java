@@ -383,7 +383,7 @@ public class DateLiteral extends LiteralExpr {
         } else if (type.equals(Type.DATETIME)) {
             return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
         } else if (type.equals(Type.DATEV2)) {
-            return (year << 16) | (month << 8) | day;
+            return (year << 9) | (month << 5) | day;
         } else if (type.equals(Type.DATETIMEV2)) {
             return (year << 50) | (month << 46) | (day << 41) | (hour << 36)
                 | (minute << 30) | (second << 24) | microsecond;

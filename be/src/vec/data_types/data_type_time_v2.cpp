@@ -30,13 +30,9 @@ std::string DataTypeDateV2::to_string(const IColumn& column, size_t row_num) con
     UInt32 int_val =
             assert_cast<const ColumnUInt32&>(*column.convert_to_full_column_if_const().get())
                     .get_data()[row_num];
+    DateV2Value val = binary_cast<UInt32, DateV2Value>(int_val);
     std::stringstream ss;
-    // Year
-    ss << (int_val & 0xFFFF0000) << '-';
-    // Month
-    ss << (int_val & 0x0000FF00) << '-';
-    // Day
-    ss << int_val % 0xFF;
+    ss << val;
     return ss.str();
 }
 

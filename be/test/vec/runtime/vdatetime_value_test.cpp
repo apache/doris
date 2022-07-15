@@ -35,7 +35,7 @@ TEST(VDateTimeValueTest, date_v2_to_uint32_test) {
     EXPECT_TRUE(date_v2.year() == year);
     EXPECT_TRUE(date_v2.month() == month);
     EXPECT_TRUE(date_v2.day() == day);
-    EXPECT_TRUE(date_v2.to_date_uint32() == ((year << 16) | (month << 8) | day));
+    EXPECT_TRUE(date_v2.to_date_uint32() == ((year << 9) | (month << 5) | day));
     EXPECT_TRUE(date_v2.hour() == 0);
     EXPECT_TRUE(date_v2.minute() == 0);
     EXPECT_TRUE(date_v2.second() == 0);
@@ -48,12 +48,12 @@ TEST(VDateTimeValueTest, date_v2_from_uint32_test) {
         uint8_t day = 24;
 
         DateV2Value date_v2;
-        date_v2.from_date((uint32_t)((year << 16) | (month << 8) | day));
+        date_v2.from_date((uint32_t)((year << 9) | (month << 5) | day));
 
         EXPECT_TRUE(date_v2.year() == year);
         EXPECT_TRUE(date_v2.month() == month);
         EXPECT_TRUE(date_v2.day() == day);
-        EXPECT_TRUE(date_v2.to_date_uint32() == ((year << 16) | (month << 8) | day));
+        EXPECT_TRUE(date_v2.to_date_uint32() == ((year << 9) | (month << 5) | day));
         EXPECT_TRUE(date_v2.hour() == 0);
         EXPECT_TRUE(date_v2.minute() == 0);
         EXPECT_TRUE(date_v2.second() == 0);
@@ -63,13 +63,13 @@ TEST(VDateTimeValueTest, date_v2_from_uint32_test) {
         uint8_t month = 5;
         uint8_t day = 24;
 
-        uint32_t ui32 = (uint32_t)((year << 16) | (month << 8) | day);
+        uint32_t ui32 = (uint32_t)((year << 9) | (month << 5) | day);
         auto date_v2 = (DateV2Value&)ui32;
 
         EXPECT_TRUE(date_v2.year() == year);
         EXPECT_TRUE(date_v2.month() == month);
         EXPECT_TRUE(date_v2.day() == day);
-        EXPECT_TRUE(date_v2.to_date_uint32() == ((year << 16) | (month << 8) | day));
+        EXPECT_TRUE(date_v2.to_date_uint32() == ((year << 9) | (month << 5) | day));
         EXPECT_TRUE(date_v2.hour() == 0);
         EXPECT_TRUE(date_v2.minute() == 0);
         EXPECT_TRUE(date_v2.second() == 0);
@@ -91,7 +91,7 @@ TEST(VDateTimeValueTest, date_v2_from_date_format_str_test) {
         EXPECT_TRUE(date_v2.year() == year);
         EXPECT_TRUE(date_v2.month() == month);
         EXPECT_TRUE(date_v2.day() == day);
-        EXPECT_TRUE(date_v2.to_date_uint32() == ((year << 16) | (month << 8) | day));
+        EXPECT_TRUE(date_v2.to_date_uint32() == ((year << 9) | (month << 5) | day));
         EXPECT_TRUE(date_v2.hour() == 0);
         EXPECT_TRUE(date_v2.minute() == 0);
         EXPECT_TRUE(date_v2.second() == 0);
@@ -107,7 +107,7 @@ TEST(VDateTimeValueTest, date_v2_from_date_format_str_test) {
         EXPECT_TRUE(date_v2.year() == year);
         EXPECT_TRUE(date_v2.month() == month);
         EXPECT_TRUE(date_v2.day() == day);
-        EXPECT_TRUE(date_v2.to_date_uint32() == ((year << 16) | (month << 8) | day));
+        EXPECT_TRUE(date_v2.to_date_uint32() == ((year << 9) | (month << 5) | day));
         EXPECT_TRUE(date_v2.hour() == 0);
         EXPECT_TRUE(date_v2.minute() == 0);
         EXPECT_TRUE(date_v2.second() == 0);

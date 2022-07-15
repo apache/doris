@@ -48,7 +48,7 @@ static uint32_t to_date_v2_timestamp(const char* date_string) {
     tm time_tm;
     strptime(date_string, "%Y-%m-%d", &time_tm);
 
-    return ((time_tm.tm_year + 1900) << 16) | ((time_tm.tm_mon + 1) << 8) | time_tm.tm_mday;
+    return ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
 }
 
 }; // namespace datetime

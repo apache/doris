@@ -62,7 +62,7 @@ uint32_t timestamp_from_date_v2(const std::string& date_str) {
 
     uint32_t value = 0;
     if (nullptr != res) {
-        value = ((time_tm.tm_year + 1900) << 16) | ((time_tm.tm_mon + 1) << 8) | time_tm.tm_mday;
+        value = ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
     } else {
         value = doris::vectorized::MIN_DATE_V2;
     }
