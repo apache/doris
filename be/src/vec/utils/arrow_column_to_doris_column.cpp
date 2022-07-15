@@ -305,10 +305,10 @@ static Status convert_column_with_list_data(const arrow::Array* array, size_t ar
 Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,
                                     ColumnPtr& doris_column, const DataTypePtr& type,
                                     size_t num_elements, const std::string& timezone) {
-
     cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(timezone, ctz);    
-    return arrow_column_to_doris_column(arrow_column, arrow_batch_cur_idx, doris_column, type, num_elements, ctz);
+    TimezoneUtils::find_cctz_time_zone(timezone, ctz);
+    return arrow_column_to_doris_column(arrow_column, arrow_batch_cur_idx, doris_column, type,
+                                        num_elements, ctz);
 }
 
 Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,
