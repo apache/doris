@@ -48,11 +48,17 @@ static inline void read(IColumn& column, Reader&& reader) {
     }
 }
 
+std::string jsonb_to_string(const StringRef& s) {
+    doris::JsonbToJson toStr;
+    doris::JsonbValue* val = doris::JsonbDocument::createDocument(s.data, s.size)->getValue();
+    return toStr.json(val);
+}
+
 std::string DataTypeJson::to_string(const IColumn& column, size_t row_num) const {
     const StringRef& s =
             reinterpret_cast<const ColumnJson&>(*column.convert_to_full_column_if_const().get())
                     .get_data_at(row_num);
-    return s.json_to_string();
+    return jsonb_to_string(s);
 }
 
 void DataTypeJson::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
@@ -60,7 +66,7 @@ void DataTypeJson::to_string(const class doris::vectorized::IColumn& column, siz
     const StringRef& s =
             reinterpret_cast<const ColumnJson&>(*column.convert_to_full_column_if_const().get())
                     .get_data_at(row_num);
-    std::string str = s.json_to_string();
+    std::string str = jsonb_to_string(s);
     ostr.write(str.c_str(), str.size());
 }
 

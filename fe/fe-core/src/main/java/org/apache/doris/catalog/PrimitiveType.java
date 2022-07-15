@@ -338,6 +338,7 @@ public enum PrimitiveType {
         builder.put(DATEV2, DECIMAL128);
         builder.put(DATEV2, VARCHAR);
         builder.put(DATEV2, STRING);
+        builder.put(DATEV2, JSON);
         // DatetimeV2
         builder.put(DATETIMEV2, BOOLEAN);
         builder.put(DATETIMEV2, TINYINT);
@@ -357,6 +358,7 @@ public enum PrimitiveType {
         builder.put(DATETIMEV2, DECIMAL128);
         builder.put(DATETIMEV2, VARCHAR);
         builder.put(DATETIMEV2, STRING);
+        builder.put(DATETIMEV2, JSON);
         // Char
         builder.put(CHAR, BOOLEAN);
         builder.put(CHAR, TINYINT);
@@ -837,7 +839,7 @@ public enum PrimitiveType {
 
         compatibilityMatrix[CHAR.ordinal()][CHAR.ordinal()] = CHAR;
         compatibilityMatrix[CHAR.ordinal()][VARCHAR.ordinal()] = VARCHAR;
-        compatibilityMatrix[CHAR.ordinal()][JSON.ordinal()] = JSON;  
+        compatibilityMatrix[CHAR.ordinal()][JSON.ordinal()] = CHAR;  
         compatibilityMatrix[CHAR.ordinal()][STRING.ordinal()] = STRING;
         compatibilityMatrix[CHAR.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
@@ -848,7 +850,7 @@ public enum PrimitiveType {
 
         compatibilityMatrix[VARCHAR.ordinal()][VARCHAR.ordinal()] = VARCHAR;
         compatibilityMatrix[VARCHAR.ordinal()][STRING.ordinal()] = STRING;
-        compatibilityMatrix[VARCHAR.ordinal()][JSON.ordinal()] = JSON;  
+        compatibilityMatrix[VARCHAR.ordinal()][JSON.ordinal()] = VARCHAR;  
         compatibilityMatrix[VARCHAR.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
@@ -868,6 +870,7 @@ public enum PrimitiveType {
         compatibilityMatrix[JSON.ordinal()][JSON.ordinal()] = JSON;
         compatibilityMatrix[JSON.ordinal()][STRING.ordinal()] = STRING;
         compatibilityMatrix[JSON.ordinal()][VARCHAR.ordinal()] = VARCHAR;
+        compatibilityMatrix[JSON.ordinal()][CHAR.ordinal()] = CHAR;
 
         compatibilityMatrix[DECIMALV2.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[DECIMALV2.ordinal()][DECIMAL32.ordinal()] = DECIMALV2;

@@ -74,7 +74,6 @@ enum TPrimitiveType {
   CHAR,
   LARGEINT,
   VARCHAR,
-  JSON,
   HLL,
   DECIMALV2,
   TIME,
@@ -91,6 +90,7 @@ enum TPrimitiveType {
   DECIMAL32,
   DECIMAL64,
   DECIMAL128,
+  JSON,
 }
 
 enum TTypeNodeType {

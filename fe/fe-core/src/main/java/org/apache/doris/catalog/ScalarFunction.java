@@ -164,8 +164,6 @@ public class ScalarFunction extends Function {
                 case QUANTILE_STATE:
                     beFn += "_string_val";
                     break;
-                case JSON:
-                    beFn += "json_val";
                 case DATE:
                 case DATETIME:
                 case DATEV2:
