@@ -236,7 +236,7 @@ under the License.
         <hamcrest.version>2.1</hamcrest.version>
         <httpclient.version>4.5.13</httpclient.version>
         <httpcore.version>4.4.15</httpcore.version>
-        <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
+        <aws-java-sdk-s3.version>1.12.261</aws-java-sdk-s3.version>
         <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
 
         <revision>1.0-SNAPSHOT</revision>
