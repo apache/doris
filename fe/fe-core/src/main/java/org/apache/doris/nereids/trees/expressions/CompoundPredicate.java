@@ -75,6 +75,11 @@ public class CompoundPredicate extends Expression implements BinaryExpression {
     }
 
     @Override
+    public int hashCode() {
+        return Objects.hash(getType(), left(), right());
+    }
+
+    @Override
     public String toString() {
         String nodeType = getType().toString();
         return nodeType + "(" + left() + ", " + right() + ")";

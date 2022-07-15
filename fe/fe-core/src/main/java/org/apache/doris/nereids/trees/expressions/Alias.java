@@ -25,6 +25,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Expression for alias, such as col1 as c1.
@@ -85,6 +86,27 @@ public class Alias extends NamedExpression implements UnaryExpression {
     @Override
     public boolean nullable() throws UnboundException {
         return child().nullable();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        Alias alias = (Alias) o;
+        return exprId.equals(alias.exprId) && name.equals(alias.name)
+                && qualifier.equals(alias.qualifier) && children.equals(alias.children);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(exprId, name, qualifier, children());
     }
 
     @Override

@@ -62,7 +62,7 @@ public abstract class BoundFunction extends Expression {
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), name);
+        return Objects.hash(name, children);
     }
 
     @Override
