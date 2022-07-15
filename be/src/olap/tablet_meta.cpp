@@ -204,7 +204,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _schema(b._schema),
           _rs_metas(b._rs_metas),
           _stale_rs_metas(b._stale_rs_metas),
-          _del_pred_array(b._del_pred_array),
+          _del_predicates(b._del_predicates),
           _in_restore_mode(b._in_restore_mode),
           _preferred_rowset_type(b._preferred_rowset_type),
           _remote_storage_name(b._remote_storage_name),
@@ -682,40 +682,35 @@ RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& 
 }
 
 void TabletMeta::add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version) {
-    for (auto& del_pred : _del_pred_array) {
+    for (auto& del_pred : _del_predicates) {
         if (del_pred.version() == version) {
             *del_pred.mutable_sub_predicates() = delete_predicate.sub_predicates();
             return;
         }
     }
-    DeletePredicatePB* del_pred = _del_pred_array.Add();
-    del_pred->set_version(version);
-    *del_pred->mutable_sub_predicates() = delete_predicate.sub_predicates();
-    *del_pred->mutable_in_predicates() = delete_predicate.in_predicates();
+    DeletePredicatePB copied_pred = delete_predicate;
+    copied_pred.set_version(version);
+    _del_predicates.emplace_back(copied_pred);
 }
 
 void TabletMeta::remove_delete_predicate_by_version(const Version& version) {
     DCHECK(version.first == version.second) << "version=" << version;
-    for (int ordinal = 0; ordinal < _del_pred_array.size(); ++ordinal) {
-        const DeletePredicatePB& temp = _del_pred_array.Get(ordinal);
-        if (temp.version() == version.first) {
-            // log delete condition
-            string del_cond_str;
-            for (const auto& it : temp.sub_predicates()) {
-                del_cond_str += it + ";";
-            }
-            VLOG_NOTICE << "remove one del_pred. version=" << temp.version()
-                        << ", condition=" << del_cond_str;
-
-            // remove delete condition from PB
-            _del_pred_array.SwapElements(ordinal, _del_pred_array.size() - 1);
-            _del_pred_array.RemoveLast();
+    int pred_to_del = -1;
+    for (int i = 0; i < _del_predicates.size(); ++i) {
+        if (_del_predicates[i].version() == version.first) {
+            pred_to_del = i;
+            // one DeletePredicatePB stands for a nested predicate, such as user submit a delete predicate a=1 and b=2
+            // they could be saved as a one DeletePredicatePB
+            break;
         }
+    }
+    if (pred_to_del > -1) {
+        _del_predicates.erase(_del_predicates.begin() + pred_to_del);
     }
 }
 
-DelPredicateArray TabletMeta::delete_predicates() const {
-    return _del_pred_array;
+const std::vector<DeletePredicatePB>& TabletMeta::delete_predicates() const {
+    return _del_predicates;
 }
 
 bool TabletMeta::version_for_delete_predicate(const Version& version) {
@@ -723,7 +718,7 @@ bool TabletMeta::version_for_delete_predicate(const Version& version) {
         return false;
     }
 
-    for (auto& del_pred : _del_pred_array) {
+    for (auto& del_pred : _del_predicates) {
         if (del_pred.version() == version.first) {
             return true;
         }
