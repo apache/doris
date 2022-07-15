@@ -1078,6 +1078,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                 // column in (nullptr) is always false so continue to
                 // dispose next item
                 if (nullptr == iter->get_value()) {
+                    iter->next();
                     continue;
                 }
                 auto value = const_cast<void*>(iter->get_value());
