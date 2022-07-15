@@ -505,6 +505,18 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
     return Status::OK();
 }
 
+Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                               vectorized::MutableColumnPtr& dst) {
+    for (size_t i = 0; i < count; ++i) {
+        // TODO(cambyzju): now read array one by one, need optimize later
+        RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
+        size_t num_read = 1;
+        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
+        DCHECK(num_read == 1);
+    }
+    return Status::OK();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {}

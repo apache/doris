@@ -119,7 +119,7 @@ suite ("test_dup_vals_schema_change") {
         sql """ INSERT INTO ${tableName} VALUES
                 (3, '2017-10-01', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2020-01-03', 1, 32, 20, 2)
             """
-        def result3 = sql """ SELECT * FROM ${tableName} WHERE user_id = 3 """
+        def result3 = sql """ SELECT * FROM ${tableName} WHERE user_id = 3 order by new_column """
 
         assertTrue(result3.size() == 2)
         assertTrue(result3[0].size() == 12)
