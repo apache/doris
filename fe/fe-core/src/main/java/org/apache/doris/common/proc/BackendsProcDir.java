@@ -164,7 +164,7 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(String.format("%.2f", used) + " %");
             backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
             // tag
-            backendInfo.add(backend.getTag().toString());
+            backendInfo.add(backend.getLocationTag().toString());
             // err msg
             backendInfo.add(backend.getHeartbeatErrMsg());
             // version

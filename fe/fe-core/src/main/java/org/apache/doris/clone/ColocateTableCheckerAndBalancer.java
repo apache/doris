@@ -587,13 +587,12 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         Backend be = infoService.getBackend(backendId);
         if (be == null) {
             return false;
-        } else if (!be.getTag().equals(tag) || excludedBeIds.contains(be.getId())) {
+        } else if (!be.getLocationTag().equals(tag) || excludedBeIds.contains(be.getId())) {
             return false;
         } else if (!be.isScheduleAvailable()) {
             // 1. BE is dead longer than "delaySecond"
             // 2. BE is under decommission
-            if ((!be.isAlive() && (currTime - be.getLastUpdateMs()) > delaySecond * 1000L)
-                    || be.isDecommissioned()) {
+            if ((!be.isAlive() && (currTime - be.getLastUpdateMs()) > delaySecond * 1000L) || be.isDecommissioned()) {
                 return false;
             }
         }
