@@ -48,4 +48,5 @@ suite("test_array_functions", "query") {
     qt_select "SELECT k1, cardinality(k2), cardinality(k3) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, arrays_overlap(k2, k4) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_distinct(k2), array_distinct(k3) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT array_remove(k2, k1), k1 FROM ${tableName} ORDER BY k1"
 }
