@@ -305,6 +305,11 @@ public:
     // Physically remove remote rowsets.
     void remove_all_remote_rowsets();
 
+    // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
+    // NOTE: the method only works in unique key model with primary key index, you will got a
+    //       not supported error in other data model.
+    Status lookup_row_key(const Slice& encoded_key, RowLocation* row_location);
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
