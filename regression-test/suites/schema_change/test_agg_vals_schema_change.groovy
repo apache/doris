@@ -94,7 +94,7 @@ suite ("test_agg_vals_schema_change") {
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2020-01-03', 1, 32, 20, hll_hash(3), to_bitmap(3))
         """
     def result1 = sql """
-                       select * from ${tableName}
+                       select * from ${tableName} order by user_id
                     """
     assertTrue(result1.size() == 2)
     assertTrue(result1[0].size() == 13)
