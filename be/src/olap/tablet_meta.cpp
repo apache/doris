@@ -209,7 +209,8 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _preferred_rowset_type(b._preferred_rowset_type),
           _remote_storage_name(b._remote_storage_name),
           _storage_medium(b._storage_medium),
-          _cooldown_resource(b._cooldown_resource) {};
+          _cooldown_resource(b._cooldown_resource),
+          _delete_bitmap(new DeleteBitmap(*b._delete_bitmap)) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
