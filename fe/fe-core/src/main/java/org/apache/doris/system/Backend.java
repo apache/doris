@@ -24,6 +24,7 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
@@ -143,6 +144,7 @@ public class Backend implements Writable {
         this.ownerClusterName = "";
         this.backendState = BackendState.free.ordinal();
         this.decommissionType = DecommissionType.SystemDecommission.ordinal();
+        this.tagMap.put(locationTag.type, locationTag.value);
     }
 
     public Backend(long id, String host, int heartbeatPort) {
@@ -163,6 +165,7 @@ public class Backend implements Writable {
         this.ownerClusterName = "";
         this.backendState = BackendState.free.ordinal();
         this.decommissionType = DecommissionType.SystemDecommission.ordinal();
+        this.tagMap.put(locationTag.type, locationTag.value);
     }
 
     public long getId() {
@@ -552,7 +555,11 @@ public class Backend implements Writable {
             // When first upgrade from old version, tags may be null
             tagMap = Maps.newHashMap();
         }
-        tagMap.put(locationTag.type, locationTag.value);
+        // ATTN: here we use Tag.TYPE_LOCATION directly, not locationTag.type,
+        // because we need to make sure the previous tag must be a location type tag,
+        // and if not, convert it to location type.
+        tagMap.put(Tag.TYPE_LOCATION, locationTag.value);
+        locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, locationTag.value);
     }
 
     public static Backend read(DataInput in) throws IOException {
@@ -726,6 +733,10 @@ public class Backend implements Writable {
 
     public Map<String, String> getTagMap() {
         return tagMap;
+    }
+
+    public String getTagMapString() {
+        return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
     }
 
     /**
