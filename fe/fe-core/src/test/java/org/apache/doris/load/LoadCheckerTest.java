@@ -324,7 +324,7 @@ public class LoadCheckerTest {
         for (MaterializedIndex olapIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : olapIndex.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    replica.updateVersionInfo(newVersion, 0L, 0L);
+                    replica.updateVersionInfo(newVersion, 0L, 0L, 0L);
                 }
             }
         }
@@ -360,7 +360,7 @@ public class LoadCheckerTest {
         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : index.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    replica.updateVersionInfo(newVersion, 0L, 0L);
+                    replica.updateVersionInfo(newVersion, 0L, 0L, 0L);
                 }
                 TabletLoadInfo tabletLoadInfo = new TabletLoadInfo("/label/path", 1L);
                 tabletLoadInfos.put(tablet.getId(), tabletLoadInfo);

@@ -48,19 +48,27 @@ public class ModifyPartitionInfo implements Writable {
     @SerializedName(value = "replicaAlloc")
     private ReplicaAllocation replicaAlloc;
 
+    @SerializedName(value = "storagePolicy")
+    private String storagePolicy;
+
+    public String getStoragePolicy() {
+        return storagePolicy;
+    }
+
     public ModifyPartitionInfo() {
         // for persist
     }
 
     public ModifyPartitionInfo(long dbId, long tableId, long partitionId,
                                DataProperty dataProperty, ReplicaAllocation replicaAlloc,
-                               boolean isInMemory) {
+                               boolean isInMemory, String storagePolicy) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
         this.dataProperty = dataProperty;
         this.replicaAlloc = replicaAlloc;
         this.isInMemory = isInMemory;
+        this.storagePolicy = storagePolicy;
     }
 
     public long getDbId() {
@@ -109,7 +117,7 @@ public class ModifyPartitionInfo implements Writable {
         ModifyPartitionInfo otherInfo = (ModifyPartitionInfo) other;
         return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId()
                 && dataProperty.equals(otherInfo.getDataProperty()) && replicaAlloc.equals(otherInfo.replicaAlloc)
-                && isInMemory == otherInfo.isInMemory();
+                && isInMemory == otherInfo.isInMemory() && storagePolicy.equals(otherInfo.storagePolicy);
     }
 
     @Override
