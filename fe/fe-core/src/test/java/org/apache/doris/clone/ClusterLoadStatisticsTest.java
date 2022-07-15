@@ -147,7 +147,6 @@ public class ClusterLoadStatisticsTest {
                 Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
         loadStatistic.init();
         List<List<String>> infos = loadStatistic.getClusterStatistic(TStorageMedium.HDD);
-        System.out.println(infos);
         Assert.assertEquals(3, infos.size());
     }
 

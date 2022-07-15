@@ -36,7 +36,7 @@ import java.util.Base64;
 
 public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
-    private static  String PATH_URI = "/_query_plan";
+    private static String PATH_URI = "/_query_plan";
     protected static String ES_TABLE_URL;
 
     @Override
@@ -56,9 +56,9 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
                 .url(URI + PATH_URI)
                 .build();
         Response response = networkClient.newCall(request).execute();
+        Assert.assertNotNull(response.body());
         String respStr = response.body().string();
         JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
-        System.out.println(respStr);
         Assert.assertEquals(200, (long) ((JSONObject) jsonObject.get("data")).get("status"));
 
         JSONObject partitionsObject = (JSONObject) ((JSONObject) jsonObject.get("data")).get("partitions");
@@ -88,9 +88,8 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
                 .url(URI + PATH_URI)
                 .build();
         Response response = networkClient.newCall(request).execute();
+        Assert.assertNotNull(response.body());
         String respStr = response.body().string();
-        System.out.println(respStr);
-        Assert.assertNotNull(respStr);
         JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
         Assert.assertEquals(403, (long) jsonObject.get("code"));
         String exception = (String) jsonObject.get("data");
@@ -107,8 +106,8 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
                 .url(URI + PATH_URI)
                 .build();
         Response response = networkClient.newCall(request).execute();
+        Assert.assertNotNull(response.body());
         String respStr = response.body().string();
-        System.out.println(respStr);
         Assert.assertNotNull(respStr);
         JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
         Assert.assertEquals(403, (long) jsonObject.get("code"));
@@ -127,8 +126,8 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
                 .url(URI + PATH_URI)
                 .build();
         Response response = networkClient.newCall(request).execute();
+        Assert.assertNotNull(response.body());
         String respStr = response.body().string();
-        System.out.println(respStr);
         Assert.assertNotNull(respStr);
         JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
         Assert.assertEquals(400, (long) ((JSONObject) jsonObject.get("data")).get("status"));
@@ -166,10 +165,10 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
                 .url(ES_TABLE_URL + PATH_URI)
                 .build();
         Response response = networkClient.newCall(request).execute();
+        Assert.assertNotNull(response.body());
         String respStr = response.body().string();
         Assert.assertNotNull(respStr);
         JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
-        System.out.println(respStr);
         Assert.assertEquals(1, (long) jsonObject.get("code"));
         String exception = (String) jsonObject.get("data");
         Assert.assertTrue(exception.contains("table type is not OLAP"));

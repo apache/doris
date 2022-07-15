@@ -255,7 +255,6 @@ public class SystemInfoServiceTest {
                 beCounterMap.put(beId, beCounterMap.getOrDefault(beId, 0) + 1);
             }
         }
-        System.out.println(beCounterMap);
         List<Integer> list = Lists.newArrayList(beCounterMap.values());
         Collections.sort(list);
         int diff = list.get(list.size() - 1) - list.get(0);

@@ -213,7 +213,6 @@ public class PolicyTest extends TestWithFeService {
         DataOutputStream output = new DataOutputStream(emptyOutputStream);
         rowPolicy.write(output);
         byte[] bytes = emptyOutputStream.toByteArray();
-        System.out.println(emptyOutputStream.toString());
         DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes));
 
         Policy newPolicy = Policy.read(input);

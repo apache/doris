@@ -109,7 +109,6 @@ public class MetadataViewerTest {
                 null };
         List<List<String>> result = (List<List<String>>) getTabletStatusMethod.invoke(null, args);
         Assert.assertEquals(3, result.size());
-        System.out.println(result);
 
         args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, partitions, ReplicaStatus.DEAD,
                 Operator.EQ };
@@ -128,7 +127,6 @@ public class MetadataViewerTest {
         Object[] args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, null };
         List<List<String>> result = (List<List<String>>) getTabletDistributionMethod.invoke(null, args);
         Assert.assertEquals(3, result.size());
-        System.out.println(result);
     }
 
 }

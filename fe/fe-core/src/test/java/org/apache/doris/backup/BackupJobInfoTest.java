@@ -150,7 +150,6 @@ public class BackupJobInfoTest {
             Assert.fail();
         }
         Assert.assertNotNull(jobInfo);
-        System.out.println(jobInfo.toString());
 
         Assert.assertEquals(1522231864000L, jobInfo.backupTime);
         Assert.assertEquals("snapshot1", jobInfo.name);
@@ -160,7 +159,6 @@ public class BackupJobInfoTest {
         Assert.assertEquals(2, jobInfo.getOlapTableInfo("table1").getPartInfo("partition1").indexes.size());
         Assert.assertEquals(2,
                             jobInfo.getOlapTableInfo("table1").getPartInfo("partition1").getIdx("rollup1").tablets.size());
-        System.out.println(jobInfo.getOlapTableInfo("table1").getPartInfo("partition1").getIdx("rollup1").tablets);
         Assert.assertEquals(2,
                             jobInfo.getOlapTableInfo("table1").getPartInfo("partition1")
                             .getIdx("rollup1").getTabletFiles(10007L).size());
