@@ -412,7 +412,6 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::get_data() c
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::get_data_at(
         size_t offset) const {
-    assert(offset < _num_rows && _num_rows == _slice.size());
     UInt8 null_flag = 0;
     if (_nullmap) {
         null_flag = _nullmap[offset];
