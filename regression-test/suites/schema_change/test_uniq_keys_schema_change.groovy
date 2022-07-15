@@ -158,7 +158,6 @@ suite ("test_uniq_keys_schema_change") {
              (5, '2017-10-01', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2020-01-03', 1, 32, 20, 2)
         """
 
-    Thread.sleep(30 * 1000)
     // compaction
     String[][] tablets = sql """ show tablets from ${tableName}; """
     for (String[] tablet in tablets) {
