@@ -47,4 +47,8 @@ public class StringLiteral extends Literal {
         return visitor.visitStringLiteral(this, context);
     }
 
+    @Override
+    public String toSql() {
+        return "'" + value + "'";
+    }
 }
