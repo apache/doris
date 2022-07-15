@@ -28,34 +28,10 @@
 
 namespace doris {
 
-using DelPredicateArray = google::protobuf::RepeatedPtrField<DeletePredicatePB>;
 class Conditions;
 class RowCursor;
 class TabletReader;
 class TabletSchema;
-
-class DeleteConditionHandler {
-public:
-    // generated DeletePredicatePB by TCondition
-    Status generate_delete_predicate(const TabletSchema& schema,
-                                     const std::vector<TCondition>& conditions,
-                                     DeletePredicatePB* del_pred);
-
-    // construct sub condition from TCondition
-    std::string construct_sub_predicates(const TCondition& condition);
-
-private:
-    // Validate the condition on the schema.
-    Status check_condition_valid(const TabletSchema& tablet_schema, const TCondition& cond);
-
-    // Check whether the condition value is valid according to its type.
-    // 1. For integers(int8,int16,in32,int64,uint8,uint16,uint32,uint64), check whether they are overflow
-    // 2. For decimal, check whether precision or scale is overflow
-    // 3. For date and datetime, check format and value
-    // 4. For char and varchar, check length
-    bool is_condition_value_valid(const TabletColumn& column, const std::string& condition_op,
-                                  const std::string& value_str);
-};
 
 // Represent a delete condition.
 struct DeleteConditions {
@@ -80,6 +56,29 @@ struct DeleteConditions {
 // NOTE：
 //    * In the first step, before calling delete_handler.init(), you should lock the tablet's header file.
 class DeleteHandler {
+    // These static method is used to generate delete predicate pb during write or push handler
+public:
+    // generated DeletePredicatePB by TCondition
+    static Status generate_delete_predicate(const TabletSchema& schema,
+                                            const std::vector<TCondition>& conditions,
+                                            DeletePredicatePB* del_pred);
+
+    // construct sub condition from TCondition
+    static std::string construct_sub_predicates(const TCondition& condition);
+
+private:
+    // Validate the condition on the schema.
+    static Status check_condition_valid(const TabletSchema& tablet_schema, const TCondition& cond);
+
+    // Check whether the condition value is valid according to its type.
+    // 1. For integers(int8,int16,in32,int64,uint8,uint16,uint32,uint64), check whether they are overflow
+    // 2. For decimal, check whether precision or scale is overflow
+    // 3. For date and datetime, check format and value
+    // 4. For char and varchar, check length
+    static bool is_condition_value_valid(const TabletColumn& column,
+                                         const std::string& condition_op,
+                                         const std::string& value_str);
+
 public:
     DeleteHandler() = default;
     ~DeleteHandler() { finalize(); }
@@ -94,7 +93,7 @@ public:
     // return:
     //     * Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS): input parameters are not valid
     //     * Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR): alloc memory failed
-    Status init(const TabletSchema& schema, const DelPredicateArray& delete_conditions,
+    Status init(const TabletSchema& schema, const std::vector<DeletePredicatePB>& delete_conditions,
                 int64_t version, const doris::TabletReader* = nullptr);
 
     // Check whether a row should be deleted.
