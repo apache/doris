@@ -139,9 +139,6 @@ public class TabletReplicaTooSlowTest {
             Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
             List<Long> pathHashes = be.getDisks().values().stream()
                     .map(DiskInfo::getPathHash).collect(Collectors.toList());
-            if (be == null) {
-                continue;
-            }
             Replica replica = cell.getValue();
             replica.setVersionCount(versionCount);
             versionCount = versionCount + 200;
