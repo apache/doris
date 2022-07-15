@@ -527,7 +527,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public boolean compactionRecovered() {
         Replica chosenReplica = null;
-        long maxVersionCount = -1;
+        long maxVersionCount = Integer.MIN_VALUE;
         for (Replica replica : tablet.getReplicas()) {
             if (replica.getVersionCount() > maxVersionCount) {
                 maxVersionCount = replica.getVersionCount();
@@ -536,10 +536,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
         boolean recovered = false;
         for (Replica replica : tablet.getReplicas()) {
-            if (replica.isAlive() && !replica.isBad() && replica.tooSlow() && (!chosenReplica.equals(replica)
+            if (replica.isAlive() && replica.tooSlow() && (!replica.equals(chosenReplica)
                     || replica.getVersionCount() < Config.min_version_count_indicate_replica_compaction_too_slow)) {
-                chosenReplica.setState(ReplicaState.NORMAL);
-                recovered = true;
+                if (chosenReplica != null) {
+                    chosenReplica.setState(ReplicaState.NORMAL);
+                    recovered = true;
+                }
             }
         }
         return recovered;
