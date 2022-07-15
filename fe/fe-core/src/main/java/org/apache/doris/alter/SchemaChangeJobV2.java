@@ -261,7 +261,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getPartitionInfo().getTabletType(partitionId),
                                     null,
                                     tbl.getCompressionType(),
-                                    tbl.getEnableUniqueKeyMergeOnWrite());
+                                    tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy());
+
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
                             if (this.storageFormat != null) {
