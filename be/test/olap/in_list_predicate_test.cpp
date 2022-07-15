@@ -45,7 +45,7 @@ static uint32_t timestamp_from_date_v2(const char* date_string) {
     strptime(date_string, "%Y-%m-%d", &time_tm);
 
     doris::vectorized::DateV2Value value;
-    value.set_time(time_tm.tm_year, time_tm.tm_mon, time_tm.tm_mday);
+    value.set_time(time_tm.tm_year + 1900, time_tm.tm_mon + 1, time_tm.tm_mday);
     return binary_cast<doris::vectorized::DateV2Value, uint32_t>(value);
 }
 

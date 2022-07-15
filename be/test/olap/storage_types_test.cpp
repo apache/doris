@@ -140,7 +140,7 @@ TEST(TypesTest, copy_and_equal) {
     common_test<OLAP_FIELD_TYPE_DATE>((1988 << 9) | (2 << 5) | 1);
     common_test<OLAP_FIELD_TYPE_DATETIME>(19880201010203L);
 
-    common_test<OLAP_FIELD_TYPE_DATEV2>((1988 << 16) | (2 << 8) | 1);
+    common_test<OLAP_FIELD_TYPE_DATEV2>((1988 << 9) | (2 << 5) | 1);
 
     Slice slice("12345abcde");
     common_test<OLAP_FIELD_TYPE_CHAR>(slice);
