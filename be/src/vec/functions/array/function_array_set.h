@@ -30,53 +30,56 @@ namespace doris::vectorized {
 
 enum class SetOperation { UNION, EXCEPT, INTERSECT };
 
-template <typename ColumnType>
+template <typename Set, typename Element>
 struct UnionAction;
 
-template <typename ColumnType>
+template <typename Set, typename Element>
 struct ExceptAction;
 
-template <typename ColumnType>
+template <typename Set, typename Element>
 struct IntersectAction;
 
-template <typename ColumnType, SetOperation operation>
+template <typename Set, typename Element, SetOperation operation>
 struct ActionImpl;
 
-template <typename ColumnType>
-struct ActionImpl<ColumnType, SetOperation::UNION> {
-    using Action = UnionAction<ColumnType>;
-    static constexpr auto apply_left_first = true;
+template <typename Set, typename Element>
+struct ActionImpl<Set, Element, SetOperation::UNION> {
+    using Action = UnionAction<Set, Element>;
 };
 
-template <typename ColumnType>
-struct ActionImpl<ColumnType, SetOperation::EXCEPT> {
-    using Action = ExceptAction<ColumnType>;
-    static constexpr auto apply_left_first = false;
+template <typename Set, typename Element>
+struct ActionImpl<Set, Element, SetOperation::EXCEPT> {
+    using Action = ExceptAction<Set, Element>;
 };
 
-template <typename ColumnType>
-struct ActionImpl<ColumnType, SetOperation::INTERSECT> {
-    using Action = IntersectAction<ColumnType>;
-    static constexpr auto apply_left_first = false;
+template <typename Set, typename Element>
+struct ActionImpl<Set, Element, SetOperation::INTERSECT> {
+    using Action = IntersectAction<Set, Element>;
 };
 
 template <SetOperation operation, typename ColumnType>
 struct OpenSetImpl {
-    using Action = typename ActionImpl<ColumnType, operation>::Action;
+    using Element = typename ColumnType::value_type;
+    using ElementNativeType = typename NativeType<Element>::Type;
+    using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>, 4>;
+    using Action = typename ActionImpl<Set, Element, operation>::Action;
     Action action;
-    void apply_left(const ColumnArrayExecutionData& src, size_t off, size_t len,
-                    ColumnArrayMutableData& dst, size_t* count) {
+    Set set;
+    Set result_set;
+
+    void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
+               ColumnArrayMutableData& dst, size_t* count,  bool left_or_right) {
         const auto& src_data = assert_cast<const ColumnType&>(*src.nested_col).get_data();
         auto& dst_data = assert_cast<ColumnType&>(*dst.nested_col).get_data();
         for (size_t i = off; i < off + len; ++i) {
             if (src.nested_nullmap_data && src.nested_nullmap_data[i]) {
-                if (action.apply_null_left()) {
-                    dst_data.push_back(typename ColumnType::value_type());
+                if (action.apply_null(left_or_right)) {
+                    dst_data.push_back(Element());
                     dst.nested_nullmap_data->push_back(1);
                     ++(*count);
                 }
             } else  {
-                if (action.apply_left(&src_data[i])) {
+                if (action.apply(set, result_set, src_data[i], left_or_right)) {
                     dst_data.push_back(src_data[i]);
                     if (dst.nested_nullmap_data) {
                         dst.nested_nullmap_data->push_back(0);
@@ -87,47 +90,33 @@ struct OpenSetImpl {
         }
     }
 
-    void apply_right(const ColumnArrayExecutionData& src, size_t off, size_t len,
-                    ColumnArrayMutableData& dst, size_t* count) {
-        const auto& src_data = assert_cast<const ColumnType&>(*src.nested_col).get_data();
-        auto& dst_data = assert_cast<ColumnType&>(*dst.nested_col).get_data();
-        for (size_t i = off; i < off + len; ++i) {
-            if (src.nested_nullmap_data && src.nested_nullmap_data[i]) {
-                if (action.apply_null_right()) {
-                    dst_data.push_back(typename ColumnType::value_type());
-                    dst.nested_nullmap_data->push_back(1);
-                    ++(*count);
-                }
-            } else  {
-                if (action.apply_right(&src_data[i])) {
-                    dst_data.push_back(src_data[i]);
-                    if (dst.nested_nullmap_data) {
-                        dst.nested_nullmap_data->push_back(0);
-                    }
-                    ++(*count);
-                }
-            }
-        }
+    void reset() {
+        set.clear();
+        result_set.clear();
     }
 };
 
 template <SetOperation operation>
 struct OpenSetImpl<operation, ColumnString> {
-    using Action = typename ActionImpl<ColumnString, operation>::Action;
+    using Set = HashSetWithStackMemory<StringRef, DefaultHash<StringRef>, 4>;
+    using Action = typename ActionImpl<Set, StringRef, operation>::Action;
     Action action;
-    void apply_left(const ColumnArrayExecutionData& src, size_t off, size_t len,
-                    ColumnArrayMutableData& dst, size_t* count) {
+    Set set;
+    Set result_set;
+
+    void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
+               ColumnArrayMutableData& dst, size_t* count, bool left_or_right) {
         const auto& src_column = assert_cast<const ColumnString&>(*src.nested_col);
         auto& dst_column = assert_cast<ColumnString&>(*dst.nested_col);
         for (size_t i = off; i < off + len; ++i) {
             if (src.nested_nullmap_data && src.nested_nullmap_data[i]) {
-                if (action.apply_null_left()) {
+                if (action.apply_null(left_or_right)) {
                     dst_column.insert_default();
                     dst.nested_nullmap_data->push_back(1);
                     ++(*count);
                 }
             } else  {
-                if (action.apply_left(src_column.get_data_at(i))) {
+                if (action.apply(set, result_set, src_column.get_data_at(i), left_or_right)) {
                     dst_column.insert_from(src_column, i);
                     if (dst.nested_nullmap_data) {
                         dst.nested_nullmap_data->push_back(0);
@@ -138,27 +127,9 @@ struct OpenSetImpl<operation, ColumnString> {
         }
     }
 
-    void apply_right(const ColumnArrayExecutionData& src, size_t off, size_t len,
-                    ColumnArrayMutableData& dst, size_t* count) {
-        const auto& src_column = assert_cast<const ColumnString&>(*src.nested_col);
-        auto& dst_column = assert_cast<ColumnString&>(*dst.nested_col);
-        for (size_t i = off; i < off + len; ++i) {
-            if (src.nested_nullmap_data && src.nested_nullmap_data[i]) {
-                if (action.apply_null_right()) {
-                    dst_column.insert_default();
-                    dst.nested_nullmap_data->push_back(1);
-                    ++(*count);
-                }
-            } else  {
-                if (action.apply_right(src_column.get_data_at(i))) {
-                    dst_column.insert_from(src_column, i);
-                    if (dst.nested_nullmap_data) {
-                        dst.nested_nullmap_data->push_back(0);
-                    }
-                    ++(*count);
-                }
-            }
-        }
+    void reset() {
+        set.clear();
+        result_set.clear();
     }
 };
 
@@ -195,18 +166,18 @@ public:
         dst.offsets_ptr = &dst_offsets_column->get_data();
 
         ColumnPtr res_column;
-        if (_execute_expand<ColumnString>(dst, left_data, right_data) ||
-            _execute_expand<ColumnDate>(dst, left_data, right_data) ||
-            _execute_expand<ColumnDateTime>(dst, left_data, right_data) ||
-            _execute_expand<ColumnUInt8>(dst, left_data, right_data) ||
-            _execute_expand<ColumnInt8>(dst, left_data, right_data) ||
-            _execute_expand<ColumnInt16>(dst, left_data, right_data) ||
-            _execute_expand<ColumnInt32>(dst, left_data, right_data) ||
-            _execute_expand<ColumnInt64>(dst, left_data, right_data) ||
-            _execute_expand<ColumnInt128>(dst, left_data, right_data) ||
-            _execute_expand<ColumnFloat32>(dst, left_data, right_data) ||
-            _execute_expand<ColumnFloat64>(dst, left_data, right_data) ||
-            _execute_expand<ColumnDecimal128>(dst, left_data, right_data)) {
+        if (_execute_internal<ColumnString>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDate>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDateTime>(dst, left_data, right_data) ||
+            _execute_internal<ColumnUInt8>(dst, left_data, right_data) ||
+            _execute_internal<ColumnInt8>(dst, left_data, right_data) ||
+            _execute_internal<ColumnInt16>(dst, left_data, right_data) ||
+            _execute_internal<ColumnInt32>(dst, left_data, right_data) ||
+            _execute_internal<ColumnInt64>(dst, left_data, right_data) ||
+            _execute_internal<ColumnInt128>(dst, left_data, right_data) ||
+            _execute_internal<ColumnFloat32>(dst, left_data, right_data) ||
+            _execute_internal<ColumnFloat64>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDecimal128>(dst, left_data, right_data)) {
             res_column = assemble_column_array(dst);
             if (res_column) {
                 res_ptr = std::move(res_column);
@@ -219,38 +190,32 @@ public:
 
 private:
     template <typename ColumnType>
-    static Status _execute_internal(ColumnArrayMutableData& dst, const ColumnArrayExecutionData& left_data,
+    static bool _execute_internal(ColumnArrayMutableData& dst, const ColumnArrayExecutionData& left_data,
                                     const ColumnArrayExecutionData& right_data) {
         using Impl = OpenSetImpl<operation, ColumnType>;
-        static constexpr auto apply_left_first = Impl::Action::apply_left_first;
+        if (!check_column<ColumnType>(*left_data.nested_col)) {
+            return false;
+        }
+        constexpr auto apply_left_first = Impl::Action::apply_left_first;
         size_t current = 0;
+        Impl impl;
         for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
             size_t count = 0;
             size_t left_off = (*left_data.offsets_ptr)[row - 1];
             size_t left_len = (*left_data.offsets_ptr)[row] - left_off;
             size_t right_off = (*right_data.offsets_ptr)[row - 1];
             size_t right_len = (*right_data.offsets_ptr)[row] - right_off;
-            Impl impl;
             if (apply_left_first) {
-                impl.apply_left(left_data, left_off, left_len, dst, &count);
-                impl.apply_right(right_data, right_off, right_len, dst, &count);
+                impl.apply(left_data, left_off, left_len, dst, &count, true);
+                impl.apply(right_data, right_off, right_len, dst, &count, false);
             } else {
-                impl.apply_right(right_data, right_off, right_len, dst, &count);
-                impl.apply_left(left_data, left_off, left_len, dst, &count);
+                impl.apply(right_data, right_off, right_len, dst, &count, false);
+                impl.apply(left_data, left_off, left_len, dst, &count, true);
             }
             current += count;
             dst.offsets_ptr->push_back(current);
+            impl.reset();
         }
-        return Status::OK();
-    }
-
-    template <typename ColumnType>
-    static bool _execute_expand(ColumnArrayMutableData& dst, const ColumnArrayExecutionData& left_data,
-                                const ColumnArrayExecutionData& right_data) {
-        if (!check_column<ColumnType>(*left_data.nested_col)) {
-            return false;
-        }
-        _execute_internal<ColumnType>(dst, left_data, right_data);
         return true;
     }
 };

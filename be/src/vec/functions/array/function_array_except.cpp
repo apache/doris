@@ -26,81 +26,43 @@ struct NameArrayExcept {
     static constexpr auto name = "array_except";
 };
 
-template <typename ColumnType>
+template <typename Set, typename Element>
 struct ExceptAction {
-    using ElementType = typename ColumnType::value_type;
-    using ElementNativeType = typename NativeType<ElementType>::Type;
-    using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>, 4>;
-    static constexpr auto apply_left_first = false;
-    Set set;
+    // True if set has null element
     bool null_flag = false;
-
-    bool apply_null_left() {
-        if (!null_flag) {
-            null_flag = true;
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    bool apply_left(const ElementType* elem) {
-        if (!set.find(*elem)) {
-            set.insert(*elem);
-            return true;
-        }
-        return false;
-    }
-
-    bool apply_null_right() {
-        if (!null_flag) {
-            null_flag = true;
-        }
-        return false;
-    }
-
-    bool apply_right(const ElementType* elem) {
-        if (!set.find(*elem)) {
-            set.insert(*elem);
-        }
-        return false;
-    }
-};
-
-template <>
-struct ExceptAction<ColumnString> {
-    using Set = HashSetWithStackMemory<StringRef, DefaultHash<StringRef>, 4>;
+    // True if result_set has null element
+    bool result_null_flag = false;
+    // True if it should apply the left array first.
     static constexpr auto apply_left_first = false;
-    Set set;
-    bool null_flag = false;
 
-    bool apply_null_left() {
-        if (!null_flag) {
-            null_flag = true;
-            return true;
+    // Handle Null element.
+    // Return ture means this null element should put into result column.
+    bool apply_null(bool left_or_right) {
+        if (left_or_right) {
+            if (!null_flag) {
+                null_flag = true;
+                return true;
+            }
         } else {
-            return false;
-        }
-    }
-
-    bool apply_left(const StringRef& elem) {
-        if (!set.find(elem)) {
-            set.insert(elem);
-            return true;
+            if (!null_flag) {
+                null_flag = true;
+            }
         }
         return false;
     }
 
-    bool apply_null_right() {
-        if (!null_flag) {
-            null_flag = true;
-        }
-        return false;
-    }
-
-    bool apply_right(const StringRef& elem) {
-        if (!set.find(elem)) {
-            set.insert(elem);
+    // Handle Non-Null element.
+    // Return ture means this Non-Null element should put into result column.
+    bool apply(Set& set, Set& result_set, const Element& elem, bool left_or_right) {
+        if (left_or_right) {
+            if (!set.find(elem)) {
+                set.insert(elem);
+                return true;
+            }
+        } else {
+            if (!set.find(elem)) {
+                set.insert(elem);
+            }
         }
         return false;
     }
