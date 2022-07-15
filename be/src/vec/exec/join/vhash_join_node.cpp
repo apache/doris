@@ -590,10 +590,10 @@ struct ProcessHashTableProbe {
         hash_table_ctx.init_once();
         auto& mcol = mutable_block.mutable_columns();
 
+        bool right_semi_anti_without_other =
+                _join_node->_is_right_semi_anti && !_join_node->_have_other_join_conjunct;
         int right_col_idx =
-                (_join_node->_is_right_semi_anti && !_join_node->_have_other_join_conjunct)
-                        ? 0
-                        : _join_node->_left_table_data_types.size();
+                right_semi_anti_without_other ? 0 : _join_node->_left_table_data_types.size();
         int right_col_len = _join_node->_right_table_data_types.size();
 
         auto& iter = hash_table_ctx.iter;
@@ -618,9 +618,16 @@ struct ProcessHashTableProbe {
             }
         }
 
+        // just resize the left table column in case with other conjunct to make block size is not zero
+        if (_join_node->_is_right_semi_anti && _join_node->_have_other_join_conjunct) {
+            auto target_size = mcol[right_col_idx]->size();
+            for (int i = 0; i < right_col_idx; ++i) {
+                mcol[i]->resize(target_size);
+            }
+        }
+
         // right outer join / full join need insert data of left table
-        if constexpr (JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
-                      JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
+        if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
                       JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
             for (int i = 0; i < right_col_idx; ++i) {
                 for (int j = 0; j < block_size; ++j) {
@@ -631,7 +638,7 @@ struct ProcessHashTableProbe {
         *eos = iter == hash_table_ctx.hash_table.end();
 
         output_block->swap(
-                mutable_block.to_block(_join_node->_is_right_semi_anti ? right_col_idx : 0));
+                mutable_block.to_block(right_semi_anti_without_other ? right_col_idx : 0));
         return Status::OK();
     }
 
