@@ -94,6 +94,7 @@ import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -652,6 +653,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_POLICY: {
                 data = DropPolicyLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_STORAGE_POLICY: {
+                data = StoragePolicy.read(in);
                 isRead = true;
                 break;
             }

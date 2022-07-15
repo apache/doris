@@ -66,6 +66,7 @@ import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -825,6 +826,11 @@ public class EditLog {
                     catalog.getPolicyMgr().replayDrop(log);
                     break;
                 }
+                case OperationType.OP_ALTER_STORAGE_POLICY: {
+                    StoragePolicy log = (StoragePolicy) journal.getData();
+                    catalog.getPolicyMgr().replayStoragePolicyAlter(log);
+                    break;
+                }
                 case OperationType.OP_CREATE_DS: {
                     CatalogLog log = (CatalogLog) journal.getData();
                     catalog.getDataSourceMgr().replayCreateCatalog(log);
@@ -1367,6 +1373,10 @@ public class EditLog {
 
     public void logAlterResource(Resource resource) {
         logEdit(OperationType.OP_ALTER_RESOURCE, resource);
+    }
+
+    public void logAlterStoragePolicy(StoragePolicy storagePolicy) {
+        logEdit(OperationType.OP_ALTER_STORAGE_POLICY, storagePolicy);
     }
 
     public void logCreateSmallFile(SmallFile info) {

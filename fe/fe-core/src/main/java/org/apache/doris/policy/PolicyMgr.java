@@ -17,12 +17,14 @@
 
 package org.apache.doris.policy;
 
+import org.apache.doris.analysis.AlterPolicyStmt;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -47,6 +49,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -84,6 +87,25 @@ public class PolicyMgr implements Writable {
 
     private void readUnlock() {
         lock.readLock().unlock();
+    }
+
+    public void createDefaultStoragePolicy() throws DdlException {
+        Optional<Policy> hasDefault = findPolicy(Config.default_storage_policy, PolicyTypeEnum.STORAGE);
+        if (hasDefault.isPresent()) {
+            // already exist default storage policy, just return.
+            return;
+        }
+
+        writeLock();
+        try {
+            StoragePolicy defaultStoragePolicy  =
+                    new StoragePolicy(PolicyTypeEnum.STORAGE, Config.default_storage_policy);
+            unprotectedAdd(defaultStoragePolicy);
+            Catalog.getCurrentCatalog().getEditLog().logCreatePolicy(defaultStoragePolicy);
+        } finally {
+            writeUnlock();
+        }
+        LOG.info("Create default storage success.");
     }
 
     /**
@@ -174,7 +196,7 @@ public class PolicyMgr implements Writable {
         return null;
     }
 
-    private List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
+    public List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
         if (typeToPolicyMap == null) {
             return new ArrayList<>();
         }
@@ -199,6 +221,14 @@ public class PolicyMgr implements Writable {
     public void replayDrop(DropPolicyLog log) {
         unprotectedDrop(log);
         LOG.info("replay drop policy log: {}", log);
+    }
+
+    public void replayStoragePolicyAlter(StoragePolicy log) {
+        List<Policy> policies = getPoliciesByType(log.getType());
+        policies.removeIf(policy -> log.getPolicyName().equals(policy.getPolicyName()));
+        policies.add(log);
+        typeToPolicyMap.put(log.getType(), policies);
+        LOG.info("replay alter policy log: {}", log);
     }
 
     private void unprotectedDrop(DropPolicyLog log) {
@@ -256,6 +286,12 @@ public class PolicyMgr implements Writable {
             if (policy.isInvalid()) {
                 continue;
             }
+
+            if (policy instanceof StoragePolicy && ((StoragePolicy) policy).getStorageResource() == null) {
+                // default storage policy not init.
+                continue;
+            }
+
             rows.add(policy.getShowInfo());
         }
         return new ShowResultSet(showStmt.getMetaData(), rows);
@@ -361,5 +397,36 @@ public class PolicyMgr implements Writable {
         // update merge policy cache and userPolicySet
         policyMgr.updateMergeTablePolicyMap();
         return policyMgr;
+    }
+
+    public Optional<Policy> findPolicy(final String storagePolicyName, PolicyTypeEnum policyType) {
+        List<Policy> policiesByType = getPoliciesByType(policyType);
+        return policiesByType.stream()
+            .filter(policy -> policy.getPolicyName().equals(storagePolicyName)).findAny();
+    }
+
+    public void alterPolicy(AlterPolicyStmt stmt) throws DdlException, AnalysisException {
+        String storagePolicyName = stmt.getPolicyName();
+        Map<String, String> properties = stmt.getProperties();
+
+        if (findPolicy(storagePolicyName, PolicyTypeEnum.ROW).isPresent()) {
+            throw new DdlException("Current not support alter row policy");
+        }
+
+        if (storagePolicyName.equalsIgnoreCase(Config.default_storage_policy)) {
+            createDefaultStoragePolicy();
+        }
+
+        Optional<Policy> policy = findPolicy(storagePolicyName, PolicyTypeEnum.STORAGE);
+
+        if (!policy.isPresent()) {
+            throw new DdlException("Storage policy(" + storagePolicyName + ") dose not exist.");
+        }
+        StoragePolicy storagePolicy = (StoragePolicy) policy.get();
+        storagePolicy.modifyProperties(properties);
+
+        // log alter
+        Catalog.getCurrentCatalog().getEditLog().logAlterStoragePolicy(storagePolicy);
+        LOG.info("Alter storage policy success. policy: {}", storagePolicy);
     }
 }

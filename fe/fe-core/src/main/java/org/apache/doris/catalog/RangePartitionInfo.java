@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class RangePartitionInfo extends PartitionInfo {
 
@@ -258,6 +259,13 @@ public class RangePartitionInfo extends PartitionInfo {
             sb.append("PARTITION ").append(partitionName).append(" VALUES [");
             sb.append(range.lowerEndpoint().toSql());
             sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
+
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
+                if (!p.equals("")) {
+                    sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
+                    sb.append(p).append("\")");
+                }
+            });
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());

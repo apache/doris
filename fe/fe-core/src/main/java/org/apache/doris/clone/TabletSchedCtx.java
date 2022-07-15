@@ -841,7 +841,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             Replica cloneReplica = new Replica(
                     Catalog.getCurrentCatalog().getNextId(), destBackendId,
                     -1 /* version */, schemaHash,
-                    -1 /* data size */, -1 /* row count */,
+                    -1 /* data size */, -1, -1 /* row count */,
                     ReplicaState.CLONE,
                     committedVersion, /* use committed version as last failed version */
                     -1 /* last success version */);
@@ -982,7 +982,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                         "replica does not exist. backend id: " + destBackendId);
             }
 
-            replica.updateVersionInfo(reportedTablet.getVersion(),
+            replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getDataSize(),
                     reportedTablet.getDataSize(), reportedTablet.getRowCount());
             if (reportedTablet.isSetPathHash()) {
                 replica.setPathHash(reportedTablet.getPathHash());
@@ -1004,6 +1004,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     reportedTablet.getVersion(),
                     reportedTablet.getSchemaHash(),
                     reportedTablet.getDataSize(),
+                    reportedTablet.getRemoteDataSize(),
                     reportedTablet.getRowCount(),
                     replica.getLastFailedVersion(),
                     replica.getLastSuccessVersion());

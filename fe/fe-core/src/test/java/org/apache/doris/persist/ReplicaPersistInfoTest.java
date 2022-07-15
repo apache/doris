@@ -41,7 +41,7 @@ public class ReplicaPersistInfoTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
-        ReplicaPersistInfo info2 = ReplicaPersistInfo.createForLoad(1, 2, 3, 4, 5, 7, 0, 8, 9);
+        ReplicaPersistInfo info2 = ReplicaPersistInfo.createForLoad(1, 2, 3, 4, 5, 7, 0, 8, 0, 9);
         info2.write(dos);
 
         dos.flush();
@@ -59,7 +59,7 @@ public class ReplicaPersistInfoTest {
 
     @Test
     public void testGet() throws Exception {
-        ReplicaPersistInfo info = ReplicaPersistInfo.createForLoad(0, 1, 2, 3, 4, 5, 7, 0, 8);
+        ReplicaPersistInfo info = ReplicaPersistInfo.createForLoad(0, 1, 2, 3, 4, 5, 7, 0, 0, 8);
         Assert.assertEquals(0, info.getTableId());
         Assert.assertEquals(1, info.getPartitionId());
         Assert.assertEquals(2, info.getIndexId());

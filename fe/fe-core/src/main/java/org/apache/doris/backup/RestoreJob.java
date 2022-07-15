@@ -975,7 +975,8 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
                             null,
                             localTbl.getCompressionType(),
-                            localTbl.getEnableUniqueKeyMergeOnWrite());
+                            localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy());
+
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
                 }
@@ -1453,8 +1454,8 @@ public class RestoreJob extends AbstractJob {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
                                 if (!replica.checkVersionCatchUp(part.getVisibleVersion(), false)) {
-                                    replica.updateVersionInfo(part.getVisibleVersion(),
-                                            replica.getDataSize(), replica.getRowCount());
+                                    replica.updateVersionInfo(part.getVisibleVersion(), replica.getDataSize(),
+                                            replica.getRemoteDataSize(), replica.getRowCount());
                                 }
                             }
                         }

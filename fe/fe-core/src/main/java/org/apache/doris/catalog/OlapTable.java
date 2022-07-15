@@ -1561,6 +1561,21 @@ public class OlapTable extends Table {
         tableProperty.buildInMemory();
     }
 
+    public void setStoragePolicy(String storagePolicy) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, storagePolicy);
+        tableProperty.buildStoragePolicy();
+    }
+
+    public String getStoragePolicy() {
+        if (tableProperty != null) {
+            return tableProperty.getStoragePolicy();
+        }
+        return "";
+    }
+
     public void setDataSortInfo(DataSortInfo dataSortInfo) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());

@@ -55,6 +55,7 @@ public class S3ResourceTest {
     private String s3MaxConnections;
     private String s3ReqTimeoutMs;
     private String s3ConnTimeoutMs;
+    private String s3Bucket;
     private Map<String, String> s3Properties;
 
     private Analyzer analyzer;
@@ -71,6 +72,7 @@ public class S3ResourceTest {
         s3MaxConnections = "50";
         s3ReqTimeoutMs = "3000";
         s3ConnTimeoutMs = "1000";
+        s3Bucket = "test-bucket";
         s3Properties = new HashMap<>();
         s3Properties.put("type", type);
         s3Properties.put("s3_endpoint", s3Endpoint);
@@ -78,6 +80,7 @@ public class S3ResourceTest {
         s3Properties.put("s3_root_path", s3RootPath);
         s3Properties.put("s3_access_key", s3AccessKey);
         s3Properties.put("s3_secret_key", s3SecretKey);
+        s3Properties.put("s3_bucket", s3Bucket);
 
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
@@ -164,6 +167,7 @@ public class S3ResourceTest {
         properties.put("s3_root_path", "/path/to/root");
         properties.put("s3_access_key", "xxx");
         properties.put("s3_secret_key", "yyy");
+        properties.put("s3_bucket", "test-bucket");
         S3Resource s3Resource2 = new S3Resource("s3_2");
         s3Resource2.setProperties(properties);
         s3Resource2.write(s3Dos);

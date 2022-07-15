@@ -59,6 +59,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
@@ -80,6 +81,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
@@ -151,7 +153,19 @@ public class Alter {
         }
 
         boolean needProcessOutsideTableLock = false;
-        if (currentAlterOps.hasSchemaChangeOp()) {
+        if (currentAlterOps.checkTableStoragePolicy(alterClauses)) {
+            String tableStoragePolicy = olapTable.getStoragePolicy();
+            if (!tableStoragePolicy.equals("")) {
+                throw new DdlException("Do not support alter table's storage policy , this table ["
+                        + olapTable.getName() + "] has storage policy " + tableStoragePolicy);
+            }
+            String currentStoragePolicy = currentAlterOps.getTableStoragePolicy(alterClauses);
+            // check currentStoragePolicy resource exist.
+            InternalDataSource.checkStoragePolicyExist(currentStoragePolicy);
+
+            olapTable.setStoragePolicy(currentStoragePolicy);
+            needProcessOutsideTableLock = true;
+        } else if (currentAlterOps.hasSchemaChangeOp()) {
             // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
             schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
         } else if (currentAlterOps.hasRollupOp()) {
@@ -184,7 +198,11 @@ public class Alter {
                         needProcessOutsideTableLock = true;
                     } else {
                         List<String> partitionNames = clause.getPartitionNames();
-                        modifyPartitionsProperty(db, olapTable, partitionNames, properties);
+                        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
+                            modifyPartitionsProperty(db, olapTable, partitionNames, properties);
+                        } else {
+                            needProcessOutsideTableLock = true;
+                        }
                     }
                 } else if (alterClause instanceof AddPartitionClause) {
                     needProcessOutsideTableLock = true;
@@ -411,8 +429,9 @@ public class Alter {
                 ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
                 Map<String, String> properties = clause.getProperties();
                 List<String> partitionNames = clause.getPartitionNames();
-                // currently, only in memory property could reach here
-                Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY));
+                // currently, only in memory and storage policy property could reach here
+                Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)
+                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
                 ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsInMemoryMeta(
                         db, tableName, partitionNames, properties);
                 OlapTable olapTable = (OlapTable) table;
@@ -424,8 +443,9 @@ public class Alter {
                 }
             } else if (alterClause instanceof ModifyTablePropertiesClause) {
                 Map<String, String> properties = alterClause.getProperties();
-                // currently, only in memory property could reach here
-                Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY));
+                // currently, only in memory and storage policy property could reach here
+                Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)
+                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableInMemoryMeta(db, tableName, properties);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
@@ -682,7 +702,22 @@ public class Alter {
             DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
             Map<String, String> modifiedProperties = Maps.newHashMap();
             modifiedProperties.putAll(properties);
-            // 4.2 analyze new properties
+
+            // 4.3 modify partition storage policy
+            String partitionStoragePolicy = partitionInfo.getStoragePolicy(partition.getId());
+            if (!partitionStoragePolicy.equals("")) {
+                throw new DdlException("Do not support alter table's partition storage policy , this table ["
+                    + olapTable.getName() + "] and partition [" + partitionName
+                    + "] has storage policy " + partitionStoragePolicy);
+            }
+            String currentStoragePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
+            if (!currentStoragePolicy.equals("")) {
+                // check currentStoragePolicy resource exist.
+                InternalDataSource.checkStoragePolicyExist(currentStoragePolicy);
+                partitionInfo.setStoragePolicy(partition.getId(), currentStoragePolicy);
+            }
+
+            // 4.4 analyze new properties
             DataProperty newDataProperty = PropertyAnalyzer.analyzeDataProperty(modifiedProperties, dataProperty);
 
             // 1. date property
@@ -703,7 +738,7 @@ public class Alter {
                 partitionInfo.setTabletType(partition.getId(), tTabletType);
             }
             ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
-                    newDataProperty, replicaAlloc, hasInMemory ? newInMemory : oldInMemory);
+                    newDataProperty, replicaAlloc, hasInMemory ? newInMemory : oldInMemory, currentStoragePolicy);
             modifyPartitionInfos.add(info);
         }
 
@@ -724,6 +759,8 @@ public class Alter {
             if (!info.getReplicaAlloc().isNotSet()) {
                 partitionInfo.setReplicaAllocation(info.getPartitionId(), info.getReplicaAlloc());
             }
+            Optional.ofNullable(info.getStoragePolicy()).filter(p -> !p.isEmpty())
+                    .ifPresent(p -> partitionInfo.setStoragePolicy(info.getPartitionId(), p));
             partitionInfo.setIsInMemory(info.getPartitionId(), info.isInMemory());
         } finally {
             olapTable.writeUnlock();

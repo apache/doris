@@ -150,6 +150,9 @@ import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.TruncateTableInfo;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -188,6 +191,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -924,9 +928,10 @@ public class InternalDataSource implements DataSourceIf<Database> {
             schemaHash = olapTable.getSchemaHashByIndexId(info.getIndexId());
         }
 
-        Replica replica = new Replica(info.getReplicaId(), info.getBackendId(), info.getVersion(), schemaHash,
-                info.getDataSize(), info.getRowCount(), ReplicaState.NORMAL, info.getLastFailedVersion(),
-                info.getLastSuccessVersion());
+        Replica replica =
+                new Replica(info.getReplicaId(), info.getBackendId(), info.getVersion(), schemaHash, info.getDataSize(),
+                        info.getRemoteDataSize(), info.getRowCount(), ReplicaState.NORMAL, info.getLastFailedVersion(),
+                        info.getLastSuccessVersion());
         tablet.addReplica(replica);
     }
 
@@ -937,7 +942,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
         Replica replica = tablet.getReplicaByBackendId(info.getBackendId());
         Preconditions.checkNotNull(replica, info);
-        replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRowCount());
+        replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRemoteDataSize(), info.getRowCount());
         replica.setBad(false);
     }
 
@@ -1322,7 +1327,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                     singlePartitionDesc.getVersionInfo(), bfColumns, olapTable.getBfFpp(), tabletIdSet,
                     olapTable.getCopiedIndexes(), singlePartitionDesc.isInMemory(), olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType(), olapTable.getCompressionType(), olapTable.getDataSortInfo(),
-                    olapTable.getEnableUniqueKeyMergeOnWrite());
+                    olapTable.getEnableUniqueKeyMergeOnWrite(),
+                    olapTable.getStoragePolicy());
 
             // check again
             table = db.getOlapTableOrDdlException(tableName);
@@ -1543,7 +1549,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
             DistributionInfo distributionInfo, TStorageMedium storageMedium, ReplicaAllocation replicaAlloc,
             Long versionInfo, Set<String> bfColumns, double bfFpp, Set<Long> tabletIdSet, List<Index> indexes,
             boolean isInMemory, TStorageFormat storageFormat, TTabletType tabletType, TCompressionType compressionType,
-            DataSortInfo dataSortInfo, boolean enableUniqueKeyMergeOnWrite) throws DdlException {
+            DataSortInfo dataSortInfo, boolean enableUniqueKeyMergeOnWrite,  String storagePolicy) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -1603,7 +1609,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                     CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tableId, partitionId, indexId,
                             tabletId, replicaId, shortKeyColumnCount, schemaHash, version, keysType, storageType,
                             storageMedium, schema, bfColumns, bfFpp, countDownLatch, indexes, isInMemory, tabletType,
-                            dataSortInfo, compressionType, enableUniqueKeyMergeOnWrite);
+                            dataSortInfo, compressionType, enableUniqueKeyMergeOnWrite, storagePolicy);
+
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -1787,6 +1794,13 @@ public class InternalDataSource implements DataSourceIf<Database> {
         String remoteStoragePolicy = PropertyAnalyzer.analyzeRemoteStoragePolicy(properties);
         olapTable.setRemoteStoragePolicy(remoteStoragePolicy);
 
+        // set storage policy
+        String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
+
+        checkStoragePolicyExist(storagePolicy);
+
+        olapTable.setStoragePolicy(storagePolicy);
+
         TTabletType tabletType;
         try {
             tabletType = PropertyAnalyzer.analyzeTabletType(properties);
@@ -1928,7 +1942,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                         partitionDistributionInfo, partitionInfo.getDataProperty(partitionId).getStorageMedium(),
                         partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
                         olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
-                        olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite());
+                        olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
@@ -1947,7 +1961,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                         }
                     }
 
-                    if (properties != null && !properties.isEmpty()) {
+                    if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
                         // here, all properties should be checked
                         throw new DdlException("Unknown properties: " + properties);
                     }
@@ -1973,13 +1987,19 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 for (Map.Entry<String, Long> entry : partitionNameToId.entrySet()) {
                     DataProperty dataProperty = partitionInfo.getDataProperty(entry.getValue());
                     DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
+                    // use partition storage policy if it exist.
+                    String partionStoragePolicy = partitionInfo.getStoragePolicy(entry.getValue());
+                    if (!partionStoragePolicy.equals("")) {
+                        storagePolicy = partionStoragePolicy;
+                    }
+                    checkStoragePolicyExist(storagePolicy);
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
                             olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(), olapTable.getIndexIdToMeta(),
                             partitionDistributionInfo, dataProperty.getStorageMedium(),
                             partitionInfo.getReplicaAllocation(entry.getValue()), versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(), isInMemory, storageFormat,
                             partitionInfo.getTabletType(entry.getValue()), compressionType,
-                            olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite());
+                            olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy);
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -2028,6 +2048,24 @@ public class InternalDataSource implements DataSourceIf<Database> {
             }
 
             throw e;
+        }
+    }
+
+    public static void checkStoragePolicyExist(String storagePolicy) throws DdlException {
+        if (!storagePolicy.equals("")) {
+            // when create table use storage policy
+            // if not exist default storage policy, create it
+            // if exist, just return.
+            Catalog.getCurrentCatalog().getPolicyMgr().createDefaultStoragePolicy();
+
+            List<Policy> policiesByType = Catalog.getCurrentCatalog()
+                    .getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
+            policiesByType.stream().filter(policy -> policy.getPolicyName().equals(storagePolicy)).findAny()
+                    .orElseThrow(() -> new DdlException("Storage policy does not exist. name: " + storagePolicy));
+            Optional<Policy> hasDefaultPolicy = policiesByType.stream()
+                    .filter(policy -> policy.getPolicyName().equals(Config.default_storage_policy)).findAny();
+
+            StoragePolicy.checkDefaultStoragePolicyValid(storagePolicy, hasDefaultPolicy);
         }
     }
 
@@ -2357,7 +2395,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
                         copiedTbl.getCopiedBfColumns(), copiedTbl.getBfFpp(), tabletIdSet, copiedTbl.getCopiedIndexes(),
                         copiedTbl.isInMemory(), copiedTbl.getStorageFormat(),
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId), copiedTbl.getCompressionType(),
-                        copiedTbl.getDataSortInfo(), copiedTbl.getEnableUniqueKeyMergeOnWrite());
+                        copiedTbl.getDataSortInfo(), copiedTbl.getEnableUniqueKeyMergeOnWrite(),
+                        olapTable.getStoragePolicy());
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

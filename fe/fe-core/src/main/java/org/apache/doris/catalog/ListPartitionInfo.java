@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class ListPartitionInfo extends PartitionInfo {
 
@@ -205,6 +206,13 @@ public class ListPartitionInfo extends PartitionInfo {
                 idxInternal++;
             }
             sb.append(")");
+
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
+                if (!p.equals("")) {
+                    sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
+                    sb.append(p).append("\")");
+                }
+            });
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());

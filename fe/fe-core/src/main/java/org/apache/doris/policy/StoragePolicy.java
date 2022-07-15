@@ -19,29 +19,57 @@ package org.apache.doris.policy;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.NotifyUpdateStoragePolicyTask;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
 import java.io.IOException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Save policy for storage migration.
  **/
 @Data
 public class StoragePolicy extends Policy {
+    public static boolean checkDefaultStoragePolicyValid(final String storagePolicyName,
+                                                         Optional<Policy> defaultPolicy) throws DdlException {
+        if (!defaultPolicy.isPresent()) {
+            return false;
+        }
+
+        if (storagePolicyName.equalsIgnoreCase(Config.default_storage_policy)
+                && (((StoragePolicy) defaultPolicy.get()).getStorageResource() == null)) {
+            throw new DdlException("Use default storage policy, but not give s3 info,"
+                + " please use alter resource to add default storage policy S3 info.");
+        }
+        return true;
+    }
 
     public static final ShowResultSetMetaData STORAGE_META_DATA =
             ShowResultSetMetaData.builder()
@@ -55,10 +83,10 @@ public class StoragePolicy extends Policy {
 
     private static final Logger LOG = LogManager.getLogger(StoragePolicy.class);
     // required
-    private static final String STORAGE_RESOURCE = "storage_resource";
+    public static final String STORAGE_RESOURCE = "storage_resource";
     // optional
-    private static final String COOLDOWN_DATETIME = "cooldown_datetime";
-    private static final String COOLDOWN_TTL = "cooldown_ttl";
+    public static final String COOLDOWN_DATETIME = "cooldown_datetime";
+    public static final String COOLDOWN_TTL = "cooldown_ttl";
 
     // for ttl format
     private static final String TTL_WEEK = "week";
@@ -69,6 +97,10 @@ public class StoragePolicy extends Policy {
     private static final long ONE_HOUR_MS = 3600 * 1000;
     private static final long ONE_DAY_MS = 24 * ONE_HOUR_MS;
     private static final long ONE_WEEK_MS = 7 * ONE_DAY_MS;
+
+    public static final String MD5_CHECKSUM = "md5_checksum";
+    @SerializedName(value = "md5Checksum")
+    private String md5Checksum = null;
 
     @SerializedName(value = "storageResource")
     private String storageResource = null;
@@ -120,7 +152,7 @@ public class StoragePolicy extends Policy {
      *
      * @param props properties for storage policy
      */
-    public void init(final Map<String, String> props) throws AnalysisException {
+    public void init(final Map<String, String> props, boolean ifNotExists) throws AnalysisException {
         if (props == null) {
             throw new AnalysisException("properties config is required");
         }
@@ -140,6 +172,9 @@ public class StoragePolicy extends Policy {
         }
         if (props.containsKey(COOLDOWN_TTL)) {
             hasCooldownTtl = true;
+            if (Integer.parseInt(props.get(COOLDOWN_TTL)) < 0) {
+                throw new AnalysisException("cooldown_ttl must >= 0.");
+            }
             this.cooldownTtl = props.get(COOLDOWN_TTL);
             this.cooldownTtlMs = getMsByCooldownTtl(this.cooldownTtl);
         }
@@ -149,26 +184,55 @@ public class StoragePolicy extends Policy {
         if (!hasCooldownDatetime && !hasCooldownTtl) {
             throw new AnalysisException(COOLDOWN_DATETIME + " or " + COOLDOWN_TTL + " must be set");
         }
-        if (!Catalog.getCurrentCatalog().getResourceMgr().containsResource(this.storageResource)) {
-            throw new AnalysisException("storage resource doesn't exist: " + this.storageResource);
+
+        // no set ttl use -1
+        if (!hasCooldownTtl) {
+            this.cooldownTtl = "-1";
         }
+
+        Resource r = checkIsS3ResourceAndExist(this.storageResource);
+        if (!((S3Resource) r).policyAddToSet(super.getPolicyName()) && !ifNotExists) {
+            throw new AnalysisException("this policy has been added to s3 resource once, policy has been created.");
+        }
+        this.md5Checksum = calcPropertiesMd5();
+    }
+
+    private static Resource checkIsS3ResourceAndExist(final String storageResource) throws AnalysisException {
+        // check storage_resource type is S3, current just support S3
+        Resource resource =
+                Optional.ofNullable(Catalog.getCurrentCatalog().getResourceMgr().getResource(storageResource))
+                    .orElseThrow(() -> new AnalysisException("storage resource doesn't exist: " + storageResource));
+
+        if (resource.getType() != Resource.ResourceType.S3) {
+            throw new AnalysisException("current storage policy just support resource type S3");
+        }
+        return resource;
     }
 
     /**
      * Use for SHOW POLICY.
      **/
     public List<String> getShowInfo() throws AnalysisException {
-        String props = "";
+        final String[] props = {""};
         if (Catalog.getCurrentCatalog().getResourceMgr().containsResource(this.storageResource)) {
-            props = Catalog.getCurrentCatalog().getResourceMgr().getResource(this.storageResource).toString();
+            props[0] = Catalog.getCurrentCatalog().getResourceMgr().getResource(this.storageResource).toString();
+        }
+        if (!props[0].equals("")) {
+            // s3_secret_key => ******
+            S3Resource s3Resource = GsonUtils.GSON.fromJson(props[0], S3Resource.class);
+            Optional.ofNullable(s3Resource).ifPresent(s3 -> {
+                Map<String, String> copyMap = s3.getCopiedProperties();
+                copyMap.put(S3Resource.S3_SECRET_KEY, "******");
+                props[0] = GsonUtils.GSON.toJson(copyMap);
+            });
         }
         SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        String cooldownDatetimeStr = "";
-        if (this.cooldownDatetime != null) {
-            cooldownDatetimeStr = df.format(this.cooldownDatetime);
+        if (cooldownDatetime == null) {
+            return Lists.newArrayList(this.policyName, this.type.name(), this.storageResource,
+                "-1", this.cooldownTtl, props[0]);
         }
         return Lists.newArrayList(this.policyName, this.type.name(), this.storageResource,
-                                  cooldownDatetimeStr, this.cooldownTtl, props);
+            df.format(this.cooldownDatetime), this.cooldownTtl, props[0]);
     }
 
     @Override
@@ -243,5 +307,103 @@ public class StoragePolicy extends Policy {
             throw new AnalysisException("cooldownTtl can't be less than 0");
         }
         return cooldownTtlMs;
+    }
+
+    // be use this md5Sum to determine whether storage policy has been changed.
+    // if md5Sum not eq previous value, be change its storage policy.
+    private String calcPropertiesMd5() {
+        List<String> calcKey = Arrays.asList(COOLDOWN_DATETIME, COOLDOWN_TTL, S3Resource.S3_MAX_CONNECTIONS,
+                S3Resource.S3_REQUEST_TIMEOUT_MS, S3Resource.S3_CONNECTION_TIMEOUT_MS,
+                S3Resource.S3_ACCESS_KEY, S3Resource.S3_SECRET_KEY);
+        Map<String, String> copiedStoragePolicyProperties = Catalog.getCurrentCatalog().getResourceMgr()
+                .getResource(this.storageResource).getCopiedProperties();
+
+        final String[] dateTimeToSecondTimestamp = {"-1"};
+        Optional.ofNullable(this.cooldownDatetime).ifPresent(
+                date -> dateTimeToSecondTimestamp[0] = String.valueOf(this.cooldownDatetime.getTime() / 1000)
+        );
+        copiedStoragePolicyProperties.put(COOLDOWN_DATETIME, dateTimeToSecondTimestamp[0]);
+        copiedStoragePolicyProperties.put(COOLDOWN_TTL, this.cooldownTtl);
+
+        LOG.info("calcPropertiesMd5 map {}", copiedStoragePolicyProperties);
+
+        return DigestUtils.md5Hex(calcKey.stream()
+                .map(iter -> "(" + iter + ":" + copiedStoragePolicyProperties.get(iter) + ")")
+                .reduce("", String::concat));
+    }
+
+    public void checkProperties(Map<String, String> properties) throws AnalysisException {
+        // check properties
+        Map<String, String> copiedProperties = Maps.newHashMap(properties);
+
+        copiedProperties.remove(STORAGE_RESOURCE);
+        copiedProperties.remove(COOLDOWN_DATETIME);
+        copiedProperties.remove(COOLDOWN_TTL);
+
+        if (!copiedProperties.isEmpty()) {
+            throw new AnalysisException("Unknown Storage policy properties: " + copiedProperties);
+        }
+    }
+
+    public void modifyProperties(Map<String, String> properties) throws DdlException, AnalysisException {
+        Optional.ofNullable(properties.get(COOLDOWN_TTL)).ifPresent(this::setCooldownTtl);
+        Optional.ofNullable(properties.get(COOLDOWN_DATETIME)).ifPresent(date -> {
+            SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            try {
+                this.setCooldownDatetime(df.parse(properties.get(COOLDOWN_DATETIME)));
+            } catch (ParseException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        if (policyName.equalsIgnoreCase(Config.default_storage_policy) && storageResource == null) {
+            // here first time set S3 resource to default storage policy.
+            String alterStorageResource = Optional.ofNullable(properties.get(STORAGE_RESOURCE))
+                    .orElseThrow(() ->
+                        new DdlException("first time set default storage policy, but not give storageResource"));
+            // check alterStorageResource resource exist.
+            checkIsS3ResourceAndExist(alterStorageResource);
+            storageResource = alterStorageResource;
+        }
+
+
+        md5Checksum = calcPropertiesMd5();
+        notifyUpdate();
+    }
+
+    private void notifyUpdate() {
+        SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
+        AgentBatchTask batchTask = new AgentBatchTask();
+
+        for (Long beId : systemInfoService.getBackendIds(true)) {
+            Map<String, String> copiedProperties = Catalog.getCurrentCatalog().getResourceMgr()
+                    .getResource(storageResource).getCopiedProperties();
+
+            Map<String, String> tmpMap = Maps.newHashMap(copiedProperties);
+
+            final String[] dateTimeToSecondTimestamp = {"-1"};
+            Optional.ofNullable(this.cooldownDatetime).ifPresent(
+                    date -> dateTimeToSecondTimestamp[0] = String.valueOf(this.cooldownDatetime.getTime() / 1000)
+            );
+            tmpMap.put(COOLDOWN_DATETIME, dateTimeToSecondTimestamp[0]);
+
+            Optional.ofNullable(this.getCooldownTtl()).ifPresent(date -> {
+                tmpMap.put(COOLDOWN_TTL, this.getCooldownTtl());
+            });
+            tmpMap.put(MD5_CHECKSUM, this.getMd5Checksum());
+            NotifyUpdateStoragePolicyTask createReplicaTask
+                    = new NotifyUpdateStoragePolicyTask(beId, getPolicyName(), tmpMap);
+            batchTask.addTask(createReplicaTask);
+            LOG.info("update policy info to be: {}, policy name: {}, "
+                        + "properties: {} to modify S3 resource batch task.",
+                    beId, getPolicyName(), tmpMap);
+        }
+
+        AgentTaskExecutor.submit(batchTask);
+    }
+
+    public static StoragePolicy read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, StoragePolicy.class);
     }
 }

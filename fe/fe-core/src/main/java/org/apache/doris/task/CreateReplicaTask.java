@@ -88,6 +88,7 @@ public class CreateReplicaTask extends AgentTask {
     private boolean isRecoverTask = false;
 
     private DataSortInfo dataSortInfo;
+    private static String storagePolicy;
 
     private boolean enableUniqueKeyMergeOnWrite;
 
@@ -101,7 +102,8 @@ public class CreateReplicaTask extends AgentTask {
                              TTabletType tabletType,
                              DataSortInfo dataSortInfo,
                              TCompressionType compressionType,
-                             boolean enableUniqueKeyMergeOnWrite) {
+                             boolean enableUniqueKeyMergeOnWrite,
+                             String storagePolicy) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -127,6 +129,7 @@ public class CreateReplicaTask extends AgentTask {
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
         this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
+        this.storagePolicy = storagePolicy;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -230,6 +233,7 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setVersion(version);
 
         createTabletReq.setStorageMedium(storageMedium);
+        createTabletReq.setStoragePolicy(storagePolicy);
         if (inRestoreMode) {
             createTabletReq.setInRestoreMode(true);
         }

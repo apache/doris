@@ -905,6 +905,10 @@ alter_stmt ::=
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
         RESULT = new AlterTableStmt(tbl, Lists.newArrayList(clause));
     :}
+    | KW_ALTER KW_STORAGE KW_POLICY ident_or_text:policyName opt_properties:properties
+    {:
+        RESULT = new AlterPolicyStmt(policyName, properties);
+    :}
     ;
 
 opt_datasource_properties ::=

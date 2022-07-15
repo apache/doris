@@ -93,6 +93,7 @@ public class ResourceMgrTest {
         s3Properties.put("s3_root_path", s3RootPath);
         s3Properties.put("s3_access_key", s3AccessKey);
         s3Properties.put("s3_secret_key", s3SecretKey);
+        s3Properties.put("s3_bucket", "test-bucket");
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
@@ -154,8 +155,9 @@ public class ResourceMgrTest {
         copiedS3Properties.put("s3_region", s3Region);
         copiedS3Properties.remove("type");
         alterResourceStmt = new AlterResourceStmt(s3ResName, copiedS3Properties);
-        mgr.alterResource(alterResourceStmt);
-        Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("s3_region"));
+        // current not support modify s3 property
+        // mgr.alterResource(alterResourceStmt);
+        // Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("s3_region"));
 
         // drop
         dropStmt = new DropResourceStmt(s3ResName);

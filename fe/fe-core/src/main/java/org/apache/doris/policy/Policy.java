@@ -58,7 +58,9 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     protected String policyName = null;
 
     public Policy() {
-        policyId = Catalog.getCurrentCatalog().getNextId();
+        if (Catalog.getCurrentCatalog().isMaster()) {
+            policyId = Catalog.getCurrentCatalog().getNextId();
+        }
     }
 
     /**
@@ -80,7 +82,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
         switch (stmt.getType()) {
             case STORAGE:
                 StoragePolicy storagePolicy = new StoragePolicy(stmt.getType(), stmt.getPolicyName());
-                storagePolicy.init(stmt.getProperties());
+                storagePolicy.init(stmt.getProperties(), stmt.isIfNotExists());
                 return storagePolicy;
             case ROW:
             default:

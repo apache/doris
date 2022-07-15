@@ -451,6 +451,7 @@ public class ReportHandler extends Daemon {
                         long backendVersion = -1L;
                         long rowCount = -1L;
                         long dataSize = -1L;
+                        long remoteDataSize = -1L;
                         // schema change maybe successfully in fe, but not inform be,
                         // then be will report two schema hash
                         // just select the dest schema hash
@@ -459,6 +460,7 @@ public class ReportHandler extends Daemon {
                                 backendVersion = tabletInfo.getVersion();
                                 rowCount = tabletInfo.getRowCount();
                                 dataSize = tabletInfo.getDataSize();
+                                remoteDataSize = tabletInfo.getRemoteDataSize();
                                 break;
                             }
                         }
@@ -477,7 +479,7 @@ public class ReportHandler extends Daemon {
                             // happens when
                             // 1. PUSH finished in BE but failed or not yet report to FE
                             // 2. repair for VERSION_INCOMPLETE finished in BE, but failed or not yet report to FE
-                            replica.updateVersionInfo(backendVersion, dataSize, rowCount);
+                            replica.updateVersionInfo(backendVersion, dataSize, remoteDataSize, rowCount);
 
                             if (replica.getLastFailedVersion() < 0) {
                                 // last failed version < 0 means this replica becomes health after sync,
@@ -485,7 +487,7 @@ public class ReportHandler extends Daemon {
                                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tableId,
                                         partitionId, indexId, tabletId, backendId, replica.getId(),
                                         replica.getVersion(), schemaHash,
-                                        dataSize, rowCount,
+                                        dataSize, remoteDataSize, rowCount,
                                         replica.getLastFailedVersion(),
                                         replica.getLastSuccessVersion());
                                 Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
@@ -605,7 +607,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.getPartitionInfo().getTabletType(partitionId),
                                             null,
                                             olapTable.getCompressionType(),
-                                            olapTable.getEnableUniqueKeyMergeOnWrite());
+                                            olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy());
+
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
@@ -696,8 +699,9 @@ public class ReportHandler extends Daemon {
             if (needDelete) {
                 // drop replica
                 long replicaId = backendTabletInfo.getReplicaId();
+                boolean isDropTableOrPartition = Catalog.getCurrentInvertedIndex().getTabletMeta(tabletId) == null;
                 DropReplicaTask task = new DropReplicaTask(backendId, tabletId, replicaId,
-                        backendTabletInfo.getSchemaHash());
+                        backendTabletInfo.getSchemaHash(), isDropTableOrPartition);
                 batchTask.addTask(task);
                 LOG.warn("delete tablet[" + tabletId + "] from backend[" + backendId + "] because not found in meta");
                 ++deleteFromBackendCounter;
@@ -895,6 +899,7 @@ public class ReportHandler extends Daemon {
         int schemaHash = backendTabletInfo.getSchemaHash();
         long version = backendTabletInfo.getVersion();
         long dataSize = backendTabletInfo.getDataSize();
+        long remoteDataSize = backendTabletInfo.getRemoteDataSize();
         long rowCount = backendTabletInfo.getRowCount();
 
         Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
@@ -962,14 +967,14 @@ public class ReportHandler extends Daemon {
 
                 long replicaId = Catalog.getCurrentCatalog().getNextId();
                 Replica replica = new Replica(replicaId, backendId, version, schemaHash,
-                        dataSize, rowCount, ReplicaState.NORMAL,
+                        dataSize, remoteDataSize, rowCount, ReplicaState.NORMAL,
                         lastFailedVersion, version);
                 tablet.addReplica(replica);
 
                 // write edit log
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForAdd(dbId, tableId, partitionId, indexId,
                         tabletId, backendId, replicaId,
-                        version, schemaHash, dataSize, rowCount,
+                        version, schemaHash, dataSize, remoteDataSize, rowCount,
                         lastFailedVersion,
                         version);
 

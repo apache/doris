@@ -143,11 +143,11 @@ public abstract class DorisHttpTestCase {
         columns.add(k1);
         columns.add(k2);
 
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
 
         // tablet
