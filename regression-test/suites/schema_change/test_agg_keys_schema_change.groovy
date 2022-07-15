@@ -182,7 +182,6 @@ suite ("test_agg_keys_schema_change") {
                 (5, '2017-10-01', 'Beijing', 10, 1, 1, 32, 20, hll_hash(5), to_bitmap(5))
             """
 
-        Thread.sleep(30 * 1000)
         // compaction
         String[][] tablets = sql """ show tablets from ${tableName}; """
         for (String[] tablet in tablets) {
