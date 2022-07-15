@@ -22,12 +22,18 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.statistics.ExprStats;
+import org.apache.doris.statistics.PlanStats;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.BitSet;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -35,7 +41,7 @@ import java.util.Objects;
 /**
  * Representation for group expression in cascades optimizer.
  */
-public class GroupExpression {
+public class GroupExpression implements PlanStats {
     private Group parent;
     private List<Group> children;
     private final Plan plan;
@@ -173,5 +179,47 @@ public class GroupExpression {
     @Override
     public int hashCode() {
         return Objects.hash(children, plan);
+    }
+
+    /**
+     * Get child statistics.
+     */
+    public StatsDeriveResult getChildStatistics(int index) {
+        StatsDeriveResult statistics = getChildrenStats().get(index);
+        Preconditions.checkNotNull(statistics);
+        return statistics;
+    }
+
+    @Override
+    public List<StatsDeriveResult> getChildrenStats() {
+        List<StatsDeriveResult> childrenStats = Lists.newArrayList();
+        for (Group group : children()) {
+            childrenStats.add(group.getStatistics());
+        }
+        return childrenStats;
+    }
+
+    @Override
+    public StatsDeriveResult getStatsDeriveResult() {
+        return plan.getStats();
+    }
+
+    @Override
+    public void setStatsDeriveResult(StatsDeriveResult result) {
+        plan.setStats(result);
+        this.setStatDerived(true);
+    }
+
+    @Override
+    public long getLimit() {
+        return plan.getLimit();
+    }
+
+    @Override
+    public List<? extends ExprStats> getConjuncts() {
+        if (plan instanceof PhysicalFilter) {
+            return ExpressionUtils.extractConjunct(((PhysicalFilter<?>) plan).getPredicates());
+        }
+        return Collections.emptyList();
     }
 }

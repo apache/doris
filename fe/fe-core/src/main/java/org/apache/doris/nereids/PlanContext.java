@@ -19,21 +19,15 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.common.Id;
-import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
-import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.statistics.ExprStats;
-import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -42,7 +36,7 @@ import java.util.List;
  * A ExpressionHandle is attached to either {@link Plan} or {@link GroupExpression}.
  * Inspired by GPORCA-CExpressionHandle.
  */
-public class PlanContext implements PlanStats {
+public class PlanContext {
     // array of children's derived stats
     private final List<StatsDeriveResult> childrenStats = Lists.newArrayList();
     // statistics of attached plan/gexpr
@@ -57,11 +51,7 @@ public class PlanContext implements PlanStats {
     }
 
     public PlanContext(GroupExpression groupExpression) {
-        this.plan = groupExpression.getPlan();
         this.groupExpression = groupExpression;
-        for (Group group : groupExpression.children()) {
-            childrenStats.add(group.getStatistics());
-        }
     }
 
     public Plan getPlan() {
@@ -78,6 +68,10 @@ public class PlanContext implements PlanStats {
 
     public StatsDeriveResult getStatistics() {
         return statistics;
+    }
+
+    public void setStatistics(StatsDeriveResult stats) {
+        this.statistics = stats;
     }
 
     public StatsDeriveResult getStatisticsWithCheck() {
@@ -108,35 +102,5 @@ public class PlanContext implements PlanStats {
         StatsDeriveResult statistics = childrenStats.get(index);
         Preconditions.checkNotNull(statistics);
         return statistics;
-    }
-
-    @Override
-    public StatsDeriveResult getStatsDeriveResult() {
-        if (groupExpression != null) {
-            return groupExpression.getParent().getStatistics();
-        }
-        return plan.getStats();
-    }
-
-    @Override
-    public void setStatsDeriveResult(StatsDeriveResult result) {
-        if (groupExpression != null) {
-            groupExpression.getParent().setStatistics(result);
-            groupExpression.setStatDerived(true);
-        }
-        plan.setStats(result);
-    }
-
-    @Override
-    public long getLimit() {
-        return plan.getLimit();
-    }
-
-    @Override
-    public List<? extends ExprStats> getConjuncts() {
-        if (plan instanceof PhysicalFilter) {
-            return ExpressionUtils.extractConjunct(((PhysicalFilter<?>) plan).getPredicates());
-        }
-        return Collections.emptyList();
     }
 }
