@@ -119,13 +119,13 @@ public class Backend implements Writable {
     // additional backendStatus information for BE, display in JSON format
     @SerializedName("backendStatus")
     private BackendStatus backendStatus = new BackendStatus();
-    @SerializedName("tag")
     // the locationTag is also saved in tagMap, use a single field here to avoid
     // creating this everytime we get it.
+    @SerializedName(value = "locationTag", alternate = {"tag"})
     private Tag locationTag = Tag.DEFAULT_BACKEND_TAG;
-    @SerializedName("tagMap")
     // tag type -> tag value.
     // A backend can only be assigned to one tag type, and each type can only have one value.
+    @SerializedName("tagMap")
     private Map<String, String> tagMap = Maps.newHashMap();
 
     public Backend() {
