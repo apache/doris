@@ -138,6 +138,5 @@ public class JournalObservableTest {
             latch.countDown();
             System.out.println(latch.getCount());
         } // CHECKSTYLE IGNORE THIS LINE
-        System.out.println("success");
     }
 }

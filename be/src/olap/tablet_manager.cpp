@@ -161,6 +161,16 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
         res = _add_tablet_to_map_unlocked(tablet_id, tablet, update_meta, keep_files,
                                           true /*drop_old*/);
     } else {
+        tablet->set_tablet_state(TABLET_SHUTDOWN);
+        tablet->save_meta();
+        {
+            std::lock_guard<std::shared_mutex> shutdown_tablets_wrlock(_shutdown_tablets_lock);
+            _shutdown_tablets.push_back(tablet);
+        }
+        LOG(INFO) << "set tablet to shutdown state."
+                  << "tablet_id=" << tablet->tablet_id()
+                  << ", tablet_path=" << tablet->tablet_path();
+
         res = Status::OLAPInternalError(OLAP_ERR_ENGINE_INSERT_OLD_TABLET);
     }
     LOG(WARNING) << "add duplicated tablet. force=" << force << ", res=" << res
@@ -791,10 +801,11 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
               << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash
               << " path = " << schema_hash_path << " force = " << force << " restore = " << restore;
     // not add lock here, because load_tablet_from_meta already add lock
-    string header_path = TabletMeta::construct_header_file_path(schema_hash_path, tablet_id);
+    std::string header_path = TabletMeta::construct_header_file_path(schema_hash_path, tablet_id);
     // should change shard id before load tablet
-    string shard_path = path_util::dir_name(path_util::dir_name(path_util::dir_name(header_path)));
-    string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
+    std::string shard_path =
+            path_util::dir_name(path_util::dir_name(path_util::dir_name(header_path)));
+    std::string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
     int32_t shard = stol(shard_str);
     // load dir is called by clone, restore, storage migration
     // should change tablet uid when tablet object changed
@@ -817,7 +828,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     // has to change shard id here, because meta file maybe copied from other source
     // its shard is different from local shard
     tablet_meta->set_shard_id(shard);
-    string meta_binary;
+    std::string meta_binary;
     tablet_meta->serialize(&meta_binary);
     RETURN_NOT_OK_LOG(load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force,
                                             restore, true),
