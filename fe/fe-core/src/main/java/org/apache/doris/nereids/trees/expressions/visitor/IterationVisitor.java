@@ -47,11 +47,6 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 public abstract class IterationVisitor<C> extends DefaultExpressionVisitor<Void, C> {
 
     @Override
-    public Void visit(Expression expr, C context) {
-        return expr.accept(this, context);
-    }
-
-    @Override
     public Void visitNot(Not expr, C context) {
         visit(expr.child(), context);
         return null;
