@@ -106,7 +106,11 @@ for i in $(seq 1 22); do
     # Each query is executed ${run} times and takes the average time
     for j in $(seq 1 ${run}); do
         start=$(date +%s%3N)
-        mysql -h$FE_HOST -u $USER -P$FE_QUERY_PORT -D$DB <$QUERIES_DIR/q$i.sql >/dev/null
+        if [ -z $PASSWORD ]; then
+            mysql -h$FE_HOST -u $USER -P$FE_QUERY_PORT -D$DB --comments <$QUERIES_DIR/q$i.sql >/dev/null
+        else
+            mysql -h$FE_HOST -u $USER -P$FE_QUERY_PORT -D$DB -p$PASSWORD --comments <$QUERIES_DIR/q$i.sql >/dev/null
+        fi
         end=$(date +%s%3N)
         total=$((total + end - start))
     done
