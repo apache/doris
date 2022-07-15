@@ -178,7 +178,6 @@ private:
         }
         const void* get_data() const override { return _values.data(); }
         const void* get_data_at(size_t offset) const override {
-            assert(offset < _num_rows && _num_rows == _values.size());
             UInt8 null_flag = 0;
             if (_nullmap) {
                 null_flag = _nullmap[offset];
