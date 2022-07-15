@@ -350,10 +350,12 @@ public class DateLiteralTest {
     public void testDateTimeV2Decimal() throws AnalysisException {
         DateLiteral dateLiteral1 = new DateLiteral(LocalDateTime.now(),
                 DateLiteral.getDefaultDateType(ScalarType.createDatetimeV2Type(3)));
-        Assert.assertTrue(dateLiteral1.getDecimalNumber() >= 100 && dateLiteral1.getDecimalNumber() < 1000);
+        Assert.assertTrue((dateLiteral1.getDecimalNumber() >= 100 && dateLiteral1.getDecimalNumber() < 1000)
+                || dateLiteral1.getDecimalNumber() == 0);
 
         DateLiteral dateLiteral2 = new DateLiteral(LocalDateTime.now(),
                 DateLiteral.getDefaultDateType(ScalarType.createDatetimeV2Type(5)));
-        Assert.assertTrue(dateLiteral2.getDecimalNumber() >= 10000 && dateLiteral2.getDecimalNumber() < 100000);
+        Assert.assertTrue((dateLiteral2.getDecimalNumber() >= 10000 && dateLiteral2.getDecimalNumber() < 100000)
+                || dateLiteral2.getDecimalNumber() == 0);
     }
 }
