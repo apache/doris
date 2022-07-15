@@ -247,12 +247,12 @@ public:
     virtual Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) = 0;
 
     virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) {
-        return Status::NotSupported("not implement");
+        return Status::NotSupported("next_batch not implement");
     }
 
     virtual Status read_by_rowids(const rowid_t* rowids, const size_t count,
                                   vectorized::MutableColumnPtr& dst) {
-        return Status::NotSupported("not implement");
+        return Status::NotSupported("read_by_rowids not implement");
     }
 
     virtual ordinal_t get_current_ordinal() const = 0;
@@ -367,6 +367,9 @@ public:
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
 
     Status seek_to_first() override {
         RETURN_IF_ERROR(_length_iterator->seek_to_first());
