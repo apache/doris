@@ -719,7 +719,7 @@ public class ScalarType extends Type {
             return true;
         }
         if (isDecimalV3() && scalarType.isDecimalV3()) {
-            return true;
+            return precision == scalarType.precision && scale == scalarType.scale;
         }
         return false;
     }
@@ -742,6 +742,9 @@ public class ScalarType extends Type {
         if ((this.isDatetimeV2() && other.isDatetimeV2()) || (this.isTimeV2() && other.isTimeV2())) {
             return this.decimalScale() == other.decimalScale();
         }
+        if (type.isDecimalV3Type() && other.isDecimalV3()) {
+            return precision == other.precision && scale == other.scale;
+        }
         if (type != other.type) {
             return false;
         }
@@ -751,8 +754,7 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR) {
             return len == other.len;
         }
-        if (type.isDecimalV2Type() || type.isDecimalV3Type()
-                || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
+        if (type.isDecimalV2Type() || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
             return precision == other.precision && scale == other.scale;
         }
         return true;
