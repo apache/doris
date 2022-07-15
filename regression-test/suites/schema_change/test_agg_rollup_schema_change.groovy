@@ -104,7 +104,7 @@ suite ("test_agg_rollup_schema_change") {
             """
 
         result = "null";
-        result = sql """ select * from ${tableName} """
+        result = sql """ select * from ${tableName} order by user_id """
         assertTrue(result.size() == 2)
         assertTrue(result[0].size() == 10)
         assertTrue(result[0][5] == 2, "user id 1 cost should be 2")
