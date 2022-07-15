@@ -37,8 +37,8 @@ public class BetweenToCompoundRule extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitBetween(Between expr, ExpressionRewriteContext context) {
-        Expression left = new GreaterThanEqual<>(expr.getCompareExpr(), expr.getLowerBound());
-        Expression right = new LessThanEqual<>(expr.getCompareExpr(), expr.getUpperBound());
-        return new And<>(left, right);
+        Expression left = new GreaterThanEqual(expr.getCompareExpr(), expr.getLowerBound());
+        Expression right = new LessThanEqual(expr.getCompareExpr(), expr.getUpperBound());
+        return new And(left, right);
     }
 }

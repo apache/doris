@@ -236,7 +236,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.getCopiedIndexes(),
                                 tbl.isInMemory(),
                                 tabletType,
-                                tbl.getCompressionType());
+                                null,
+                                tbl.getCompressionType(),
+                                tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy());
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
@@ -383,7 +385,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                         AlterReplicaTask rollupTask = new AlterReplicaTask(rollupReplica.getBackendId(), dbId, tableId,
                                 partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
                                 rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
-                                JobType.ROLLUP, defineExprs, descTable);
+                                JobType.ROLLUP, defineExprs, descTable, null);
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }

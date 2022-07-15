@@ -175,12 +175,6 @@ public:
     // Return true means this row should be filtered out, otherwise return false
     bool delete_conditions_eval(const RowCursor& row) const;
 
-    // Return true if the rowset should be pruned
-    bool rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) const;
-
-    // Whether the rowset satisfied delete condition
-    int delete_pruning_filter(const std::vector<KeyRange>& zone_maps) const;
-
     const CondColumns& columns() const { return _columns; }
 
     CondColumn* get_column(int32_t cid) const;

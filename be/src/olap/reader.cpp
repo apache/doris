@@ -36,6 +36,7 @@
 #include "runtime/mem_pool.h"
 #include "util/date_func.h"
 #include "util/mem_util.hpp"
+#include "vec/data_types/data_type_decimal.h"
 
 using std::nothrow;
 using std::set;
@@ -188,7 +189,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
 
     bool need_ordered_result = true;
     if (read_params.reader_type == READER_QUERY) {
-        if (_tablet->tablet_schema().keys_type() == DUP_KEYS) {
+        if (_tablet_schema->keys_type() == DUP_KEYS) {
             // duplicated keys are allowed, no need to merge sort keys in rowset
             need_ordered_result = false;
         }
@@ -200,7 +201,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     }
 
     _reader_context.reader_type = read_params.reader_type;
-    _reader_context.tablet_schema = &_tablet->tablet_schema();
+    _reader_context.tablet_schema = _tablet_schema;
     _reader_context.need_ordered_result = need_ordered_result;
     _reader_context.return_columns = &_return_columns;
     _reader_context.seek_columns = &_seek_columns;
@@ -235,6 +236,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _need_agg_finalize = read_params.need_agg_finalize;
     _reader_type = read_params.reader_type;
     _tablet = read_params.tablet;
+    _tablet_schema = read_params.tablet_schema;
 
     _init_conditions_param(read_params);
     _init_load_bf_columns(read_params);
@@ -259,8 +261,8 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 
     _init_seek_columns();
 
-    if (_tablet->tablet_schema().has_sequence_col()) {
-        auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
+    if (_tablet_schema->has_sequence_col()) {
+        auto sequence_col_idx = _tablet_schema->sequence_col_idx();
         DCHECK_NE(sequence_col_idx, -1);
         for (auto col : _return_columns) {
             // query has sequence col
@@ -292,16 +294,16 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
         for (auto id : read_params.return_columns) {
-            if (_tablet->tablet_schema().column(id).is_key()) {
+            if (_tablet_schema->column(id).is_key()) {
                 _key_cids.push_back(id);
             } else {
                 _value_cids.push_back(id);
             }
         }
     } else if (read_params.return_columns.empty()) {
-        for (size_t i = 0; i < _tablet->tablet_schema().num_columns(); ++i) {
+        for (size_t i = 0; i < _tablet_schema->num_columns(); ++i) {
             _return_columns.push_back(i);
-            if (_tablet->tablet_schema().column(i).is_key()) {
+            if (_tablet_schema->column(i).is_key()) {
                 _key_cids.push_back(i);
             } else {
                 _value_cids.push_back(i);
@@ -314,7 +316,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
                !read_params.return_columns.empty()) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
-            if (_tablet->tablet_schema().column(id).is_key()) {
+            if (_tablet_schema->column(id).is_key()) {
                 _key_cids.push_back(id);
             } else {
                 _value_cids.push_back(id);
@@ -323,7 +325,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     } else if (read_params.reader_type == READER_CHECKSUM) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
-            if (_tablet->tablet_schema().column(id).is_key()) {
+            if (_tablet_schema->column(id).is_key()) {
                 _key_cids.push_back(id);
             } else {
                 _value_cids.push_back(id);
@@ -353,7 +355,7 @@ void TabletReader::_init_seek_columns() {
         max_key_column_count = std::max(max_key_column_count, key.field_count());
     }
 
-    for (size_t i = 0; i < _tablet->tablet_schema().num_columns(); i++) {
+    for (size_t i = 0; i < _tablet_schema->num_columns(); i++) {
         if (i < max_key_column_count || column_set.find(i) != column_set.end()) {
             _seek_columns.push_back(i);
         }
@@ -373,19 +375,18 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     std::vector<RowCursor>(start_key_size).swap(_keys_param.start_keys);
 
     size_t scan_key_size = read_params.start_key.front().size();
-    if (scan_key_size > _tablet->tablet_schema().num_columns()) {
+    if (scan_key_size > _tablet_schema->num_columns()) {
         LOG(WARNING)
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << scan_key_size
-                << ", schema.num_columns=" << _tablet->tablet_schema().num_columns();
+                << ", schema.num_columns=" << _tablet_schema->num_columns();
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     std::vector<uint32_t> columns(scan_key_size);
     std::iota(columns.begin(), columns.end(), 0);
 
-    std::shared_ptr<Schema> schema =
-            std::make_shared<Schema>(_tablet->tablet_schema().columns(), columns);
+    std::shared_ptr<Schema> schema = std::make_shared<Schema>(_tablet_schema->columns(), columns);
 
     for (size_t i = 0; i < start_key_size; ++i) {
         if (read_params.start_key[i].size() != scan_key_size) {
@@ -396,12 +397,11 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
         }
 
         Status res = _keys_param.start_keys[i].init_scan_key(
-                _tablet->tablet_schema(), read_params.start_key[i].values(), schema);
+                *_tablet_schema, read_params.start_key[i].values(), schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
         }
-
         res = _keys_param.start_keys[i].from_tuple(read_params.start_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor from Keys. res=" << res << "key_index=" << i;
@@ -419,7 +419,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
-        Status res = _keys_param.end_keys[i].init_scan_key(_tablet->tablet_schema(),
+        Status res = _keys_param.end_keys[i].init_scan_key(*_tablet_schema,
                                                            read_params.end_key[i].values(), schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
@@ -439,13 +439,12 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
 }
 
 void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
-    _conditions.set_tablet_schema(&_tablet->tablet_schema());
-    _all_conditions.set_tablet_schema(&_tablet->tablet_schema());
+    _conditions.set_tablet_schema(_tablet_schema);
+    _all_conditions.set_tablet_schema(_tablet_schema);
     for (const auto& condition : read_params.conditions) {
         ColumnPredicate* predicate = _parse_to_predicate(condition);
         if (predicate != nullptr) {
-            if (_tablet->tablet_schema()
-                        .column(_tablet->field_index(condition.column_name))
+            if (_tablet_schema->column(_tablet_schema->field_index(condition.column_name))
                         .aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
                 _value_col_predicates.push_back(predicate);
             } else {
@@ -479,6 +478,31 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             int16_t value = 0;                                                                     \
             std::from_chars(cond.data(), cond.data() + cond.size(), value);                        \
             predicate = new PREDICATE<int16_t>(index, value, opposite);                            \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_DECIMAL32: {                                                          \
+            int32_t value = 0;                                                                     \
+            StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;           \
+            value = (int32_t)StringParser::string_to_decimal<int128_t>(                            \
+                    cond.data(), cond.size(), column.precision(), column.frac(), &result);         \
+                                                                                                   \
+            predicate = new PREDICATE<int32_t>(index, value, opposite);                            \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_DECIMAL64: {                                                          \
+            int64_t value = 0;                                                                     \
+            StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;           \
+            value = (int64_t)StringParser::string_to_decimal<int128_t>(                            \
+                    cond.data(), cond.size(), column.precision(), column.frac(), &result);         \
+            predicate = new PREDICATE<int64_t>(index, value, opposite);                            \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_DECIMAL128: {                                                         \
+            int128_t value = 0;                                                                    \
+            StringParser::ParseResult result;                                                      \
+            value = StringParser::string_to_decimal<int128_t>(                                     \
+                    cond.data(), cond.size(), column.precision(), column.frac(), &result);         \
+            predicate = new PREDICATE<int128_t>(index, value, opposite);                           \
             break;                                                                                 \
         }                                                                                          \
         case OLAP_FIELD_TYPE_INT: {                                                                \
@@ -576,11 +600,11 @@ COMPARISON_PREDICATE_CONDITION_VALUE(ge, GreaterEqualPredicate)
 
 ColumnPredicate* TabletReader::_parse_to_predicate(
         const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter) {
-    int32_t index = _tablet->field_index(bloom_filter.first);
+    int32_t index = _tablet_schema->field_index(bloom_filter.first);
     if (index < 0) {
         return nullptr;
     }
-    const TabletColumn& column = _tablet->tablet_schema().column(index);
+    const TabletColumn& column = _tablet_schema->column(index);
     return BloomFilterColumnPredicateFactory::create_column_predicate(index, bloom_filter.second,
                                                                       column.type());
 }
@@ -588,12 +612,12 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
 ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                                                    bool opposite) const {
     // TODO: not equal and not in predicate is not pushed down
-    int32_t index = _tablet->field_index(condition.column_name);
+    int32_t index = _tablet_schema->field_index(condition.column_name);
     if (index < 0) {
         return nullptr;
     }
 
-    const TabletColumn& column = _tablet->tablet_schema().column(index);
+    const TabletColumn& column = _tablet_schema->column(index);
     ColumnPredicate* predicate = nullptr;
 
     if ((condition.condition_op == "*=" || condition.condition_op == "!*=" ||
@@ -638,6 +662,61 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 predicate = new InListPredicate<int16_t>(index, std::move(values), opposite);
             } else {
                 predicate = new NotInListPredicate<int16_t>(index, std::move(values), opposite);
+            }
+            break;
+        }
+        case OLAP_FIELD_TYPE_DECIMAL32: {
+            phmap::flat_hash_set<int32_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;
+                int128_t val = StringParser::string_to_decimal<int128_t>(
+                        cond_val.data(), cond_val.size(), column.precision(), column.frac(),
+                        &result);
+                if (result == StringParser::ParseResult::PARSE_SUCCESS) {
+                    values.insert((int32_t)val);
+                }
+            }
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<int32_t>(index, std::move(values), opposite);
+            } else {
+                predicate = new NotInListPredicate<int32_t>(index, std::move(values), opposite);
+            }
+            break;
+        }
+        case OLAP_FIELD_TYPE_DECIMAL64: {
+            phmap::flat_hash_set<int64_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                StringParser::ParseResult result;
+                int128_t val = StringParser::string_to_decimal<int128_t>(
+                        cond_val.data(), cond_val.size(), column.precision(), column.frac(),
+                        &result);
+                if (result == StringParser::ParseResult::PARSE_SUCCESS) {
+                    values.insert((int64_t)val);
+                }
+            }
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<int64_t>(index, std::move(values), opposite);
+            } else {
+                predicate = new NotInListPredicate<int64_t>(index, std::move(values), opposite);
+            }
+            break;
+        }
+        case OLAP_FIELD_TYPE_DECIMAL128: {
+            phmap::flat_hash_set<int128_t> values;
+            int128_t val;
+            for (auto& cond_val : condition.condition_values) {
+                StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;
+                val = StringParser::string_to_decimal<int128_t>(cond_val.data(), cond_val.size(),
+                                                                column.precision(), column.frac(),
+                                                                &result);
+                if (result == StringParser::ParseResult::PARSE_SUCCESS) {
+                    values.insert(val);
+                }
+            }
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<int128_t>(index, std::move(values), opposite);
+            } else {
+                predicate = new NotInListPredicate<int128_t>(index, std::move(values), opposite);
             }
             break;
         }
@@ -795,7 +874,7 @@ void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Condit
                                          std::set<uint32_t>* load_bf_columns) {
     // add all columns with condition to load_bf_columns
     for (const auto& cond_column : conditions->columns()) {
-        if (!_tablet->tablet_schema().column(cond_column.first).is_bf_column()) {
+        if (!_tablet_schema->column(cond_column.first).is_bf_column()) {
             continue;
         }
         for (const auto& cond : cond_column.second->conds()) {
@@ -807,7 +886,7 @@ void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Condit
     }
 
     // remove columns which have same value between start_key and end_key
-    int min_scan_key_len = _tablet->tablet_schema().num_columns();
+    int min_scan_key_len = _tablet_schema->num_columns();
     for (const auto& start_key : read_params.start_key) {
         min_scan_key_len = std::min(min_scan_key_len, static_cast<int>(start_key.size()));
     }
@@ -838,7 +917,7 @@ void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Condit
     if (max_equal_index == -1) {
         return;
     }
-    FieldType type = _tablet->tablet_schema().column(max_equal_index).type();
+    FieldType type = _tablet_schema->column(max_equal_index).type();
     if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_STRING) ||
         max_equal_index + 1 > _tablet->num_short_key_columns()) {
         load_bf_columns->erase(max_equal_index);
@@ -858,7 +937,7 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     }
 
     auto delete_init = [&]() -> Status {
-        return _delete_handler.init(_tablet->tablet_schema(), _tablet->delete_predicates(),
+        return _delete_handler.init(*_tablet_schema, _tablet->delete_predicates(),
                                     read_params.version.second, this);
     };
 

@@ -147,7 +147,11 @@ enum FieldType {
     OLAP_FIELD_TYPE_STRING = 26,
     OLAP_FIELD_TYPE_QUANTILE_STATE = 27,
     OLAP_FIELD_TYPE_DATEV2 = 28,
-    OLAP_FIELD_TYPE_DATETIMEV2 = 29
+    OLAP_FIELD_TYPE_DATETIMEV2 = 29,
+    OLAP_FIELD_TYPE_TIMEV2 = 30,
+    OLAP_FIELD_TYPE_DECIMAL32 = 31,
+    OLAP_FIELD_TYPE_DECIMAL64 = 32,
+    OLAP_FIELD_TYPE_DECIMAL128 = 33
 };
 
 // Define all aggregation methods supported by Field
@@ -411,6 +415,17 @@ struct RowsetId {
     friend std::ostream& operator<<(std::ostream& out, const RowsetId& rowset_id) {
         out << rowset_id.to_string();
         return out;
+    }
+};
+
+// used for hash-struct of hash_map<RowsetId, Rowset*>.
+struct HashOfRowsetId {
+    size_t operator()(const RowsetId& rowset_id) const {
+        size_t seed = 0;
+        seed = HashUtil::hash64(&rowset_id.hi, sizeof(rowset_id.hi), seed);
+        seed = HashUtil::hash64(&rowset_id.mi, sizeof(rowset_id.mi), seed);
+        seed = HashUtil::hash64(&rowset_id.lo, sizeof(rowset_id.lo), seed);
+        return seed;
     }
 };
 

@@ -113,6 +113,8 @@ public:
 
     doris::vectorized::DataTypePtr get_data_type_ptr() const;
 
+    int32_t col_unique_id() const { return _col_unique_id; }
+
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
@@ -126,6 +128,8 @@ private:
     const int _tuple_offset;
     const NullIndicatorOffset _null_indicator_offset;
     const std::string _col_name;
+
+    const int32_t _col_unique_id;
 
     // the idx of the slot in the tuple descriptor (0-based).
     // this is provided by the FE

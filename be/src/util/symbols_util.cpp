@@ -159,10 +159,23 @@ static void append_any_val_type(int namespace_id, const TypeDescriptor& type,
         break;
     case TYPE_DATE:
     case TYPE_DATETIME:
+    case TYPE_DATETIMEV2:
         append_mangled_token("DateTimeVal", s);
+        break;
+    case TYPE_DATEV2:
+        append_mangled_token("DateV2Val", s);
         break;
     case TYPE_DECIMALV2:
         append_mangled_token("DecimalV2Val", s);
+        break;
+    case TYPE_DECIMAL32:
+        append_mangled_token("Decimal32Val", s);
+        break;
+    case TYPE_DECIMAL64:
+        append_mangled_token("Decimal64Val", s);
+        break;
+    case TYPE_DECIMAL128:
+        append_mangled_token("Decimal128Val", s);
         break;
     default:
         DCHECK(false) << "NYI: " << type.debug_string();

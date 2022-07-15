@@ -173,6 +173,18 @@ visible_functions = [
     [['array_position'], 'BIGINT', ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],
 
     [['cardinality', 'size'], 'BIGINT', ['ARRAY'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_INT',       ['ARRAY_INT'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_BIGINT',    ['ARRAY_BIGINT'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_DATE',      ['ARRAY_DATE'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_STRING',    ['ARRAY_STRING'], '', '', '', 'vec', ''],
 
     [['array_min'],     'TINYINT',  ['ARRAY_TINYINT'],  '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_min'],     'SMALLINT', ['ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -199,6 +211,19 @@ visible_functions = [
     [['array_product'], 'DOUBLE',   ['ARRAY_INT'],      '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_product'], 'DOUBLE',   ['ARRAY_BIGINT'],   '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_product'], 'DOUBLE',   ['ARRAY_LARGEINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+
+    [['array_remove'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT', 'TINYINT'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT', 'SMALLINT'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_INT',       ['ARRAY_INT', 'INT'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_BIGINT',    ['ARRAY_BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT', 'LARGEINT'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT', 'FLOAT'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE', 'DOUBLE'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2', 'DECIMALV2'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME', 'DATETIME'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_DATE',      ['ARRAY_DATE', 'DATE'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_STRING',    ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],    
 
     # Timestamp functions
     [['unix_timestamp'], 'INT', [],

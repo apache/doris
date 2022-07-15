@@ -81,7 +81,8 @@ public class ArrayType extends Type {
         if (itemType.isNull() || ((ArrayType) t).getItemType().isNull()) {
             return true;
         }
-        return Type.isImplicitlyCastable(itemType, ((ArrayType) t).itemType, true)
+
+        return itemType.matchesType(((ArrayType) t).itemType)
                 && (((ArrayType) t).containsNull || !containsNull);
     }
 

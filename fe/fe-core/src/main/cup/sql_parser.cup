@@ -905,6 +905,10 @@ alter_stmt ::=
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
         RESULT = new AlterTableStmt(tbl, Lists.newArrayList(clause));
     :}
+    | KW_ALTER KW_STORAGE KW_POLICY ident_or_text:policyName opt_properties:properties
+    {:
+        RESULT = new AlterPolicyStmt(policyName, properties);
+    :}
     ;
 
 opt_datasource_properties ::=
@@ -4724,15 +4728,15 @@ type ::=
   | KW_CHAR
   {: RESULT = ScalarType.createCharType(-1); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision RPAREN
-  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue()); :}
+  {: RESULT = ScalarType.createDecimalType(precision.intValue()); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
-  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue(), scale.intValue()); :}
+  {: RESULT = ScalarType.createDecimalType(precision.intValue(), scale.intValue()); :}
   | KW_DECIMAL
-  {: RESULT = ScalarType.createDecimalV2Type(); :}
+  {: RESULT = ScalarType.createDecimalType(); :}
   | KW_DECIMAL LPAREN ident_or_text:precision RPAREN
-  {: RESULT = ScalarType.createDecimalV2Type(precision); :}
+  {: RESULT = ScalarType.createDecimalType(precision); :}
   | KW_DECIMAL LPAREN ident_or_text:precision COMMA ident_or_text:scale RPAREN
-  {: RESULT = ScalarType.createDecimalV2Type(precision, scale); :}
+  {: RESULT = ScalarType.createDecimalType(precision, scale); :}
   | KW_HLL
   {: ScalarType type = ScalarType.createHllType();
      type.setAssignedStrLenInColDefinition();

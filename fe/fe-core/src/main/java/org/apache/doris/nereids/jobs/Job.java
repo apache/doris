@@ -57,7 +57,7 @@ public abstract class Job<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     public List<Rule<NODE_TYPE>> getValidRules(GroupExpression groupExpression,
             List<Rule<NODE_TYPE>> candidateRules) {
         return candidateRules.stream()
-                .filter(rule -> Objects.nonNull(rule) && rule.getPattern().matchOperator(groupExpression.getOperator())
+                .filter(rule -> Objects.nonNull(rule) && rule.getPattern().matchRoot(groupExpression.getPlan())
                         && groupExpression.notApplied(rule)).collect(Collectors.toList());
     }
 

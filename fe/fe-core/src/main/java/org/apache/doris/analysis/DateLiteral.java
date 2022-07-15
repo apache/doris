@@ -158,7 +158,8 @@ public class DateLiteral extends LiteralExpr {
         DATEV2(3);
 
         private final int value;
-        private DateLiteralType(int value) {
+
+        DateLiteralType(int value) {
             this.value = value;
         }
 
@@ -174,7 +175,7 @@ public class DateLiteral extends LiteralExpr {
     public DateLiteral(Type type, boolean isMax) throws AnalysisException {
         super();
         this.type = type;
-        if (type.equals(Type.DATE)) {
+        if (type.equals(Type.DATE) || type.equals(Type.DATEV2)) {
             if (isMax) {
                 copy(MAX_DATE);
             } else {
@@ -285,6 +286,7 @@ public class DateLiteral extends LiteralExpr {
         this.hour = dateTime.getHourOfDay();
         this.minute = dateTime.getMinuteOfHour();
         this.second = dateTime.getSecondOfMinute();
+        this.microsecond = dateTime.getMillisOfSecond() * 1000L;
         this.type = type;
     }
 
@@ -433,10 +435,14 @@ public class DateLiteral extends LiteralExpr {
             if (((ScalarType) type).decimalScale() == 0) {
                 return s;
             }
-            return s + "." + microsecond / (10L * (6 - ((ScalarType) type).decimalScale()));
+            return s + "." + getDecimalNumber();
         } else {
             return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
         }
+    }
+
+    public long getDecimalNumber() {
+        return Double.valueOf(microsecond / (Math.pow(10, 6 - ((ScalarType) type).decimalScale()))).longValue();
     }
 
     private String convertToString(PrimitiveType type) {
@@ -473,9 +479,10 @@ public class DateLiteral extends LiteralExpr {
                 return this;
             }
             if (targetType.equals(Type.DATE) || targetType.equals(Type.DATEV2)) {
-                return new DateLiteral(this.year, this.month, this.day);
+                return new DateLiteral(this.year, this.month, this.day, targetType);
             } else if (targetType.equals(Type.DATETIME)) {
-                return new DateLiteral(this.year, this.month, this.day, this.hour, this.minute, this.second);
+                return new DateLiteral(this.year, this.month, this.day, this.hour, this.minute, this.second,
+                        targetType);
             } else if (targetType.isDatetimeV2()) {
                 return new DateLiteral(this.year, this.month, this.day, this.hour, this.minute, this.microsecond,
                         targetType);

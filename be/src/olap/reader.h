@@ -27,6 +27,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
+#include "olap/tablet_schema.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -57,6 +58,7 @@ public:
     // mainly include tablet, data version and fetch range.
     struct ReaderParams {
         TabletSharedPtr tablet;
+        const TabletSchema* tablet_schema;
         ReaderType reader_type = READER_QUERY;
         bool direct_mode = false;
         bool aggregation = false;
@@ -171,6 +173,7 @@ protected:
                                std::set<uint32_t>* load_bf_columns);
 
     TabletSharedPtr tablet() { return _tablet; }
+    const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
     std::unique_ptr<MemPool> _predicate_mem_pool;
     std::set<uint32_t> _load_bf_columns;
@@ -183,6 +186,7 @@ protected:
 
     TabletSharedPtr _tablet;
     RowsetReaderContext _reader_context;
+    const TabletSchema* _tablet_schema;
     KeysParam _keys_param;
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;

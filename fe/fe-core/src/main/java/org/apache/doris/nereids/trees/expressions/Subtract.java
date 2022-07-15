@@ -26,9 +26,8 @@ import java.util.List;
 /**
  * Subtract Expression. BinaryExpression.
  */
-public class Subtract<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-    public Subtract(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+public class Subtract extends Arithmetic implements BinaryExpression {
+    public Subtract(Expression left, Expression right) {
         super(ArithmeticOperator.SUBTRACT, left, right);
     }
 
@@ -41,7 +40,7 @@ public class Subtract<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE exten
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Subtract<>(children.get(0), children.get(1));
+        return new Subtract(children.get(0), children.get(1));
     }
 
     @Override

@@ -27,9 +27,8 @@ import java.util.List;
 /**
  * Add Expression.
  */
-public class Add<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-    public Add(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+public class Add extends Arithmetic implements BinaryExpression {
+    public Add(Expression left, Expression right) {
         super(ArithmeticOperator.ADD, left, right);
     }
 
@@ -42,7 +41,7 @@ public class Add<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Ex
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Add<>(children.get(0), children.get(1));
+        return new Add(children.get(0), children.get(1));
     }
 
     @Override
