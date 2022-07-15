@@ -17,7 +17,10 @@
 
 #pragma once
 
+#include <cstddef>
 #include <memory> // for unique_ptr
+#include <type_traits>
+#include <variant>
 
 #include "common/status.h"         // for Status
 #include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
@@ -133,12 +136,6 @@ public:
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
 
-    // used for append not null data. When page is full, will append data not reach num_rows.
-    virtual Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) = 0;
-
-    // used for append not null data. When page is full, will append data not reach num_rows.
-    virtual Status append_data_in_current_page(const uint8_t* ptr, size_t* num_rows) = 0;
-
     bool is_nullable() const { return _is_nullable; }
 
     Field* get_field() const { return _field.get(); }
@@ -188,8 +185,10 @@ public:
     }
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
 
-    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) override;
-    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_rows) override;
+
+    // used for append not null data. When page is full, will append data not reach num_rows.
+    template <typename DataPtr>
+    Status append_data_in_current_page(DataPtr ptr, size_t* num_written);
 
 private:
     std::unique_ptr<PageBuilder> _page_builder;
@@ -267,14 +266,6 @@ public:
     Status init() override;
 
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
-    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) override {
-        return Status::NotSupported(
-                "array writer has no data, can not append_data_in_current_page");
-    }
-    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_rows) override {
-        return Status::NotSupported(
-                "array writer has no data, can not append_data_in_current_page");
-    }
 
     uint64_t estimate_buffer_size() override;
 

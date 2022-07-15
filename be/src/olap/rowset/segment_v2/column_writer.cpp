@@ -18,6 +18,8 @@
 #include "olap/rowset/segment_v2/column_writer.h"
 
 #include <cstddef>
+#include <cstdint>
+#include <type_traits>
 
 #include "common/logging.h"
 #include "env/env.h"
@@ -336,20 +338,34 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     return Status::OK();
 }
 
-Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** ptr, size_t* num_written) {
-    RETURN_IF_ERROR(_page_builder->add(*ptr, num_written));
+template <typename>
+constexpr bool always_false_v = false;
+
+template <typename DataPtr>
+Status ScalarColumnWriter::append_data_in_current_page(DataPtr ptr, size_t* num_written) {
+    const uint8_t* data = nullptr;
+    if constexpr (std::is_same<DataPtr, const uint8_t**>::value) {
+        data = *ptr;
+    } else if constexpr (std::is_same<DataPtr, uint8_t*>::value) {
+        data = ptr;
+    } else {
+        static_assert(always_false_v<DataPtr>, "not support type");
+    }
+    RETURN_IF_ERROR(_page_builder->add(data, num_written));
     if (_opts.need_zone_map) {
-        _zone_map_index_builder->add_values(*ptr, *num_written);
+        _zone_map_index_builder->add_values(data, *num_written);
     }
     if (_opts.need_bitmap_index) {
-        _bitmap_index_builder->add_values(*ptr, *num_written);
+        _bitmap_index_builder->add_values(data, *num_written);
     }
     if (_opts.need_bloom_filter) {
-        _bloom_filter_index_builder->add_values(*ptr, *num_written);
+        _bloom_filter_index_builder->add_values(data, *num_written);
     }
 
     _next_rowid += *num_written;
-    *ptr += get_field()->size() * (*num_written);
+    if constexpr (std::is_same_v<DataPtr, uint8_t**>) {
+        ptr += get_field()->size() * (*num_written);
+    }
     // we must write null bits after write data, because we don't
     // know how many rows can be written into current page
     if (is_nullable()) {
@@ -358,24 +374,9 @@ Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** ptr, size
     return Status::OK();
 }
 
-Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* ptr, size_t* num_written) {
-    RETURN_IF_ERROR(_page_builder->add(ptr, num_written));
-    if (_opts.need_zone_map) {
-        _zone_map_index_builder->add_values(ptr, *num_written);
-    }
-    if (_opts.need_bitmap_index) {
-        _bitmap_index_builder->add_values(ptr, *num_written);
-    }
-    if (_opts.need_bloom_filter) {
-        _bloom_filter_index_builder->add_values(ptr, *num_written);
-    }
-
-    _next_rowid += *num_written;
-    if (is_nullable()) {
-        _null_bitmap_builder->add_run(false, *num_written);
-    }
-    return Status::OK();
-}
+template Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** ptr,
+                                                                size_t* num_written);
+template Status ScalarColumnWriter::append_data_in_current_page(uint8_t* ptr, size_t* num_written);
 
 uint64_t ScalarColumnWriter::estimate_buffer_size() {
     uint64_t size = _data_size;
