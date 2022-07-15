@@ -62,6 +62,8 @@ export default function SortFilterTable(props: any) {
                     showSizeChanger:true,
                     showQuickJumper:true,
                     hideOnSinglePage:true,
+                    pageSize:30,
+                    defaultPageSize:30,
                 }}
             />
         </span>
