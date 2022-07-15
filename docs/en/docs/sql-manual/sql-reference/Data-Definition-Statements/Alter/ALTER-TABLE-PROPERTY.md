@@ -34,13 +34,19 @@ ALTER TABLE PROPERTY
 
 This statement is used to modify the properties of an existing table. This operation is synchronous, and the return of the command indicates the completion of the execution.
 
+Modify the properties of the table, currently supports modifying the bloom filter column, the colocate_with attribute and the dynamic_partition attribute,  the replication_num and default.replication_num.
+
 grammar:
 
 ```sql
 ALTER TABLE [database.]table alter_clause;
 ```
 
-The alter_clause of property supports the following modification methods
+The alter_clause of property supports the following modification methods.
+
+Note:
+
+Can also be merged into the above schema change operation to modify, see the example below
 
 1. Modify the bloom filter column of the table
 
@@ -78,7 +84,13 @@ If you need to add dynamic partition attributes to tables without dynamic partit
    (Note: adding dynamic partition attributes is not supported for non-partitioned tables)
 
 ```sql
-ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition. buckets" = "32");
+ALTER TABLE example_db.my_table set (
+  "dynamic_partition.enable" = "true", 
+  "dynamic_partition.time_unit" = "DAY", 
+  "dynamic_partition.end" = "3", 
+  "dynamic_partition.prefix" = "p", 
+  "dynamic_partition. buckets" = "32"
+);
 ```
 
 5. Modify the in_memory attribute of the table
@@ -93,17 +105,34 @@ ALTER TABLE example_db.my_table set ("in_memory" = "true");
 ALTER TABLE example_db.my_table ENABLE FEATURE "BATCH_DELETE";
 ```
 
+Note:
+
+- Only support unique tables
+-  Batch deletion is supported for old tables, while new tables are already supported when they are created
+
 7. Enable the function of ensuring the import order according to the value of the sequence column
 
 ```sql
-ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date");
+ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES (
+  "function_column.sequence_type" = "Date"
+);
 ```
+
+Note:
+
+- Only support unique tables
+- The sequence_type is used to specify the type of the sequence column, which can be integral and time type
+- Only the orderliness of newly imported data is supported. Historical data cannot be changed
 
 8. Change the default number of buckets for the table to 50
 
 ```sql
 ALTER TABLE example_db.my_table MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 50;
 ```
+
+Note:
+
+- Only support non colocate table with RANGE partition and HASH distribution
 
 9. Modify table comments
 
@@ -118,6 +147,8 @@ ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 
 ```
 
 11. Modify the engine type
+
+Only the MySQL type can be changed to the ODBC type. The value of driver is the name of the driver in the odbc.init configuration.
 
 ```sql
 ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");

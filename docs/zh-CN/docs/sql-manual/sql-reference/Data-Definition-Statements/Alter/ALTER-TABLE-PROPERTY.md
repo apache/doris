@@ -78,7 +78,13 @@ ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
    (注:非分区表不支持添加动态分区属性)
 
 ```sql
-ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
+ALTER TABLE example_db.my_table set (
+  "dynamic_partition.enable" = "true", 
+  "dynamic_partition.time_unit" = "DAY", 
+  "dynamic_partition.end" = "3", 
+  "dynamic_partition.prefix" = "p", 
+  "dynamic_partition.buckets" = "32"
+);
 ```
 
 5. 修改表的 in_memory 属性
@@ -93,17 +99,34 @@ ALTER TABLE example_db.my_table set ("in_memory" = "true");
 ALTER TABLE example_db.my_table ENABLE FEATURE "BATCH_DELETE";
 ```
 
+注意：
+
+- 只能用在unique 表
+- 用于旧表支持批量删除功能，新表创建时已经支持
+
 7. 启用按照sequence column的值来保证导入顺序的功能
 
 ```sql
-ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date");
+ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES (
+  "function_column.sequence_type" = "Date"
+);
 ```
+
+注意：
+
+- 只能用在unique 表
+- sequence_type用来指定sequence列的类型，可以为整型和时间类型
+- 只支持新导入数据的有序性，历史数据无法更改
 
 8. 将表的默认分桶数改为50
 
 ```sql
 ALTER TABLE example_db.my_table MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 50;
 ```
+
+注意：
+
+- 只能用在分区类型为RANGE，采用哈希分桶的非colocate表
 
 9. 修改表注释
 
@@ -119,6 +142,8 @@ ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 
 
 11. 修改引擎类型
 
+    仅支持将 MySQL 类型修改为 ODBC 类型。driver 的值为 odbc.init 配置中的 driver 名称。
+
 ```sql
 ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
 ```
@@ -128,7 +153,9 @@ ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "
 1. 修改表的 bloom filter 列
 
 ```sql
-ALTER TABLE example_db.my_table SET ("bloom_filter_columns"="k1,k2,k3");
+ALTER TABLE example_db.my_table SET (
+  "bloom_filter_columns"="k1,k2,k3"
+);
 ```
 
 也可以合并到上面的 schema change 操作中（注意多子句的语法有少许区别）
@@ -136,7 +163,9 @@ ALTER TABLE example_db.my_table SET ("bloom_filter_columns"="k1,k2,k3");
 ```sql
 ALTER TABLE example_db.my_table
 DROP COLUMN col2
-PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
+PROPERTIES (
+  "bloom_filter_columns"="k1,k2,k3"
+);
 ```
 
 2. 修改表的Colocate 属性
@@ -148,20 +177,30 @@ ALTER TABLE example_db.my_table set ("colocate_with" = "t1");
 3. 将表的分桶方式由 Hash Distribution 改为 Random Distribution
 
 ```sql
-ALTER TABLE example_db.my_table set ("distribution_type" = "random");
+ALTER TABLE example_db.my_table set (
+  "distribution_type" = "random"
+);
 ```
 
 4. 修改表的动态分区属性(支持未添加动态分区属性的表添加动态分区属性)
 
 ```sql
-ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
+ALTER TABLE example_db.my_table set (
+  "dynamic_partition.enable" = "false"
+);
 ```
 
 如果需要在未添加动态分区属性的表中添加动态分区属性，则需要指定所有的动态分区属性
    (注:非分区表不支持添加动态分区属性)
 
 ```sql
-ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
+ALTER TABLE example_db.my_table set (
+  "dynamic_partition.enable" = "true", 
+  "dynamic_partition.time_unit" = "DAY", 
+  "dynamic_partition.end" = "3", 
+  "dynamic_partition.prefix" = "p", 
+  "dynamic_partition.buckets" = "32"
+);
 ```
 
 5. 修改表的 in_memory 属性
@@ -179,7 +218,9 @@ ALTER TABLE example_db.my_table ENABLE FEATURE "BATCH_DELETE";
 7. 启用按照sequence column的值来保证导入顺序的功能
 
 ```sql
-ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date");
+ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES (
+  "function_column.sequence_type" = "Date"
+);
 ```
 
 8. 将表的默认分桶数改为50

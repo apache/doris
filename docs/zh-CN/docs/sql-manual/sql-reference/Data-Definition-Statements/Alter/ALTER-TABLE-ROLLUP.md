@@ -52,6 +52,8 @@ ADD ROLLUP rollup_name (column_name1, column_name2, ...)
 [PROPERTIES ("key"="value", ...)]
 ```
 
+ properties: 支持设置超时时间，默认超时时间为1天。
+
 2. 批量创建 rollup index
 
 语法：
@@ -118,6 +120,13 @@ PROPERTIES("timeout" = "3600");
 ```sql
 ALTER TABLE example_db.my_table
 DROP ROLLUP example_rollup_index2;
+```
+
+5. 批量删除Rollup
+
+```sql
+ALTER TABLE example_db.my_table
+DROP ROLLUP example_rollup_index2,example_rollup_index3;
 ```
 
 ### Keywords

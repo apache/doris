@@ -80,7 +80,7 @@ ALTER TABLE table1 DROP INDEX [IF EXISTS] index_name;
 ### Keywords
 
 ```text
-ALTER, TABLE, BITMAP, ALTER TABLE
+ALTER, TABLE, BITMAP, INDEX, ALTER TABLE
 ```
 
 ### Best Practice
