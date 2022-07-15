@@ -73,6 +73,10 @@ public class AgentTaskQueue {
     // remove all task in AgentBatchTask.
     // the caller should make sure all tasks in AgentBatchTask is type of 'type'
     public static synchronized void removeBatchTask(AgentBatchTask batchTask, TTaskType type) {
+        if (batchTask == null) {
+            return;
+        }
+
         for (AgentTask task : batchTask.getAllTasks()) {
             removeTask(task.getBackendId(), type, task.getSignature());
         }
