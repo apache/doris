@@ -110,7 +110,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema&
           _bitmap_index_iterators(_schema.num_columns(), nullptr),
           _cur_rowid(0),
           _lazy_materialization_read(false),
-          _inited(false) {}
+          _inited(false),
+          _estimate_row_size(true) {}
 
 SegmentIterator::~SegmentIterator() {
     for (auto iter : _column_iterators) {
@@ -999,6 +1000,10 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
     uint32_t nrows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
+    if (UNLIKELY(_estimate_row_size)) {
+        // read 100 rows to estimate average row size
+        nrows_read_limit = 100;
+    }
     _read_columns_by_index(nrows_read_limit, nrows_read, _lazy_materialization_read);
 
     _opts.stats->blocks_load += 1;
@@ -1040,6 +1045,10 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             }
             // shrink char_type suffix zero data
             block->shrink_char_type_column_suffix_zero(_char_type_idx);
+
+            if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
+                _update_max_row(block);
+            }
             return ret;
         }
 
@@ -1063,7 +1072,18 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
 
+    if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
+        _update_max_row(block);
+    }
     return Status::OK();
+}
+
+void SegmentIterator::_update_max_row(const vectorized::Block* block) {
+    _estimate_row_size = false;
+    auto avg_row_size = block->bytes() / block->rows();
+
+    int block_row_max = config::doris_scan_block_max_mb / avg_row_size;
+    _opts.block_row_max = std::min(block_row_max, _opts.block_row_max);
 }
 
 } // namespace segment_v2
