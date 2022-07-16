@@ -77,14 +77,16 @@ public:
         // write out zone map index
         ColumnIndexMetaPB index_meta;
         {
-            std::unique_ptr<io::FileWriter> file_writer;
+            io::FileWriterPtr file_writer;
             EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
             EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
             EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
             EXPECT_TRUE(file_writer->close().ok());
         }
 
-        ZoneMapIndexReader column_zone_map(fs, filename, &index_meta.zone_map_index());
+        io::FileReaderSPtr file_reader;
+        EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+        ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(3, column_zone_map.num_pages());
@@ -121,14 +123,16 @@ public:
         // write out zone map index
         ColumnIndexMetaPB index_meta;
         {
-            std::unique_ptr<io::FileWriter> file_writer;
+            io::FileWriterPtr file_writer;
             EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
             EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
             EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
             EXPECT_TRUE(file_writer->close().ok());
         }
 
-        ZoneMapIndexReader column_zone_map(fs, filename, &index_meta.zone_map_index());
+        io::FileReaderSPtr file_reader;
+        EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+        ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(1, column_zone_map.num_pages());
@@ -171,14 +175,16 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     // write out zone map index
     ColumnIndexMetaPB index_meta;
     {
-        std::unique_ptr<io::FileWriter> file_writer;
+        io::FileWriterPtr file_writer;
         EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
         EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
         EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
         EXPECT_TRUE(file_writer->close().ok());
     }
 
-    ZoneMapIndexReader column_zone_map(fs, filename, &index_meta.zone_map_index());
+    io::FileReaderSPtr file_reader;
+    EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+    ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
     Status status = column_zone_map.load(true, false);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(3, column_zone_map.num_pages());

@@ -52,7 +52,7 @@ private:
 
 TEST_F(PrimaryKeyIndexTest, builder) {
     std::string filename = kTestDir + "/builder";
-    std::unique_ptr<io::FileWriter> file_writer;
+    io::FileWriterPtr file_writer;
     auto fs = io::global_local_filesystem();
     EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
@@ -73,7 +73,9 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     EXPECT_EQ(num_rows, builder.num_rows());
 
     PrimaryKeyIndexReader index_reader;
-    EXPECT_TRUE(index_reader.parse(fs, filename, index_meta).ok());
+    io::FileReaderSPtr file_reader;
+    EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+    EXPECT_TRUE(index_reader.parse(file_reader, index_meta).ok());
     EXPECT_EQ(num_rows, index_reader.num_rows());
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
