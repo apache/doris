@@ -33,8 +33,8 @@ public class BackendClause extends AlterClause {
     protected List<String> hostPorts;
     protected List<Pair<String, Integer>> hostPortPairs;
 
-    public static final String MUTLI_TAG_DISABLED_MSG
-            = "Not support multi tags for Backend now. You can set 'enable_multi_tags=true' in fe.conf to enable this feature.";
+    public static final String MUTLI_TAG_DISABLED_MSG = "Not support multi tags for Backend now. "
+            + "You can set 'enable_multi_tags=true' in fe.conf to enable this feature.";
     public static final String NEED_LOCATION_TAG_MSG
             = "Backend must have location type tag. Eg: 'tag.location' = 'xxx'.";
 
