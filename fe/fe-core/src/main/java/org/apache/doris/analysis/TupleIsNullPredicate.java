@@ -198,10 +198,16 @@ public class TupleIsNullPredicate extends Predicate {
     public static void substitueListForTupleIsNull(List<Expr> exprs,
             Map<List<TupleId>, TupleId> originToTargetTidMap) {
         for (Expr expr : exprs) {
-            if (!(expr instanceof TupleIsNullPredicate)) {
+            if (!(expr instanceof FunctionCallExpr)) {
                 continue;
             }
-            TupleIsNullPredicate tupleIsNullPredicate = (TupleIsNullPredicate) expr;
+            if (expr.getChildren().size() != 3) {
+                continue;
+            }
+            if (!(expr.getChild(0) instanceof TupleIsNullPredicate)) {
+                continue;
+            }
+            TupleIsNullPredicate tupleIsNullPredicate = (TupleIsNullPredicate) expr.getChild(0);
             TupleId targetTid = originToTargetTidMap.get(tupleIsNullPredicate.getTupleIds());
             if (targetTid != null) {
                 tupleIsNullPredicate.replaceTupleIds(Arrays.asList(targetTid));
