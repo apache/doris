@@ -147,6 +147,11 @@ struct PrimitiveTypeTraits<TYPE_DATETIME> {
     using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
 };
 template <>
+struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
+    using CppType = doris::DateTimeValue;
+    using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
+};
+template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {
     using CppType = doris::vectorized::DateV2Value;
     using ColumnType = vectorized::ColumnVector<vectorized::DateV2>;

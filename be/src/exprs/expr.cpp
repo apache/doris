@@ -132,6 +132,8 @@ Expr::Expr(const TypeDescriptor& type)
 
     case TYPE_DATE:
     case TYPE_DATETIME:
+    case TYPE_DATEV2:
+    case TYPE_DATETIMEV2:
         _node_type = (TExprNodeType::DATE_LITERAL);
         break;
 
@@ -191,6 +193,8 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref)
             break;
 
         case TYPE_DATETIME:
+        case TYPE_DATEV2:
+        case TYPE_DATETIMEV2:
             _node_type = (TExprNodeType::DATE_LITERAL);
             break;
 
@@ -692,8 +696,14 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         break;
     }
     case TYPE_DATE:
-    case TYPE_DATETIME: {
+    case TYPE_DATETIME:
+    case TYPE_DATETIMEV2: {
         _constant_val.reset(new DateTimeVal(get_datetime_val(context, nullptr)));
+        break;
+    }
+
+    case TYPE_DATEV2: {
+        _constant_val.reset(new DateV2Val(get_datev2_val(context, nullptr)));
         break;
     }
 
@@ -803,6 +813,11 @@ StringVal Expr::get_string_val(ExprContext* context, TupleRow* row) {
 DateTimeVal Expr::get_datetime_val(ExprContext* context, TupleRow* row) {
     DateTimeVal val;
     // ((DateTimeValue*)get_value(row))->to_datetime_val(&val);
+    return val;
+}
+
+DateV2Val Expr::get_datev2_val(ExprContext* context, TupleRow* row) {
+    DateV2Val val;
     return val;
 }
 

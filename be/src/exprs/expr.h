@@ -105,6 +105,7 @@ public:
     // virtual ArrayVal GetArrayVal(ExprContext* context, TupleRow*);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
+    virtual DateV2Val get_datev2_val(ExprContext* context, TupleRow*);
     virtual CollectionVal get_array_val(ExprContext* context, TupleRow*);
 
     virtual Decimal32Val get_decimal32_val(ExprContext* context, TupleRow*);
@@ -470,24 +471,28 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         TIntLiteral intLiteral;
         intLiteral.__set_value(*origin_value);
         (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TINYINT));
     } else if constexpr (T == TYPE_SMALLINT) {
         auto origin_value = reinterpret_cast<const int16_t*>(data);
         (*node).__set_node_type(TExprNodeType::INT_LITERAL);
         TIntLiteral intLiteral;
         intLiteral.__set_value(*origin_value);
         (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_SMALLINT));
     } else if constexpr (T == TYPE_INT) {
         auto origin_value = reinterpret_cast<const int32_t*>(data);
         (*node).__set_node_type(TExprNodeType::INT_LITERAL);
         TIntLiteral intLiteral;
         intLiteral.__set_value(*origin_value);
         (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_INT));
     } else if constexpr (T == TYPE_BIGINT) {
         auto origin_value = reinterpret_cast<const int64_t*>(data);
         (*node).__set_node_type(TExprNodeType::INT_LITERAL);
         TIntLiteral intLiteral;
         intLiteral.__set_value(*origin_value);
         (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BIGINT));
     } else if constexpr (T == TYPE_LARGEINT) {
         auto origin_value = reinterpret_cast<const int128_t*>(data);
         (*node).__set_node_type(TExprNodeType::LARGE_INT_LITERAL);

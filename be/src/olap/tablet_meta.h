@@ -89,7 +89,8 @@ public:
                TabletUid tablet_uid, TTabletType::type tabletType,
                TStorageMedium::type t_storage_medium, const std::string& remote_storage_name,
                TCompressionType::type compression_type,
-               const std::string& storage_policy = std::string());
+               const std::string& storage_policy = std::string(),
+               bool enable_unique_key_merge_on_write = false);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -167,7 +168,7 @@ public:
 
     void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     void remove_delete_predicate_by_version(const Version& version);
-    DelPredicateArray delete_predicates() const;
+    const std::vector<DeletePredicatePB>& delete_predicates() const;
     bool version_for_delete_predicate(const Version& version);
 
     std::string full_name() const;
@@ -205,10 +206,12 @@ public:
 
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
+    bool enable_unique_key_merge_on_write() { return _enable_unique_key_merge_on_write; }
+
 private:
     Status _save_meta(DataDir* data_dir);
 
-    // _del_pred_array is ignored to compare.
+    // _del_predicates is ignored to compare.
     friend bool operator==(const TabletMeta& a, const TabletMeta& b);
     friend bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
@@ -235,7 +238,7 @@ private:
     // this policy is judged and computed by TimestampedVersionTracker.
     std::vector<RowsetMetaSharedPtr> _stale_rs_metas;
 
-    DelPredicateArray _del_pred_array;
+    std::vector<DeletePredicatePB> _del_predicates;
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
     std::string _remote_storage_name;
@@ -244,6 +247,8 @@ private:
     // FIXME(cyx): Currently `cooldown_resource` is equivalent to `storage_policy`.
     io::ResourceId _cooldown_resource;
 
+    // may be true iff unique keys model.
+    bool _enable_unique_key_merge_on_write = false;
     std::unique_ptr<DeleteBitmap> _delete_bitmap;
 
     mutable std::shared_mutex _meta_lock;
