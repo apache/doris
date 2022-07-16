@@ -57,8 +57,6 @@
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
-#include "util/storage_backend.h"
-#include "util/storage_backend_mgr.h"
 #include "util/time.h"
 #include "util/trace.h"
 
