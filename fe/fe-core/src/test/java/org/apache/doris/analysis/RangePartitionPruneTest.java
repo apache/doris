@@ -50,7 +50,7 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
                         + "PROPERTIES('replication_num' = '1');";
 
         String notNullSingleColumnPartitionTable =
-                "CREATE TABLE `test`.`not_null` (\n"
+                "CREATE TABLE `test`.`single_not_null` (\n"
                         + "  `dt` int(11) NULL COMMENT \"\",\n"
                         + "  `k1` int(11) NULL COMMENT \"\",\n"
                         + "  `k2` int(11) NULL COMMENT \"\",\n"
@@ -128,7 +128,7 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
         addCase("select * from test.t1 where dt in (20211124, 20211126, 20211122)", "partitions=3/8", "partitions=3/8");
         // is null
         addCase("select * from test.t1 where dt is null", "partitions=1/8", "partitions=1/8");
-        addCase("select * from test.`not_null` where dt is null", "partitions=0/7", "partitions=0/7");
+        addCase("select * from test.`single_not_null` where dt is null", "partitions=0/7", "partitions=0/7");
         // not equal to
         addCase("select * from test.t1 where dt!=20211122", "partitions=8/8", "partitions=8/8");
 

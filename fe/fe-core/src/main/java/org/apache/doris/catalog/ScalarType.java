@@ -719,6 +719,9 @@ public class ScalarType extends Type {
             return true;
         }
         if (isDecimalV3() && scalarType.isDecimalV3()) {
+            return precision == scalarType.precision && scale == scalarType.scale;
+        }
+        if (isDatetimeV2() && scalarType.isDatetimeV2()) {
             return true;
         }
         return false;
@@ -730,17 +733,11 @@ public class ScalarType extends Type {
             return false;
         }
         ScalarType other = (ScalarType) o;
-        if ((this.isDate() && other.isDateV2()) || (this.isDateV2() && other.isDate())) {
-            return true;
-        }
-        if ((this.isDatetime() && other.isDatetimeV2()) || (this.isTime() && other.isTimeV2())) {
-            return other.decimalScale() == 0;
-        }
-        if ((this.isDatetimeV2() && other.isDatetime()) || (this.isTimeV2() && other.isTime())) {
-            return this.decimalScale() == 0;
-        }
         if ((this.isDatetimeV2() && other.isDatetimeV2()) || (this.isTimeV2() && other.isTimeV2())) {
             return this.decimalScale() == other.decimalScale();
+        }
+        if (type.isDecimalV3Type() && other.isDecimalV3()) {
+            return precision == other.precision && scale == other.scale;
         }
         if (type != other.type) {
             return false;
@@ -751,9 +748,12 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR) {
             return len == other.len;
         }
-        if (type.isDecimalV2Type() || type.isDecimalV3Type()
-                || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
+        if (type.isDecimalV2Type() || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
             return precision == other.precision && scale == other.scale;
+        }
+        if (type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
+            return precision == other.precision && scale == other.scale
+                    && type == ((ScalarType) o).getPrimitiveType();
         }
         return true;
     }

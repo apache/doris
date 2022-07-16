@@ -131,25 +131,6 @@ suite ("test_uniq_keys_schema_change") {
     assertTrue(result[0].size() == 1)
     assertTrue(result[0][0] == 3, "total count is 3")
 
-    // drop column will throws exception 'Can not drop key column in Unique data model table'
-    // sql """
-    //       ALTER TABLE ${tableName} DROP COLUMN sex
-    //       """
-    // result = "null"
-    // while (!result.contains("FINISHED")){
-    //     result = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-    //     result = result.toString()
-    //     logger.info("result: ${result}")
-    //     if(result.contains("CANCELLED")) {
-    //         log.info("rollup job is cancelled, result: ${result}".toString())
-    //         break
-    //     }
-    //     Thread.sleep(1000)
-    // }
-    // result = sql """ select * from ${tableName} where user_id = 3 """
-    // assertTrue(result.size() == 1)
-    // assertTrue(result[0].size() == 11)
-
     sql """ INSERT INTO ${tableName} VALUES
              (4, '2017-10-01', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2020-01-03', 1, 32, 20, 2)
         """
@@ -177,7 +158,6 @@ suite ("test_uniq_keys_schema_change") {
              (5, '2017-10-01', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2020-01-03', 1, 32, 20, 2)
         """
 
-    Thread.sleep(30 * 1000)
     // compaction
     String[][] tablets = sql """ show tablets from ${tableName}; """
     for (String[] tablet in tablets) {

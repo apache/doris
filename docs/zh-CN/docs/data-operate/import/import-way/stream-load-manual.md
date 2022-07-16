@@ -59,7 +59,7 @@ Stream load 主要适用于导入本地文件，或通过程序导入数据流�
 
 Stream load 中，Doris 会选定一个节点作为 Coordinator 节点。该节点负责接数据并分发数据到其他数据节点。
 
-用户通过 HTTP 协议提交导入命令。如果提交到 FE，则 FE 会通过 HTTP redirect 指令将请求转发给某一个 BE。用户也可以直接提交导入命令给某一指定 BE。
+用户通过 HTTP 协议提交导入命令。如果提交到 FE，则 FE 会通过 HTTP redirect 指令将请求转发给某一个 BE。用户也可以直接提交导入命令给某一指定 BE。所以Stream load命令提交到FE则需要加"--location-trusted"，而直接提交到BE则不需要。
 
 导入的最终结果由 Coordinator BE 返回给用户。
 
