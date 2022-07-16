@@ -104,10 +104,6 @@ public:
     // load data from meta and data files
     Status load();
 
-    void add_pending_ids(const std::string& id);
-
-    void remove_pending_ids(const std::string& id);
-
     // this function scans the paths in data dir to collect the paths to check
     // this is a producer function. After scan, it will notify the perform_path_gc function to gc
     void perform_path_scan();
@@ -157,8 +153,6 @@ private:
 
     void _remove_check_paths(const std::set<std::string>& paths);
 
-    bool _check_pending_ids(const std::string& id);
-
 private:
     bool _stop_bg_worker = false;
 
@@ -198,9 +192,6 @@ private:
     std::condition_variable _check_path_cv;
     std::set<std::string> _all_check_paths;
     std::set<std::string> _all_tablet_schemahash_paths;
-
-    mutable std::shared_mutex _pending_path_mutex;
-    std::set<std::string> _pending_path_ids;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
     IntGauge* disks_total_capacity;

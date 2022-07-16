@@ -300,9 +300,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
     int64_t new_tablet_id = request.tablet_id;
     int32_t new_schema_hash = request.tablet_schema.schema_hash;
 
-    // should remove the tablet's pending_id no matter create-tablet success or not
     DataDir* data_dir = tablet->data_dir();
-    SCOPED_CLEANUP({ data_dir->remove_pending_ids(StrCat(TABLET_ID_PREFIX, new_tablet_id)); });
 
     // TODO(yiguolei)
     // the following code is very difficult to understand because it mixed alter tablet v2
@@ -379,16 +377,8 @@ static string _gen_tablet_dir(const string& dir, int16_t shard_id, int64_t table
 TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
         const TCreateTabletReq& request, const bool is_schema_change, const Tablet* base_tablet,
         const std::vector<DataDir*>& data_dirs) {
-    string pending_id = StrCat(TABLET_ID_PREFIX, request.tablet_id);
     // Many attempts are made here in the hope that even if a disk fails, it can still continue.
-    DataDir* last_dir = nullptr;
     for (auto& data_dir : data_dirs) {
-        if (last_dir != nullptr) {
-            // If last_dir != null, it means the last attempt to create a tablet failed
-            last_dir->remove_pending_ids(pending_id);
-        }
-        last_dir = data_dir;
-
         TabletMetaSharedPtr tablet_meta;
         // if create meta failed, do not need to clean dir, because it is only in memory
         Status res = _create_tablet_meta_unlocked(request, data_dir, is_schema_change, base_tablet,
@@ -410,7 +400,6 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
             LOG(WARNING) << "skip this dir because tablet path exist, path=" << schema_hash_dir;
             continue;
         } else {
-            data_dir->add_pending_ids(pending_id);
             Status st = FileUtils::create_dir(schema_hash_dir);
             if (!st.ok()) {
                 LOG(WARNING) << "create dir fail. path=" << schema_hash_dir

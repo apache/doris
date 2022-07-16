@@ -532,16 +532,6 @@ Status DataDir::load() {
     return Status::OK();
 }
 
-void DataDir::add_pending_ids(const std::string& id) {
-    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
-    _pending_path_ids.insert(id);
-}
-
-void DataDir::remove_pending_ids(const std::string& id) {
-    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
-    _pending_path_ids.erase(id);
-}
-
 // gc unused tablet schemahash dir
 void DataDir::perform_path_gc_by_tablet() {
     std::unique_lock<std::mutex> lck(_check_path_mutex);
@@ -706,11 +696,6 @@ void DataDir::_process_garbage_path(const std::string& path) {
         LOG(INFO) << "collect garbage dir path: " << path;
         WARN_IF_ERROR(FileUtils::remove_all(path), "remove garbage dir failed. path: " + path);
     }
-}
-
-bool DataDir::_check_pending_ids(const std::string& id) {
-    std::shared_lock rd_lock(_pending_path_mutex);
-    return _pending_path_ids.find(id) != _pending_path_ids.end();
 }
 
 Status DataDir::update_capacity() {

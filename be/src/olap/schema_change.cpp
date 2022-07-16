@@ -1639,12 +1639,8 @@ bool SchemaChangeWithSorting::_internal_sorting(
 
     if (!merger.merge(row_block_arr, rowset_writer.get(), &merged_rows)) {
         LOG(WARNING) << "failed to merge row blocks.";
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
         return false;
     }
-    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                               rowset_writer->rowset_id().to_string());
     _add_merged_rows(merged_rows);
     *rowset = rowset_writer->build();
     return true;
@@ -1661,11 +1657,6 @@ Status VSchemaChangeWithSorting::_internal_sorting(
     RETURN_IF_ERROR(new_tablet->create_rowset_writer(
             version, VISIBLE, segments_overlap, &new_tablet->tablet_schema(),
             oldest_write_timestamp, newest_write_timestamp, &rowset_writer));
-
-    Defer defer {[&]() {
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
-    }};
 
     RETURN_IF_ERROR(merger.merge(blocks, rowset_writer.get(), &merged_rows));
 
@@ -2121,13 +2112,9 @@ Status SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tablet,
                          << "version=" << (*base_rowset)->version().first << "-"
                          << (*base_rowset)->version().second;
         }
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
         return schema_version_convert_error();
     }
     *new_rowset = rowset_writer->build();
-    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                               rowset_writer->rowset_id().to_string());
     if (*new_rowset == nullptr) {
         LOG(WARNING) << "build rowset failed.";
         res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
@@ -2235,12 +2222,8 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first << "-"
                          << rs_reader->version().second;
-            new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                       rowset_writer->rowset_id().to_string());
             return process_alter_exit();
         }
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
         // Add the new version of the data to the header
         // In order to prevent the occurrence of deadlock, we must first lock the old table, and then lock the new table
         std::lock_guard<std::mutex> lock(sc_params.new_tablet->get_push_lock());

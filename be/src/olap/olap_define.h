@@ -125,8 +125,6 @@ static const std::string CONVERTED_FLAG = "true";
 static const std::string TABLET_CONVERT_FINISHED = "tablet_convert_finished";
 const std::string TABLET_ID_KEY = "tablet_id";
 const std::string ENABLE_BYTE_TO_BASE64 = "byte_to_base64";
-const std::string TABLET_ID_PREFIX = "t_";
-const std::string ROWSET_ID_PREFIX = "s_";
 
 #if defined(__GNUC__)
 #define OLAP_LIKELY(x) __builtin_expect((x), 1)
