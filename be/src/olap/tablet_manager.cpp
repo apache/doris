@@ -1265,13 +1265,6 @@ void TabletManager::get_tablets_distribution_on_different_disks(
     }
 }
 
-Status TabletManager::_get_storage_param(DataDir* data_dir, const std::string& storage_name,
-                                         StorageParamPB* storage_param) {
-    storage_param->set_storage_medium(
-            fs::fs_util::get_storage_medium_pb(data_dir->storage_medium()));
-    return Status::OK();
-}
-
 struct SortCtx {
     SortCtx(TabletSharedPtr tablet, int64_t cooldown_timestamp, int64_t file_size)
             : tablet(tablet), cooldown_timestamp(cooldown_timestamp), file_size(file_size) {}
