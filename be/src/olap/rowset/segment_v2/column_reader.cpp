@@ -36,8 +36,6 @@
 namespace doris {
 namespace segment_v2 {
 
-using strings::Substitute;
-
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                             std::unique_ptr<ColumnReader>* reader) {
