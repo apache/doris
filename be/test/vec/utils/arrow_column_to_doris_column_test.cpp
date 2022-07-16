@@ -652,13 +652,13 @@ void test_arrow_to_array_column(ColumnWithTypeAndName& column,
                                 std::shared_ptr<arrow::DataType> value_type,
                                 std::shared_ptr<arrow::Array> values, const std::string& value,
                                 size_t& counter) {
-    ASSERT_EQ(column.column->size(), counter);
     auto array = create_array_array<ArrowType, is_nullable>(vec_offsets, null_map, value_type,
                                                             values, counter);
+    auto old_size = column.column->size();
     auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, column.type,
                                             vec_offsets.size() - 1, "UTC");
     ASSERT_EQ(ret.ok(), true);
-    ASSERT_EQ(column.column->size(), counter);
+    ASSERT_EQ(column.column->size() - old_size, counter);
     MutableColumnPtr data_column = nullptr;
     vectorized::ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
@@ -669,14 +669,16 @@ void test_arrow_to_array_column(ColumnWithTypeAndName& column,
         data_column = (*std::move(column.column)).mutate();
     }
     auto& array_column = static_cast<ColumnArray&>(*data_column);
-    EXPECT_EQ(array_column.size(), vec_offsets.size() - 1);
-    for (size_t i = 0; i < array_column.size(); ++i) {
-        auto v = get<Array>(array_column[i]);
+    EXPECT_EQ(array_column.size() - old_size, vec_offsets.size() - 1);
+    for (size_t i = 0; i < array_column.size() - old_size; ++i) {
+        auto v = get<Array>(array_column[old_size + i]);
         EXPECT_EQ(v.size(), vec_offsets[i + 1] - vec_offsets[i]);
+        EXPECT_EQ(v.size(), array_column.get_offsets()[old_size + i] -
+                                    array_column.get_offsets()[old_size + i - 1]);
         if (is_nullable) {
             ASSERT_NE(nullable_column, nullptr);
             NullMap& map_data = nullable_column->get_null_map_data();
-            ASSERT_EQ(map_data[i], null_map[i]);
+            ASSERT_EQ(map_data[old_size + i], null_map[i]);
             if (!null_map[i]) {
                 // check value
                 for (size_t j = 0; j < v.size(); ++j) {
@@ -711,6 +713,10 @@ void test_array(const std::vector<std::string>& test_cases, size_t num_elements,
                 create_binary_array<ArrowType, is_nullable>(num_elements, value, nested_counter);
         ASSERT_EQ(nested_counter, num_elements);
         size_t counter = 0;
+        test_arrow_to_array_column<ArrowType, is_nullable>(column, vec_offsets, null_map,
+                                                           value_type, array, value, counter);
+        // multi arrow array can merge into one array column, here test again with non empty array column
+        counter = 0;
         test_arrow_to_array_column<ArrowType, is_nullable>(column, vec_offsets, null_map,
                                                            value_type, array, value, counter);
     }
