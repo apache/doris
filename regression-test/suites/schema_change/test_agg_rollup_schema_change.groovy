@@ -104,7 +104,7 @@ suite ("test_agg_rollup_schema_change") {
             """
 
         result = "null";
-        result = sql """ select * from ${tableName} """
+        result = sql """ select * from ${tableName} order by user_id """
         assertTrue(result.size() == 2)
         assertTrue(result[0].size() == 10)
         assertTrue(result[0][5] == 2, "user id 1 cost should be 2")
@@ -162,7 +162,6 @@ suite ("test_agg_rollup_schema_change") {
                 (5, '2017-10-01', 'Beijing', 10, 1, 32, 20, hll_hash(5), to_bitmap(5))
             """
 
-        Thread.sleep(30 * 1000)
         // compaction
         String[][] tablets = sql """ show tablets from ${tableName}; """
         for (String[] tablet in tablets) {

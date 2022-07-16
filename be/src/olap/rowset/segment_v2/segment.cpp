@@ -223,5 +223,10 @@ Status Segment::new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** it
     return Status::OK();
 }
 
+Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
+    //TODO(liaoxin01): implement it after index related code merged.
+    return Status::OK();
+}
+
 } // namespace segment_v2
 } // namespace doris

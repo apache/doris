@@ -100,6 +100,8 @@ public:
         return _sk_index_decoder->num_items() - 1;
     }
 
+    Status lookup_row_key(const Slice& key, RowLocation* row_location);
+
     // only used by UT
     const SegmentFooterPB& footer() const { return _footer; }
 
