@@ -86,4 +86,44 @@ suite("load") {
         }
         i++
     }
+
+    def table = "lineorder_flat"
+    def table_rows = 6001215
+    sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
+    rowCount = sql "select count(*) from ${table}"
+    if (rowCount[0][0] != table_rows) {
+        sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
+        sql "set global query_timeout=3600"
+        def r = sql "select @@query_timeout"
+        assertEquals(3600, r[0][0])
+        year_cons = [
+            'lo_orderdate<19930101',
+            'lo_orderdate>=19930101 and lo_orderdate<19940101',
+            'lo_orderdate>=19940101 and lo_orderdate<19950101',
+            'lo_orderdate>=19950101 and lo_orderdate<19960101',
+            'lo_orderdate>=19960101 and lo_orderdate<19970101',
+            'lo_orderdate>=19970101 and lo_orderdate<19980101',
+            'lo_orderdate>=19980101'
+        ]
+        for (String con in year_cons){
+            sql """
+            INSERT INTO lineorder_flat 
+            SELECT LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, 
+                   LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, 
+                   LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, 
+                   LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE, C_NAME, C_ADDRESS, 
+                   C_CITY, C_NATION, C_REGION, C_PHONE, C_MKTSEGMENT, S_NAME, S_ADDRESS, 
+                   S_CITY, S_NATION, S_REGION, S_PHONE, P_NAME, P_MFGR, P_CATEGORY, 
+                   P_BRAND, P_COLOR, P_TYPE, P_SIZE, P_CONTAINER 
+            FROM ( SELECT lo_orderkey, lo_linenumber, lo_custkey, lo_partkey, lo_suppkey, 
+                          lo_orderdate, lo_orderpriority, lo_shippriority, lo_quantity, 
+                          lo_extendedprice, lo_ordtotalprice, lo_discount, lo_revenue, 
+                          lo_supplycost, lo_tax, lo_commitdate, lo_shipmode FROM lineorder WHERE ${con} ) l 
+                INNER JOIN customer c ON (c.c_custkey = l.lo_custkey) 
+                INNER JOIN supplier s ON (s.s_suppkey = l.lo_suppkey) 
+                INNER JOIN part p ON (p.p_partkey = l.lo_partkey);"""
+        }
+        rowCount = sql "select count(*) from ${table}"
+        assertEquals(table_rows, rowCount[0][0])
+    }
 }
