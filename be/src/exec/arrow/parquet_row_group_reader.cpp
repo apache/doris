@@ -99,6 +99,7 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                                           const std::vector<int>& include_column_ids,
                                           int64_t file_size) {
     int total_group = _file_metadata->num_row_groups();
+    // It will not filter if head_group_offset equals tail_group_offset
     int64_t head_group_offset = _range_start_offset;
     int64_t tail_group_offset = _range_start_offset;
     int64_t range_end_offset = _range_start_offset + _range_size;
