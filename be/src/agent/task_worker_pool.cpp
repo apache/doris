@@ -1755,6 +1755,7 @@ void TaskWorkerPool::_storage_refresh_storage_policy_worker_thread_callback() {
 
                 LOG_EVERY_N(INFO, 12) << "refresh storage policy task, policy " << *policy_ptr;
                 spm->periodic_put(iter.policy_name, std::move(policy_ptr));
+            }
         }
     }
 }
