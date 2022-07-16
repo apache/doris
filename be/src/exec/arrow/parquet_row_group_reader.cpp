@@ -75,6 +75,8 @@
         return true;                                                       \
     }
 
+#define PARQUET_HEAD 4
+
 namespace doris {
 
 RowGroupReader::RowGroupReader(int64_t range_start_offset, int64_t range_size,
@@ -94,42 +96,42 @@ RowGroupReader::~RowGroupReader() {
 
 Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                                           const std::map<std::string, int>& map_column,
-                                          const std::vector<int>& include_column_ids) {
+                                          const std::vector<int>& include_column_ids,
+                                          int64_t file_size) {
     int total_group = _file_metadata->num_row_groups();
-    int head_row_group = total_group;
-    int tail_row_group = -1;
-
-    if (_range_size != 0) {
+    int64_t head_group_offset = _range_start_offset;
+    int64_t tail_group_offset = _range_start_offset;
+    int64_t range_end_offset = _range_start_offset + _range_size;
+    if (_range_size != 0 && file_size != 0) {
+        // todo: extract to function
         for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
-            auto row_group_meta = _file_metadata->RowGroup(row_group_id);
-            int64_t cur_group_offset = row_group_meta->file_offset();
+            int64_t cur_group_offset = _get_group_offset(row_group_id);
             // when a whole file is in a split, range_end_offset is the EOF offset
-            int64_t range_end_offset = _range_start_offset + _range_size;
             if (row_group_id == total_group - 1) {
-                if (cur_group_offset < range_end_offset) {
-                    tail_row_group = row_group_id;
-                }
                 if (cur_group_offset < _range_start_offset) {
-                    head_row_group = row_group_id;
+                    head_group_offset = cur_group_offset;
+                }
+                if (range_end_offset >= file_size) {
+                    tail_group_offset = file_size;
+                } else {
+                    tail_group_offset = cur_group_offset;
                 }
                 break;
             }
-            int64_t next_group_offset = _file_metadata->RowGroup(row_group_id + 1)->file_offset();
+            int64_t next_group_offset = _get_group_offset(row_group_id + 1);
             if (_range_start_offset >= cur_group_offset &&
                 _range_start_offset < next_group_offset) {
                 // Enter the branch only the fist time to find head group
-                head_row_group = row_group_id;
+                head_group_offset = cur_group_offset;
             }
             if (range_end_offset < next_group_offset) {
-                tail_row_group = row_group_id - 1;
-                // find tail group, break
+                tail_group_offset = cur_group_offset;
+                // find tail, break
                 break;
             }
         }
-
-        if (head_row_group != total_group && tail_row_group != -1 &&
-            tail_row_group < head_row_group) {
-            tail_row_group = head_row_group;
+        if (tail_group_offset < head_group_offset) {
+            tail_group_offset = head_group_offset;
         }
     }
 
@@ -142,13 +144,15 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
     bool update_statistics = false;
     for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
         auto row_group_meta = _file_metadata->RowGroup(row_group_id);
-        if (row_group_id < head_row_group || row_group_id > tail_row_group) {
-            if (head_row_group != total_group && tail_row_group != -1) {
-                _filter_group.emplace(row_group_id);
-                VLOG_DEBUG << "Filter extra row group id: " << row_group_id;
-                continue;
-            }
+        int64_t start_offset = _get_group_offset(row_group_id);
+        int64_t end_offset =
+                row_group_id == total_group - 1 ? file_size : _get_group_offset(row_group_id + 1);
+        if (start_offset >= tail_group_offset || end_offset <= head_group_offset) {
+            _filter_group.emplace(row_group_id);
+            VLOG_DEBUG << "Filter extra row group id: " << row_group_id;
+            continue;
         }
+        // if head_read_offset <= start_offset < end_offset <= tail_read_offset
         for (SlotId slot_id = 0; slot_id < tuple_desc->slots().size(); slot_id++) {
             const std::string& col_name = tuple_desc->slots()[slot_id]->col_name();
             auto col_iter = map_column.find(col_name);
@@ -191,6 +195,10 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                    << ", and num of skip row group: " << _filtered_num_row_groups;
     }
     return Status::OK();
+}
+
+int64_t RowGroupReader::_get_group_offset(int row_group_id) {
+    return _file_metadata->RowGroup(row_group_id)->ColumnChunk(0)->file_offset() - PARQUET_HEAD;
 }
 
 void RowGroupReader::_add_filter_group(int row_group_id,

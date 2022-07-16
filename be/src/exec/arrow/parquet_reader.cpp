@@ -104,9 +104,12 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
 
         RETURN_IF_ERROR(column_indices(tuple_slot_descs));
         if (config::parquet_predicate_push_down) {
+            int64_t file_size = 0;
+            size(&file_size);
             _row_group_reader.reset(new RowGroupReader(_range_start_offset, _range_size,
                                                        conjunct_ctxs, _file_metadata, this));
-            _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids);
+            _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids,
+                                                  file_size);
         }
         _thread = std::thread(&ParquetReaderWrap::prefetch_batch, this);
         return Status::OK();

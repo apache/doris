@@ -45,13 +45,15 @@ public:
 
     Status init_filter_groups(const TupleDescriptor* tuple_desc,
                               const std::map<std::string, int>& map_column,
-                              const std::vector<int>& include_column_ids);
+                              const std::vector<int>& include_column_ids, int64_t file_size);
 
     std::unordered_set<int> filter_groups() { return _filter_group; };
 
 private:
     void _add_filter_group(int row_group_id,
                            std::unique_ptr<parquet::RowGroupMetaData>& row_group_meta);
+
+    int64_t _get_group_offset(int row_group_id);
 
     void _init_conjuncts(const TupleDescriptor* tuple_desc,
                          const std::map<std::string, int>& _map_column,
