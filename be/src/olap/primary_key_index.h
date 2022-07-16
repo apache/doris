@@ -67,7 +67,7 @@ class PrimaryKeyIndexReader {
 public:
     PrimaryKeyIndexReader() : _parsed(false) {}
 
-    Status parse(io::FileReaderPtr file_reader, const segment_v2::IndexedColumnMetaPB& meta);
+    Status parse(io::FileReaderPtr file_reader, const segment_v2::PrimaryKeyIndexMetaPB& meta);
 
     Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator) const {
         DCHECK(_parsed);

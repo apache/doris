@@ -64,9 +64,9 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta)
 }
 
 Status PrimaryKeyIndexReader::parse(io::FileReaderPtr file_reader,
-                                    const segment_v2::IndexedColumnMetaPB& meta) {
+                                    const segment_v2::PrimaryKeyIndexMetaPB& meta) {
     // parse primary key index
-    _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta));
+    _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
     RETURN_IF_ERROR(_index_reader->load(_use_page_cache, _kept_in_memory));
 
     // parse bloom filter
