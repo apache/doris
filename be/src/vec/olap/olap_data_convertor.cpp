@@ -160,7 +160,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorBase::clear_source_column() 
 // use `_nullmap` directly.
 const UInt8* OlapBlockDataConvertor::OlapColumnDataConvertorBase::get_nullmap() const {
     assert(_typed_column.column);
-    return _nullmap + _row_pos;
+    return _nullmap ? _nullmap + _row_pos : nullptr;
 }
 
 // class OlapBlockDataConvertor::OlapColumnDataConvertorObject
