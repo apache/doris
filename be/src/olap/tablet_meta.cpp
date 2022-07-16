@@ -871,14 +871,16 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
     Cache::Handle* handle = _agg_cache->lookup(key);
 
     AggCache::Value* val = handle == nullptr
-        ? nullptr : reinterpret_cast<AggCache::Value*>(_agg_cache->value(handle));
+                                   ? nullptr
+                                   : reinterpret_cast<AggCache::Value*>(_agg_cache->value(handle));
     static auto ts_ms = [] {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::system_clock::now().time_since_epoch()).count();
+                       std::chrono::system_clock::now().time_since_epoch())
+                .count();
     };
     // Renew if needed
     if (val == nullptr || (val->expiration > 0 && val->expiration < ts_ms())) {
-        if (val != nullptr) { // Expired
+        if (val != nullptr) {            // Expired
             _agg_cache->release(handle); // We just looked-up this key
             _agg_cache->erase(key);
         }
@@ -891,9 +893,8 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
             DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};
             for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
                 auto& [k, bm] = *it;
-                if (std::get<0>(k) != std::get<0>(bmk)
-                        || std::get<1>(k) != std::get<1>(bmk)
-                        || std::get<2>(k) > std::get<2>(bmk)) {
+                if (std::get<0>(k) != std::get<0>(bmk) || std::get<1>(k) != std::get<1>(bmk) ||
+                    std::get<2>(k) > std::get<2>(bmk)) {
                     break;
                 }
                 val->bitmap |= bm;
@@ -911,6 +912,6 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
                                              [this, handle](...) { _agg_cache->release(handle); });
 }
 
-decltype(DeleteBitmap::AggCache::s_unique_id) DeleteBitmap::AggCache::s_unique_id{0};
+decltype(DeleteBitmap::AggCache::s_unique_id) DeleteBitmap::AggCache::s_unique_id {0};
 
 } // namespace doris

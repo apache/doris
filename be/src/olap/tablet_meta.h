@@ -375,7 +375,7 @@ public:
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
 
     class AggCache : public ShardedLRUCache {
-      public:
+    public:
         // We cannot just copy the underlying memory to construct a string
         // due to equivalent objects may have different padding bytes.
         // Reading padding bytes is undefined behavior, neither copy nor
@@ -385,25 +385,26 @@ public:
             std::string ret(sizeof(bmk), '\0');
             auto t = reinterpret_cast<BitmapKey*>(ret.data());
             std::get<0>(*t).version = std::get<0>(bmk).version;
-            std::get<0>(*t).hi      = std::get<0>(bmk).hi;
-            std::get<0>(*t).mi      = std::get<0>(bmk).mi;
-            std::get<0>(*t).lo      = std::get<0>(bmk).lo;
-            std::get<1>(*t)         = std::get<1>(bmk);
-            std::get<2>(*t)         = std::get<2>(bmk);
+            std::get<0>(*t).hi = std::get<0>(bmk).hi;
+            std::get<0>(*t).mi = std::get<0>(bmk).mi;
+            std::get<0>(*t).lo = std::get<0>(bmk).lo;
+            std::get<1>(*t) = std::get<1>(bmk);
+            std::get<2>(*t) = std::get<2>(bmk);
             return ret;
         }
 
         struct Value {
-            Value(int64_t expir) : expiration(expir) { }
-             // Unix timestamp in ms
+            Value(int64_t expir) : expiration(expir) {}
+            // Unix timestamp in ms
             int64_t expiration = std::numeric_limits<int64_t>::max();
-            roaring::Roaring bitmap; 
+            roaring::Roaring bitmap;
         };
 
         AggCache(size_t size_in_bytes, int64_t expir)
-            : ShardedLRUCache("DeleteBitmap AggCache " + std::to_string(s_unique_id.fetch_add(1)),
-                              size_in_bytes, LRUCacheType::SIZE, 16),
-              expiration_ms(expir) { }
+                : ShardedLRUCache(
+                          "DeleteBitmap AggCache " + std::to_string(s_unique_id.fetch_add(1)),
+                          size_in_bytes, LRUCacheType::SIZE, 16),
+                  expiration_ms(expir) {}
 
         // Cache entires will expire in x milliseconds
         int64_t expiration_ms = -1;

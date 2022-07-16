@@ -122,8 +122,8 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
     ////////////////////////////////////////////////////////////////////////////
     // Cache test
     ////////////////////////////////////////////////////////////////////////////
-    { // Aggregation bitmap contains all row ids that are in versions smaller or
-      // equal to the given version, boundary test
+    {   // Aggregation bitmap contains all row ids that are in versions smaller or
+        // equal to the given version, boundary test
         auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 2});
         ASSERT_EQ(bm->cardinality(), 1005);
         ASSERT_TRUE(bm->contains(999));
@@ -136,8 +136,8 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
         ASSERT_EQ(bm->cardinality(), 1005);
     }
 
-    { // Aggregation bitmap contains all row ids that are in versions smaller or
-      // equal to the given version, normal test
+    {   // Aggregation bitmap contains all row ids that are in versions smaller or
+        // equal to the given version, normal test
         auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 1000});
         ASSERT_EQ(bm->cardinality(), 1005);
         ASSERT_TRUE(bm->contains(999));
@@ -156,7 +156,7 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
     ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 2}, 1104));
     ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 2}, 1103));
 
-    { // Test expiration
+    {                                          // Test expiration
         dbmp->_agg_cache->expiration_ms = 100; // Hack into expiration
         dbmp->add({RowsetId {2, 0, 1, 1}, 1, 3}, 1105);
         auto bm1 = dbmp->get({RowsetId {2, 0, 1, 1}, 1, 3});
@@ -170,7 +170,7 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
         ASSERT_TRUE(bm->contains(1105));
 
         dbmp->add({RowsetId {2, 0, 1, 1}, 1, 3}, 1106);
-        bm = dbmp->get_agg({RowsetId{2,0,1,1}, 1, 3});
+        bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 3});
         ASSERT_EQ(bm->cardinality(), 1006); // Not changed, due to cache
         ASSERT_TRUE(dbmp->contains({RowsetId {2, 0, 1, 1}, 1, 3}, 1106));
         ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1104));
