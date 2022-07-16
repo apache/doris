@@ -347,7 +347,7 @@ public:
         std::string path = fmt::format("{}/{}", kSegmentDir, filename);
         auto fs = io::global_local_filesystem();
 
-        std::unique_ptr<io::FileWriter> file_writer;
+        io::FileWriterPtr file_writer;
         fs->create_file(path, &file_writer);
         SegmentWriterOptions opts;
         DataDir data_dir(kSegmentDir);

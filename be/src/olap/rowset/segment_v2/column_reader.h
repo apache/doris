@@ -24,7 +24,7 @@
 #include "common/logging.h"
 #include "common/status.h"         // for Status
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
-#include "io/fs/file_system.h"
+#include "io/fs/file_reader.h"
 #include "olap/olap_cond.h"                             // for CondColumn
 #include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
 #include "olap/rowset/segment_v2/common.h"
@@ -88,7 +88,7 @@ public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                         uint64_t num_rows, io::FileSystem* fs, const std::string& path,
+                         uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                          std::unique_ptr<ColumnReader>* reader);
 
     enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
@@ -147,7 +147,7 @@ public:
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 io::FileSystem* fs, const std::string& path);
+                 io::FileReaderSPtr file_reader);
     Status init();
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
@@ -184,8 +184,7 @@ private:
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
 
-    io::FileSystem* _fs;
-    std::string _path;
+    io::FileReaderSPtr _file_reader;
 
     DictEncodingType _dict_encoding_type;
 
