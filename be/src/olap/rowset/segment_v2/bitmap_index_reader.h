@@ -39,7 +39,7 @@ class IndexedColumnIterator;
 
 class BitmapIndexReader {
 public:
-    explicit BitmapIndexReader(io::FileReaderPtr file_reader,
+    explicit BitmapIndexReader(io::FileReaderSPtr file_reader,
                                const BitmapIndexPB* bitmap_index_meta)
             : _file_reader(std::move(file_reader)),
               _type_info(get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>()),
@@ -57,7 +57,7 @@ public:
 private:
     friend class BitmapIndexIterator;
 
-    io::FileReaderPtr _file_reader;
+    io::FileReaderSPtr _file_reader;
     const TypeInfo* _type_info;
     const BitmapIndexPB* _bitmap_index_meta;
     bool _has_null = false;

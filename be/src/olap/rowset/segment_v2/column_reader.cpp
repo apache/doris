@@ -17,7 +17,6 @@
 
 #include "olap/rowset/segment_v2/column_reader.h"
 
-#include "gutil/strings/substitute.h" // for Substitute
 #include "io/fs/file_reader.h"
 #include "olap/column_block.h"                       // for ColumnBlockView
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
@@ -40,7 +39,7 @@ namespace segment_v2 {
 using strings::Substitute;
 
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                            uint64_t num_rows, const io::FileReaderPtr& file_reader,
+                            uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                             std::unique_ptr<ColumnReader>* reader) {
     if (is_scalar_type((FieldType)meta.type())) {
         std::unique_ptr<ColumnReader> reader_local(
@@ -93,7 +92,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
 }
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                           uint64_t num_rows, io::FileReaderPtr file_reader)
+                           uint64_t num_rows, io::FileReaderSPtr file_reader)
         : _meta(meta),
           _opts(opts),
           _num_rows(num_rows),
@@ -149,7 +148,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
                                BlockCompressionCodec* codec) const {
     iter_opts.sanity_check();
     PageReadOptions opts;
-    opts.file_reader = iter_opts.file_reader.get();
+    opts.file_reader = iter_opts.file_reader;
     opts.page_pointer = pp;
     opts.codec = codec;
     opts.stats = iter_opts.stats;

@@ -44,7 +44,7 @@ public:
     virtual bool closed() const = 0;
 };
 
-using FileReaderPtr = std::shared_ptr<FileReader>;
+using FileReaderSPtr = std::shared_ptr<FileReader>;
 
 } // namespace io
 } // namespace doris

@@ -48,7 +48,7 @@ class IndexedColumnIterator;
 // thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
 class IndexedColumnReader {
 public:
-    explicit IndexedColumnReader(io::FileReaderPtr file_reader, const IndexedColumnMetaPB& meta)
+    explicit IndexedColumnReader(io::FileReaderSPtr file_reader, const IndexedColumnMetaPB& meta)
             : _file_reader(std::move(file_reader)), _meta(meta) {};
 
     Status load(bool use_page_cache, bool kept_in_memory);
@@ -70,7 +70,7 @@ private:
 
     friend class IndexedColumnIterator;
 
-    io::FileReaderPtr _file_reader;
+    io::FileReaderSPtr _file_reader;
     IndexedColumnMetaPB _meta;
 
     bool _use_page_cache;

@@ -219,7 +219,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
-            iter_opts.file_reader = _file_reader;
+            iter_opts.file_reader = _file_reader.get();
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -348,7 +348,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
-            iter_opts.file_reader = _file_reader;
+            iter_opts.file_reader = _file_reader.get();
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }

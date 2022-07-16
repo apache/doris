@@ -17,6 +17,8 @@
 
 #include "io/fs/local_file_reader.h"
 
+#include <atomic>
+
 #include "util/doris_metrics.h"
 #include "util/errno.h"
 
@@ -34,7 +36,8 @@ LocalFileReader::~LocalFileReader() {
 }
 
 Status LocalFileReader::close() {
-    if (!closed()) {
+    bool expected = false;
+    if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         auto res = ::close(_fd);
         if (-1 == res) {
             return Status::IOError("failed to close {}: {}", _path.native(), std::strerror(errno));
@@ -58,11 +61,11 @@ Status LocalFileReader::read_at(size_t offset, Slice result, size_t* bytes_read)
 
     while (bytes_req != 0) {
         auto res = ::pread(_fd, to, bytes_req, offset);
-        if (-1 == res && errno != EINTR) {
+        if (UNLIKELY(-1 == res && errno != EINTR)) {
             return Status::IOError(
                     fmt::format("cannot read from {}: {}", _path.native(), std::strerror(errno)));
         }
-        if (res == 0) {
+        if (UNLIKELY(res == 0)) {
             return Status::IOError(
                     fmt::format("cannot read from {}: unexpected EOF", _path.native()));
         }

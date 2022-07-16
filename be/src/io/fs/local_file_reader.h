@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "io/fs/file_reader.h"
 #include "io/fs/path.h"
 
@@ -37,12 +39,13 @@ public:
 
     size_t size() const override { return _file_size; }
 
-    bool closed() const override { return _fd == -1; }
+    bool closed() const override { return _closed.load(std::memory_order_acquire); }
 
 private:
     int _fd = -1; // owned
     Path _path;
     size_t _file_size;
+    std::atomic<bool> _closed = false;
 };
 
 } // namespace io

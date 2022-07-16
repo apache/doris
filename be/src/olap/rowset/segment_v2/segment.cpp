@@ -42,7 +42,7 @@ using strings::Substitute;
 Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
                      const TabletSchema* tablet_schema, std::shared_ptr<Segment>* output) {
     std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
-    io::FileReaderPtr file_reader;
+    io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader));
     segment->_file_reader = std::move(file_reader);
     RETURN_IF_ERROR(segment->_open());

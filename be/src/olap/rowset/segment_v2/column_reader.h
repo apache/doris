@@ -64,7 +64,7 @@ struct ColumnReaderOptions {
 };
 
 struct ColumnIteratorOptions {
-    io::FileReaderPtr file_reader = nullptr;
+    io::FileReader* file_reader = nullptr;
     // reader statistics
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
@@ -88,7 +88,7 @@ public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                         uint64_t num_rows, const io::FileReaderPtr& file_reader,
+                         uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                          std::unique_ptr<ColumnReader>* reader);
 
     enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
@@ -147,7 +147,7 @@ public:
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 io::FileReaderPtr file_reader);
+                 io::FileReaderSPtr file_reader);
     Status init();
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
@@ -184,7 +184,7 @@ private:
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
 
-    io::FileReaderPtr _file_reader;
+    io::FileReaderSPtr _file_reader;
 
     DictEncodingType _dict_encoding_type;
 

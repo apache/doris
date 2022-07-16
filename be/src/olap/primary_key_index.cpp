@@ -63,7 +63,7 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta)
     return _bloom_filter_index_builder->finish(_file_writer, meta->mutable_bloom_filter_index());
 }
 
-Status PrimaryKeyIndexReader::parse(io::FileReaderPtr file_reader,
+Status PrimaryKeyIndexReader::parse(io::FileReaderSPtr file_reader,
                                     const segment_v2::PrimaryKeyIndexMetaPB& meta) {
     // parse primary key index
     _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));

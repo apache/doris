@@ -131,7 +131,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
         EXPECT_TRUE(file_writer->close().ok());
     }
     auto type_info = get_scalar_type_info(type);
-    io::FileReaderPtr file_reader;
+    io::FileReaderSPtr file_reader;
     ASSERT_EQ(fs->open_file(fname, &file_reader), Status::OK());
     // read and check
     {
@@ -149,7 +149,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             ColumnIteratorOptions iter_opts;
             OlapReaderStatistics stats;
             iter_opts.stats = &stats;
-            iter_opts.file_reader = file_reader;
+            iter_opts.file_reader = file_reader.get();
             st = iter->init(iter_opts);
             EXPECT_TRUE(st.ok());
 
@@ -204,7 +204,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             ColumnIteratorOptions iter_opts;
             OlapReaderStatistics stats;
             iter_opts.stats = &stats;
-            iter_opts.file_reader = file_reader;
+            iter_opts.file_reader = file_reader.get();
             st = iter->init(iter_opts);
             EXPECT_TRUE(st.ok());
 
@@ -309,7 +309,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         EXPECT_TRUE(file_writer->close().ok());
     }
     auto type_info = get_type_info(&meta);
-    io::FileReaderPtr file_reader;
+    io::FileReaderSPtr file_reader;
     ASSERT_EQ(fs->open_file(fname, &file_reader), Status::OK());
     // read and check
     {
@@ -325,7 +325,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         ColumnIteratorOptions iter_opts;
         OlapReaderStatistics stats;
         iter_opts.stats = &stats;
-        iter_opts.file_reader = file_reader;
+        iter_opts.file_reader = file_reader.get();
         st = iter->init(iter_opts);
         EXPECT_TRUE(st.ok());
         // sequence read

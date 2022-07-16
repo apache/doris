@@ -118,7 +118,7 @@ private:
 
 class ZoneMapIndexReader {
 public:
-    explicit ZoneMapIndexReader(io::FileReaderPtr file_reader, const ZoneMapIndexPB* index_meta)
+    explicit ZoneMapIndexReader(io::FileReaderSPtr file_reader, const ZoneMapIndexPB* index_meta)
             : _file_reader(std::move(file_reader)), _index_meta(index_meta) {}
 
     // load all page zone maps into memory
@@ -129,7 +129,7 @@ public:
     int32_t num_pages() const { return _page_zone_maps.size(); }
 
 private:
-    io::FileReaderPtr _file_reader;
+    io::FileReaderSPtr _file_reader;
     const ZoneMapIndexPB* _index_meta;
 
     std::vector<ZoneMapPB> _page_zone_maps;

@@ -50,7 +50,7 @@ public:
 
     virtual Status create_file(const Path& path, FileWriterPtr* writer) = 0;
 
-    virtual Status open_file(const Path& path, FileReaderPtr* reader) = 0;
+    virtual Status open_file(const Path& path, FileReaderSPtr* reader) = 0;
 
     virtual Status delete_file(const Path& path) = 0;
 

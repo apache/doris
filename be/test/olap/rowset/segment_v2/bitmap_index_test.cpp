@@ -76,7 +76,7 @@ void write_index_file(const std::string& filename, io::FileSystem* fs, const voi
 template <FieldType type>
 void get_bitmap_reader_iter(const std::string& file_name, const ColumnIndexMetaPB& meta,
                             BitmapIndexReader** reader, BitmapIndexIterator** iter) {
-    io::FileReaderPtr file_reader;
+    io::FileReaderSPtr file_reader;
     ASSERT_EQ(io::global_local_filesystem()->open_file(file_name, &file_reader), Status::OK());
     *reader = new BitmapIndexReader(std::move(file_reader), &meta.bitmap_index());
     auto st = (*reader)->load(true, false);

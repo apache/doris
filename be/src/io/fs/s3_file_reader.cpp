@@ -38,11 +38,14 @@ S3FileReader::S3FileReader(Path path, size_t file_size, std::string key, std::st
 }
 
 S3FileReader::~S3FileReader() {
-    DorisMetrics::instance()->s3_file_open_reading->increment(-1);
+    close();
 }
 
 Status S3FileReader::close() {
-    _closed = true;
+    bool expected = false;
+    if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        DorisMetrics::instance()->s3_file_open_reading->increment(-1);
+    }
     return Status::OK();
 }
 
@@ -56,6 +59,10 @@ Status S3FileReader::read_at(size_t offset, Slice result, size_t* bytes_read) {
     size_t bytes_req = result.size;
     char* to = result.data;
     bytes_req = std::min(bytes_req, _file_size - offset);
+    if (UNLIKELY(bytes_req == 0)) {
+        *bytes_read = 0;
+        return Status::OK();
+    }
 
     Aws::S3::Model::GetObjectRequest request;
     request.WithBucket(_bucket).WithKey(_key);

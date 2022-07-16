@@ -409,8 +409,8 @@ private:
         return st.ok() ? std::move(reader) : nullptr;
     }
 
-    io::FileReaderPtr create_readable_block(const std::string& path) {
-        io::FileReaderPtr reader;
+    io::FileReaderSPtr create_readable_block(const std::string& path) {
+        io::FileReaderSPtr reader;
         auto st = io::global_local_filesystem()->open_file(path, &reader);
         return st.ok() ? std::move(reader) : nullptr;
     }

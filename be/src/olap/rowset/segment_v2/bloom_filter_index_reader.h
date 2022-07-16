@@ -42,7 +42,7 @@ class BloomFilter;
 
 class BloomFilterIndexReader {
 public:
-    explicit BloomFilterIndexReader(io::FileReaderPtr file_reader,
+    explicit BloomFilterIndexReader(io::FileReaderSPtr file_reader,
                                     const BloomFilterIndexPB* bloom_filter_index_meta)
             : _file_reader(std::move(file_reader)),
               _type_info(get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>()),
@@ -58,7 +58,7 @@ public:
 private:
     friend class BloomFilterIndexIterator;
 
-    io::FileReaderPtr _file_reader;
+    io::FileReaderSPtr _file_reader;
     const TypeInfo* _type_info;
     const BloomFilterIndexPB* _bloom_filter_index_meta;
     std::unique_ptr<IndexedColumnReader> _bloom_filter_reader;

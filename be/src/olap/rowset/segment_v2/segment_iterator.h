@@ -206,8 +206,7 @@ private:
     // only used in `_get_row_ranges_by_keys`
     std::unique_ptr<RowBlockV2> _seek_block;
 
-    // block for file to read
-    io::FileReaderPtr _file_reader;
+    io::FileReaderSPtr _file_reader;
 
     // char_type columns cid
     std::vector<size_t> _char_type_idx;

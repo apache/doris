@@ -77,7 +77,7 @@ TEST_F(OrdinalPageIndexTest, normal) {
                   << index_meta.ordinal_index().root_page().root_page().size();
     }
 
-    io::FileReaderPtr file_reader;
+    io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
     OrdinalIndexReader index(file_reader, &index_meta.ordinal_index(), 16 * 1024 * 4096 + 1);
     EXPECT_TRUE(index.load(true, false).ok());

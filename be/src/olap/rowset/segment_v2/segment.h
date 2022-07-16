@@ -118,7 +118,7 @@ private:
 
 private:
     friend class SegmentIterator;
-    io::FileReaderPtr _file_reader;
+    io::FileReaderSPtr _file_reader;
 
     uint32_t _segment_id;
     TabletSchema _tablet_schema;

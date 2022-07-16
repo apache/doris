@@ -63,7 +63,7 @@ class OrdinalPageIndexIterator;
 
 class OrdinalIndexReader {
 public:
-    explicit OrdinalIndexReader(io::FileReaderPtr file_reader, const OrdinalIndexPB* index_meta,
+    explicit OrdinalIndexReader(io::FileReaderSPtr file_reader, const OrdinalIndexPB* index_meta,
                                 ordinal_t num_values)
             : _file_reader(std::move(file_reader)),
               _index_meta(index_meta),
@@ -90,7 +90,7 @@ public:
 private:
     friend OrdinalPageIndexIterator;
 
-    io::FileReaderPtr _file_reader;
+    io::FileReaderSPtr _file_reader;
     const OrdinalIndexPB* _index_meta;
     // total number of values (including NULLs) in the indexed column,
     // equals to 1 + 'last ordinal of last data pages'

@@ -30,7 +30,7 @@ public:
 
     Status create_file(const Path& path, FileWriterPtr* writer) override;
 
-    Status open_file(const Path& path, FileReaderPtr* reader) override;
+    Status open_file(const Path& path, FileReaderSPtr* reader) override;
 
     Status delete_file(const Path& path) override;
 
