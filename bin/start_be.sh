@@ -16,11 +16,31 @@
 # specific language governing permissions and limitations
 # under the License.
 
-curdir=$(dirname "$0")
-curdir=$(
-    cd "$curdir"
-    pwd
-)
+# resolve links - $0 may be a softlink
+PRG="$0"
+
+while [ -h "$PRG" ] ; do
+  ls=`ls -ld "$PRG"`
+  link=`expr "$ls" : '.*-> \(.*\)$'`
+  if expr "$link" : '/.*' > /dev/null; then
+    PRG="$link"
+  else
+    PRG=`dirname "$PRG"`/"$link"
+  fi
+done
+
+PRGDIR=`dirname "$PRG"`
+
+export DORIS_HOME=`cd "$PRG_DIR/.." >/dev/null; pwd`
+export PID_DIR=`cd "$PRGDIR" >/dev/null; pwd`
+export LOG_DIR=${DORIS_HOME}/log
+export UDF_RUNTIME_DIR=${DORIS_HOME}/lib/udf-runtime
+# set odbc conf path
+export ODBCSYSINI=$DORIS_HOME/conf
+# support utf8 for oracle database
+export NLS_LANG=AMERICAN_AMERICA.AL32UTF8
+#filter known leak for lsan.
+export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
 
 OPTS=$(getopt \
     -n $0 \
@@ -47,11 +67,6 @@ while true; do
         ;;
     esac
 done
-
-export DORIS_HOME=$(
-    cd "$curdir/.."
-    pwd
-)
 
 # add libs to CLASSPATH
 for f in $DORIS_HOME/lib/*.jar; do
@@ -106,27 +121,6 @@ elif [[ -d "$JAVA_HOME/jre"  ]]; then
 else
     export LD_LIBRARY_PATH=$JAVA_HOME/lib/$jvm_arch/server:$JAVA_HOME/lib/$jvm_arch:$LD_LIBRARY_PATH
 fi
-
-# export env variables from be.conf
-#
-# UDF_RUNTIME_DIR
-# LOG_DIR
-# PID_DIR
-export UDF_RUNTIME_DIR=${DORIS_HOME}/lib/udf-runtime
-export LOG_DIR=${DORIS_HOME}/log
-export PID_DIR=$(
-    cd "$curdir"
-    pwd
-)
-
-# set odbc conf path
-export ODBCSYSINI=$DORIS_HOME/conf
-
-# support utf8 for oracle database
-export NLS_LANG=AMERICAN_AMERICA.AL32UTF8
-
-#filter known leak for lsan.
-export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
 
 while read line; do
     envline=$(echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
