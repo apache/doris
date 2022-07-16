@@ -48,16 +48,14 @@ class IndexedColumnIterator;
 // thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
 class IndexedColumnReader {
 public:
-    explicit IndexedColumnReader(io::FileSystem* fs, const std::string& path,
-                                 const IndexedColumnMetaPB& meta)
-            : _fs(fs), _path(path), _meta(meta) {};
+    explicit IndexedColumnReader(io::FileReaderSPtr file_reader, const IndexedColumnMetaPB& meta)
+            : _file_reader(std::move(file_reader)), _meta(meta) {};
 
     Status load(bool use_page_cache, bool kept_in_memory);
 
     // read a page specified by `pp' from `file' into `handle'
-    Status read_page(io::FileReader* file_reader, const PagePointer& pp, PageHandle* handle,
-                     Slice* body, PageFooterPB* footer, PageTypePB type,
-                     BlockCompressionCodec* codec) const;
+    Status read_page(const PagePointer& pp, PageHandle* handle, Slice* body, PageFooterPB* footer,
+                     PageTypePB type, BlockCompressionCodec* codec) const;
 
     int64_t num_values() const { return _num_values; }
     const EncodingInfo* encoding_info() const { return _encoding_info; }
@@ -68,13 +66,11 @@ public:
     CompressionTypePB get_compression() const { return _meta.compression(); }
 
 private:
-    Status load_index_page(io::FileReader* file_reader, const PagePointerPB& pp, PageHandle* handle,
-                           IndexPageReader* reader);
+    Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader);
 
     friend class IndexedColumnIterator;
 
-    io::FileSystem* _fs;
-    std::string _path;
+    io::FileReaderSPtr _file_reader;
     IndexedColumnMetaPB _meta;
 
     bool _use_page_cache;
@@ -100,13 +96,7 @@ public:
     explicit IndexedColumnIterator(const IndexedColumnReader* reader)
             : _reader(reader),
               _ordinal_iter(&reader->_ordinal_index_reader),
-              _value_iter(&reader->_value_index_reader) {
-        io::FileSystem* fs = _reader->_fs;
-        auto st = fs->open_file(_reader->_path, &_file_reader);
-
-        DCHECK(st.ok());
-        WARN_IF_ERROR(st, "open file failed:" + _reader->_path);
-    }
+              _value_iter(&reader->_value_index_reader) {}
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.
     // Return NotFound if provided seek point is past the end.
@@ -151,8 +141,6 @@ private:
     ParsedPage _data_page;
     // next_batch() will read from this position
     ordinal_t _current_ordinal = 0;
-    // open file handle
-    std::unique_ptr<io::FileReader> _file_reader;
     // iterator owned compress codec, should NOT be shared by threads, initialized before used
     std::unique_ptr<BlockCompressionCodec> _compress_codec;
 };
