@@ -121,11 +121,11 @@ Status S3FileSystem::batch_upload(const std::vector<Path>& local_paths,
     return Status::OK();
 }
 
-Status S3FileSystem::create_file(const Path& path, std::unique_ptr<FileWriter>* writer) {
+Status S3FileSystem::create_file(const Path& path, FileWriterPtr* writer) {
     return Status::NotSupported("not support");
 }
 
-Status S3FileSystem::open_file(const Path& path, std::unique_ptr<FileReader>* reader) {
+Status S3FileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
     size_t fsize = 0;
     RETURN_IF_ERROR(file_size(path, &fsize));
     auto key = get_key(path);

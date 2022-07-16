@@ -17,6 +17,7 @@
 
 #include "olap/primary_key_index.h"
 
+#include "io/fs/file_reader.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 
 namespace doris {
@@ -62,15 +63,15 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta)
     return _bloom_filter_index_builder->finish(_file_writer, meta->mutable_bloom_filter_index());
 }
 
-Status PrimaryKeyIndexReader::parse(io::FileSystem* fs, const std::string& path,
+Status PrimaryKeyIndexReader::parse(io::FileReaderSPtr file_reader,
                                     const segment_v2::PrimaryKeyIndexMetaPB& meta) {
     // parse primary key index
-    _index_reader.reset(new segment_v2::IndexedColumnReader(fs, path, meta.primary_key_index()));
+    _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
     RETURN_IF_ERROR(_index_reader->load(_use_page_cache, _kept_in_memory));
 
     // parse bloom filter
     segment_v2::ColumnIndexMetaPB column_index_meta = meta.bloom_filter_index();
-    segment_v2::BloomFilterIndexReader bf_index_reader(fs, path,
+    segment_v2::BloomFilterIndexReader bf_index_reader(std::move(file_reader),
                                                        &column_index_meta.bloom_filter_index());
     RETURN_IF_ERROR(bf_index_reader.load(_use_page_cache, _kept_in_memory));
     std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;

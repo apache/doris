@@ -39,9 +39,9 @@ public:
                  std::string prefix, ResourceId resource_id);
     ~S3FileSystem() override;
 
-    Status create_file(const Path& path, std::unique_ptr<FileWriter>* writer) override;
+    Status create_file(const Path& path, FileWriterPtr* writer) override;
 
-    Status open_file(const Path& path, std::unique_ptr<FileReader>* reader) override;
+    Status open_file(const Path& path, FileReaderSPtr* reader) override;
 
     Status delete_file(const Path& path) override;
 

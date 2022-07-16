@@ -378,8 +378,8 @@ private:
         }
     }
 
-    std::unique_ptr<io::FileWriter> creat_file_writer(const std::string& path) {
-        std::unique_ptr<io::FileWriter> file_writer;
+    io::FileWriterPtr creat_file_writer(const std::string& path) {
+        io::FileWriterPtr file_writer;
         io::global_local_filesystem()->create_file(path, &file_writer);
         return file_writer;
     }
@@ -409,8 +409,8 @@ private:
         return st.ok() ? std::move(reader) : nullptr;
     }
 
-    std::unique_ptr<io::FileReader> create_readable_block(const std::string& path) {
-        std::unique_ptr<io::FileReader> reader;
+    io::FileReaderSPtr create_readable_block(const std::string& path) {
+        io::FileReaderSPtr reader;
         auto st = io::global_local_filesystem()->open_file(path, &reader);
         return st.ok() ? std::move(reader) : nullptr;
     }

@@ -21,6 +21,8 @@
 
 #include "common/status.h"
 #include "gutil/macros.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/path.h"
 
 namespace doris {
@@ -46,9 +48,9 @@ public:
 
     DISALLOW_COPY_AND_ASSIGN(FileSystem);
 
-    virtual Status create_file(const Path& path, std::unique_ptr<FileWriter>* writer) = 0;
+    virtual Status create_file(const Path& path, FileWriterPtr* writer) = 0;
 
-    virtual Status open_file(const Path& path, std::unique_ptr<FileReader>* reader) = 0;
+    virtual Status open_file(const Path& path, FileReaderSPtr* reader) = 0;
 
     virtual Status delete_file(const Path& path) = 0;
 

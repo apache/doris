@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "common/status.h"
 #include "gutil/macros.h"
 #include "io/fs/path.h"
@@ -54,6 +56,8 @@ public:
 protected:
     Path _path;
 };
+
+using FileWriterPtr = std::unique_ptr<FileWriter>;
 
 } // namespace io
 } // namespace doris

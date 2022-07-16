@@ -61,7 +61,7 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
     std::string fname = dname + "/" + file_name;
     auto fs = io::global_local_filesystem();
     {
-        std::unique_ptr<io::FileWriter> file_writer;
+        io::FileWriterPtr file_writer;
         Status st = fs->create_file(fname, &file_writer);
         EXPECT_TRUE(st.ok()) << st.to_string();
 
@@ -89,12 +89,12 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
 }
 
 void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnIndexMetaPB& meta,
-                                  std::unique_ptr<RandomAccessFile>* rfile,
                                   BloomFilterIndexReader** reader,
                                   std::unique_ptr<BloomFilterIndexIterator>* iter) {
     std::string fname = dname + "/" + file_name;
-    auto fs = io::global_local_filesystem();
-    *reader = new BloomFilterIndexReader(fs, fname, &meta.bloom_filter_index());
+    io::FileReaderSPtr file_reader;
+    ASSERT_EQ(io::global_local_filesystem()->open_file(fname, &file_reader), Status::OK());
+    *reader = new BloomFilterIndexReader(std::move(file_reader), &meta.bloom_filter_index());
     auto st = (*reader)->load(true, false);
     EXPECT_TRUE(st.ok());
 
@@ -111,10 +111,9 @@ void test_bloom_filter_index_reader_writer_template(
     ColumnIndexMetaPB meta;
     write_bloom_filter_index_file<Type>(file_name, val, num, null_num, &meta);
     {
-        std::unique_ptr<RandomAccessFile> rfile;
         BloomFilterIndexReader* reader = nullptr;
         std::unique_ptr<BloomFilterIndexIterator> iter;
-        get_bloom_filter_reader_iter(file_name, meta, &rfile, &reader, &iter);
+        get_bloom_filter_reader_iter(file_name, meta, &reader, &iter);
 
         // page 0
         std::unique_ptr<BloomFilter> bf;

@@ -40,6 +40,8 @@ public:
 
     size_t size() const override { return _file_size; }
 
+    bool closed() const override { return _closed.load(std::memory_order_acquire); }
+
 private:
     Path _path;
     size_t _file_size;
@@ -47,6 +49,7 @@ private:
 
     std::string _bucket;
     std::string _key;
+    std::atomic<bool> _closed = false;
 };
 
 } // namespace io

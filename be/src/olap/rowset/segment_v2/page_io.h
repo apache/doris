@@ -46,7 +46,7 @@ namespace segment_v2 {
 
 struct PageReadOptions {
     // block to read page
-    doris::io::FileReader* file_reader = nullptr;
+    io::FileReader* file_reader = nullptr;
     // location of the page
     PagePointer page_pointer;
     // decompressor for page body (null means page body is not compressed)

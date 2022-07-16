@@ -85,8 +85,7 @@ private:
     /// In other processes, such as merger or schema change, we will use this unified writer for data writing.
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
     mutable SpinLock _lock; // lock to protect _wblocks.
-    // TODO(lingbin): it is better to wrapper in a Batch?
-    std::vector<std::unique_ptr<io::FileWriter>> _file_writers;
+    std::vector<io::FileWriterPtr> _file_writers;
 
     // counters and statistics maintained during data write
     std::atomic<int64_t> _num_rows_written;

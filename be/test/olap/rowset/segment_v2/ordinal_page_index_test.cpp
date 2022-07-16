@@ -25,6 +25,7 @@
 
 #include "common/logging.h"
 #include "env/env.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -65,7 +66,7 @@ TEST_F(OrdinalPageIndexTest, normal) {
     }
     ColumnIndexMetaPB index_meta;
     {
-        std::unique_ptr<io::FileWriter> file_writer;
+        io::FileWriterPtr file_writer;
         EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
         EXPECT_TRUE(builder.finish(file_writer.get(), &index_meta).ok());
@@ -76,7 +77,9 @@ TEST_F(OrdinalPageIndexTest, normal) {
                   << index_meta.ordinal_index().root_page().root_page().size();
     }
 
-    OrdinalIndexReader index(fs, filename, &index_meta.ordinal_index(), 16 * 1024 * 4096 + 1);
+    io::FileReaderSPtr file_reader;
+    EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+    OrdinalIndexReader index(file_reader, &index_meta.ordinal_index(), 16 * 1024 * 4096 + 1);
     EXPECT_TRUE(index.load(true, false).ok());
     EXPECT_EQ(16 * 1024, index.num_data_pages());
     EXPECT_EQ(1, index.get_first_ordinal(0));
@@ -130,8 +133,7 @@ TEST_F(OrdinalPageIndexTest, one_data_page) {
         EXPECT_EQ(data_page_pointer, root_page_pointer);
     }
 
-    auto fs = io::global_local_filesystem();
-    OrdinalIndexReader index(fs, "", &index_meta.ordinal_index(), num_values);
+    OrdinalIndexReader index(nullptr, &index_meta.ordinal_index(), num_values);
     EXPECT_TRUE(index.load(true, false).ok());
     EXPECT_EQ(1, index.num_data_pages());
     EXPECT_EQ(0, index.get_first_ordinal(0));

@@ -17,10 +17,12 @@
 
 #include "olap/rowset/segment_v2/segment.h"
 
+#include <memory>
 #include <utility>
 
 #include "common/logging.h" // LOG
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_reader.h"
 #include "olap/fs/fs_util.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
@@ -39,15 +41,17 @@ using strings::Substitute;
 
 Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
                      const TabletSchema* tablet_schema, std::shared_ptr<Segment>* output) {
-    std::shared_ptr<Segment> segment(new Segment(fs, path, segment_id, tablet_schema));
+    std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
+    io::FileReaderSPtr file_reader;
+    RETURN_IF_ERROR(fs->open_file(path, &file_reader));
+    segment->_file_reader = std::move(file_reader);
     RETURN_IF_ERROR(segment->_open());
-    output->swap(segment);
+    *output = std::move(segment);
     return Status::OK();
 }
 
-Segment::Segment(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
-                 const TabletSchema* tablet_schema)
-        : _fs(fs), _path(path), _segment_id(segment_id), _tablet_schema(*tablet_schema) {
+Segment::Segment(uint32_t segment_id, const TabletSchema* tablet_schema)
+        : _segment_id(segment_id), _tablet_schema(*tablet_schema) {
 #ifndef BE_TEST
     _mem_tracker = StorageEngine::instance()->tablet_mem_tracker();
 #else
@@ -62,15 +66,11 @@ Segment::~Segment() {
 Status Segment::_open() {
     RETURN_IF_ERROR(_parse_footer());
     RETURN_IF_ERROR(_create_column_readers());
-    _is_open = true;
     return Status::OK();
 }
 
 Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
-    if (!_is_open) {
-        RETURN_IF_ERROR(_open());
-    }
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
     if (read_options.conditions != nullptr) {
@@ -97,35 +97,34 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
 
 Status Segment::_parse_footer() {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
-    std::unique_ptr<io::FileReader> file_reader;
-    RETURN_IF_ERROR(_fs->open_file(_path, &file_reader));
-
-    auto file_size = file_reader->size();
+    auto file_size = _file_reader->size();
     if (file_size < 12) {
-        return Status::Corruption("Bad segment file {}: file size {} < 12", _path, file_size);
+        return Status::Corruption("Bad segment file {}: file size {} < 12",
+                                  _file_reader->path().native(), file_size);
     }
 
     uint8_t fixed_buf[12];
     size_t bytes_read = 0;
-    RETURN_IF_ERROR(file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read));
+    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read));
     DCHECK_EQ(bytes_read, 12);
 
     // validate magic number
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
-        return Status::Corruption("Bad segment file {}: magic number not match", _path);
+        return Status::Corruption("Bad segment file {}: magic number not match",
+                                  _file_reader->path().native());
     }
 
     // read footer PB
     uint32_t footer_length = decode_fixed32_le(fixed_buf);
     if (file_size < 12 + footer_length) {
-        return Status::Corruption("Bad segment file {}: file size {} < {}", _path, file_size,
-                                  12 + footer_length);
+        return Status::Corruption("Bad segment file {}: file size {} < {}",
+                                  _file_reader->path().native(), file_size, 12 + footer_length);
     }
     _mem_tracker->consume(footer_length);
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(file_reader->read_at(file_size - 12 - footer_length, footer_buf, &bytes_read));
+    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, &bytes_read));
     DCHECK_EQ(bytes_read, footer_length);
 
     // validate footer PB's checksum
@@ -133,13 +132,14 @@ Status Segment::_parse_footer() {
     uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         return Status::Corruption(
-                "Bad segment file {}: footer checksum not match, actual={} vs expect={}", _path,
-                actual_checksum, expect_checksum);
+                "Bad segment file {}: footer checksum not match, actual={} vs expect={}",
+                _file_reader->path().native(), actual_checksum, expect_checksum);
     }
 
     // deserialize footer PB
     if (!_footer.ParseFromString(footer_buf)) {
-        return Status::Corruption("Bad segment file {}: failed to parse SegmentFooterPB", _path);
+        return Status::Corruption("Bad segment file {}: failed to parse SegmentFooterPB",
+                                  _file_reader->path().native());
     }
     return Status::OK();
 }
@@ -147,12 +147,8 @@ Status Segment::_parse_footer() {
 Status Segment::_load_index() {
     return _load_index_once.call([this] {
         // read and parse short key index page
-
-        std::unique_ptr<io::FileReader> file_reader;
-        RETURN_IF_ERROR(_fs->open_file(_path, &file_reader));
-
         PageReadOptions opts;
-        opts.file_reader = file_reader.get();
+        opts.file_reader = _file_reader.get();
         opts.page_pointer = PagePointer(_footer.short_key_index_page());
         opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
         OlapReaderStatistics tmp_stats;
@@ -189,7 +185,7 @@ Status Segment::_create_column_readers() {
         opts.kept_in_memory = _tablet_schema.is_in_memory();
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, _footer.columns(iter->second),
-                                             _footer.num_rows(), _fs, _path, &reader));
+                                             _footer.num_rows(), _file_reader, &reader));
         _column_readers[ordinal] = std::move(reader);
     }
     return Status::OK();

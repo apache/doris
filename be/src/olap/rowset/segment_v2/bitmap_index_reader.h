@@ -21,7 +21,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_system.h"
+#include "io/fs/file_reader.h"
 #include "olap/column_block.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
@@ -39,10 +39,9 @@ class IndexedColumnIterator;
 
 class BitmapIndexReader {
 public:
-    explicit BitmapIndexReader(io::FileSystem* fs, const std::string& path,
+    explicit BitmapIndexReader(io::FileReaderSPtr file_reader,
                                const BitmapIndexPB* bitmap_index_meta)
-            : _fs(fs),
-              _path(path),
+            : _file_reader(std::move(file_reader)),
               _type_info(get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>()),
               _bitmap_index_meta(bitmap_index_meta) {}
 
@@ -58,8 +57,7 @@ public:
 private:
     friend class BitmapIndexIterator;
 
-    io::FileSystem* _fs;
-    std::string _path;
+    io::FileReaderSPtr _file_reader;
     const TypeInfo* _type_info;
     const BitmapIndexPB* _bitmap_index_meta;
     bool _has_null = false;

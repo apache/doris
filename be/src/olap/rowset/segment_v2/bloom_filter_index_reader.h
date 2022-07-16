@@ -22,7 +22,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_system.h"
+#include "io/fs/file_reader.h"
 #include "olap/column_block.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
@@ -42,10 +42,9 @@ class BloomFilter;
 
 class BloomFilterIndexReader {
 public:
-    explicit BloomFilterIndexReader(io::FileSystem* fs, const std::string& path,
+    explicit BloomFilterIndexReader(io::FileReaderSPtr file_reader,
                                     const BloomFilterIndexPB* bloom_filter_index_meta)
-            : _fs(fs),
-              _path(path),
+            : _file_reader(std::move(file_reader)),
               _type_info(get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>()),
               _bloom_filter_index_meta(bloom_filter_index_meta) {}
 
@@ -59,8 +58,7 @@ public:
 private:
     friend class BloomFilterIndexIterator;
 
-    io::FileSystem* _fs;
-    std::string _path;
+    io::FileReaderSPtr _file_reader;
     const TypeInfo* _type_info;
     const BloomFilterIndexPB* _bloom_filter_index_meta;
     std::unique_ptr<IndexedColumnReader> _bloom_filter_reader;

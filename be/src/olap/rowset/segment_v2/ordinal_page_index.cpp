@@ -72,11 +72,8 @@ Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory) {
         return Status::OK();
     }
     // need to read index page
-    std::unique_ptr<io::FileReader> file_reader;
-    RETURN_IF_ERROR(_fs->open_file(_path, &file_reader));
-
     PageReadOptions opts;
-    opts.file_reader = file_reader.get();
+    opts.file_reader = _file_reader.get();
     opts.page_pointer = PagePointer(_index_meta->root_page().root_page());
     opts.codec = nullptr; // ordinal index page uses NO_COMPRESSION right now
     OlapReaderStatistics tmp_stats;

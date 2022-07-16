@@ -107,8 +107,7 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
-    Segment(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
-            const TabletSchema* tablet_schema);
+    Segment(uint32_t segment_id, const TabletSchema* tablet_schema);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer();
@@ -119,8 +118,7 @@ private:
 
 private:
     friend class SegmentIterator;
-    io::FileSystem* _fs;
-    std::string _path;
+    io::FileReaderSPtr _file_reader;
 
     uint32_t _segment_id;
     TabletSchema _tablet_schema;
@@ -146,9 +144,6 @@ private:
     PageHandle _sk_index_handle;
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
-    // segment footer need not to be read for remote storage, so _is_open is false. When remote file
-    // need to be read. footer will be read and _is_open will be set to true.
-    bool _is_open = false;
 };
 
 } // namespace segment_v2
