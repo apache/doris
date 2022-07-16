@@ -82,7 +82,11 @@ check_prerequest() {
 run_sql() {
     sql="$@"
     echo $sql
-    mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
+    if [ -z $PASSWORD ]; then
+        mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
+    else
+        mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -p$PASSWORD -e "$@"
+    fi
 }
 
 load_lineitem_flat() {
