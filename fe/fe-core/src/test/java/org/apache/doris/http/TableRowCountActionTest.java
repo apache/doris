@@ -39,8 +39,8 @@ public class TableRowCountActionTest extends DorisHttpTestCase {
                 .build();
 
         Response response = networkClient.newCall(request).execute();
+        Assert.assertNotNull(response.body());
         String res = response.body().string();
-        System.out.println(res);
         JSONObject jsonObject = (JSONObject) JSONValue.parse(res);
         Assert.assertEquals(200, (long) ((JSONObject) jsonObject.get("data")).get("status"));
         Assert.assertEquals(2000, (long) ((JSONObject) jsonObject.get("data")).get("size"));

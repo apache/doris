@@ -1049,12 +1049,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
             return Status::OK();
         } else if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATEV2) {
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType;
-            SrcType src_value = *reinterpret_cast<const SrcType*>(src);
-            //only need part one
-            CppType year = static_cast<CppType>((src_value & 0xFFFF0000) >> 16);
-            CppType mon = static_cast<CppType>((src_value & 0xFF00) >> 8);
-            CppType mday = static_cast<CppType>(src_value & 0xFF);
-            *reinterpret_cast<CppType*>(dest) = (year << 9) + (mon << 5) + mday;
+            *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const SrcType*>(src);
             return Status::OK();
         }
 
@@ -1113,8 +1108,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>
         char* res = strptime(scan_key.c_str(), "%Y-%m-%d", &time_tm);
 
         if (nullptr != res) {
-            uint32_t value = ((time_tm.tm_year + 1900) << 16) | ((time_tm.tm_mon + 1) << 8) |
-                             time_tm.tm_mday;
+            uint32_t value =
+                    ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
             *reinterpret_cast<CppType*>(buf) = value;
         } else {
             *reinterpret_cast<CppType*>(buf) = doris::vectorized::MIN_DATE_V2;
@@ -1143,7 +1138,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>
             CppType year = static_cast<CppType>((part1 / 10000L) % 10000);
             CppType mon = static_cast<CppType>((part1 / 100) % 100);
             CppType mday = static_cast<CppType>(part1 % 100);
-            *reinterpret_cast<CppType*>(dest) = (year << 16) | (mon << 8) | mday;
+            *reinterpret_cast<CppType*>(dest) = (year << 9) | (mon << 5) | mday;
             return Status::OK();
         }
 
@@ -1153,7 +1148,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>
             int day = static_cast<int>(value & 31);
             int mon = static_cast<int>(value >> 5 & 15);
             int year = static_cast<int>(value >> 9);
-            *reinterpret_cast<CppType*>(dest) = (year << 16) | (mon << 8) | day;
+            *reinterpret_cast<CppType*>(dest) = (year << 9) | (mon << 5) | day;
             return Status::OK();
         }
 
@@ -1167,7 +1162,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>
             CppType year = static_cast<CppType>(src_value / 10000);
             CppType month = static_cast<CppType>((src_value % 10000) / 100);
             CppType day = static_cast<CppType>(src_value % 100);
-            *reinterpret_cast<CppType*>(dest) = (year << 16) | (month << 8) | day;
+            *reinterpret_cast<CppType*>(dest) = (year << 9) | (month << 5) | day;
             return Status::OK();
         }
 
@@ -1184,7 +1179,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>
                 if (dt.from_date_format_str(format.c_str(), format.length(), src_value.get_data(),
                                             src_value.get_size())) {
                     *reinterpret_cast<CppType*>(dest) =
-                            (dt.year() << 16) | (dt.month() << 8) | dt.day();
+                            (dt.year() << 9) | (dt.month() << 5) | dt.day();
                     return Status::OK();
                 }
             }
@@ -1256,9 +1251,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>
         } else if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATEV2) {
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType;
             auto value = *reinterpret_cast<const SrcType*>(src);
-            int day = static_cast<int>(value & 0xFF);
-            int mon = static_cast<int>((value & 0xFF00) >> 8);
-            int year = static_cast<int>((value & 0xFFFF0000) >> 16);
+            int day = static_cast<int>(value & 0x1F);
+            int mon = static_cast<int>((value & 0x1E0) >> 5);
+            int year = static_cast<int>((value & 0xFFFFFE00) >> 9);
             *reinterpret_cast<CppType*>(dest) = (year * 10000L + mon * 100L + day) * 1000000;
             return Status::OK();
         }

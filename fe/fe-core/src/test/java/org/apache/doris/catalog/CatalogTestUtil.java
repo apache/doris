@@ -171,11 +171,11 @@ public class CatalogTestUtil {
         Catalog.getCurrentInvertedIndex().clear();
 
         // replica
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L,
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, 0, 0L, 0L,
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, 0, 0L, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, 0, 0L, 0L,
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, 0, 0L, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
 
         // tablet
@@ -242,7 +242,7 @@ public class CatalogTestUtil {
     public static void createDupTable(Database db) {
 
         // replica
-        Replica replica = new Replica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L,
+        Replica replica = new Replica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
 
         // tablet

@@ -33,6 +33,7 @@ import org.apache.doris.analysis.AlterColumnStatsStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
+import org.apache.doris.analysis.AlterPolicyStmt;
 import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
@@ -304,6 +305,8 @@ public class DdlExecutor {
             catalog.getPolicyMgr().createPolicy((CreatePolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropPolicyStmt) {
             catalog.getPolicyMgr().dropPolicy((DropPolicyStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterPolicyStmt) {
+            catalog.getPolicyMgr().alterPolicy((AlterPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateCatalogStmt) {
             catalog.getDataSourceMgr().createCatalog((CreateCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof DropCatalogStmt) {

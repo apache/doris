@@ -119,7 +119,7 @@ suite ("test_dup_keys_schema_change") {
         sql """ INSERT INTO ${tableName} VALUES
                 (3, '2017-10-01', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2020-01-03', 1, 32, 20, 2)
             """
-        result = sql """ SELECT * FROM ${tableName} WHERE user_id = 3 """
+        result = sql """ SELECT * FROM ${tableName} WHERE user_id = 3 order by new_column """
 
         assertTrue(result.size() == 2)
         assertTrue(result[0].size() == 12)
@@ -177,7 +177,6 @@ suite ("test_dup_keys_schema_change") {
                 (5, '2017-10-01', 'Beijing', 10, '2020-01-03', '2020-01-03', '2020-01-03', 1, 32, 20, 2)
             """
 
-        Thread.sleep(30 * 1000)
         // compaction
         String[][] tablets = sql """ show tablets from ${tableName}; """
         for (String[] tablet in tablets) {
