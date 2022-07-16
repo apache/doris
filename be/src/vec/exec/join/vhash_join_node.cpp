@@ -1045,6 +1045,7 @@ Status HashJoinNode::open(RuntimeState* state) {
     if (_vother_join_conjunct_ptr) {
         RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->open(state));
     }
+    RETURN_IF_ERROR(VExpr::open(_output_expr_ctxs, state));
 
     std::promise<Status> thread_status;
     std::thread(bind(&HashJoinNode::_hash_table_build_thread, this, state, &thread_status))
