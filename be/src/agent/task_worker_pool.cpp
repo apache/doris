@@ -1734,11 +1734,7 @@ void TaskWorkerPool::_storage_refresh_storage_policy_worker_thread_callback() {
 
         TGetStoragePolicyResult result;
         Status status = _master_client->refresh_storage_policy(&result);
-        if (!status.ok()) {
-            LOG(WARNING) << "refresh storage policy status not ok";
-        } else if (result.status.status_code != TStatusCode::OK) {
-            // LOG(WARNING) << "refresh storage policy result status status_code not ok";
-        } else {
+        if (status.ok() && result.status.status_code == TStatusCode::OK) {
             // update storage policy mgr.
             StoragePolicyMgr* spm = ExecEnv::GetInstance()->storage_policy_mgr();
             for (const auto& iter : result.result_entrys) {
@@ -1759,7 +1755,6 @@ void TaskWorkerPool::_storage_refresh_storage_policy_worker_thread_callback() {
 
                 LOG_EVERY_N(INFO, 12) << "refresh storage policy task, policy " << *policy_ptr;
                 spm->periodic_put(iter.policy_name, std::move(policy_ptr));
-            }
         }
     }
 }
