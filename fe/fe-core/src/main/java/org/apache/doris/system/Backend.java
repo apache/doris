@@ -550,22 +550,24 @@ public class Backend implements Writable {
      * But in new version, a Backend can have multi tag, so we need to put locationTag to
      * the new tagMap
      */
-    private void convertToTagMap() {
+    private void convertToTagMapAndSetLocationTag() {
         if (tagMap == null) {
             // When first upgrade from old version, tags may be null
             tagMap = Maps.newHashMap();
         }
-        // ATTN: here we use Tag.TYPE_LOCATION directly, not locationTag.type,
-        // because we need to make sure the previous tag must be a location type tag,
-        // and if not, convert it to location type.
-        tagMap.put(Tag.TYPE_LOCATION, locationTag.value);
-        locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, locationTag.value);
+        if (!tagMap.containsKey(Tag.TYPE_LOCATION)) {
+            // ATTN: here we use Tag.TYPE_LOCATION directly, not locationTag.type,
+            // because we need to make sure the previous tag must be a location type tag,
+            // and if not, convert it to location type.
+            tagMap.put(Tag.TYPE_LOCATION, locationTag.value);
+        }
+        locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, tagMap.get(Tag.TYPE_LOCATION));
     }
 
     public static Backend read(DataInput in) throws IOException {
         String json = Text.readString(in);
         Backend be = GsonUtils.GSON.fromJson(json, Backend.class);
-        be.convertToTagMap();
+        be.convertToTagMapAndSetLocationTag();
         return be;
     }
 
