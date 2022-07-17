@@ -35,7 +35,7 @@ export DORIS_HOME=`cd "$PRG_DIR/.." >/dev/null; pwd`
 export PID_DIR=`cd "$PRGDIR" >/dev/null; pwd`
 
 signum=9
-if [ x"$1" != x"--grace" ]; then
+if [ x"$1" = x"--grace" ]; then
     signum=15
 fi
 
