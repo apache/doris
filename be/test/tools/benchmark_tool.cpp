@@ -38,8 +38,6 @@
 #include "io/fs/local_file_system.h"
 #include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
 #include "olap/in_list_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/row_block2.h"
@@ -347,7 +345,7 @@ public:
         std::string path = fmt::format("{}/{}", kSegmentDir, filename);
         auto fs = io::global_local_filesystem();
 
-        std::unique_ptr<io::FileWriter> file_writer;
+        io::FileWriterPtr file_writer;
         fs->create_file(path, &file_writer);
         SegmentWriterOptions opts;
         DataDir data_dir(kSegmentDir);
