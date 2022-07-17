@@ -29,6 +29,7 @@ namespace vectorized {
 // should delete returned iterator after usage.
 RowwiseIterator* new_merge_iterator(
         std::vector<RowwiseIterator*>& inputs, std::shared_ptr<MemTracker> parent, int sequence_id_idx, bool is_unique,
+        uint64_t* merged_rows,
         const std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr);
 
 // Create a union iterator for input iterators. Union iterator will read
