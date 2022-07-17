@@ -137,14 +137,24 @@ template <SetOperation operation>
 struct ArraySetImpl {
 public:
     static DataTypePtr get_return_type(const DataTypes& arguments) {
-        const DataTypeArray* array_left =
-                check_and_get_data_type<DataTypeArray>(arguments[0].get());
+//        const DataTypeArray* array_left =
+//                check_and_get_data_type<DataTypeArray>(arguments[0].get());
         // if any nested type of array arguments is nullable then return array with
         // nullable nested type.
-        if (array_left->get_nested_type()->is_nullable()) {
-            return arguments[0];
+//        if (array_left->get_nested_type()->is_nullable()) {
+//            return arguments[0];
+//        }
+//        return arguments[1];
+        DataTypePtr res;
+        for (const auto& arg : arguments) {
+            const DataTypeArray* array_type = check_and_get_data_type<DataTypeArray>(arg.get());
+            if (array_type->get_nested_type()->is_nullable()) {
+                res = arg;
+                break;
+            }
         }
-        return arguments[1];
+        res = res ? res : arguments[0];
+        return res;
     }
 
     static Status execute(ColumnPtr& res_ptr, const ColumnArrayExecutionData& left_data,
