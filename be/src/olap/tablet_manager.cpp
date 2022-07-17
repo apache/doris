@@ -57,7 +57,6 @@
 #include "util/path_util.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
-#include "util/storage_backend_mgr.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -420,16 +419,7 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
             }
         }
 
-        StorageParamPB storage_param;
-        Status status =
-                _get_storage_param(data_dir, tablet_meta->remote_storage_name(), &storage_param);
-        if (!status.ok()) {
-            LOG(WARNING) << "fail to _get_storage_param. storage_name: "
-                         << tablet_meta->remote_storage_name();
-            return nullptr;
-        }
-        TabletSharedPtr new_tablet =
-                Tablet::create_tablet_from_meta(tablet_meta, storage_param, data_dir);
+        TabletSharedPtr new_tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
         DCHECK(new_tablet != nullptr);
         return new_tablet;
     }
@@ -739,12 +729,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         tablet_meta->set_tablet_state(TABLET_RUNNING);
     }
 
-    StorageParamPB storage_param;
-    RETURN_NOT_OK_LOG(
-            _get_storage_param(data_dir, tablet_meta->remote_storage_name(), &storage_param),
-            "fail to _get_storage_param. storage_name: " + tablet_meta->remote_storage_name());
-
-    TabletSharedPtr tablet = Tablet::create_tablet_from_meta(tablet_meta, storage_param, data_dir);
+    TabletSharedPtr tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
     if (tablet == nullptr) {
         LOG(WARNING) << "fail to load tablet. tablet_id=" << tablet_id
                      << ", schema_hash:" << schema_hash;
@@ -1263,13 +1248,6 @@ void TabletManager::get_tablets_distribution_on_different_disks(
         tablets_num_on_disk[partition_id] = tablets_num;
         tablets_info_on_disk[partition_id] = tablets_info;
     }
-}
-
-Status TabletManager::_get_storage_param(DataDir* data_dir, const std::string& storage_name,
-                                         StorageParamPB* storage_param) {
-    storage_param->set_storage_medium(
-            fs::fs_util::get_storage_medium_pb(data_dir->storage_medium()));
-    return Status::OK();
 }
 
 struct SortCtx {

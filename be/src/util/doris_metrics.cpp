@@ -287,16 +287,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, max_network_send_bytes_rate);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, max_network_receive_bytes_rate);
 
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, readable_blocks_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, writable_blocks_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, blocks_created_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, blocks_deleted_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, bytes_read_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, bytes_written_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, disk_sync_total);
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, blocks_open_reading);
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, blocks_open_writing);
-
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, load_rows);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, load_bytes);
 

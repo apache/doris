@@ -51,7 +51,7 @@ std::string cast_to_string(T value, int scale) {
         return std::to_string(static_cast<int>(value));
     } else if constexpr (primitive_type == TYPE_LARGEINT) {
         std::stringstream ss;
-        ss << value;
+        doris::operator<<(ss, value);
         return ss.str();
     } else {
         return boost::lexical_cast<std::string>(value);

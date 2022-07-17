@@ -87,7 +87,6 @@ public:
                uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                TabletUid tablet_uid, TTabletType::type tabletType,
-               TStorageMedium::type t_storage_medium, const std::string& remote_storage_name,
                TCompressionType::type compression_type,
                const std::string& storage_policy = std::string(),
                bool enable_unique_key_merge_on_write = false);
@@ -186,10 +185,6 @@ public:
 
     bool all_beta() const;
 
-    std::string remote_storage_name() const { return _remote_storage_name; }
-
-    StorageMediumPB storage_medium() const { return _storage_medium; }
-
     const io::ResourceId& cooldown_resource() const {
         std::shared_lock<std::shared_mutex> rlock(_meta_lock);
         return _cooldown_resource;
@@ -241,8 +236,6 @@ private:
     std::vector<DeletePredicatePB> _del_predicates;
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
-    std::string _remote_storage_name;
-    StorageMediumPB _storage_medium = StorageMediumPB::HDD;
 
     // FIXME(cyx): Currently `cooldown_resource` is equivalent to `storage_policy`.
     io::ResourceId _cooldown_resource;

@@ -159,17 +159,6 @@ public:
     IntGauge* max_network_send_bytes_rate;
     IntGauge* max_network_receive_bytes_rate;
 
-    // Metrics related with BlockManager
-    IntCounter* readable_blocks_total;
-    IntCounter* writable_blocks_total;
-    IntCounter* blocks_created_total;
-    IntCounter* blocks_deleted_total;
-    IntCounter* bytes_read_total;
-    IntCounter* bytes_written_total;
-    IntCounter* disk_sync_total;
-    IntGauge* blocks_open_reading;
-    IntGauge* blocks_open_writing;
-
     // Metrics related with file reader/writer
     IntCounter* local_file_reader_total;
     IntCounter* s3_file_reader_total;

@@ -26,7 +26,6 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_system_map.h"
 #include "olap/column_block.h"
-#include "olap/fs/fs_util.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/page_handle.h"

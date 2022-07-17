@@ -248,12 +248,6 @@ message S3StorageParamPB {
     optional string root_path = 8;
 }
 
-message StorageParamPB {
-    optional StorageMediumPB storage_medium = 1 [default = HDD];
-    optional string storage_name = 2 [default = "local"];
-    optional S3StorageParamPB s3_storage_param = 3;
-}
-
 message TabletMetaPB {
     optional int64 table_id = 1;    // ?
     optional int64 partition_id = 2;    // ?
@@ -278,8 +272,8 @@ message TabletMetaPB {
     optional RowsetTypePB preferred_rowset_type = 16;
     optional TabletTypePB tablet_type = 17;
     repeated RowsetMetaPB stale_rs_metas = 18;
-    optional StorageMediumPB storage_medium = 19 [default = HDD];
-    optional string remote_storage_name = 20;
+    // optional StorageMediumPB storage_medium = 19 [default = HDD];
+    // optional string remote_storage_name = 20;
     optional int64 replica_id = 21 [default = 0];
     optional string storage_policy = 22;
     optional DeleteBitmapPB delete_bitmap = 23;

@@ -24,7 +24,6 @@
 #include "env/env.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
-#include "olap/fs/fs_util.h"
 #include "olap/memtable.h"
 #include "olap/olap_define.h"
 #include "olap/row.h"        // ContiguousRow

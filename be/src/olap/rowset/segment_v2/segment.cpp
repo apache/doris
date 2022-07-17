@@ -20,10 +20,7 @@
 #include <memory>
 #include <utility>
 
-#include "common/logging.h" // LOG
-#include "gutil/strings/substitute.h"
-#include "io/fs/file_reader.h"
-#include "olap/fs/fs_util.h"
+#include "common/logging.h"                       // LOG
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/page_io.h"
@@ -36,8 +33,6 @@
 
 namespace doris {
 namespace segment_v2 {
-
-using strings::Substitute;
 
 Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
                      const TabletSchema* tablet_schema, std::shared_ptr<Segment>* output) {

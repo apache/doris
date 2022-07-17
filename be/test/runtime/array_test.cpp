@@ -31,8 +31,6 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
 #include "olap/row_block2.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_writer.h"
