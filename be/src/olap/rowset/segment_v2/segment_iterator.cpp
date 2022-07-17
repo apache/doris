@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "olap/column_predicate.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"

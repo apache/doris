@@ -603,7 +603,6 @@ set(DORIS_LINK_LIBS
     IO
     Olap
     Rowset
-    OlapFs
     Runtime
     Service
     Udf

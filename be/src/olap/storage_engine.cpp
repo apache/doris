@@ -41,7 +41,6 @@
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
-#include "olap/fs/file_block_manager.h"
 #include "olap/lru_cache.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/push_handler.h"
@@ -58,8 +57,6 @@
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
-#include "util/storage_backend.h"
-#include "util/storage_backend_mgr.h"
 #include "util/time.h"
 #include "util/trace.h"
 
