@@ -30,12 +30,14 @@
 #include "util/md5.h"
 #include "util/sm3.h"
 #include "util/url_parser.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -491,10 +493,13 @@ public:
     }
 };
 
-// concat_ws (string,string....)
+// concat_ws (string,string....) or (string, Array)
 // TODO: avoid use fmtlib
 class FunctionStringConcatWs : public IFunction {
 public:
+    using Chars = ColumnString::Chars;
+    using Offsets = ColumnString::Offsets;
+
     static constexpr auto name = "concat_ws";
     static FunctionPtr create() { return std::make_shared<FunctionStringConcatWs>(); }
     String get_name() const override { return name; }
@@ -520,8 +525,8 @@ public:
         auto res = ColumnString::create();
         bool is_null_type = block.get_by_position(arguments[0]).type.get()->is_nullable();
         size_t argument_size = arguments.size();
-        std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
-        std::vector<const ColumnString::Chars*> chars_list(argument_size);
+        std::vector<const Offsets*> offsets_list(argument_size);
+        std::vector<const Chars*> chars_list(argument_size);
         std::vector<const ColumnUInt8::Container*> null_list(argument_size);
 
         ColumnPtr argument_columns[argument_size];
@@ -540,6 +545,11 @@ public:
             } else {
                 null_list[i] = &const_null_map->get_data();
             }
+
+            if (check_column<ColumnArray>(argument_columns[i].get())) {
+                continue;
+            }
+
             auto col_str = assert_cast<const ColumnString*>(argument_columns[i].get());
             offsets_list[i] = &col_str->get_offsets();
             chars_list[i] = &col_str->get_chars();
@@ -553,20 +563,126 @@ public:
         fmt::memory_buffer buffer;
         std::vector<std::string_view> views;
 
+        if (check_column<ColumnArray>(argument_columns[1].get())) {
+            // Determine if the nested type of the array is String
+            const ColumnArray& array_column =
+                    reinterpret_cast<const ColumnArray&>(*argument_columns[1]);
+            if (!array_column.get_data().is_column_string()) {
+                return Status::NotSupported(
+                        fmt::format("unsupported nested array of type {} for function {}",
+                                    is_column_nullable(array_column.get_data())
+                                            ? array_column.get_data().get_name()
+                                            : array_column.get_data().get_family_name(),
+                                    get_name()));
+            }
+            // Concat string in array
+            _execute_array(input_rows_count, array_column, buffer, views, offsets_list, chars_list,
+                           null_list, res_data, res_offset);
+
+        } else {
+            // Concat string
+            _execute_string(input_rows_count, argument_size, buffer, views, offsets_list,
+                            chars_list, null_list, res_data, res_offset);
+        }
+        if (is_null_type) {
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(res), std::move(null_map));
+        } else {
+            block.get_by_position(result).column = std::move(res);
+        }
+        return Status::OK();
+    }
+
+private:
+    void _execute_array(const size_t& input_rows_count, const ColumnArray& array_column,
+                        fmt::memory_buffer& buffer, std::vector<std::string_view>& views,
+                        const std::vector<const Offsets*>& offsets_list,
+                        const std::vector<const Chars*>& chars_list,
+                        const std::vector<const ColumnUInt8::Container*>& null_list,
+                        Chars& res_data, Offsets& res_offset) {
+        // Get array nested column
+        const UInt8* array_nested_null_map = nullptr;
+        ColumnPtr array_nested_column = nullptr;
+
+        if (is_column_nullable(array_column.get_data())) {
+            const auto& array_nested_null_column =
+                    reinterpret_cast<const ColumnNullable&>(array_column.get_data());
+            // String's null map in array
+            array_nested_null_map =
+                    array_nested_null_column.get_null_map_column().get_data().data();
+            array_nested_column = array_nested_null_column.get_nested_column_ptr();
+        } else {
+            array_nested_column = array_column.get_data_ptr();
+        }
+
+        const auto& string_column = reinterpret_cast<const ColumnString&>(*array_nested_column);
+        const Chars& string_src_chars = string_column.get_chars();
+        const Offsets& src_string_offsets = string_column.get_offsets();
+        const Offsets& src_array_offsets = array_column.get_offsets();
+        ColumnArray::Offset current_src_array_offset = 0;
+
+        // Concat string in array
         for (size_t i = 0; i < input_rows_count; ++i) {
-            auto& seq_offsets = *offsets_list[0];
-            auto& seq_chars = *chars_list[0];
-            auto& seq_nullmap = *null_list[0];
-            if (seq_nullmap[i]) {
-                res_data.push_back('\0');
+            auto& sep_offsets = *offsets_list[0];
+            auto& sep_chars = *chars_list[0];
+            auto& sep_nullmap = *null_list[0];
+
+            if (sep_nullmap[i]) {
+                res_offset[i] = res_data.size();
+                current_src_array_offset += src_array_offsets[i] - src_array_offsets[i - 1];
+                continue;
+            }
+
+            int sep_size = sep_offsets[i] - sep_offsets[i - 1] - 1;
+            const char* sep_data = reinterpret_cast<const char*>(&sep_chars[sep_offsets[i - 1]]);
+
+            std::string_view sep(sep_data, sep_size);
+            buffer.clear();
+            views.clear();
+
+            for (auto next_src_array_offset = src_array_offsets[i];
+                 current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
+                const auto current_src_string_offset =
+                        current_src_array_offset ? src_string_offsets[current_src_array_offset - 1]
+                                                 : 0;
+                size_t bytes_to_copy = src_string_offsets[current_src_array_offset] -
+                                       current_src_string_offset - 1;
+                const char* ptr =
+                        reinterpret_cast<const char*>(&string_src_chars[current_src_string_offset]);
+
+                if (array_nested_null_map == nullptr ||
+                    !array_nested_null_map[current_src_array_offset]) {
+                    views.emplace_back(ptr, bytes_to_copy);
+                }
+            }
+
+            fmt::format_to(buffer, "{}", fmt::join(views, sep));
+
+            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
+                                        res_offset);
+        }
+    }
+
+    void _execute_string(const size_t& input_rows_count, const size_t& argument_size,
+                         fmt::memory_buffer& buffer, std::vector<std::string_view>& views,
+                         const std::vector<const Offsets*>& offsets_list,
+                         const std::vector<const Chars*>& chars_list,
+                         const std::vector<const ColumnUInt8::Container*>& null_list,
+                         Chars& res_data, Offsets& res_offset) {
+        // Concat string
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto& sep_offsets = *offsets_list[0];
+            auto& sep_chars = *chars_list[0];
+            auto& sep_nullmap = *null_list[0];
+            if (sep_nullmap[i]) {
                 res_offset[i] = res_data.size();
                 continue;
             }
 
-            int seq_size = seq_offsets[i] - seq_offsets[i - 1] - 1;
-            const char* seq_data = reinterpret_cast<const char*>(&seq_chars[seq_offsets[i - 1]]);
+            int sep_size = sep_offsets[i] - sep_offsets[i - 1] - 1;
+            const char* sep_data = reinterpret_cast<const char*>(&sep_chars[sep_offsets[i - 1]]);
 
-            std::string_view seq(seq_data, seq_size);
+            std::string_view sep(sep_data, sep_size);
             buffer.clear();
             views.clear();
             for (size_t j = 1; j < argument_size; ++j) {
@@ -580,17 +696,10 @@ public:
                     views.emplace_back(ptr, size);
                 }
             }
-            fmt::format_to(buffer, "{}", fmt::join(views, seq));
+            fmt::format_to(buffer, "{}", fmt::join(views, sep));
             StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
                                         res_offset);
         }
-        if (is_null_type) {
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(res), std::move(null_map));
-        } else {
-            block.get_by_position(result).column = std::move(res);
-        }
-        return Status::OK();
     }
 };
 

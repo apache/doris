@@ -38,6 +38,10 @@ suite("test_string_function", "query") {
     qt_sql "select concat_ws(\"or\", \"d\", \"is\");"
     qt_sql "select concat_ws(NULL, \"d\", \"is\");"
     qt_sql "select concat_ws(\"or\", \"d\", NULL,\"is\");"
+    qt_sql "select concat_ws(\"or\", [\"d\", \"is\"]);"
+    qt_sql "select concat_ws(NULL, [\"d\", \"is\"]);"
+    qt_sql "select concat_ws(\"or\", [\"d\", NULL,\"is\"]);"
+    qt_sql "select concat_ws(\"or\", [\"d\", \"\",\"is\"]);"
 
     qt_sql "select ends_with(\"Hello doris\", \"doris\");"
     qt_sql "select ends_with(\"Hello doris\", \"Hello\");"
