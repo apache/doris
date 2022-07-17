@@ -53,7 +53,8 @@ public class CreateViewTest {
         // create table
         String createTableStmtStr = "create table test.tbl1(k1 int, k2 int, v1 int, v2 int) duplicate key(k1)"
                 + " distributed by hash(k2) buckets 1 properties('replication_num' = '1');";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTableStmtStr, connectContext);
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTableStmtStr,
+                connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
 
@@ -87,6 +88,18 @@ public class CreateViewTest {
                 () -> createView("create view test.view5 as select * from test.tbl1 where hour(now()) > 3"
                         + " and curdate() > '2021-06-26';"));
 
+        // test union all
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view6 as "
+                        + "select * from test.tbl1 where curdate() > '2021-06-26' order by k1 limit 10 "
+                        + "union all "
+                        + "select * from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50;"));
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view7 (k1, k2) as "
+                        + "select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k1 limit 10 "
+                        + "union all "
+                        + "select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50;"));
+
         Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
 
         View view1 = (View) db.getTableOrDdlException("view1");
@@ -112,9 +125,21 @@ public class CreateViewTest {
         Assert.assertNotNull(view4.getColumn("s1"));
 
         View view5 = (View) db.getTableOrDdlException("view5");
-        System.out.println(view5.getDdlSql());
-        Assert.assertTrue(view5.getDdlSql().contains("hour") && view5.getDdlSql().contains("now")
-                && view5.getDdlSql().contains("curdate"));
+        Assert.assertTrue(view5.getDdlSql().contains("hour"));
+        Assert.assertTrue(view5.getDdlSql().contains("now"));
+        Assert.assertTrue(view5.getDdlSql().contains("curdate"));
+
+        View view6 = (View) db.getTableOrDdlException("view6");
+        Assert.assertEquals(4, view6.getFullSchema().size());
+        Assert.assertNotNull(view6.getColumn("k1"));
+        Assert.assertNotNull(view6.getColumn("k2"));
+        Assert.assertNotNull(view6.getColumn("v1"));
+        Assert.assertNotNull(view6.getColumn("v2"));
+
+        View view7 = (View) db.getTableOrDdlException("view7");
+        Assert.assertEquals(2, view7.getFullSchema().size());
+        Assert.assertNotNull(view7.getColumn("k1"));
+        Assert.assertNotNull(view7.getColumn("k2"));
     }
 
     @Test
@@ -138,14 +163,21 @@ public class CreateViewTest {
                 () -> createView("create view test.alter1 as " + originStmt));
         Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
         View alter1 = (View) db.getTableOrDdlException("alter1");
-        Assert.assertEquals("SELECT `k1` AS `kc1`, sum(`k2`) AS `kc2` FROM `default_cluster:test`.`tbl1` GROUP BY `kc1`", alter1.getInlineViewDef());
+        Assert.assertEquals(
+                "SELECT `k1` AS `kc1`, sum(`k2`) AS `kc2` FROM `default_cluster:test`.`tbl1` GROUP BY `kc1`",
+                alter1.getInlineViewDef());
 
-        String alterStmt = "alter view test.alter1 as with test1_cte (w1, w2) as (select k1, k2 from test.tbl1) select w1 as c1, sum(w2) as c2 from test1_cte where w1 > 10 group by w1 order by w1";
+        String alterStmt
+                = "alter view test.alter1 as with test1_cte (w1, w2) as (select k1, k2 from test.tbl1) "
+                + "select w1 as c1, sum(w2) as c2 from test1_cte where w1 > 10 group by w1 order by w1";
         AlterViewStmt alterViewStmt = (AlterViewStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmt, connectContext);
         Catalog.getCurrentCatalog().alterView(alterViewStmt);
 
         alter1 = (View) db.getTableOrDdlException("alter1");
-        System.out.println(alter1.getInlineViewDef());
-        Assert.assertEquals("WITH test1_cte(w1, w2) AS (SELECT `k1` AS `k1`, `k2` AS `k2` FROM `default_cluster:test`.`tbl1`) SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `test1_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1` ASC", alter1.getInlineViewDef());
+        Assert.assertEquals(
+                "WITH test1_cte(w1, w2) "
+                        + "AS (SELECT `k1` AS `k1`, `k2` AS `k2` FROM `default_cluster:test`.`tbl1`) "
+                        + "SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `test1_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1` ASC",
+                alter1.getInlineViewDef());
     }
 }
