@@ -132,7 +132,8 @@ public final class RuntimeFilterGenerator {
         for (PlanNode child : node.getChildren()) {
             collectAllTupleIdsHavingConjunct(child, tupleIds);
         }
-        if (node.getTupleIds().size() == 1 && (!node.conjuncts.isEmpty() || tupleIds.size() > tupleNumBeforeCheckingChildren)) {
+        if (node.getTupleIds().size() == 1
+                && (!node.conjuncts.isEmpty() || tupleIds.size() > tupleNumBeforeCheckingChildren)) {
             // The node or its descendant has conjuncts
             tupleIds.add(node.getTupleIds().get(0));
         }

@@ -192,7 +192,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS = "enable_nereids";
 
-    public static final String ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER = "enable_remove_no_conjuncts_runtime_filter_policy";
+    public static final String ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER =
+            "enable_remove_no_conjuncts_runtime_filter_policy";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -1008,7 +1009,7 @@ public class SessionVariable implements Serializable, Writable {
     public void setEnableRemoveNoConjunctsRuntimeFilterPolicy(boolean enableRemoveNoConjunctsRuntimeFilterPolicy) {
         this.enableRemoveNoConjunctsRuntimeFilterPolicy = enableRemoveNoConjunctsRuntimeFilterPolicy;
     }
-    
+
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {
