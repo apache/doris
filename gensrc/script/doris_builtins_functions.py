@@ -1018,6 +1018,9 @@ visible_functions = [
     [['concat_ws'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'],
             '_ZN5doris15StringFunctions9concat_wsEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValEiPS5_', '', '', 'vec', 'CUSTOM'],
+    [['concat_ws'], 'VARCHAR', ['VARCHAR', 'ARRAY_VARCHAR'],
+            '_ZN5doris15StringFunctions9concat_wsEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValEiPS5_', '', '', 'vec', 'CUSTOM'],
     [['find_in_set'], 'INT', ['VARCHAR', 'VARCHAR'],
             '_ZN5doris15StringFunctions11find_in_setEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
