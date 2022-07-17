@@ -121,6 +121,9 @@ class ScriptContext implements Closeable {
                     log.info("Run ${suiteName} in ${file.absolutePath} succeed".toString())
                 } catch (Throwable t) {
                     log.error("Run ${suiteName} in ${file.absolutePath} failed".toString(), t)
+                    if (config.stopWhenFail) {
+                        System.exit(-1);
+                    }
                     try {
                         // fail
                         if (suite != null) {
