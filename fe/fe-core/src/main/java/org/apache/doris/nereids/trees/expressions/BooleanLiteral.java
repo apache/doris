@@ -45,4 +45,9 @@ public class BooleanLiteral extends Literal {
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitBooleanLiteral(this, context);
     }
+
+    @Override
+    public String toString() {
+        return Boolean.valueOf(value).toString().toUpperCase();
+    }
 }

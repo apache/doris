@@ -39,4 +39,8 @@ public class NullLiteral extends Literal {
         return visitor.visitNullLiteral(this, context);
     }
 
+    @Override
+    public String toString() {
+        return "NULL";
+    }
 }
