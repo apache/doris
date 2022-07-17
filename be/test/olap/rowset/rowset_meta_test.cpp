@@ -78,7 +78,7 @@ void do_check(RowsetMeta rowset_meta) {
     EXPECT_EQ(15673, rowset_meta.tablet_id());
     EXPECT_EQ(4042, rowset_meta.txn_id());
     EXPECT_EQ(567997577, rowset_meta.tablet_schema_hash());
-    EXPECT_EQ(ALPHA_ROWSET, rowset_meta.rowset_type());
+    EXPECT_EQ(BETA_ROWSET, rowset_meta.rowset_type());
     EXPECT_EQ(VISIBLE, rowset_meta.rowset_state());
     EXPECT_EQ(2, rowset_meta.start_version());
     EXPECT_EQ(2, rowset_meta.end_version());
