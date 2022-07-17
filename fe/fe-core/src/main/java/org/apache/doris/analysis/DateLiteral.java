@@ -355,6 +355,12 @@ public class DateLiteral extends LiteralExpr {
                     builder.appendLiteral(" ");
                 }
                 String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[]{};
+                if (timePart.length > 0 && (type.equals(Type.DATE) || type.equals(Type.DATEV2))) {
+                    throw new AnalysisException("Invalid date value: " + s);
+                }
+                if (timePart.length == 0 && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2))) {
+                    throw new AnalysisException("Invalid datetime value: " + s);
+                }
                 for (int i = 0; i < timePart.length; i++) {
                     switch (i) {
                         case 0:
