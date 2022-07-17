@@ -27,8 +27,6 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
 #include "olap/page_cache.h"
 #include "olap/tablet_schema_helper.h"
 #include "util/file_utils.h"

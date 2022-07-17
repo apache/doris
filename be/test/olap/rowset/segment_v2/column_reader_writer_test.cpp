@@ -25,7 +25,6 @@
 #include "io/fs/local_file_system.h"
 #include "olap/column_block.h"
 #include "olap/decimal12.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_writer.h"
