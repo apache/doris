@@ -36,7 +36,6 @@
 #include "gen_cpp/MasterService_types.h"
 #include "gutil/ref_counted.h"
 #include "olap/compaction_permit_limiter.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"

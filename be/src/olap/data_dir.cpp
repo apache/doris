@@ -48,8 +48,6 @@
 #include "service/backend_options.h"
 #include "util/errno.h"
 #include "util/file_utils.h"
-#include "util/storage_backend.h"
-#include "util/storage_backend_mgr.h"
 #include "util/string_util.h"
 
 using strings::Substitute;

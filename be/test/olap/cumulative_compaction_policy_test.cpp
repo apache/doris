@@ -33,7 +33,7 @@ public:
     void SetUp() {
         _tablet_meta = static_cast<TabletMetaSharedPtr>(new TabletMeta(
                 1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD, "", TCompressionType::LZ4F));
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
 
         _json_rowset_meta = R"({
             "rowset_id": 540081,
@@ -207,10 +207,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score)
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_NUM_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
     _tablet->init();
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
             CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
@@ -230,10 +227,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, calculate_cumulative_point) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_NUM_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -248,10 +242,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_candidate_rowsets) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_NUM_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -269,10 +260,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_NUM_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -301,10 +289,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_NUM_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -337,7 +322,7 @@ public:
 
         _tablet_meta = static_cast<TabletMetaSharedPtr>(new TabletMeta(
                 1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD, "", TCompressionType::LZ4F));
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
 
         _json_rowset_meta = R"({
             "rowset_id": 540081,
@@ -678,10 +663,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -702,10 +684,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
@@ -725,10 +704,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calculate_cumulative_point_big_b
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -743,10 +719,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calculate_cumulative_point_overl
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -761,10 +734,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_candidate_rowsets) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -782,10 +752,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_candidate_rowsets_big_base)
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -803,10 +770,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_normal) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -835,10 +799,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_big_base) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -867,10 +828,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_promotion) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -899,10 +857,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_same_leve
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -931,10 +886,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_empty) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -963,10 +915,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_not_reach_min
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -995,10 +944,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_delete) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -1028,10 +974,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_big) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -1050,10 +993,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _calc_promotion_size_small) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
@@ -1071,10 +1011,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
 
     SizeBasedCumulativeCompactionPolicy* policy =
@@ -1095,10 +1032,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _pick_missing_version_cumulative
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(
-            new Tablet(_tablet_meta, storage_param, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
 
     // has miss version
