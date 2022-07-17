@@ -22,6 +22,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/string_ref.h"
+#include "vec/functions/array/function_array_utils.h"
 
 namespace doris::vectorized {
 
@@ -39,9 +40,9 @@ public:
     virtual Status get_value_length(int64_t* length) override;
 
 private:
-    const UInt8* _array_null_map;
-    const ColumnArray* _array_column;
-    size_t _pos;
+    ColumnPtr _array_column;
+    ColumnArrayExecutionData _detail;
+    size_t _array_offset; // start offset of array[row_idx]
 };
 
 } // namespace doris::vectorized

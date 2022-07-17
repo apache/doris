@@ -23,6 +23,15 @@ namespace doris::vectorized {
 
 struct ColumnArrayExecutionData {
 public:
+    void reset() {
+        array_nullmap_data = nullptr;
+        array_col = nullptr;
+        offsets_ptr = nullptr;
+        nested_nullmap_data = nullptr;
+        nested_col = nullptr;
+    }
+
+public:
     const UInt8* array_nullmap_data = nullptr;
     const ColumnArray* array_col = nullptr;
     const ColumnArray::Offsets* offsets_ptr = nullptr;

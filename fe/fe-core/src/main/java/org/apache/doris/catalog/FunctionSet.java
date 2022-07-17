@@ -2734,11 +2734,10 @@ public class FunctionSet<T> {
                 "_ZN5doris19DummyTableFunctions22explode_numbersEPN9doris_udf15FunctionContextERKNS1_9IntValE");
 
         initTableFunctionListWithCombinator(EXPLODE);
-        addTableFunctionWithCombinator(EXPLODE, Type.INT, Function.NullableMode.ALWAYS_NULLABLE,
-                Lists.newArrayList(new ArrayType(Type.INT)), false,
-                "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE");
-        addTableFunctionWithCombinator(EXPLODE, Type.VARCHAR, Function.NullableMode.ALWAYS_NULLABLE,
-                Lists.newArrayList(new ArrayType(Type.VARCHAR)), false,
-                "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE");
+        for (Type subType : Type.getArraySubTypes()) {
+            addTableFunctionWithCombinator(EXPLODE, subType, Function.NullableMode.ALWAYS_NULLABLE,
+                    Lists.newArrayList(new ArrayType(subType)), false,
+                    "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE");
+        }
     }
 }

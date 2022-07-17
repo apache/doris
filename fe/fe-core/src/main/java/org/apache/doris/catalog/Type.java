@@ -108,6 +108,7 @@ public abstract class Type {
     private static final ArrayList<ScalarType> integerTypes;
     private static final ArrayList<ScalarType> numericTypes;
     private static final ArrayList<ScalarType> supportedTypes;
+    private static final ArrayList<Type> arraySubTypes;
 
     static {
         integerTypes = Lists.newArrayList();
@@ -156,6 +157,22 @@ public abstract class Type {
         supportedTypes.add(TIME);
         supportedTypes.add(TIMEV2);
         supportedTypes.add(STRING);
+
+        arraySubTypes = Lists.newArrayList();
+        arraySubTypes.add(BOOLEAN);
+        arraySubTypes.add(TINYINT);
+        arraySubTypes.add(SMALLINT);
+        arraySubTypes.add(INT);
+        arraySubTypes.add(BIGINT);
+        arraySubTypes.add(LARGEINT);
+        arraySubTypes.add(FLOAT);
+        arraySubTypes.add(DOUBLE);
+        arraySubTypes.add(DECIMALV2);
+        arraySubTypes.add(DATE);
+        arraySubTypes.add(DATETIME);
+        arraySubTypes.add(CHAR);
+        arraySubTypes.add(VARCHAR);
+        arraySubTypes.add(STRING);
     }
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -168,6 +185,10 @@ public abstract class Type {
 
     public static ArrayList<ScalarType> getSupportedTypes() {
         return supportedTypes;
+    }
+
+    public static ArrayList<Type> getArraySubTypes() {
+        return arraySubTypes;
     }
 
     /**
