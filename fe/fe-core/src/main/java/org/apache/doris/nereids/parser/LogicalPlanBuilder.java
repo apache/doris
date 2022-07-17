@@ -66,6 +66,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -86,6 +87,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -105,6 +107,7 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Build an logical plan tree with unbounded nodes.
@@ -334,11 +337,56 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     case DorisParser.MINUS:
                         return new Subtract(left, right);
                     default:
-                        throw new IllegalStateException("Unsupported arithmetic binary type: "
-                            + ctx.operator.getText());
+                        throw new IllegalStateException(
+                                "Unsupported arithmetic binary type: " + ctx.operator.getText());
                 }
             });
         });
+    }
+
+    /**
+     * Create a value based [[CaseWhen]] expression. This has the following SQL form:
+     * {{{
+     *   CASE [expression]
+     *    WHEN [value] THEN [expression]
+     *    ...
+     *    ELSE [expression]
+     *   END
+     * }}}
+     */
+    @Override
+    public Expression visitSimpleCase(DorisParser.SimpleCaseContext context) {
+        Expression e = getExpression(context.value);
+        List<WhenClause> whenClauses = context.whenClause().stream()
+                .map(w -> new WhenClause(new EqualTo(e, getExpression(w.condition)), getExpression(w.result)))
+                .collect(Collectors.toList());
+        if (context.elseExpression == null) {
+            return new CaseWhen(whenClauses);
+        }
+        return new CaseWhen(whenClauses, getExpression(context.elseExpression));
+    }
+
+    /**
+     * Create a condition based [[CaseWhen]] expression. This has the following SQL syntax:
+     * {{{
+     *   CASE
+     *    WHEN [predicate] THEN [expression]
+     *    ...
+     *    ELSE [expression]
+     *   END
+     * }}}
+     *
+     * @param context the parse tree
+     */
+    @Override
+    public Expression visitSearchedCase(DorisParser.SearchedCaseContext context) {
+        List<WhenClause> whenClauses = context.whenClause().stream()
+                .map(w -> new WhenClause(getExpression(w.condition), getExpression(w.result)))
+                .collect(Collectors.toList());
+        if (context.elseExpression == null) {
+            return new CaseWhen(whenClauses);
+        }
+        return new CaseWhen(whenClauses, getExpression(context.elseExpression));
     }
 
     @Override

@@ -55,5 +55,7 @@ public enum ExpressionType {
     BITXOR,
     BITNOT,
     FACTORIAL,
-    FUNCTION_CALL
+    FUNCTION_CALL,
+    CASE,
+    WHEN_CLAUSE
 }
