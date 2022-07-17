@@ -52,12 +52,12 @@
 #include "olap/storage_policy_mgr.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
+#include "segment_loader.h"
 #include "util/path_util.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
 #include "util/trace.h"
-#include "segment_loader.h"
 
 namespace doris {
 
@@ -1854,7 +1854,8 @@ const TabletSchema& Tablet::tablet_schema() const {
     return *rowset_meta->tablet_schema();
 }
 
-Status Tablet::lookup_row_key(const Slice& encoded_key, RowLocation* row_location, uint32_t version) {
+Status Tablet::lookup_row_key(const Slice& encoded_key, RowLocation* row_location,
+                              uint32_t version) {
     std::vector<std::pair<RowsetSharedPtr, int32_t>> selected_rs;
     _rowset_tree->FindRowsetsWithKeyInRange(encoded_key, &selected_rs);
     if (selected_rs.empty()) {
