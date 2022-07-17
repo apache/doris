@@ -51,9 +51,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
  *
  */
 public class ProfileManager {
-    private static final Logger LOG = LogManager.getLogger(ProfileManager.class);
-    private static volatile ProfileManager INSTANCE = null;
-    private static final int ARRAY_SIZE = 100;
     // private static final int TOTAL_LEN = 1000 * ARRAY_SIZE ;
     public static final String QUERY_ID = "Query ID";
     public static final String START_TIME = "Start Time";
@@ -67,31 +64,27 @@ public class ProfileManager {
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String IS_CACHED = "Is Cached";
     public static final String TRACE_ID = "Trace ID";
-
-    public enum ProfileType {
-        QUERY,
-        LOAD,
-    }
-
     public static final ArrayList<String> PROFILE_HEADERS = new ArrayList(
             Arrays.asList(QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
                     START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE, TRACE_ID));
-
-    private class ProfileElement {
-        public Map<String, String> infoStrings = Maps.newHashMap();
-        public String profileContent = "";
-        public MultiProfileTreeBuilder builder = null;
-        public String errMsg = "";
-    }
-
+    private static final Logger LOG = LogManager.getLogger(ProfileManager.class);
+    private static final int ARRAY_SIZE = 100;
+    private static volatile ProfileManager INSTANCE = null;
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
     private ReentrantReadWriteLock lock;
     private ReadLock readLock;
     private WriteLock writeLock;
-
     // record the order of profiles by queryId
     private Deque<String> queryIdDeque;
     private Map<String, ProfileElement> queryIdToProfileMap; // from QueryId to RuntimeProfile
+
+    private ProfileManager() {
+        lock = new ReentrantReadWriteLock(true);
+        readLock = lock.readLock();
+        writeLock = lock.writeLock();
+        queryIdDeque = new LinkedList<>();
+        queryIdToProfileMap = new ConcurrentHashMap<>();
+    }
 
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
@@ -102,14 +95,6 @@ public class ProfileManager {
             }
         }
         return INSTANCE;
-    }
-
-    private ProfileManager() {
-        lock = new ReentrantReadWriteLock(true);
-        readLock = lock.readLock();
-        writeLock = lock.writeLock();
-        queryIdDeque = new LinkedList<>();
-        queryIdToProfileMap = new ConcurrentHashMap<>();
     }
 
     public ProfileElement createElement(RuntimeProfile profile) {
@@ -301,5 +286,17 @@ public class ProfileManager {
         } finally {
             readLock.unlock();
         }
+    }
+
+    public enum ProfileType {
+        QUERY,
+        LOAD,
+    }
+
+    private class ProfileElement {
+        public Map<String, String> infoStrings = Maps.newHashMap();
+        public String profileContent = "";
+        public MultiProfileTreeBuilder builder = null;
+        public String errMsg = "";
     }
 }
