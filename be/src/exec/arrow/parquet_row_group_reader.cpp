@@ -94,8 +94,6 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                                                include_column_ids.end());
     _init_conjuncts(tuple_desc, map_column, parquet_column_ids);
     int total_group = _file_metadata->num_row_groups();
-    _parent->statistics()->total_groups = total_group;
-    _parent->statistics()->total_rows = _file_metadata->num_rows();
 
     std::vector<int64_t> start_vec;
     for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
@@ -110,11 +108,11 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
     int64_t filtered_num_rows = 0;
     int64_t filtered_total_byte_size = 0;
     bool update_statistics = false;
+    int64_t total_rg = 0;
     int64_t total_rows = 0;
+    int64_t total_bytes = 0;
     for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
         auto row_group_meta = _file_metadata->RowGroup(row_group_id);
-        total_rows += row_group_meta->num_rows();
-
         ///////////// filter by start offset
         int64_t rg_start = start_vec[row_group_id];
         int64_t rg_size = (row_group_id == total_group - 1) ? file_size - rg_start : start_vec[row_group_id + 1] - rg_start;
@@ -122,24 +120,17 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
             << ", start: " << start << ", size: " << size << ", file_size: " << file_size;
         if (size != 0) {
             if (rg_start + rg_size < start) {
-                update_statistics = true;
-                filtered_num_row_groups++;
-                filtered_num_rows += row_group_meta->num_rows();
-                filtered_total_byte_size += row_group_meta->total_byte_size();
-                LOG(INFO) << "filter1 row group id: " << row_group_id;
                 _filter_group.emplace(row_group_id);
                 continue;
             } else if (rg_start + rg_size > start + size) {
-                update_statistics = true;
-                filtered_num_row_groups++;
-                filtered_num_rows += row_group_meta->num_rows();
-                filtered_total_byte_size += row_group_meta->total_byte_size();
-                LOG(INFO) << "filter2 row group id: " << row_group_id;
                 _filter_group.emplace(row_group_id);
                 continue;
             }
         }
         ////////////////////////////////////
+        ++total_rg;
+        total_rows += row_group_meta->num_rows();
+        total_bytes += row_group_meta->total_byte_size();
 
         for (SlotId slot_id = 0; slot_id < tuple_desc->slots().size(); slot_id++) {
             const std::string& col_name = tuple_desc->slots()[slot_id]->col_name();
@@ -176,15 +167,19 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
             }
         }
     }
+
+    _parent->statistics()->total_groups = total_rg;
+    _parent->statistics()->total_rows = total_rows;
+    _parent->statistics()->total_bytes = total_bytes;
     if (update_statistics) {
         _parent->statistics()->filtered_row_groups = filtered_num_row_groups;
         _parent->statistics()->filtered_rows = filtered_num_rows;
         _parent->statistics()->filtered_total_bytes = filtered_total_byte_size;
     }
-        LOG(INFO) << "cmy Parquet file: " << _file_metadata->schema()->name()
-                   << ", Num of read row group: " << total_group
-                   << ", and num of skip row group: " << filtered_num_row_groups
-                    << ", number rows: " << total_rows;
+    LOG(INFO) << "cmy Parquet file: " << _file_metadata->schema()->name()
+        << ", Num of read row group: " << total_group
+        << ", and num of skip row group: " << filtered_num_row_groups
+        << ", number rows: " << total_rows;
     return Status::OK();
 }
 

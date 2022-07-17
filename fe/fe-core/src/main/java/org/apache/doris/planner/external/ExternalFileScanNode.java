@@ -55,6 +55,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -300,9 +301,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
             rangeDesc.getHdfsParams().setFsName(fsName);
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
-            LOG.info("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
-                    + " with table split: " +  fileSplit.getPath()
-                    + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")");
+            LOG.info("Assign to backend " + curLocations.getLocations().get(0).getBackendId() + " with table split: "
+                    + fileSplit.getPath() + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")"
+                    + " loaction: " + Joiner.on("|").join(split.getLocations()));
 
             fileSplitStrategy.update(fileSplit);
             // Add a new location when it's can be split

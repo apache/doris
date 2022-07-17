@@ -101,8 +101,9 @@ Status FileScanNode::prepare(RuntimeState* state) {
 
     // Profile
     _wait_scanner_timer = ADD_TIMER(runtime_profile(), "WaitScannerTime");
-    _filter_timer = ADD_TIMER(runtime_profile(), "FilterTime");
-    _num_rows_filtered = ADD_COUNTER(runtime_profile(), "NumRowsFiltered", TUnit::UNIT);
+    _filter_timer = ADD_TIMER(runtime_profile(), "PredicateFilteredTime");
+    _num_rows_filtered = ADD_COUNTER(runtime_profile(), "PredicateFilteredRows", TUnit::UNIT);
+    _num_scanners = ADD_COUNTER(runtime_profile(), "NumScanners", TUnit::UNIT);
 
     return Status::OK();
 }
@@ -203,8 +204,8 @@ Status FileScanNode::start_scanners() {
         _num_running_scanners = _scan_ranges.size();
     }
 
-    LOG(INFO) << "cmy _num_running_scanners: " << _num_running_scanners;
     _scanners_status.resize(_scan_ranges.size());
+    COUNTER_UPDATE(_num_scanners, _scan_ranges.size());
     for (int i = 0; i < _scan_ranges.size(); i++) {
         _scanner_threads.emplace_back(&FileScanNode::scanner_worker, this, i, _scan_ranges.size(),
                                       std::ref(_scanners_status[i]));

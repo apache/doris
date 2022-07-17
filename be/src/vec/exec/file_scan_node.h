@@ -121,6 +121,7 @@ private:
     RuntimeProfile::Counter* _wait_scanner_timer;
     RuntimeProfile::Counter* _num_rows_filtered;
     RuntimeProfile::Counter* _filter_timer;
+    RuntimeProfile::Counter* _num_scanners;
 
     std::deque<std::shared_ptr<vectorized::Block>> _block_queue;
     std::unique_ptr<MutableBlock> _mutable_block;
