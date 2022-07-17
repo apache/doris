@@ -742,9 +742,9 @@ public class FEFunctionsTest {
         String curTimeString = FEFunctions.curTime().toSqlImpl().replace("'", "");
         String currentTimestampString = FEFunctions.currentTimestamp().toSqlImpl().replace("'", "");
 
-        ZonedDateTime zonedDateTime = ZonedDateTime.now();
+        ZonedDateTime zonedDateTime = ZonedDateTime.now(TimeUtils.getTimeZone().toZoneId());
         DateTimeFormatter formatter = new DateTimeFormatterBuilder()
-                .appendPattern("yyyy-MM-dd HH:mm:ss")
+                .appendPattern("uuuu-MM-dd HH:mm:ss")
                 .toFormatter();
 
         Assert.assertTrue(formatter.format(zonedDateTime).compareTo(currentTimestampString) >= 0);

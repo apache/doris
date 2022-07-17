@@ -46,6 +46,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.TextStyle;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.Collections;
@@ -91,19 +92,18 @@ public class DateLiteral extends LiteralExpr {
     private static final int YY_PART_YEAR = 70;
 
     static {
-        DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
-                .appendPattern("yyyy-MM-dd HH:mm:ss")
-                .toFormatter();
-        DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
-                .appendPattern("yyyy-MM-dd HH:mm:ss")
-                .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
-                .toFormatter();
-        DATE_FORMATTER = new DateTimeFormatterBuilder()
-                .appendPattern("yyyy-MM-dd")
-                .toFormatter();
-        DATEKEY_FORMATTER = new DateTimeFormatterBuilder()
-                .appendPattern("yyyyMMdd")
-                .toFormatter();
+        try {
+            DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter();
+            DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter();
+            DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter();
+            DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
+                    .appendPattern("uuuu-MM-dd HH:mm:ss")
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
+                    .toFormatter();
+        } catch (AnalysisException e) {
+            LOG.error("invalid date format", e);
+            System.exit(-1);
+        }
 
         MONTH_NAME_DICT.put("january", 1);
         MONTH_NAME_DICT.put("february", 2);
@@ -207,7 +207,8 @@ public class DateLiteral extends LiteralExpr {
 
     public DateLiteral(long unixTimestamp, TimeZone timeZone, Type type) throws AnalysisException {
         Timestamp timestamp = new Timestamp(unixTimestamp);
-        ZonedDateTime zonedDateTime = ZonedDateTime.of(timestamp.toLocalDateTime(), ZoneId.of(timeZone.getID()));
+
+        ZonedDateTime zonedDateTime = ZonedDateTime.ofInstant(timestamp.toInstant(), ZoneId.of(timeZone.getID()));
         year = zonedDateTime.getYear();
         month = zonedDateTime.getMonthValue();
         day = zonedDateTime.getDayOfMonth();
@@ -334,7 +335,7 @@ public class DateLiteral extends LiteralExpr {
                                 // with 19 otherwise 20. e.g. 69 -> 2069, 70 -> 1970.
                                 builder.appendValueReduced(ChronoField.YEAR, 2, 2, 1970);
                             } else {
-                                builder.appendPattern(String.join("", Collections.nCopies(datePart[i].length(), "y")));
+                                builder.appendPattern(String.join("", Collections.nCopies(datePart[i].length(), "u")));
                             }
                             break;
                         case 1:
@@ -665,7 +666,7 @@ public class DateLiteral extends LiteralExpr {
 
     //Return the date stored in the dateliteral as pattern format.
     //eg : "%Y-%m-%d" or "%Y-%m-%d %H:%i:%s"
-    public String dateFormat(String pattern) {
+    public String dateFormat(String pattern) throws AnalysisException {
         TemporalAccessor accessor;
         if (type.equals(Type.DATE) || type.equals(Type.DATEV2)) {
             accessor = DATE_FORMATTER.parse(getStringValue());
@@ -674,10 +675,116 @@ public class DateLiteral extends LiteralExpr {
         } else {
             accessor = DATE_TIME_FORMATTER.parse(getStringValue());
         }
-        DateTimeFormatter toFormatter = new DateTimeFormatterBuilder()
-                .appendPattern(pattern)
-                .toFormatter();
+        DateTimeFormatter toFormatter = formatBuilder(pattern).toFormatter();
         return toFormatter.format(accessor);
+    }
+
+    private static DateTimeFormatterBuilder formatBuilder(String pattern) throws AnalysisException {
+        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
+        boolean escaped = false;
+        for (int i = 0; i < pattern.length(); i++) {
+            char character = pattern.charAt(i);
+            if (escaped) {
+                switch (character) {
+                    case 'a': // %a Abbreviated weekday name (Sun..Sat)
+                        builder.appendText(ChronoField.DAY_OF_WEEK, TextStyle.SHORT);
+                        break;
+                    case 'b': // %b Abbreviated month name (Jan..Dec)
+                        builder.appendText(ChronoField.MONTH_OF_YEAR, TextStyle.SHORT);
+                        break;
+                    case 'c': // %c Month, numeric (0..12)
+                        builder.appendValue(ChronoField.MONTH_OF_YEAR);
+                        break;
+                    case 'd': // %d Day of the month, numeric (00..31)
+                        builder.appendValue(ChronoField.DAY_OF_MONTH, 2);
+                        break;
+                    case 'e': // %e Day of the month, numeric (0..31)
+                        builder.appendValue(ChronoField.DAY_OF_MONTH);
+                        break;
+                    case 'H': // %H Hour (00..23)
+                        builder.appendValue(ChronoField.HOUR_OF_DAY, 2);
+                        break;
+                    case 'h': // %h Hour (01..12)
+                    case 'I': // %I Hour (01..12)
+                        builder.appendValue(ChronoField.HOUR_OF_AMPM, 2);
+                        break;
+                    case 'i': // %i Minutes, numeric (00..59)
+                        builder.appendValue(ChronoField.MINUTE_OF_HOUR, 2);
+                        break;
+                    case 'j': // %j Day of year (001..366)
+                        builder.appendValue(ChronoField.DAY_OF_YEAR, 3);
+                        break;
+                    case 'k': // %k Hour (0..23)
+                        builder.appendValue(ChronoField.HOUR_OF_DAY);
+                        break;
+                    case 'l': // %l Hour (1..12)
+                        builder.appendValue(ChronoField.HOUR_OF_AMPM);
+                        break;
+                    case 'M': // %M Month name (January..December)
+                        builder.appendText(ChronoField.MONTH_OF_YEAR, TextStyle.FULL);
+                        break;
+                    case 'm': // %m Month, numeric (00..12)
+                        builder.appendValue(ChronoField.MONTH_OF_YEAR, 2);
+                        break;
+                    case 'p': // %p AM or PM
+                        builder.appendText(ChronoField.AMPM_OF_DAY);
+                        break;
+                    case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
+                        builder.appendValue(ChronoField.HOUR_OF_AMPM, 2)
+                                .appendPattern(":mm:ss ")
+                                .appendText(ChronoField.AMPM_OF_DAY, TextStyle.FULL)
+                                .toFormatter();
+                        break;
+                    case 'S': // %S Seconds (00..59)
+                    case 's': // %s Seconds (00..59)
+                        builder.appendValue(ChronoField.SECOND_OF_MINUTE, 2);
+                        break;
+                    case 'T': // %T Time, 24-hour (HH:mm:ss)
+                        builder.appendPattern("HH:mm:ss");
+                        break;
+                    case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
+                        builder.appendValue(ChronoField.ALIGNED_WEEK_OF_YEAR, 2);
+                        break;
+                    case 'x':
+                        // %x Year for the week, where Monday is the first day of the week,
+                        // numeric, four digits; used with %v
+                        builder.appendValue(ChronoField.YEAR, 4);
+                        break;
+                    case 'W': // %W Weekday name (Sunday..Saturday)
+                        builder.appendText(ChronoField.DAY_OF_WEEK, TextStyle.FULL);
+                        break;
+                    case 'Y': // %Y Year, numeric, four digits
+                        builder.appendPattern("uuuu");
+                        break;
+                    case 'y': // %y Year, numeric (two digits)
+                        builder.appendValueReduced(ChronoField.YEAR, 2, 2, 1970);
+                        break;
+                    // TODO(Gabriel): support microseconds in date literal
+                    case 'f': // %f Microseconds (000000..999999)
+                    case 'w': // %w Day of the week (0=Sunday..6=Saturday)
+                    case 'U': // %U Week (00..53), where Sunday is the first day of the week
+                    case 'u': // %u Week (00..53), where Monday is the first day of the week
+                    case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
+                    case 'X': // %X Year for the week where Sunday is the first day of the week,
+                        // numeric, four digits; used with %V
+                    case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
+                        throw new AnalysisException(String.format("%%%s not supported in date format string",
+                                character));
+                    case '%': // %% A literal "%" character
+                        builder.appendLiteral('%');
+                        break;
+                    default: // %<x> The literal character represented by <x>
+                        builder.appendLiteral(character);
+                        break;
+                }
+                escaped = false;
+            } else if (character == '%') {
+                escaped = true;
+            } else {
+                builder.appendLiteral(character);
+            }
+        }
+        return builder;
     }
 
     private int getOrDefault(final TemporalAccessor accessor, final ChronoField field,
