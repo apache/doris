@@ -226,29 +226,28 @@ struct TFileScanSlotInfo {
 }
 
 struct TFileScanRangeParams {
+  1: optional Types.TFileType file_type;
+  2: optional TFileFormatType format_type;
   // use src_tuple_id to get all slots from src table include both file slot and partition slot.
-  1: optional Types.TTupleId src_tuple_id;
+  3: optional Types.TTupleId src_tuple_id;
   // num_of_columns_from_file can spilt the all_file_slot and all_partition_slot
-  2: optional i32 num_of_columns_from_file;
+  4: optional i32 num_of_columns_from_file;
   // all selected slots which may compose from file and partiton value.
-  3: optional list<TFileScanSlotInfo> required_slots;
+  5: optional list<TFileScanSlotInfo> required_slots;
 
-  4: optional TFileTextScanRangeParams text_params;
+  6: optional THdfsParams hdfs_params;
+  7: optional TFileTextScanRangeParams text_params;
 }
 
 struct TFileRangeDesc {
-    1: optional Types.TFileType file_type;
-    2: optional TFileFormatType format_type;
     // Path of this range
-    3: optional string path;
+    1: optional string path;
     // Offset of this file start
-    4: optional i64 start_offset;
+    2: optional i64 start_offset;
     // Size of this range, if size = -1, this means that will read to the end of file
-    5: optional i64 size;
+    3: optional i64 size;
     // columns parsed from file path should be after the columns read from file
-    6: optional list<string> columns_from_path;
-
-    7: optional THdfsParams hdfs_params;
+    4: optional list<string> columns_from_path;
 }
 
 // HDFS file scan range
