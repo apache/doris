@@ -20,7 +20,6 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
-import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.EnterStmt;
@@ -33,9 +32,9 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
-import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.PredicateUtils;
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.SelectListItem;
@@ -44,21 +43,21 @@ import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.ShowStmt;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.SwitchStmt;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.Subquery;
+import org.apache.doris.analysis.SwitchStmt;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;
 import org.apache.doris.analysis.TransactionStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.UnlockTablesStmt;
 import org.apache.doris.analysis.UnsupportedStmt;
@@ -80,6 +79,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.Version;
@@ -92,8 +93,6 @@ import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.common.Reference;
-import org.apache.doris.common.Pair;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -777,10 +776,10 @@ public class StmtExecutor implements ProfileWriter {
     private void pushPredicateToSubquery() throws UserException {
         // only support 1-layer subqueries, we don't look for predicate in subquery's subquery etc...
         // TODO: although we might push some predicate to subquery to minimize the original scan row count
-        // TODO: it will also introduce a new table and a new join node, which results more rows to scan, filter and join.
-        // TODO: in TPCH Q2 and Q17, the pushed table is relatively small, so get better performance after pushing.
-        // TODO: But normally, a CBO optimizer is needed to decide if the pushing is worth.
-        // TODO: At last, if table spool optimizer is implemented, we can always push the predicates.
+        // it will also introduce a new table and a new join node, which results more rows to scan, filter and join.
+        // in TPCH Q2 and Q17, the pushed table is relatively small, so get better performance after pushing.
+        // But normally, a CBO optimizer is needed to decide if the pushing is worth.
+        // At last, if table spool optimizer is implemented, we can always push the predicates.
         if (parsedStmt instanceof SelectStmt) {
             SelectStmt stmt = (SelectStmt) parsedStmt;
             if (stmt.getTableRefs().size() < 2 || stmt.getWhereClause() == null) {
@@ -800,22 +799,27 @@ public class StmtExecutor implements ProfileWriter {
                                 tmpTableSuffix);
                         if (!predicates.isEmpty()) {
                             // add a new tableRef in subquery
-                            TableName tableNameInSchema = new TableName(correlatedSlotRefs.first.getTableName().getDb(),
-                                    correlatedSlotRefs.first.getTable().getName());
+                            TableName tableNameInSchema =
+                                    new TableName(correlatedSlotRefs.first.getTableName().getCtl(),
+                                            correlatedSlotRefs.first.getTableName().getDb(),
+                                            correlatedSlotRefs.first.getTable().getName());
                             TableRef tableRef = new TableRef(tableNameInSchema,
                                     correlatedSlotRefs.first.getTableName().getTbl() + tmpTableSuffix);
 
                             List<TableRef> newTableRefs = selectStmt.getTableRefs();
                             newTableRefs.add(tableRef);
 
-                            predicates.add(new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                                    new SlotRef(
-                                            new TableName(null,
-                                                    correlatedSlotRefs.first.getTableName().getTbl() + tmpTableSuffix),
-                                            correlatedSlotRefs.first.getColumnName()),
-                                    correlatedSlotRefs.second));
+                            predicates
+                                    .add(new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                                            new SlotRef(
+                                                    new TableName(null, null,
+                                                            correlatedSlotRefs.first.getTableName().getTbl()
+                                                                    + tmpTableSuffix),
+                                                    correlatedSlotRefs.first.getColumnName()),
+                                            correlatedSlotRefs.second));
                             predicates.add(selectStmt.getWhereClause());
-                            selectStmt.setWhereClause(PredicateUtils.convertConjunctsToAndCompoundPredicate(predicates));
+                            selectStmt
+                                    .setWhereClause(PredicateUtils.convertConjunctsToAndCompoundPredicate(predicates));
 
                             Analyzer analyzer = new Analyzer(selectStmt.getAnalyzer().getParentAnalyzer());
                             analyzer.setIsSubquery();
@@ -838,7 +842,7 @@ public class StmtExecutor implements ProfileWriter {
                 if (pred.isSingleColumnPredicate(slotRefRef, idxRef)
                         && slotRefRef.getRef().getDesc().getParent().getId() == slotRef.getDesc().getParent().getId()) {
                     Predicate newPredicate = (Predicate) pred.clone();
-                    TableName newName = new TableName(null, slotRef.getTableName().getTbl() + tmpTableSuffix);
+                    TableName newName = new TableName(null, null, slotRef.getTableName().getTbl() + tmpTableSuffix);
                     newPredicate.setChild(idxRef.getRef(), new SlotRef(newName, slotRefRef.getRef().getColumnName()));
                     newPredicate.reset();
                     predicates.add(newPredicate);
@@ -916,7 +920,7 @@ public class StmtExecutor implements ProfileWriter {
                 slotTupleDescriptor = slotRef.getDesc().getParent();
                 if (slotTupleDescriptor.getId() == outerTupleDescriptor.getId()
                         && slotRef.getOriginTableName() == null) {
-                    slotRef.setTblName(new TableName(null, outerTupleDescriptor.getAlias()));
+                    slotRef.setTblName(new TableName(null, null, outerTupleDescriptor.getAlias()));
                 }
             }
 
