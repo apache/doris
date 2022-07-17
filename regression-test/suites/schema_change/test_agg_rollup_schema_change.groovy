@@ -73,6 +73,7 @@ suite ("test_agg_rollup_schema_change") {
                     `hll_col` HLL HLL_UNION NOT NULL COMMENT "HLL列",
                     `bitmap_col` Bitmap BITMAP_UNION NOT NULL COMMENT "bitmap列")
                 AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
+                BUCKETS 1
                 PROPERTIES ( "replication_num" = "1" );
             """
 
@@ -85,9 +86,9 @@ suite ("test_agg_rollup_schema_change") {
             result = result.toString()
             logger.info("result: ${result}")
             if(result.contains("CANCELLED")){
-                break
+                return
             }
-            Thread.sleep(1000)
+            Thread.sleep(100)
         }
 
         sql """ INSERT INTO ${tableName} VALUES
@@ -103,13 +104,7 @@ suite ("test_agg_rollup_schema_change") {
                 (2, '2017-10-01', 'Beijing', 10, 1, 1, 32, 20, hll_hash(3), to_bitmap(3))
             """
 
-        result = "null";
-        result = sql """ select * from ${tableName} order by user_id """
-        assertTrue(result.size() == 2)
-        assertTrue(result[0].size() == 10)
-        assertTrue(result[0][5] == 2, "user id 1 cost should be 2")
-        assertTrue(result[1][5] == 2, "user id 2 cost should be 2")
-        assertTrue(result[0].size() == 10)
+        qt_sc """ select * from ${tableName} order by user_id """
 
         // drop value column with rollup, not light schema change
         sql """
@@ -123,20 +118,16 @@ suite ("test_agg_rollup_schema_change") {
             logger.info("result: ${result}")
             if(result.contains("CANCELLED")) {
                 log.info("rollup job is cancelled, result: ${result}".toString())
-                break
+                return
             }
-            Thread.sleep(1000)
+            Thread.sleep(100)
         }
 
         sql """ INSERT INTO ${tableName} (`user_id`, `date`, `city`, `age`, `sex`, `max_dwell_time`,`min_dwell_time`, `hll_col`, `bitmap_col`)
                 VALUES
                 (3, '2017-10-01', 'Beijing', 10, 1, 32, 20, hll_hash(4), to_bitmap(4))
             """
-        result = "null"
-        result = sql """ SELECT * FROM ${tableName} WHERE user_id = 3 """
-
-        assertTrue(result.size() == 1)
-        assertTrue(result[0].size() == 9)
+        qt_sc """ SELECT * FROM ${tableName} WHERE user_id = 3 """
 
         sql """ INSERT INTO ${tableName} VALUES
                 (5, '2017-10-01', 'Beijing', 10, 1, 32, 20, hll_hash(5), to_bitmap(5))
@@ -190,7 +181,7 @@ suite ("test_agg_rollup_schema_change") {
         for (String[] tablet in tablets) {
                 boolean running = true
                 do {
-                    Thread.sleep(1000)
+                    Thread.sleep(100)
                     String tablet_id = tablet[0]
                     backend_id = tablet[2]
                     StringBuilder sb = new StringBuilder();
@@ -214,41 +205,10 @@ suite ("test_agg_rollup_schema_change") {
                 } while (running)
         }
          
-        result = sql """ select count(*) from ${tableName} """
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == 4)
+        qt_sc """ select count(*) from ${tableName} """
 
-        result = sql """  SELECT * FROM ${tableName} WHERE user_id=2 """
-        assertTrue(result.size() == 1)
-        assertTrue(result[0].size() == 9)
+        qt_sc """  SELECT * FROM ${tableName} WHERE user_id=2 """
 
-        int rowCount = 0
-        for (String[] tablet in tablets) {
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                StringBuilder sb = new StringBuilder();
-                sb.append("curl -X GET http://")
-                sb.append(backendId_to_backendIP.get(backend_id))
-                sb.append(":")
-                sb.append(backendId_to_backendHttpPort.get(backend_id))
-                sb.append("/api/compaction/show?tablet_id=")
-                sb.append(tablet_id)
-                String command = sb.toString()
-                // wait for cleaning stale_rowsets
-                process = command.execute()
-                code = process.waitFor()
-                err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-                out = process.getText()
-                logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def tabletJson = parseJson(out.trim())
-                assert tabletJson.rowsets instanceof List
-            for (String rowset in (List<String>) tabletJson.rowsets) {
-                rowCount += Integer.parseInt(rowset.split(" ")[1])
-            }
-        }
-        logger.info("size:" + rowCount)
-        assertTrue(rowCount <= 12)
     } finally {
             //try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
