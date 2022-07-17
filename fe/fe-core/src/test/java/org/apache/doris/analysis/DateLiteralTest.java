@@ -258,24 +258,13 @@ public class DateLiteralTest {
             Assert.assertEquals(1997, literal.getYear());
             Assert.assertEquals(123456, literal.getMicrosecond());
 
-            literal = new DateLiteral("2021-06-1", Type.DATETIMEV2);
+            literal = new DateLiteral("2021-06-1 00:00:00.123456", Type.DATETIMEV2);
             Assert.assertEquals(2021, literal.getYear());
             Assert.assertEquals(6, literal.getMonth());
             Assert.assertEquals(1, literal.getDay());
 
-            literal = new DateLiteral("2022-6-01", Type.DATETIMEV2);
+            literal = new DateLiteral("2022-6-01 00:00:00.123456", Type.DATETIMEV2);
             Assert.assertEquals(2022, literal.getYear());
-            Assert.assertEquals(6, literal.getMonth());
-            Assert.assertEquals(1, literal.getDay());
-
-            literal = new DateLiteral("2023-6-1 00:00:00.123", Type.DATEV2);
-            Assert.assertEquals(2023, literal.getYear());
-            Assert.assertEquals(6, literal.getMonth());
-            Assert.assertEquals(1, literal.getDay());
-            Assert.assertEquals(123000, literal.getMicrosecond());
-
-            literal = new DateLiteral("20230601", Type.DATEV2);
-            Assert.assertEquals(2023, literal.getYear());
             Assert.assertEquals(6, literal.getMonth());
             Assert.assertEquals(1, literal.getDay());
         } catch (AnalysisException e) {

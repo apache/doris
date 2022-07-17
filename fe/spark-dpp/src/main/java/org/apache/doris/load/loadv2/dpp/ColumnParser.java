@@ -36,10 +36,10 @@ public abstract class ColumnParser implements Serializable {
 
     // thread safe formatter
     public static final DateTimeFormatter DATE_FORMATTER = new DateTimeFormatterBuilder()
-            .appendPattern("yyyy-MM-dd")
+            .appendPattern("uuuu-MM-dd")
             .toFormatter();
     public static final DateTimeFormatter DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
-            .appendPattern("yyyy-MM-dd HH:mm:ss")
+            .appendPattern("uuuu-MM-dd HH:mm:ss")
             .toFormatter();
 
     public static ColumnParser create(EtlJobConfig.EtlColumn etlColumn) throws SparkDppException {
