@@ -22,7 +22,6 @@
 #include "io/fs/file_system_map.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/fs/fs_util.h"
 #include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_io.h"

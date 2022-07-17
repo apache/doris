@@ -79,12 +79,6 @@ struct TGetStoragePolicyResult {
     2: required list<TGetStoragePolicy> result_entrys
 }
 
-struct TStorageParam {
-    1: required Types.TStorageMedium storage_medium = TStorageMedium.HDD
-    2: required string storage_name = "";
-    3: optional TS3StorageParam s3_storage_param
-}
-
 enum TCompressionType {
     UNKNOWN_COMPRESSION = 0,
     DEFAULT_COMPRESSION = 1,
@@ -117,7 +111,7 @@ struct TCreateTabletReq {
     12: optional bool is_eco_mode
     13: optional TStorageFormat storage_format
     14: optional TTabletType tablet_type
-    15: optional TStorageParam storage_param
+    // 15: optional TStorageParam storage_param
     16: optional TCompressionType compression_type = TCompressionType.LZ4F
     17: optional Types.TReplicaId replica_id = 0
     18: optional string storage_policy
