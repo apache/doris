@@ -178,7 +178,6 @@ private:
         }
         const void* get_data() const override { return _values.data(); }
         const void* get_data_at(size_t offset) const override {
-            assert(offset < _num_rows && _num_rows == _values.size());
             UInt8 null_flag = 0;
             if (_nullmap) {
                 null_flag = _nullmap[offset];
@@ -298,7 +297,7 @@ private:
                 const VecDateTimeValue* datetime_end = datetime_cur + _num_rows;
                 uint32_t* value = const_cast<uint32_t*>(values_);
                 if (_nullmap) {
-                    const UInt8* nullmap_cur = _nullmap;
+                    const UInt8* nullmap_cur = _nullmap + _row_pos;
                     while (datetime_cur != datetime_end) {
                         if (!*nullmap_cur) {
                             *value = datetime_cur->to_date_v2();
