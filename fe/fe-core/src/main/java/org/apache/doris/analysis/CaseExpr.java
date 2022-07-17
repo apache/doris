@@ -433,4 +433,9 @@ public class CaseExpr extends Expr {
         }
         return false;
     }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        super.finalizeImplForNereids();
+    }
 }
