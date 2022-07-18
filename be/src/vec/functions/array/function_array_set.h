@@ -68,18 +68,18 @@ struct OpenSetImpl {
     Set result_set;
 
     void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
-               ColumnArrayMutableData& dst, size_t* count,  bool left_or_right) {
+               ColumnArrayMutableData& dst, size_t* count, bool is_left) {
         const auto& src_data = assert_cast<const ColumnType&>(*src.nested_col).get_data();
         auto& dst_data = assert_cast<ColumnType&>(*dst.nested_col).get_data();
         for (size_t i = off; i < off + len; ++i) {
             if (src.nested_nullmap_data && src.nested_nullmap_data[i]) {
-                if (action.apply_null(left_or_right)) {
+                if (action.apply_null(is_left)) {
                     dst_data.push_back(Element());
                     dst.nested_nullmap_data->push_back(1);
                     ++(*count);
                 }
             } else  {
-                if (action.apply(set, result_set, src_data[i], left_or_right)) {
+                if (action.apply(set, result_set, src_data[i], is_left)) {
                     dst_data.push_back(src_data[i]);
                     if (dst.nested_nullmap_data) {
                         dst.nested_nullmap_data->push_back(0);
@@ -105,18 +105,18 @@ struct OpenSetImpl<operation, ColumnString> {
     Set result_set;
 
     void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
-               ColumnArrayMutableData& dst, size_t* count, bool left_or_right) {
+               ColumnArrayMutableData& dst, size_t* count, bool is_left) {
         const auto& src_column = assert_cast<const ColumnString&>(*src.nested_col);
         auto& dst_column = assert_cast<ColumnString&>(*dst.nested_col);
         for (size_t i = off; i < off + len; ++i) {
             if (src.nested_nullmap_data && src.nested_nullmap_data[i]) {
-                if (action.apply_null(left_or_right)) {
+                if (action.apply_null(is_left)) {
                     dst_column.insert_default();
                     dst.nested_nullmap_data->push_back(1);
                     ++(*count);
                 }
             } else  {
-                if (action.apply(set, result_set, src_column.get_data_at(i), left_or_right)) {
+                if (action.apply(set, result_set, src_column.get_data_at(i), is_left)) {
                     dst_column.insert_from(src_column, i);
                     if (dst.nested_nullmap_data) {
                         dst.nested_nullmap_data->push_back(0);
@@ -137,15 +137,9 @@ template <SetOperation operation>
 struct ArraySetImpl {
 public:
     static DataTypePtr get_return_type(const DataTypes& arguments) {
-//        const DataTypeArray* array_left =
-//                check_and_get_data_type<DataTypeArray>(arguments[0].get());
+        DataTypePtr res;
         // if any nested type of array arguments is nullable then return array with
         // nullable nested type.
-//        if (array_left->get_nested_type()->is_nullable()) {
-//            return arguments[0];
-//        }
-//        return arguments[1];
-        DataTypePtr res;
         for (const auto& arg : arguments) {
             const DataTypeArray* array_type = check_and_get_data_type<DataTypeArray>(arg.get());
             if (array_type->get_nested_type()->is_nullable()) {
@@ -159,22 +153,12 @@ public:
 
     static Status execute(ColumnPtr& res_ptr, const ColumnArrayExecutionData& left_data,
                           const ColumnArrayExecutionData& right_data) {
-        MutableColumnPtr array_nested_column = nullptr;
         ColumnArrayMutableData dst;
         if (left_data.nested_nullmap_data || right_data.nested_nullmap_data) {
-            array_nested_column =
-                    ColumnNullable::create(left_data.nested_col->clone_empty(), ColumnUInt8::create());
-            dst.nullable_col = reinterpret_cast<ColumnNullable*>(array_nested_column.get());
-            dst.nested_nullmap_data = &dst.nullable_col->get_null_map_data();
-            dst.nested_col = dst.nullable_col->get_nested_column_ptr().get();
+            dst = create_mutable_data(left_data.nested_col, true);
         } else {
-            array_nested_column = left_data.nested_col->clone_empty();
-            dst.nested_col = array_nested_column.get();
+            dst = create_mutable_data(left_data.nested_col, false);
         }
-        auto dst_offsets_column = ColumnArray::ColumnOffsets::create();
-        dst.offsets_col = dst_offsets_column.get();
-        dst.offsets_ptr = &dst_offsets_column->get_data();
-
         ColumnPtr res_column;
         if (_execute_internal<ColumnString>(dst, left_data, right_data) ||
             _execute_internal<ColumnDate>(dst, left_data, right_data) ||
@@ -206,7 +190,7 @@ private:
         if (!check_column<ColumnType>(*left_data.nested_col)) {
             return false;
         }
-        constexpr auto apply_left_first = Impl::Action::apply_left_first;
+        constexpr auto execute_left_column_first = Impl::Action::execute_left_column_first;
         size_t current = 0;
         Impl impl;
         for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
@@ -215,7 +199,7 @@ private:
             size_t left_len = (*left_data.offsets_ptr)[row] - left_off;
             size_t right_off = (*right_data.offsets_ptr)[row - 1];
             size_t right_len = (*right_data.offsets_ptr)[row] - right_off;
-            if (apply_left_first) {
+            if constexpr (execute_left_column_first) {
                 impl.apply(left_data, left_off, left_len, dst, &count, true);
                 impl.apply(right_data, right_off, right_len, dst, &count, false);
             } else {

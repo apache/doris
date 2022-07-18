@@ -32,13 +32,13 @@ struct ExceptAction {
     bool null_flag = false;
     // True if result_set has null element
     bool result_null_flag = false;
-    // True if it should apply the left array first.
-    static constexpr auto apply_left_first = false;
+    // True if it should execute the left array first.
+    static constexpr auto execute_left_column_first = false;
 
     // Handle Null element.
-    // Return ture means this null element should put into result column.
-    bool apply_null(bool left_or_right) {
-        if (left_or_right) {
+    // Return true means this null element should put into result column.
+    bool apply_null(bool is_left) {
+        if (is_left) {
             if (!null_flag) {
                 null_flag = true;
                 return true;
@@ -53,8 +53,8 @@ struct ExceptAction {
 
     // Handle Non-Null element.
     // Return ture means this Non-Null element should put into result column.
-    bool apply(Set& set, Set& result_set, const Element& elem, bool left_or_right) {
-        if (left_or_right) {
+    bool apply(Set& set, Set& result_set, const Element& elem, bool is_left) {
+        if (is_left) {
             if (!set.find(elem)) {
                 set.insert(elem);
                 return true;

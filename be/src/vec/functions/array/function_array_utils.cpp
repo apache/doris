@@ -17,8 +17,6 @@
 
 #include "vec/functions/array/function_array_utils.h"
 
-#include "vec/columns/column_nullable.h"
-
 namespace doris::vectorized {
 
 bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& data) {
@@ -48,14 +46,27 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
     return true;
 }
 
-MutableColumnPtr assemble_column_array(ColumnArrayMutableData& data) {
-    if (data.nullable_col) {
-        return ColumnArray::create(std::move(data.nullable_col->assume_mutable()),
-                                  std::move(data.offsets_col->assume_mutable()));
+ColumnArrayMutableData create_mutable_data(const IColumn* nested_col, bool is_nullable) {
+    ColumnArrayMutableData dst;
+    if (is_nullable) {
+        dst.array_nested_col =
+                ColumnNullable::create(nested_col->clone_empty(), ColumnUInt8::create());
+        auto* nullable_col = reinterpret_cast<ColumnNullable*>(dst.array_nested_col.get());
+        dst.nested_nullmap_data = &nullable_col->get_null_map_data();
+        dst.nested_col = nullable_col->get_nested_column_ptr().get();
     } else {
-        return ColumnArray::create(std::move(data.nested_col->assume_mutable()),
-                                  std::move(data.offsets_col->assume_mutable()));
+        dst.array_nested_col = nested_col->clone_empty();
+        dst.nested_col = dst.array_nested_col.get();
     }
+    dst.offsets_col = ColumnArray::ColumnOffsets::create();
+    dst.offsets_ptr =
+            &reinterpret_cast<ColumnArray::ColumnOffsets*>(dst.offsets_col.get())->get_data();
+    return dst;
+}
+
+MutableColumnPtr assemble_column_array(ColumnArrayMutableData& data) {
+    return ColumnArray::create(std::move(data.array_nested_col->assume_mutable()),
+                               std::move(data.offsets_col->assume_mutable()));
 }
 
 } // namespace doris::vectorized
