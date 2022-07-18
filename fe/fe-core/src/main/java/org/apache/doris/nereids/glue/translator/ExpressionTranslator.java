@@ -25,6 +25,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 
@@ -190,6 +192,25 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return new org.apache.doris.analysis.CompoundPredicate(staleOp,
                 compoundPredicate.child(0).accept(this, context),
                 compoundPredicate.child(1).accept(this, context));
+    }
+
+    @Override
+    public Expr visitStringRegexPredicate(StringRegexPredicate stringRegexPredicate, PlanTranslatorContext context) {
+        ExpressionType nodeType = stringRegexPredicate.getType();
+        org.apache.doris.analysis.LikePredicate.Operator staleOp;
+        switch (nodeType) {
+            case LIKE:
+                staleOp = LikePredicate.Operator.LIKE;
+                break;
+            case REGEXP:
+                staleOp = LikePredicate.Operator.REGEXP;
+                break;
+            default:
+                throw new AnalysisException(String.format("Unknown node type: %s", nodeType.name()));
+        }
+        return new org.apache.doris.analysis.LikePredicate(staleOp,
+                stringRegexPredicate.left().accept(this, context),
+                stringRegexPredicate.right().accept(this, context));
     }
 
     // TODO: Supports for `distinct`
