@@ -170,6 +170,12 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
             }
             return;
         }
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
+            _agg_data.init(AggregatedDataVariants::Type::string_key, is_nullable);
+            break;
+        }
         default:
             _agg_data.init(AggregatedDataVariants::Type::serialized);
         }

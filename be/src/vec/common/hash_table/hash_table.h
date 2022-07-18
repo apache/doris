@@ -300,6 +300,66 @@ struct HashTableGrower {
     }
 };
 
+/** Determines the size of the hash table, and when and how much it should be resized.
+  * This structure is aligned to cache line boundary and also occupies it all.
+  * Precalculates some values to speed up lookups and insertion into the HashTable (and thus has bigger memory footprint than HashTableGrower).
+  */
+template <size_t initial_size_degree = 8>
+class alignas(64) HashTableGrowerWithPrecalculation {
+    /// The state of this structure is enough to get the buffer size of the hash table.
+
+    doris::vectorized::UInt8 size_degree_ = initial_size_degree;
+    size_t precalculated_mask = (1ULL << initial_size_degree) - 1;
+    size_t precalculated_max_fill = 1ULL << (initial_size_degree - 1);
+
+public:
+    doris::vectorized::UInt8 size_degree() const { return size_degree_; }
+
+    void increase_size_degree(doris::vectorized::UInt8 delta) {
+        size_degree_ += delta;
+        precalculated_mask = (1ULL << size_degree_) - 1;
+        precalculated_max_fill = 1ULL << (size_degree_ - 1);
+    }
+
+    static constexpr auto initial_count = 1ULL << initial_size_degree;
+
+    /// If collision resolution chains are contiguous, we can implement erase operation by moving the elements.
+    static constexpr auto performs_linear_probing_with_single_step = true;
+
+    /// The size of the hash table in the cells.
+    size_t buf_size() const { return 1ULL << size_degree_; }
+
+    /// From the hash value, get the cell number in the hash table.
+    size_t place(size_t x) const { return x & precalculated_mask; }
+
+    /// The next cell in the collision resolution chain.
+    size_t next(size_t pos) const { return (pos + 1) & precalculated_mask; }
+
+    /// Whether the hash table is sufficiently full. You need to increase the size of the hash table, or remove something unnecessary from it.
+    bool overflow(size_t elems) const { return elems > precalculated_max_fill; }
+
+    /// Increase the size of the hash table.
+    void increase_size() { increase_size_degree(size_degree_ >= 23 ? 1 : 2); }
+
+    /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
+    void set(size_t num_elems) {
+        size_degree_ =
+                num_elems <= 1
+                        ? initial_size_degree
+                        : ((initial_size_degree > static_cast<size_t>(log2(num_elems - 1)) + 2)
+                                   ? initial_size_degree
+                                   : (static_cast<size_t>(log2(num_elems - 1)) + 2));
+        increase_size_degree(0);
+    }
+
+    void set_buf_size(size_t buf_size_) {
+        size_degree_ = static_cast<size_t>(log2(buf_size_ - 1) + 1);
+        increase_size_degree(0);
+    }
+};
+
+static_assert(sizeof(HashTableGrowerWithPrecalculation<>) == 64);
+
 /** When used as a Grower, it turns a hash table into something like a lookup table.
   * It remains non-optimal - the cells store the keys.
   * Also, the compiler can not completely remove the code of passing through the collision resolution chain, although it is not needed.
@@ -374,6 +434,9 @@ protected:
 
     template <typename, typename, typename, typename, typename, typename, size_t>
     friend class TwoLevelHashTable;
+
+    template <typename SubMaps>
+    friend class StringHashTable;
 
     using HashValue = size_t;
     using Self = HashTable;
