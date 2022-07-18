@@ -34,6 +34,14 @@ class PageDecoder;
 struct PageBuilderOptions;
 struct PageDecoderOptions;
 
+// For better performance, some encodings (like BitShuffle) need to be decoded before being added to the PageCache.
+class DataPagePreDecoder {
+public:
+    virtual Status decode(std::unique_ptr<char[]>* page, Slice* page_slice,
+                          size_t size_of_tail) = 0;
+    virtual ~DataPagePreDecoder() = default;
+};
+
 class EncodingInfo {
 public:
     // Get EncodingInfo for TypeInfo and EncodingTypePB
@@ -54,6 +62,8 @@ public:
     FieldType type() const { return _type; }
     EncodingTypePB encoding() const { return _encoding; }
 
+    DataPagePreDecoder* get_data_page_pre_decoder() const { return _data_page_pre_decoder.get(); };
+
 private:
     friend class EncodingInfoResolver;
 
@@ -69,6 +79,7 @@ private:
 
     FieldType _type;
     EncodingTypePB _encoding;
+    std::unique_ptr<DataPagePreDecoder> _data_page_pre_decoder = nullptr;
 };
 
 } // namespace segment_v2

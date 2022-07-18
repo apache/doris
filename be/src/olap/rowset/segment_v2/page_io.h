@@ -22,6 +22,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "util/slice.h"
@@ -58,6 +59,8 @@ struct PageReadOptions {
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
+
+    const EncodingInfo* encoding_info = nullptr;
 
     void sanity_check() const {
         CHECK_NOTNULL(rblock);
