@@ -27,7 +27,6 @@ import org.apache.doris.qe.ConnectContext;
  * Utility to copy plan into {@link Memo} and apply rewrite rules.
  */
 public class PlanRewriter {
-
     public static Plan bottomUpRewrite(Plan plan, ConnectContext connectContext, RuleFactory... rules) {
         return bottomUpRewriteMemo(plan, connectContext, rules).copyOut();
     }

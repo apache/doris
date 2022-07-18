@@ -92,7 +92,7 @@ public abstract class LogicalRelation extends LogicalLeaf {
     public List<Slot> computeOutput() {
         return table.getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(col, qualifier))
+                .map(col -> SlotReference.fromColumn(col, qualified()))
                 .collect(ImmutableList.toImmutableList());
     }
 
@@ -104,5 +104,19 @@ public abstract class LogicalRelation extends LogicalLeaf {
     @Override
     public List<Expression> getExpressions() {
         return ImmutableList.of();
+    }
+
+    /**
+     * Full qualified name parts, i.e., concat qualifier and name in a list.
+     */
+    public List<String> qualified() {
+        return new ImmutableList.Builder<String>().addAll(qualifier).add(table.getName()).build();
+    }
+
+    /**
+     * Full qualified table name, concat qualifier and name with `.` as separator.
+     */
+    public String qualifiedName() {
+        return StringUtils.join(qualified());
     }
 }

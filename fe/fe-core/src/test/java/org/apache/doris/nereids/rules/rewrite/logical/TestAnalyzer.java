@@ -28,6 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 
 /**
  * Analyzer for unit test.
+ * // TODO: unify the logic with ones in production files.
  */
 public class TestAnalyzer {
     private final ConnectContext connectContext;

@@ -27,7 +27,6 @@ import org.apache.doris.statistics.PlanStats;
 
 import java.util.List;
 import java.util.Optional;
-import javax.ws.rs.NotSupportedException;
 
 /**
  * Abstract class for all plan node.
@@ -37,7 +36,7 @@ public interface Plan extends TreeNode<Plan>, PlanStats {
     PlanType getType();
 
     default <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        throw new NotSupportedException("accept() is not implemented by plan " + this.getClass().getSimpleName());
+        throw new RuntimeException("accept() is not implemented by plan " + this.getClass().getSimpleName());
     }
 
     List<Expression> getExpressions();

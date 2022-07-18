@@ -75,16 +75,16 @@ public class ColumnPruningTest extends TestWithFeService {
         List<String> target;
         List<String> source;
 
-        source = getStringList(p1);
+        source = getOutputQualifiedNames(p1);
         target = Lists.newArrayList("default_cluster:test.student.name", "default_cluster:test.student.id",
                 "default_cluster:test.score.grade");
         Assertions.assertTrue(source.containsAll(target));
 
-        source = getStringList(p20);
+        source = getOutputQualifiedNames(p20);
         target = Lists.newArrayList("default_cluster:test.student.id", "default_cluster:test.student.name");
         Assertions.assertTrue(source.containsAll(target));
 
-        source = getStringList(p21);
+        source = getOutputQualifiedNames(p21);
         target = Lists.newArrayList("default_cluster:test.score.sid", "default_cluster:test.score.grade");
         Assertions.assertTrue(source.containsAll(target));
 
@@ -109,12 +109,12 @@ public class ColumnPruningTest extends TestWithFeService {
         List<String> target;
         List<String> source;
 
-        source = getStringList(p1);
+        source = getOutputQualifiedNames(p1);
         target = Lists.newArrayList("default_cluster:test.student.name", "default_cluster:test.score.cid",
                 "default_cluster:test.score.grade", "default_cluster:test.student.sex");
         Assertions.assertTrue(source.containsAll(target));
 
-        source = getStringList(p20);
+        source = getOutputQualifiedNames(p20);
         target = Lists.newArrayList("default_cluster:test.student.id", "default_cluster:test.student.name",
                 "default_cluster:test.student.sex");
         Assertions.assertTrue(source.containsAll(target));
@@ -133,7 +133,7 @@ public class ColumnPruningTest extends TestWithFeService {
         List<String> target;
         List<String> source;
 
-        source = getStringList(p1);
+        source = getOutputQualifiedNames(p1);
         target = Lists.newArrayList("default_cluster:test.student.name", "default_cluster:test.student.id",
                 "default_cluster:test.student.age");
         Assertions.assertTrue(source.containsAll(target));
@@ -168,21 +168,21 @@ public class ColumnPruningTest extends TestWithFeService {
         List<String> target;
         List<String> source;
 
-        source = getStringList(p1);
+        source = getOutputQualifiedNames(p1);
         target = Lists.newArrayList("default_cluster:test.student.name", "default_cluster:test.course.cname",
                 "default_cluster:test.score.grade");
         Assertions.assertTrue(source.containsAll(target));
 
-        source = getStringList(p20);
+        source = getOutputQualifiedNames(p20);
         target = Lists.newArrayList("default_cluster:test.student.name", "default_cluster:test.score.cid",
                 "default_cluster:test.score.grade");
         Assertions.assertTrue(source.containsAll(target));
 
-        source = getStringList(p21);
+        source = getOutputQualifiedNames(p21);
         target = Lists.newArrayList("default_cluster:test.course.cid", "default_cluster:test.course.cname");
         Assertions.assertTrue(source.containsAll(target));
 
-        source = getStringList(p20lo);
+        source = getOutputQualifiedNames(p20lo);
         target = Lists.newArrayList("default_cluster:test.student.id", "default_cluster:test.student.name");
         Assertions.assertTrue(source.containsAll(target));
     }
@@ -191,7 +191,7 @@ public class ColumnPruningTest extends TestWithFeService {
         return PlanRewriter.topDownRewrite(plan, new ConnectContext(), new ColumnPruning());
     }
 
-    private List<String> getStringList(LogicalProject<Plan> p) {
+    private List<String> getOutputQualifiedNames(LogicalProject<Plan> p) {
         return p.getProjects().stream().map(NamedExpression::getQualifiedName).collect(Collectors.toList());
     }
 }

@@ -481,7 +481,7 @@ public class SessionVariable implements Serializable, Writable {
      * would be coming soon.
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER)
-    private boolean enableNereids = false;
+    private boolean enableNereidsPlanner = false;
 
     @VariableMgr.VarAttr(name = ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER)
     public boolean enableRemoveNoConjunctsRuntimeFilterPolicy = false;
@@ -990,12 +990,12 @@ public class SessionVariable implements Serializable, Writable {
      *
      * @return true if both nereids and vectorized engine are enabled
      */
-    public boolean isEnableNereids() {
-        return enableNereids && enableVectorizedEngine;
+    public boolean isEnableNereidsPlanner() {
+        return enableNereidsPlanner && enableVectorizedEngine;
     }
 
-    public void setEnableNereids(boolean enableNereids) {
-        this.enableNereids = enableNereids;
+    public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
+        this.enableNereidsPlanner = enableNereidsPlanner;
     }
 
     /**

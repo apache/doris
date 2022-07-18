@@ -19,25 +19,23 @@ package org.apache.doris.nereids.pattern;
 
 /**
  * Types for all Pattern type.
- * <p>
- * 1. NORMAL:      normal pattern matching, e.g. match by planId or class type.
- * 2. ANY:         match any plan, return a plan when matched.
- * 3. MULTI:       match multiple children plans, that we don't know how many children exist.
- *                 only use as the last child pattern, and can not use as the top pattern.
- *                 return some children plan with real plan type when matched.
- * 4. GROUP:       match a group plan, only use in a pattern's children, and can not use as the top pattern.
- *                 return a GroupPlan when matched.
- * 5. MULTI_GROUP: match multiple group plan, that we don't know how many children group exist.
- *                 only use in a pattern's children, so can not use as the top pattern.
- *                 return some children GroupPlan when matched.
- * </p>
  */
 public enum PatternType {
+    // Normal pattern matching, e.g. match by planId or class type.
     NORMAL,
+    // Match any plan, return a plan when matched.
     ANY,
+    // Match multiple children plans, that we don't know how many children exist.
+    // Only use as the last child pattern, and can not use as the top pattern.
     MULTI,
+    // Match a group plan, only use in a pattern's children, and can not use as the top pattern.
+    // Return a GroupPlan when matched.
     GROUP,
+    // Match multiple group plan, that we don't know how many children group exist.
+    // Only use in a pattern's children, so can not use as the top pattern.
+    // Return some children GroupPlan when matched.
     MULTI_GROUP,
-
+    // Match a subtree of plan, plan nodes in the matched result are the subset of specified plan types when
+    // declare the pattern.
     SUB_TREE,
 }
