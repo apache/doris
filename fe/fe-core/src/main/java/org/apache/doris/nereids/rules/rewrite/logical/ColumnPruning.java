@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.PlanRuleFactory;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 
@@ -31,7 +30,7 @@ import java.util.List;
  */
 public class ColumnPruning implements PlanRuleFactory {
     @Override
-    public List<Rule<Plan>> buildRules() {
+    public List<Rule> buildRules() {
         return ImmutableList.of(
                 new PruneFilterChildColumns().build(),
                 new PruneAggChildColumns().build(),

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.pattern;
 
 import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
@@ -44,19 +43,19 @@ public interface Patterns {
 
     /* special pattern descriptors */
 
-    default <T extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>> PatternDescriptor<T, RULE_TYPE> any() {
+    default <T extends Plan> PatternDescriptor<T> any() {
         return new PatternDescriptor<>(Pattern.ANY, defaultPromise());
     }
 
-    default <T extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>> PatternDescriptor<T, RULE_TYPE> multi() {
+    default <T extends Plan> PatternDescriptor<T> multi() {
         return new PatternDescriptor<>(Pattern.MULTI, defaultPromise());
     }
 
-    default PatternDescriptor<GroupPlan, Plan> group() {
+    default PatternDescriptor<GroupPlan> group() {
         return new PatternDescriptor<>(Pattern.GROUP, defaultPromise());
     }
 
-    default PatternDescriptor<GroupPlan, Plan> multiGroup() {
+    default PatternDescriptor<GroupPlan> multiGroup() {
         return new PatternDescriptor<>(Pattern.MULTI_GROUP, defaultPromise());
     }
 
@@ -65,29 +64,29 @@ public interface Patterns {
     /**
      * create a leafPlan pattern.
      */
-    default PatternDescriptor<LeafPlan, Plan> leafPlan() {
+    default PatternDescriptor<LeafPlan> leafPlan() {
         return new PatternDescriptor(new TypePattern(LeafPlan.class), defaultPromise());
     }
 
     /**
      * create a unaryPlan pattern.
      */
-    default PatternDescriptor<UnaryPlan<GroupPlan>, Plan> unaryPlan() {
+    default PatternDescriptor<UnaryPlan<GroupPlan>> unaryPlan() {
         return new PatternDescriptor(new TypePattern(UnaryPlan.class, Pattern.GROUP), defaultPromise());
     }
 
     /**
      * create a unaryPlan pattern.
      */
-    default <C extends Plan> PatternDescriptor<UnaryPlan<C>, Plan>
-            unaryPlan(PatternDescriptor<C, Plan> child) {
+    default <C extends Plan> PatternDescriptor<UnaryPlan<C>>
+            unaryPlan(PatternDescriptor<C> child) {
         return new PatternDescriptor(new TypePattern(UnaryPlan.class, child.pattern), defaultPromise());
     }
 
     /**
      * create a binaryPlan pattern.
      */
-    default PatternDescriptor<BinaryPlan<GroupPlan, GroupPlan>, Plan> binaryPlan() {
+    default PatternDescriptor<BinaryPlan<GroupPlan, GroupPlan>> binaryPlan() {
         return new PatternDescriptor(
                 new TypePattern(BinaryPlan.class, Pattern.GROUP, Pattern.GROUP),
                 defaultPromise()
@@ -98,9 +97,9 @@ public interface Patterns {
      * create a binaryPlan pattern.
      */
     default <LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
-            PatternDescriptor<BinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, Plan> binaryPlan(
-                PatternDescriptor<LEFT_CHILD_TYPE, Plan> leftChild,
-                PatternDescriptor<RIGHT_CHILD_TYPE, Plan> rightChild) {
+            PatternDescriptor<BinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>> binaryPlan(
+                PatternDescriptor<LEFT_CHILD_TYPE> leftChild,
+                PatternDescriptor<RIGHT_CHILD_TYPE> rightChild) {
         return new PatternDescriptor(
                 new TypePattern(BinaryPlan.class, leftChild.pattern, rightChild.pattern),
                 defaultPromise()
@@ -112,29 +111,29 @@ public interface Patterns {
     /**
      * create a logicalLeaf pattern.
      */
-    default PatternDescriptor<LogicalLeaf, Plan> logicalLeaf() {
+    default PatternDescriptor<LogicalLeaf> logicalLeaf() {
         return new PatternDescriptor(new TypePattern(LogicalLeaf.class), defaultPromise());
     }
 
     /**
      * create a logicalUnary pattern.
      */
-    default PatternDescriptor<LogicalUnary<GroupPlan>, Plan> logicalUnary() {
+    default PatternDescriptor<LogicalUnary<GroupPlan>> logicalUnary() {
         return new PatternDescriptor(new TypePattern(LogicalUnary.class, Pattern.GROUP), defaultPromise());
     }
 
     /**
      * create a logicalUnary pattern.
      */
-    default <C extends Plan> PatternDescriptor<LogicalUnary<C>, Plan>
-            logicalUnary(PatternDescriptor<C, Plan> child) {
+    default <C extends Plan> PatternDescriptor<LogicalUnary<C>>
+            logicalUnary(PatternDescriptor<C> child) {
         return new PatternDescriptor(new TypePattern(LogicalUnary.class, child.pattern), defaultPromise());
     }
 
     /**
      * create a logicalBinary pattern.
      */
-    default PatternDescriptor<LogicalBinary<GroupPlan, GroupPlan>, Plan> logicalBinary() {
+    default PatternDescriptor<LogicalBinary<GroupPlan, GroupPlan>> logicalBinary() {
         return new PatternDescriptor(
                 new TypePattern(LogicalBinary.class, Pattern.GROUP, Pattern.GROUP),
                 defaultPromise()
@@ -145,10 +144,10 @@ public interface Patterns {
      * create a logicalBinary pattern.
      */
     default <LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
-            PatternDescriptor<LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, Plan>
+            PatternDescriptor<LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>>
             logicalBinary(
-                PatternDescriptor<LEFT_CHILD_TYPE, Plan> leftChild,
-                PatternDescriptor<RIGHT_CHILD_TYPE, Plan> rightChild) {
+                PatternDescriptor<LEFT_CHILD_TYPE> leftChild,
+                PatternDescriptor<RIGHT_CHILD_TYPE> rightChild) {
         return new PatternDescriptor(
                 new TypePattern(LogicalBinary.class, leftChild.pattern, rightChild.pattern),
                 defaultPromise()
@@ -158,7 +157,7 @@ public interface Patterns {
     /**
      * create a logicalRelation pattern.
      */
-    default PatternDescriptor<LogicalRelation, Plan> logicalRelation() {
+    default PatternDescriptor<LogicalRelation> logicalRelation() {
         return new PatternDescriptor(new TypePattern(LogicalRelation.class), defaultPromise());
     }
 
@@ -167,29 +166,29 @@ public interface Patterns {
     /**
      * create a physicalLeaf pattern.
      */
-    default PatternDescriptor<PhysicalLeaf, Plan> physicalLeaf() {
+    default PatternDescriptor<PhysicalLeaf> physicalLeaf() {
         return new PatternDescriptor(new TypePattern(PhysicalLeaf.class), defaultPromise());
     }
 
     /**
      * create a physicalUnary pattern.
      */
-    default PatternDescriptor<PhysicalUnary<GroupPlan>, Plan> physicalUnary() {
+    default PatternDescriptor<PhysicalUnary<GroupPlan>> physicalUnary() {
         return new PatternDescriptor(new TypePattern(PhysicalUnary.class, Pattern.GROUP), defaultPromise());
     }
 
     /**
      * create a physicalUnary pattern.
      */
-    default <C extends Plan> PatternDescriptor<PhysicalUnary<C>, Plan>
-            physicalUnary(PatternDescriptor<C, Plan> child) {
+    default <C extends Plan> PatternDescriptor<PhysicalUnary<C>>
+            physicalUnary(PatternDescriptor<C> child) {
         return new PatternDescriptor(new TypePattern(PhysicalUnary.class, child.pattern), defaultPromise());
     }
 
     /**
      * create a physicalBinary pattern.
      */
-    default PatternDescriptor<PhysicalBinary<GroupPlan, GroupPlan>, Plan> physicalBinary() {
+    default PatternDescriptor<PhysicalBinary<GroupPlan, GroupPlan>> physicalBinary() {
         return new PatternDescriptor(
                 new TypePattern(PhysicalBinary.class, Pattern.GROUP, Pattern.GROUP),
                 defaultPromise()
@@ -200,10 +199,10 @@ public interface Patterns {
      * create a physicalBinary pattern.
      */
     default <LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
-            PatternDescriptor<PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, Plan>
+            PatternDescriptor<PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>>
             physicalBinary(
-                PatternDescriptor<LEFT_CHILD_TYPE, Plan> leftChild,
-                PatternDescriptor<RIGHT_CHILD_TYPE, Plan> rightChild) {
+                PatternDescriptor<LEFT_CHILD_TYPE> leftChild,
+                PatternDescriptor<RIGHT_CHILD_TYPE> rightChild) {
         return new PatternDescriptor(
                 new TypePattern(PhysicalBinary.class, leftChild.pattern, rightChild.pattern),
                 defaultPromise()
@@ -213,7 +212,7 @@ public interface Patterns {
     /**
      * create a physicalRelation pattern.
      */
-    default PatternDescriptor<PhysicalRelation, Plan> physicalRelation() {
+    default PatternDescriptor<PhysicalRelation> physicalRelation() {
         return new PatternDescriptor(new TypePattern(PhysicalRelation.class), defaultPromise());
     }
 }
