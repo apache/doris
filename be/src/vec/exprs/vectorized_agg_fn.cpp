@@ -93,7 +93,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
         return Status::InternalError("Java UDAF is disabled since no libjvm is found!");
 #endif
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
-        _function = AggregateRpcUdaf::create(_fn, argument_types, params, _data_type);
+        _function = AggregateRpcUdaf::create(_fn, _argument_types, {}, _data_type);
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
                 _fn.name.function_name, _argument_types, {}, _data_type->is_nullable());
