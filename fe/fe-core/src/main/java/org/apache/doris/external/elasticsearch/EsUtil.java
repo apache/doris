@@ -429,7 +429,7 @@ public class EsUtil {
             if (StringUtils.isNotBlank(type)) {
                 initScrollUrl.append("/").append(type);
             }
-            initScrollUrl.append("/_search?scroll=5m&").append(filterPath).append("&terminate_after=")
+            initScrollUrl.append("/_search?").append(filterPath).append("&terminate_after=")
                     .append(batchSize);
             nextScrollUrl.append("/_search/scroll?").append(filterPath);
             return new EsUrls(null, initScrollUrl.toString(), nextScrollUrl.toString());
