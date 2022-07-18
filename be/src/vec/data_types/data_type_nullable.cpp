@@ -43,8 +43,9 @@ bool DataTypeNullable::only_null() const {
 }
 
 std::string DataTypeNullable::to_string(const IColumn& column, size_t row_num) const {
+    auto ptr = column.convert_to_full_column_if_const();
     const ColumnNullable& col =
-            assert_cast<const ColumnNullable&>(*column.convert_to_full_column_if_const().get());
+            assert_cast<const ColumnNullable&>(*ptr.get());
 
     if (col.is_null_at(row_num)) {
         return "\\N";
@@ -57,10 +58,11 @@ std::string DataTypeNullable::to_string(const IColumn& column, size_t row_num) c
 //  <null array>: is_null1 | is_null2 | ...
 //  <values array>: value1 | value2 | ...>
 int64_t DataTypeNullable::get_uncompressed_serialized_bytes(const IColumn& column) const {
+    auto ptr = column.convert_to_full_column_if_const();
     int64_t size = sizeof(uint32_t);
     size += sizeof(bool) * column.size();
     size += nested_data_type->get_uncompressed_serialized_bytes(assert_cast<const ColumnNullable&>(
-            *column.convert_to_full_column_if_const()).get_nested_column());
+            *ptr).get_nested_column());
     return size;
 }
 
