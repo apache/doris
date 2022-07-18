@@ -23,7 +23,6 @@
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
@@ -437,7 +436,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 
     // init _rs_metas
     for (auto& it : tablet_meta_pb.rs_metas()) {
-        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
         rs_meta->init_from_pb(it);
         if (rs_meta->has_delete_predicate()) {
             add_delete_predicate(rs_meta->delete_predicate(), rs_meta->version().first);
@@ -446,7 +445,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     }
 
     for (auto& it : tablet_meta_pb.stale_rs_metas()) {
-        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
         rs_meta->init_from_pb(it);
         _stale_rs_metas.push_back(std::move(rs_meta));
     }
