@@ -291,6 +291,9 @@ public class AnalyzeStmt extends DdlStmt {
                 Database db = analyzer.getCatalog().getInternalDataSource()
                         .getDbOrAnalysisException(optTableName.getDb());
                 OlapTable olapTable = (OlapTable) db.getTableOrAnalysisException(optTableName.getTbl());
+                if (!olapTable.isPartitioned()) {
+                    throw new AnalysisException("Not a partitioned table: " + olapTable.getName());
+                }
                 List<String> names = optPartitionNames.getPartitionNames();
                 Set<String> olapPartitionNames = olapTable.getPartitionNames();
                 List<String> tempPartitionNames = olapTable.getTempPartitions().stream()

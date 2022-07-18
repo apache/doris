@@ -68,7 +68,7 @@ public class StatisticsManager {
         List<String> partitionNames = stmt.getPartitionNames();
         Map<StatsType, String> statsTypeToValue = stmt.getStatsTypeToValue();
 
-        if (partitionNames == null || partitionNames.isEmpty()) {
+        if (partitionNames.isEmpty()) {
             statistics.updateTableStats(table.getId(), statsTypeToValue);
             return;
         }
@@ -96,7 +96,7 @@ public class StatisticsManager {
         }
 
         if (partitionNames.isEmpty()) {
-            Column column = validateColumn(table, "", colName);
+            Column column = validateColumn(table, colName);
             Type colType = column.getType();
             statistics.updateColumnStats(table.getId(), colName, colType, statsTypeToValue);
             return;
@@ -104,7 +104,7 @@ public class StatisticsManager {
 
         for (String partitionName : partitionNames) {
             validatePartitionName(table, partitionName);
-            Column column = validateColumn(table, partitionName, colName);
+            Column column = validateColumn(table, colName);
             Type colType = column.getType();
             statistics.updateColumnStats(table.getId(), partitionName, colName, colType, statsTypeToValue);
         }
@@ -249,7 +249,7 @@ public class StatisticsManager {
 
             List<String> partitionNames = stmt.getPartitionNames();
 
-            if (partitionNames == null || partitionNames.isEmpty()) {
+            if (partitionNames.isEmpty()) {
                 result.add(showTableStats(table));
             } else {
                 for (String partitionName : partitionNames) {
@@ -297,7 +297,7 @@ public class StatisticsManager {
                     tableName.getDb() + ": " + tableName.getTbl());
         }
 
-        if (partitionNames == null || partitionNames.size() == 0) {
+        if (partitionNames.isEmpty()) {
             return showColumnStats(table.getId());
         }
 
@@ -437,11 +437,7 @@ public class StatisticsManager {
         return partitionName;
     }
 
-    private Column validateColumn(Table table, String partitionName, String columnName) throws AnalysisException {
-        if (table.isPartitioned() && Strings.isNullOrEmpty(partitionName)) {
-            throw new AnalysisException("Partition name is required for partitioned table: " + table.getName());
-        }
-
+    private Column validateColumn(Table table, String columnName) throws AnalysisException {
         Column column = table.getColumn(columnName);
         if (column == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
@@ -458,7 +454,7 @@ public class StatisticsManager {
         }
 
         if (!Strings.isNullOrEmpty(result.getColumnName())) {
-            validateColumn(table, result.getPartitionName(), result.getColumnName());
+            validateColumn(table, result.getColumnName());
         }
 
         if (result.getCategory() == null) {
