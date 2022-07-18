@@ -147,8 +147,9 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
         auto row_group_meta = _file_metadata->RowGroup(row_group_id);
         if (_range_size > 0 && file_size > 0) {
             int64_t start_offset = _get_group_offset(row_group_id);
-            int64_t end_offset =
-                    row_group_id == total_group - 1 ? file_size : _get_group_offset(row_group_id + 1);
+            int64_t end_offset = row_group_id == total_group - 1
+                                         ? file_size
+                                         : _get_group_offset(row_group_id + 1);
             if (start_offset >= tail_group_offset || end_offset <= head_group_offset) {
                 _filter_group.emplace(row_group_id);
                 VLOG_DEBUG << "Filter extra row group id: " << row_group_id;
