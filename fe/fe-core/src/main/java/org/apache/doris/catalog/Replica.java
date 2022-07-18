@@ -79,6 +79,8 @@ public class Replica implements Writable {
     private int schemaHash = -1;
     @SerializedName(value = "dataSize")
     private volatile long dataSize = 0;
+    @SerializedName(value = "remoteDataSize")
+    private volatile long remoteDataSize = 0;
     @SerializedName(value = "rowCount")
     private volatile long rowCount = 0;
     @SerializedName(value = "state")
@@ -132,16 +134,16 @@ public class Replica implements Writable {
     // for rollup
     // the new replica's version is -1 and last failed version is -1
     public Replica(long replicaId, long backendId, int schemaHash, ReplicaState state) {
-        this(replicaId, backendId, -1, schemaHash, 0L, 0L, state, -1, -1);
+        this(replicaId, backendId, -1, schemaHash, 0L, 0L, 0L, state, -1, -1);
     }
 
     // for create tablet and restore
     public Replica(long replicaId, long backendId, ReplicaState state, long version, int schemaHash) {
-        this(replicaId, backendId, version, schemaHash, 0L, 0L, state, -1L, version);
+        this(replicaId, backendId, version, schemaHash, 0L, 0L, 0L, state, -1L, version);
     }
 
     public Replica(long replicaId, long backendId, long version, int schemaHash,
-                       long dataSize, long rowCount, ReplicaState state,
+                       long dataSize, long remoteDataSize, long rowCount, ReplicaState state,
                        long lastFailedVersion,
                        long lastSuccessVersion) {
         this.id = replicaId;
@@ -150,6 +152,7 @@ public class Replica implements Writable {
         this.schemaHash = schemaHash;
 
         this.dataSize = dataSize;
+        this.remoteDataSize = remoteDataSize;
         this.rowCount = rowCount;
         this.state = state;
         if (this.state == null) {
@@ -189,6 +192,10 @@ public class Replica implements Writable {
 
     public long getDataSize() {
         return dataSize;
+    }
+
+    public long getRemoteDataSize() {
+        return remoteDataSize;
     }
 
     public long getRowCount() {
@@ -245,19 +252,22 @@ public class Replica implements Writable {
         this.rowCount = rowNum;
     }
 
-    public synchronized void updateStat(long dataSize, long rowNum, long versionCount) {
+    public synchronized void updateStat(long dataSize, long remoteDataSize, long rowNum, long versionCount) {
         this.dataSize = dataSize;
+        this.remoteDataSize = remoteDataSize;
         this.rowCount = rowNum;
         this.versionCount = versionCount;
     }
 
-    public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRowCount) {
-        updateReplicaInfo(newVersion, this.lastFailedVersion, this.lastSuccessVersion, newDataSize, newRowCount);
+    public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRemoteDataSize,
+                                               long newRowCount) {
+        updateReplicaInfo(newVersion, this.lastFailedVersion, this.lastSuccessVersion, newDataSize, newRemoteDataSize,
+                newRowCount);
     }
 
     public synchronized void updateVersionWithFailedInfo(
             long newVersion, long lastFailedVersion, long lastSuccessVersion) {
-        updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, dataSize, rowCount);
+        updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, dataSize, remoteDataSize, rowCount);
     }
 
     /* last failed version:  LFV
@@ -286,7 +296,7 @@ public class Replica implements Writable {
      */
     private void updateReplicaInfo(long newVersion,
             long lastFailedVersion, long lastSuccessVersion,
-            long newDataSize, long newRowCount) {
+            long newDataSize, long newRemoteDataSize, long newRowCount) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("before update: {}", this.toString());
         }
@@ -310,6 +320,7 @@ public class Replica implements Writable {
 
         this.version = newVersion;
         this.dataSize = newDataSize;
+        this.remoteDataSize = newRemoteDataSize;
         this.rowCount = newRowCount;
 
         // just check it
@@ -363,7 +374,7 @@ public class Replica implements Writable {
     }
 
     public synchronized void updateLastFailedVersion(long lastFailedVersion) {
-        updateReplicaInfo(this.version, lastFailedVersion, this.lastSuccessVersion, dataSize, rowCount);
+        updateReplicaInfo(this.version, lastFailedVersion, this.lastSuccessVersion, dataSize, remoteDataSize, rowCount);
     }
 
     /*

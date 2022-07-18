@@ -101,7 +101,6 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         tbl.readLock();
         try {
             Assertions.assertNotNull(tbl);
-            System.out.println(tbl.getName());
             Assertions.assertEquals("Doris", tbl.getEngine());
             Assertions.assertEquals(9, tbl.getBaseSchema().size());
         } finally {
@@ -245,7 +244,6 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         tbl.readLock();
         try {
             Assertions.assertNotNull(tbl);
-            System.out.println(tbl.getName());
             Assertions.assertEquals("Doris", tbl.getEngine());
             Assertions.assertEquals(8, tbl.getBaseSchema().size());
         } finally {
@@ -302,7 +300,6 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         tbl.readLock();
         try {
             Assertions.assertNotNull(tbl);
-            System.out.println(tbl.getName());
             Assertions.assertEquals("Doris", tbl.getEngine());
             Assertions.assertEquals(6, tbl.getBaseSchema().size());
         } finally {
