@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
@@ -72,9 +73,10 @@ public class RewriteTopDownJob extends Job {
                 Preconditions.checkArgument(afters.size() == 1);
                 Plan after = afters.get(0);
                 if (after != before) {
-                    GroupExpression expression = context.getPlannerContext()
-                            .getMemo().copyIn(after, group, rule.isRewrite()).second;
-                    expression.setApplied(rule);
+                    Pair<Boolean, GroupExpression> pair = context.getPlannerContext()
+                            .getMemo().copyIn(after, group, rule.isRewrite());
+
+                    pair.second.setApplied(rule);
                     pushTask(new RewriteTopDownJob(group, rules, context));
                     return;
                 }

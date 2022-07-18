@@ -91,9 +91,8 @@ public class Memo {
         node = replaceChildrenToGroupPlan(node, childrenGroups);
         GroupExpression newGroupExpression = new GroupExpression(node);
         newGroupExpression.setChildren(childrenGroups);
-        newGroupExpression = insertOrRewriteGroupExpression(newGroupExpression, target, rewrite,
+        return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite,
                 node.getLogicalProperties());
-        return new Pair(groupExpressions.containsKey(newGroupExpression), newGroupExpression);
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
 
@@ -132,8 +131,8 @@ public class Memo {
      * @param rewrite whether to rewrite the groupExpression to target group
      * @return existing groupExpression in memo or newly generated groupExpression
      */
-    private GroupExpression insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
-            boolean rewrite, LogicalProperties logicalProperties) {
+    private Pair<Boolean, GroupExpression> insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
+                                                                          boolean rewrite, LogicalProperties logicalProperties) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
             Group mergedGroup = existedGroupExpression.getOwnerGroup();
@@ -143,7 +142,7 @@ public class Memo {
             if (rewrite) {
                 mergedGroup.setLogicalProperties(logicalProperties);
             }
-            return existedGroupExpression;
+            return new Pair(true, existedGroupExpression);
         }
         if (target != null) {
             if (rewrite) {
@@ -158,7 +157,7 @@ public class Memo {
             groups.add(group);
         }
         groupExpressions.put(groupExpression, groupExpression);
-        return groupExpression;
+        return new Pair(false, groupExpression);
     }
 
     /**
