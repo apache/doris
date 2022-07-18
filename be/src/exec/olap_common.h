@@ -50,9 +50,7 @@ std::string cast_to_string(T value, int scale) {
     } else if constexpr (primitive_type == TYPE_TINYINT) {
         return std::to_string(static_cast<int>(value));
     } else if constexpr (primitive_type == TYPE_LARGEINT) {
-        std::stringstream ss;
-        ss << value;
-        return ss.str();
+        return vectorized::int128_to_string(value);
     } else {
         return boost::lexical_cast<std::string>(value);
     }
@@ -303,7 +301,7 @@ public:
 
     Status get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range);
 
-    bool has_range_value() { return _has_range_value; }
+    bool has_range_value() const { return _has_range_value; }
 
     void clear() {
         _has_range_value = false;
@@ -354,15 +352,14 @@ private:
     bool _is_convertible;
 };
 
-typedef std::variant<
+using ColumnValueRangeType = std::variant<
         ColumnValueRange<TYPE_TINYINT>, ColumnValueRange<TYPE_SMALLINT>, ColumnValueRange<TYPE_INT>,
         ColumnValueRange<TYPE_BIGINT>, ColumnValueRange<TYPE_LARGEINT>, ColumnValueRange<TYPE_CHAR>,
         ColumnValueRange<TYPE_VARCHAR>, ColumnValueRange<TYPE_STRING>, ColumnValueRange<TYPE_DATE>,
         ColumnValueRange<TYPE_DATEV2>, ColumnValueRange<TYPE_DATETIME>,
         ColumnValueRange<TYPE_DECIMALV2>, ColumnValueRange<TYPE_BOOLEAN>,
         ColumnValueRange<TYPE_HLL>, ColumnValueRange<TYPE_DECIMAL32>,
-        ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128>>
-        ColumnValueRangeType;
+        ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128>>;
 
 template <PrimitiveType primitive_type>
 const typename ColumnValueRange<primitive_type>::CppType
