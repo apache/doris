@@ -19,11 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.NullType;
-import org.apache.doris.nereids.types.StringType;
 
 import java.util.Objects;
 
@@ -31,52 +27,38 @@ import java.util.Objects;
  * All data type literal expression in Nereids.
  * TODO: Increase the implementation of sub expression. such as Integer.
  */
-public class Literal extends Expression implements LeafExpression {
-    public static final Literal TRUE_LITERAL = new Literal(true);
-    public static final Literal FALSE_LITERAL = new Literal(false);
+public abstract class Literal extends Expression implements LeafExpression {
+
     private final DataType dataType;
-    private final Object value;
 
     /**
      * Constructor for Literal.
      *
-     * @param value    real value stored in java object
      * @param dataType logical data type in Nereids
      */
-    public Literal(Object value, DataType dataType) {
+    public Literal(DataType dataType) {
         super(ExpressionType.LITERAL);
         this.dataType = dataType;
-        this.value = value;
     }
 
     /**
-     * Constructor for Literal. Recognize data type Automatically.
-     *
-     * @param value real value stored in java object
+     * Get literal according to value type
      */
-    public Literal(Object value) {
-        super(ExpressionType.LITERAL);
-        this.value = value;
+    public static Literal of(Object value) {
         if (value == null) {
-            dataType = NullType.INSTANCE;
+            return new NullLiteral();
         } else if (value instanceof Integer) {
-            dataType = IntegerType.INSTANCE;
+            return new IntegerLiteral((Integer) value);
         } else if (value instanceof Boolean) {
-            dataType = BooleanType.INSTANCE;
+            return new BooleanLiteral((Boolean) value);
         } else if (value instanceof String) {
-            dataType = StringType.INSTANCE;
+            return new StringLiteral((String) value);
         } else {
             throw new RuntimeException();
         }
     }
 
-    public static Literal of(Object value) {
-        return new Literal(value);
-    }
-
-    public Object getValue() {
-        return value;
-    }
+    public abstract Object getValue();
 
     @Override
     public DataType getDataType() throws UnboundException {
@@ -85,12 +67,12 @@ public class Literal extends Expression implements LeafExpression {
 
     @Override
     public String toSql() {
-        return value.toString();
+        return toString();
     }
 
     @Override
     public boolean nullable() throws UnboundException {
-        return value == null;
+        return this instanceof NullLiteral;
     }
 
     @Override
@@ -112,16 +94,16 @@ public class Literal extends Expression implements LeafExpression {
             return false;
         }
         Literal other = (Literal) o;
-        return Objects.equals(value, other.getValue());
+        return Objects.equals(getValue(), other.getValue());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(value);
+        return Objects.hashCode(getValue());
     }
 
     @Override
     public String toString() {
-        return value.toString();
+        return String.valueOf(getValue());
     }
 }

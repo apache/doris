@@ -18,7 +18,9 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Sets;
@@ -63,6 +65,18 @@ public class AlterOperations {
                 || currentOps.contains(AlterOpType.DROP_PARTITION)
                 || currentOps.contains(AlterOpType.REPLACE_PARTITION)
                 || currentOps.contains(AlterOpType.MODIFY_PARTITION);
+    }
+
+    public boolean checkTableStoragePolicy(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
+    }
+
+    public String getTableStoragePolicy(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).map(c -> ((ModifyTablePropertiesClause) c).getStoragePolicy()).findFirst().orElse("");
     }
 
     // MODIFY_TABLE_PROPERTY is also processed by SchemaChangeHandler

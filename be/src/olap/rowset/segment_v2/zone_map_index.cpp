@@ -29,7 +29,7 @@ namespace doris {
 
 namespace segment_v2 {
 
-ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field) : _field(field), _pool() {
+ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field) : _field(field) {
     _page_zone_map.min_value = _field->allocate_zone_map_value(&_pool);
     _page_zone_map.max_value = _field->allocate_zone_map_value(&_pool);
     _reset_zone_map(&_page_zone_map);
@@ -122,7 +122,7 @@ Status ZoneMapIndexWriter::finish(io::FileWriter* file_writer, ColumnIndexMetaPB
 }
 
 Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
-    IndexedColumnReader reader(_fs, _path, _index_meta->page_zone_maps());
+    IndexedColumnReader reader(_file_reader, _index_meta->page_zone_maps());
     RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
     IndexedColumnIterator iter(&reader);
 

@@ -31,8 +31,6 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
 #include "olap/row_block2.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_writer.h"
@@ -378,8 +376,8 @@ private:
         }
     }
 
-    std::unique_ptr<io::FileWriter> creat_file_writer(const std::string& path) {
-        std::unique_ptr<io::FileWriter> file_writer;
+    io::FileWriterPtr creat_file_writer(const std::string& path) {
+        io::FileWriterPtr file_writer;
         io::global_local_filesystem()->create_file(path, &file_writer);
         return file_writer;
     }
@@ -409,8 +407,8 @@ private:
         return st.ok() ? std::move(reader) : nullptr;
     }
 
-    std::unique_ptr<io::FileReader> create_readable_block(const std::string& path) {
-        std::unique_ptr<io::FileReader> reader;
+    io::FileReaderSPtr create_readable_block(const std::string& path) {
+        io::FileReaderSPtr reader;
         auto st = io::global_local_filesystem()->open_file(path, &reader);
         return st.ok() ? std::move(reader) : nullptr;
     }

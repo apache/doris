@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -72,15 +73,25 @@ public class BindFunction implements AnalysisRuleFactory {
         public Expression visitUnboundFunction(UnboundFunction unboundFunction, Void context) {
             String name = unboundFunction.getName();
             // TODO: lookup function in the function registry
-            if (!name.equalsIgnoreCase("sum")) {
-                return unboundFunction;
-            }
+            if (name.equalsIgnoreCase("sum")) {
+                List<Expression> arguments = unboundFunction.getArguments();
+                if (arguments.size() != 1) {
+                    return unboundFunction;
+                }
+                return new Sum(unboundFunction.getArguments().get(0));
+            } else if (name.equalsIgnoreCase("substr") || name.equalsIgnoreCase("substring")) {
 
-            List<Expression> arguments = unboundFunction.getArguments();
-            if (arguments.size() != 1) {
+                List<Expression> arguments = unboundFunction.getArguments();
+                if (arguments.size() == 2) {
+                    return new Substring(unboundFunction.getArguments().get(0),
+                            unboundFunction.getArguments().get(1));
+                } else if (arguments.size() == 3) {
+                    return new Substring(unboundFunction.getArguments().get(0), unboundFunction.getArguments().get(1),
+                            unboundFunction.getArguments().get(2));
+                }
                 return unboundFunction;
             }
-            return new Sum(unboundFunction.getArguments().get(0));
+            return unboundFunction;
         }
     }
 }
