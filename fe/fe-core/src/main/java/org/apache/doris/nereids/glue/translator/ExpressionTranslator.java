@@ -27,31 +27,26 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
-import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.NullType;
-import org.apache.doris.nereids.types.StringType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -143,24 +138,31 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return context.findSlotRef(slotReference.getExprId());
     }
 
-    /**
-     * translate to stale literal.
-     */
     @Override
-    public Expr visitLiteral(Literal literal, PlanTranslatorContext context) {
-        DataType dataType = literal.getDataType();
-        if (dataType instanceof BooleanType) {
-            return new BoolLiteral((Boolean) literal.getValue());
-        } else if (dataType instanceof DoubleType) {
-            return new FloatLiteral((Double) literal.getValue(), Type.DOUBLE);
-        } else if (dataType instanceof IntegerType) {
-            return new IntLiteral((Integer) literal.getValue());
-        } else if (dataType instanceof NullType) {
-            return new NullLiteral();
-        } else if (dataType instanceof StringType) {
-            return new StringLiteral((String) literal.getValue());
-        }
-        throw new RuntimeException(String.format("Unsupported data type: %s", dataType.toString()));
+    public Expr visitBooleanLiteral(BooleanLiteral booleanLiteral, PlanTranslatorContext context) {
+        return new BoolLiteral(booleanLiteral.getValue());
+    }
+
+    @Override
+    public Expr visitStringLiteral(org.apache.doris.nereids.trees.expressions.StringLiteral stringLiteral,
+            PlanTranslatorContext context) {
+        return new StringLiteral(stringLiteral.getValue());
+    }
+
+    @Override
+    public Expr visitIntegerLiteral(IntegerLiteral integerLiteral, PlanTranslatorContext context) {
+        return new IntLiteral(integerLiteral.getValue());
+    }
+
+    @Override
+    public Expr visitNullLiteral(org.apache.doris.nereids.trees.expressions.NullLiteral nullLiteral,
+            PlanTranslatorContext context) {
+        return new NullLiteral();
+    }
+
+    @Override
+    public Expr visitDoubleLiteral(DoubleLiteral doubleLiteral, PlanTranslatorContext context) {
+        return new FloatLiteral(doubleLiteral.getValue());
     }
 
     @Override
