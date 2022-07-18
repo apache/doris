@@ -1395,7 +1395,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         appendProperties(sb, PROPS_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
         appendProperties(sb, PROPS_NUM_AS_STRING, isNumAsString(), false);
         appendProperties(sb, PROPS_FUZZY_PARSE, isFuzzyParse(), false);
-        appendProperties(sb, PROPS_JSONROOT, getJsonRoot(), true);
+        appendProperties(sb, PROPS_JSONROOT, getJsonRoot(), false);
         appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
         appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
         appendProperties(sb, LoadStmt.EXEC_MEM_LIMIT, getMemLimit(), true);

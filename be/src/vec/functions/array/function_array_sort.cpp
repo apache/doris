@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.expression;
+#include "vec/functions/array/function_array_sort.h"
 
-import org.apache.doris.nereids.rules.OneRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Expression;
+#include "vec/functions/simple_function_factory.h"
 
-/**
- * abstract class for all rule factories build one rule used for expressions.
- */
-public abstract class OneExpressionRuleFactory
-        extends OneRuleFactory<Expression> implements ExpressionRuleFactory {
+namespace doris::vectorized {
+
+void register_function_array_sort(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArraySort>();
 }
+
+} // namespace doris::vectorized

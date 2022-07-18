@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 
 /**
@@ -27,8 +26,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
  */
 public class LogicalFilterToPhysicalFilter extends OneImplementationRuleFactory {
     @Override
-    public Rule<Plan> build() {
-        return logicalFilter().then(filter -> new PhysicalFilter(
+    public Rule build() {
+        return logicalFilter().then(filter -> new PhysicalFilter<>(
             filter.getPredicates(),
             filter.getLogicalProperties(),
             filter.child())

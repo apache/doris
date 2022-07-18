@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -15,18 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.expression;
+package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.rules.RuleFactory;
-import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.IntegerType;
 
 /**
- * interface for all expression rule factories.
+ * Represents Integer literal
  */
-public interface ExpressionRuleFactory extends RuleFactory<Expression> {
+public class IntegerLiteral extends Literal {
+
+    private final int value;
+
+    public IntegerLiteral(int value) {
+        super(IntegerType.INSTANCE);
+        this.value = value;
+    }
+
     @Override
-    default RulePromise defaultPromise() {
-        return RulePromise.EXPRESSION;
+    public Integer getValue() {
+        return value;
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitIntegerLiteral(this, context);
     }
 }

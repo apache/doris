@@ -1951,7 +1951,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                     // and then check if there still has unknown properties
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_DATA_PROPERTY);
                     if (partitionInfo.getType() == PartitionType.RANGE) {
-                        DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties);
+                        DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
 
                     } else if (partitionInfo.getType() == PartitionType.LIST) {
                         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
