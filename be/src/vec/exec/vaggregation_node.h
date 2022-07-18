@@ -107,6 +107,42 @@ private:
 
 using AggregatedDataWithoutKey = AggregateDataPtr;
 using AggregatedDataWithStringKey = PHHashMap<StringRef, AggregateDataPtr, DefaultHash<StringRef>>;
+using AggregatedDataWithShortStringKey = StringHashMap<AggregateDataPtr>;
+
+template <typename TData>
+struct AggregationMethodStringNoCache {
+    using Data = TData;
+    using Key = typename Data::key_type;
+    using Mapped = typename Data::mapped_type;
+    using Iterator = typename Data::iterator;
+
+    Data data;
+    Iterator iterator;
+    bool inited = false;
+
+    AggregationMethodStringNoCache() = default;
+
+    explicit AggregationMethodStringNoCache(size_t size_hint) : data(size_hint) {}
+
+    template <typename Other>
+    explicit AggregationMethodStringNoCache(const Other& other) : data(other.data) {}
+
+    using State = ColumnsHashing::HashMethodString<typename Data::value_type, Mapped, true, false>;
+
+    static const bool low_cardinality_optimization = false;
+
+    static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
+                                        const Sizes&) {
+        key_columns[0]->insert_data(key.data, key.size);
+    }
+
+    void init_once() {
+        if (!inited) {
+            inited = true;
+            iterator = data.begin();
+        }
+    }
+};
 
 /// For the case where there is one numeric key.
 /// FieldType is UInt8/16/32/64 for any type with corresponding bit width.
@@ -290,6 +326,8 @@ using AggregatedDataWithNullableUInt8Key = AggregationDataWithNullKey<Aggregated
 using AggregatedDataWithNullableUInt16Key = AggregationDataWithNullKey<AggregatedDataWithUInt16Key>;
 using AggregatedDataWithNullableUInt32Key = AggregationDataWithNullKey<AggregatedDataWithUInt32Key>;
 using AggregatedDataWithNullableUInt64Key = AggregationDataWithNullKey<AggregatedDataWithUInt64Key>;
+using AggregatedDataWithNullableShortStringKey =
+        AggregationDataWithNullKey<AggregatedDataWithShortStringKey>;
 using AggregatedDataWithNullableUInt128Key =
         AggregationDataWithNullKey<AggregatedDataWithUInt128Key>;
 
@@ -299,6 +337,7 @@ using AggregatedMethodVariants = std::variant<
         AggregationMethodOneNumber<UInt16, AggregatedDataWithUInt16Key, false>,
         AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32Key>,
         AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64Key>,
+        AggregationMethodStringNoCache<AggregatedDataWithShortStringKey>,
         AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128Key>,
         AggregationMethodSingleNullableColumn<
                 AggregationMethodOneNumber<UInt8, AggregatedDataWithNullableUInt8Key, false>>,
@@ -310,6 +349,8 @@ using AggregatedMethodVariants = std::variant<
                 AggregationMethodOneNumber<UInt64, AggregatedDataWithNullableUInt64Key>>,
         AggregationMethodSingleNullableColumn<
                 AggregationMethodOneNumber<UInt128, AggregatedDataWithNullableUInt128Key>>,
+        AggregationMethodSingleNullableColumn<
+                AggregationMethodStringNoCache<AggregatedDataWithNullableShortStringKey>>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, false>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, true>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, false>,
@@ -336,7 +377,8 @@ struct AggregatedDataVariants {
         int128_key,
         int64_keys,
         int128_keys,
-        int256_keys
+        int256_keys,
+        string_key,
     };
 
     Type _type = Type::EMPTY;
@@ -423,6 +465,16 @@ struct AggregatedDataVariants {
             } else {
                 _aggregated_method_variant
                         .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, false>>();
+            }
+            break;
+        case Type::string_key:
+            if (is_nullable) {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodSingleNullableColumn<AggregationMethodStringNoCache<
+                                AggregatedDataWithNullableShortStringKey>>>();
+            } else {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodStringNoCache<AggregatedDataWithShortStringKey>>();
             }
             break;
         default:
