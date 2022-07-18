@@ -602,7 +602,16 @@ public class StmtExecutor implements ProfileWriter {
                         VectorizedUtil.switchToQueryNonVec();
                     }
                 } catch (UserException e) {
-                    throw e;
+                    if (e.getCause() instanceof VecNotImplException) {
+                        if (i == analyzeTimes) {
+                            throw e;
+                        } else {
+                            resetAnalyzerAndStmt();
+                            VectorizedUtil.switchToQueryNonVec();
+                        }
+                    } else {
+                        throw e;
+                    }
                 } catch (Exception e) {
                     LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                     throw new AnalysisException("Unexpected exception: " + e.getMessage());
