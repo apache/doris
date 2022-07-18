@@ -94,6 +94,23 @@ public class PhysicalHashJoin<
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalHashJoin that = (PhysicalHashJoin) o;
+        return joinType == that.joinType && Objects.equals(condition, that.condition);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(joinType, condition);
+    }
+
+    @Override
     public PhysicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalHashJoin<>(joinType, condition, logicalProperties, children.get(0), children.get(1));
