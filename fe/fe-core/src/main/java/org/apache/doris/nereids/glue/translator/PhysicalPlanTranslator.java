@@ -348,7 +348,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             throw new RuntimeException("Physical hash join could not execute without equal join condition.");
         } else {
             Expression eqJoinExpression = hashJoin.getCondition().get();
-            List<Expr> execEqConjunctList = ExpressionUtils.extractConjunct(eqJoinExpression).stream()
+            List<Expr> execEqConjunctList = ExpressionUtils.extractConjunctive(eqJoinExpression).stream()
                     .map(EqualTo.class::cast)
                     .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
                     .map(e -> ExpressionTranslator.translate(e, context))
@@ -400,7 +400,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment inputFragment = filter.child(0).accept(this, context);
         PlanNode planNode = inputFragment.getPlanRoot();
         Expression expression = filter.getPredicates();
-        List<Expression> expressionList = ExpressionUtils.extractConjunct(expression);
+        List<Expression> expressionList = ExpressionUtils.extractConjunctive(expression);
         expressionList.stream().map(e -> ExpressionTranslator.translate(e, context)).forEach(planNode::addConjunct);
         return inputFragment;
     }
