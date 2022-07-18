@@ -198,6 +198,8 @@ message PFunction {
 
 message PFunctionContext {
     optional bytes data = 1;
+    //use to impl vectorization udaf 
+    repeated PValues args_data = 2;
 }
 
 message PHandShakeRequest {
