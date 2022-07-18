@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Literal;
+import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.TernaryExpression;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
@@ -37,7 +37,7 @@ public class Substring extends BoundFunction implements TernaryExpression {
     }
 
     public Substring(Expression str, Expression pos) {
-        super("substring", str, pos, new Literal(Integer.MAX_VALUE));
+        super("substring", str, pos, new IntegerLiteral(Integer.MAX_VALUE));
     }
 
     @Override
