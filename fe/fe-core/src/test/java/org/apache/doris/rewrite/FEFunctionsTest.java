@@ -29,7 +29,6 @@ import org.apache.doris.common.util.TimeUtils;
 
 import mockit.Expectations;
 import mockit.Mocked;
-import org.joda.time.DateTime;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -37,6 +36,9 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 import java.util.Locale;
 import java.util.TimeZone;
 
@@ -740,9 +742,14 @@ public class FEFunctionsTest {
         String curTimeString = FEFunctions.curTime().toSqlImpl().replace("'", "");
         String currentTimestampString = FEFunctions.currentTimestamp().toSqlImpl().replace("'", "");
 
-        String nowTimestampString = new DateTime().toString("yyyy-MM-dd HH:mm:ss");
-        Assert.assertTrue(nowTimestampString.compareTo(currentTimestampString) >= 0);
-        String nowTimeString = nowTimestampString.substring(nowTimestampString.indexOf(" ") + 1);
+        ZonedDateTime zonedDateTime = ZonedDateTime.now(TimeUtils.getTimeZone().toZoneId());
+        DateTimeFormatter formatter = new DateTimeFormatterBuilder()
+                .appendPattern("uuuu-MM-dd HH:mm:ss")
+                .toFormatter();
+
+        Assert.assertTrue(formatter.format(zonedDateTime).compareTo(currentTimestampString) >= 0);
+        String nowTimeString = formatter.format(zonedDateTime).substring(
+                formatter.format(zonedDateTime).indexOf(" ") + 1);
         Assert.assertTrue(nowTimeString.compareTo(curTimeString) >= 0);
     }
 

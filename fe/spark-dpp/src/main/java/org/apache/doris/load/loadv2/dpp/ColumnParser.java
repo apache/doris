@@ -20,14 +20,14 @@ package org.apache.doris.load.loadv2.dpp;
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 
-import org.joda.time.format.DateTimeFormat;
-import org.joda.time.format.DateTimeFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 
 // Parser to validate value for different type
 public abstract class ColumnParser implements Serializable {
@@ -35,8 +35,12 @@ public abstract class ColumnParser implements Serializable {
     protected static final Logger LOG = LoggerFactory.getLogger(ColumnParser.class);
 
     // thread safe formatter
-    public static final DateTimeFormatter DATE_FORMATTER = DateTimeFormat.forPattern("yyyy-MM-dd");
-    public static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss");
+    public static final DateTimeFormatter DATE_FORMATTER = new DateTimeFormatterBuilder()
+            .appendPattern("uuuu-MM-dd")
+            .toFormatter();
+    public static final DateTimeFormatter DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
+            .appendPattern("uuuu-MM-dd HH:mm:ss")
+            .toFormatter();
 
     public static ColumnParser create(EtlJobConfig.EtlColumn etlColumn) throws SparkDppException {
         String columnType = etlColumn.columnType;
@@ -166,8 +170,8 @@ class DateParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         try {
-            DATE_FORMATTER.parseDateTime(value);
-        } catch (IllegalArgumentException e) {
+            DATE_FORMATTER.parse(value);
+        } catch (Exception e) {
             return false;
         }
         return true;
@@ -178,8 +182,8 @@ class DatetimeParser extends ColumnParser {
     @Override
     public boolean parse(String value) {
         try {
-            DATE_TIME_FORMATTER.parseDateTime(value);
-        } catch (IllegalArgumentException e) {
+            DATE_TIME_FORMATTER.parse(value);
+        } catch (Exception e) {
             return false;
         }
         return true;
