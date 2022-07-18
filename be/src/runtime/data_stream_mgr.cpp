@@ -44,11 +44,11 @@ using std::lock_guard;
 
 DataStreamMgr::DataStreamMgr() {
     REGISTER_HOOK_METRIC(data_stream_receiver_count, [this]() {
-        lock_guard<mutex> l(_lock);
+        // lock_guard<mutex> l(_lock);
         return _receiver_map.size();
     });
     REGISTER_HOOK_METRIC(fragment_endpoint_count, [this]() {
-        lock_guard<mutex> l(_lock);
+        // lock_guard<mutex> l(_lock);
         return _fragment_stream_set.size();
     });
 }

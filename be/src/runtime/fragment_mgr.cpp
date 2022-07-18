@@ -435,7 +435,7 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
     REGISTER_HOOK_METRIC(plan_fragment_count, [this]() {
-        std::lock_guard<std::mutex> lock(_lock);
+        // std::lock_guard<std::mutex> lock(_lock);
         return _fragment_map.size();
     });
 

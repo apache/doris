@@ -38,7 +38,7 @@ BrokerMgr::BrokerMgr(ExecEnv* exec_env) : _exec_env(exec_env), _stop_background_
                   .ok());
 
     REGISTER_HOOK_METRIC(broker_count, [this]() {
-        std::lock_guard<std::mutex> l(_mutex);
+        // std::lock_guard<std::mutex> l(_mutex);
         return _broker_set.size();
     });
 }
