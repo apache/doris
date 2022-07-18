@@ -193,7 +193,8 @@ primaryExpression
     : constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | identifier '(' DISTINCT? arguments+=expression* ')'                                      #functionCall
+    | identifier LEFT_PAREN DISTINCT? arguments+=expression
+      (COMMA arguments+=expression)* RIGHT_PAREN                                                #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference

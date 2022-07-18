@@ -106,6 +106,9 @@ public class ExpressionParserTest {
 
         String sumAndAvg = "select sum(a),avg(b) from test1";
         assertSql(sumAndAvg);
+
+        String substring = "select substr(a, 1, 2), substring(b ,3 ,4) from test1";
+        assertSql(substring);
     }
 
     @Test
