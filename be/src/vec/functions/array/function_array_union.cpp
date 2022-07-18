@@ -36,7 +36,7 @@ struct UnionAction {
 
     // Handle Null element.
     // Return true means this null element should put into result column.
-    template<bool is_left>
+    template <bool is_left>
     bool apply_null() {
         if (!null_flag) {
             null_flag = true;
@@ -47,7 +47,7 @@ struct UnionAction {
 
     // Handle Non-Null element.
     // Return ture means this Non-Null element should put into result column.
-    template<bool is_left>
+    template <bool is_left>
     bool apply(Set& set, Set& result_set, const Element& elem) {
         if (!set.find(elem)) {
             set.insert(elem);

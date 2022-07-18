@@ -36,7 +36,7 @@ struct IntersectAction {
 
     // Handle Null element.
     // Return true means this null element should put into result column.
-    template<bool is_left>
+    template <bool is_left>
     bool apply_null() {
         if (!result_null_flag) {
             result_null_flag = true;
@@ -45,7 +45,7 @@ struct IntersectAction {
         return false;
     }
 
-    template<>
+    template <>
     bool apply_null<false>() {
         if (!null_flag) {
             null_flag = true;
@@ -55,7 +55,7 @@ struct IntersectAction {
 
     // Handle Non-Null element.
     // Return ture means this Non-Null element should put into result column.
-    template<bool is_left>
+    template <bool is_left>
     bool apply(Set& set, Set& result_set, const Element& elem) {
         if (set.find(elem) && !result_set.find(elem)) {
             result_set.insert(elem);
@@ -64,7 +64,7 @@ struct IntersectAction {
         return false;
     }
 
-    template<>
+    template <>
     bool apply<false>(Set& set, Set& result_set, const Element& elem) {
         if (!set.find(elem)) {
             set.insert(elem);
