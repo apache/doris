@@ -45,7 +45,6 @@
 #include "olap/memtable_flush_executor.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
-#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/schema_change.h"
@@ -730,7 +729,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
     auto clean_rowset_func = [this, &invalid_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
                                                            const std::string& meta_str) -> bool {
         // return false will break meta iterator, return true to skip this error
-        RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;

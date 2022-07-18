@@ -26,7 +26,6 @@
 #include "gtest/gtest.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/olap_meta.h"
-#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -130,13 +129,13 @@ public:
         _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
         RowsetId rowset_id;
         rowset_id.init(10000);
-        RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         rowset_meta->init_from_json(_json_rowset_meta);
         EXPECT_EQ(rowset_meta->rowset_id(), rowset_id);
         EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path,
-                                                             rowset_meta, &_alpha_rowset));
+                                                             rowset_meta, &_rowset));
         EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path,
-                                                             rowset_meta, &_alpha_rowset_same_id));
+                                                             rowset_meta, &_rowset_same_id));
 
         // init rowset meta 2
         _json_rowset_meta = "";
@@ -148,11 +147,11 @@ public:
         }
         _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
         rowset_id.init(10001);
-        RowsetMetaSharedPtr rowset_meta2(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rowset_meta2(new RowsetMeta());
         rowset_meta2->init_from_json(_json_rowset_meta);
         EXPECT_EQ(rowset_meta2->rowset_id(), rowset_id);
         EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path_2,
-                                                             rowset_meta2, &_alpha_rowset_diff_id));
+                                                             rowset_meta2, &_rowset_diff_id));
         _tablet_uid = TabletUid(10, 10);
     }
 
@@ -172,9 +171,9 @@ private:
     TabletUid _tablet_uid {0, 0};
     PUniqueId load_id;
     std::unique_ptr<TabletSchema> _schema;
-    RowsetSharedPtr _alpha_rowset;
-    RowsetSharedPtr _alpha_rowset_same_id;
-    RowsetSharedPtr _alpha_rowset_diff_id;
+    RowsetSharedPtr _rowset;
+    RowsetSharedPtr _rowset_same_id;
+    RowsetSharedPtr _rowset_diff_id;
 };
 
 TEST_F(TxnManagerTest, PrepareNewTxn) {
@@ -190,20 +189,20 @@ TEST_F(TxnManagerTest, CommitTxnWithPrepare) {
     Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
                                           _tablet_uid, load_id);
     _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash, _tablet_uid,
-                         load_id, _alpha_rowset, false);
+                         load_id, _rowset, false);
     EXPECT_TRUE(status == Status::OK());
-    RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(),
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _rowset->rowset_id(),
                                                 rowset_meta);
     EXPECT_TRUE(status == Status::OK());
-    EXPECT_TRUE(rowset_meta->rowset_id() == _alpha_rowset->rowset_id());
+    EXPECT_TRUE(rowset_meta->rowset_id() == _rowset->rowset_id());
 }
 
 // 1. commit without prepare
 // 2. should success
 TEST_F(TxnManagerTest, CommitTxnWithNoPrepare) {
     Status status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                         schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
+                                         schema_hash, _tablet_uid, load_id, _rowset, false);
     EXPECT_TRUE(status == Status::OK());
 }
 
@@ -211,10 +210,10 @@ TEST_F(TxnManagerTest, CommitTxnWithNoPrepare) {
 // 2. should failed
 TEST_F(TxnManagerTest, CommitTxnTwiceWithDiffRowsetId) {
     Status status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                         schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
+                                         schema_hash, _tablet_uid, load_id, _rowset, false);
     EXPECT_TRUE(status == Status::OK());
     status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
-                                  _tablet_uid, load_id, _alpha_rowset_diff_id, false);
+                                  _tablet_uid, load_id, _rowset_diff_id, false);
     EXPECT_TRUE(status != Status::OK());
 }
 
@@ -222,10 +221,10 @@ TEST_F(TxnManagerTest, CommitTxnTwiceWithDiffRowsetId) {
 // 2. should success
 TEST_F(TxnManagerTest, CommitTxnTwiceWithSameRowsetId) {
     Status status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                         schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
+                                         schema_hash, _tablet_uid, load_id, _rowset, false);
     EXPECT_TRUE(status == Status::OK());
     status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
-                                  _tablet_uid, load_id, _alpha_rowset_same_id, false);
+                                  _tablet_uid, load_id, _rowset_same_id, false);
     EXPECT_TRUE(status == Status::OK());
 }
 
@@ -247,8 +246,8 @@ TEST_F(TxnManagerTest, RollbackNotCommittedTxn) {
     status = _txn_mgr->rollback_txn(partition_id, transaction_id, tablet_id, schema_hash,
                                     _tablet_uid);
     EXPECT_TRUE(status == Status::OK());
-    RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(),
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _rowset->rowset_id(),
                                                 rowset_meta);
     EXPECT_TRUE(status != Status::OK());
 }
@@ -256,33 +255,33 @@ TEST_F(TxnManagerTest, RollbackNotCommittedTxn) {
 // 1. txn could not be rollbacked if it is committed
 TEST_F(TxnManagerTest, RollbackCommittedTxn) {
     Status status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                         schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
+                                         schema_hash, _tablet_uid, load_id, _rowset, false);
     EXPECT_TRUE(status == Status::OK());
     status = _txn_mgr->rollback_txn(partition_id, transaction_id, tablet_id, schema_hash,
                                     _tablet_uid);
     EXPECT_FALSE(status == Status::OK());
-    RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(),
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _rowset->rowset_id(),
                                                 rowset_meta);
     EXPECT_TRUE(status == Status::OK());
-    EXPECT_TRUE(rowset_meta->rowset_id() == _alpha_rowset->rowset_id());
+    EXPECT_TRUE(rowset_meta->rowset_id() == _rowset->rowset_id());
 }
 
 // 1. publish version success
 TEST_F(TxnManagerTest, PublishVersionSuccessful) {
     Status status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                         schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
+                                         schema_hash, _tablet_uid, load_id, _rowset, false);
     EXPECT_TRUE(status == Status::OK());
     Version new_version(10, 11);
     status = _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
                                    _tablet_uid, new_version);
     EXPECT_TRUE(status == Status::OK());
 
-    RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(),
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _rowset->rowset_id(),
                                                 rowset_meta);
     EXPECT_TRUE(status == Status::OK());
-    EXPECT_TRUE(rowset_meta->rowset_id() == _alpha_rowset->rowset_id());
+    EXPECT_TRUE(rowset_meta->rowset_id() == _rowset->rowset_id());
     EXPECT_TRUE(rowset_meta->start_version() == 10);
     EXPECT_TRUE(rowset_meta->end_version() == 11);
 }
@@ -306,17 +305,17 @@ TEST_F(TxnManagerTest, DeletePreparedTxn) {
 
 TEST_F(TxnManagerTest, DeleteCommittedTxn) {
     Status status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                         schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
+                                         schema_hash, _tablet_uid, load_id, _rowset, false);
     EXPECT_TRUE(status == Status::OK());
-    RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(),
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _rowset->rowset_id(),
                                                 rowset_meta);
     EXPECT_TRUE(status == Status::OK());
     status = _txn_mgr->delete_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
                                   _tablet_uid);
     EXPECT_TRUE(status == Status::OK());
-    RowsetMetaSharedPtr rowset_meta2(new AlphaRowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(),
+    RowsetMetaSharedPtr rowset_meta2(new RowsetMeta());
+    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _rowset->rowset_id(),
                                                 rowset_meta2);
     EXPECT_TRUE(status != Status::OK());
 }

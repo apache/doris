@@ -76,11 +76,6 @@ protected:
                                             std::vector<Version>* missing_version);
     int64_t get_compaction_permits();
 
-private:
-    // get num rows from segment group meta of input rowsets.
-    // return -1 if these are not alpha rowsets.
-    int64_t _get_input_num_rows_from_seg_grps();
-
 protected:
     // the root tracker for this compaction
     std::shared_ptr<MemTracker> _mem_tracker;

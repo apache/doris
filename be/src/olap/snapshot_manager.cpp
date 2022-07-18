@@ -30,7 +30,6 @@
 
 #include "env/env.h"
 #include "gen_cpp/Types_constants.h"
-#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_writer.h"
@@ -113,9 +112,6 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
     return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
 }
 
-// TODO support beta rowset
-// For now, alpha and beta rowset meta have same fields, so we can just use
-// AlphaRowsetMeta here.
 Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id,
                                            int64_t replica_id, const int32_t& schema_hash) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
@@ -209,16 +205,10 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
                                           TabletSchema& tablet_schema, const RowsetId& rowset_id,
                                           RowsetMetaPB* new_rs_meta_pb) {
     Status res = Status::OK();
-    // TODO use factory to obtain RowsetMeta when SnapshotManager::convert_rowset_ids supports beta rowset
-    // TODO(cmy): now we only has AlphaRowsetMeta, and no BetaRowsetMeta.
-    //            AlphaRowsetMeta only add some functions about segment group, and no addition fields.
-    //            So we can use AlphaRowsetMeta here even if this is a beta rowset.
-    //            And the `rowset_type` field indicates the real type of rowset, so that the correct rowset
-    //            can be created.
-    RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
-    alpha_rowset_meta->init_from_pb(rs_meta_pb);
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    rowset_meta->init_from_pb(rs_meta_pb);
     RowsetSharedPtr org_rowset;
-    RETURN_NOT_OK(RowsetFactory::create_rowset(&tablet_schema, new_tablet_path, alpha_rowset_meta,
+    RETURN_NOT_OK(RowsetFactory::create_rowset(&tablet_schema, new_tablet_path, rowset_meta,
                                                &org_rowset));
     // do not use cache to load index
     // because the index file may conflict
@@ -239,7 +229,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     context.oldest_write_timestamp = org_rowset_meta->oldest_write_timestamp();
     context.newest_write_timestamp = org_rowset_meta->newest_write_timestamp();
     // keep segments_overlap same as origin rowset
-    context.segments_overlap = alpha_rowset_meta->segments_overlap();
+    context.segments_overlap = rowset_meta->segments_overlap();
 
     std::unique_ptr<RowsetWriter> rs_writer;
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &rs_writer));
