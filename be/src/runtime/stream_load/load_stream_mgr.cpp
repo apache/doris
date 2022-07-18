@@ -25,7 +25,7 @@ LoadStreamMgr::LoadStreamMgr() {
     // Each StreamLoadPipe has a limited buffer size (default 1M), it's not needed to count the
     // actual size of all StreamLoadPipe.
     REGISTER_HOOK_METRIC(stream_load_pipe_count, [this]() {
-        std::lock_guard<std::mutex> l(_lock);
+        // std::lock_guard<std::mutex> l(_lock);
         return _stream_map.size();
     });
 }
