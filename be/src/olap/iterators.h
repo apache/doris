@@ -23,6 +23,7 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/tablet_schema.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -83,6 +84,8 @@ public:
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
     int block_row_max = 4096;
+
+    const TabletSchema* tablet_schema = nullptr;
 };
 
 // Used to read data in RowBlockV2 one by one
