@@ -283,6 +283,12 @@ struct HashTableGrower {
         size_t fill_capacity = static_cast<size_t>(log2(num_elems - 1)) + 2;
 #else
         size_t fill_capacity = static_cast<size_t>(log2(num_elems - 1)) + 1;
+        fill_capacity =
+                fill_capacity < double_grow_degree
+                        ? fill_capacity + 1
+                        : (num_elems < (1ULL << fill_capacity) - (1ULL << (fill_capacity - 2))
+                                   ? fill_capacity
+                                   : fill_capacity + 1);
 #endif
         size_degree = num_elems <= 1 ? initial_size_degree
                                      : (initial_size_degree > fill_capacity ? initial_size_degree
