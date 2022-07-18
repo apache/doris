@@ -2869,7 +2869,7 @@ public class Catalog {
             }
 
             // storage policy
-            if (!olapTable.getStoragePolicy().equals("")) {
+            if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
                 sb.append(olapTable.getStoragePolicy()).append("\"");
             }
