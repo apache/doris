@@ -262,6 +262,8 @@ private:
 
     static std::vector<uint16_t> _convert_block_to_null(Block& block);
 
+    static const int _MAX_BUILD_BLOCK_COUNT = 128;
+
     template <class HashTableContext, bool ignore_null, bool build_unique>
     friend struct ProcessHashTableBuild;
 
