@@ -105,7 +105,6 @@ private:
 
     Status _process_status;
 
-    std::vector<std::thread> _scanner_threads;
     std::vector<std::promise<Status>> _scanners_status;
 
     int _max_buffered_batches;

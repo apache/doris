@@ -285,6 +285,14 @@ public class ExternalFileScanNode extends ExternalScanNode {
         String fullPath = ((FileSplit) inputSplits[0]).getPath().toUri().toString();
         String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
         String fsName = fullPath.replace(filePath, "");
+        context.params.setFileType(scanProvider.getTableFileType());
+        context.params.setFormatType(scanProvider.getTableFormatType());
+        // set hdfs params for hdfs file type.
+        if (scanProvider.getTableFileType() == TFileType.FILE_HDFS) {
+            THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(scanProvider.getTableProperties());
+            tHdfsParams.setFsName(fsName);
+            context.params.setHdfsParams(tHdfsParams);
+        }
 
         TScanRangeLocations curLocations = newLocations(context.params);
 
@@ -298,7 +306,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
                     partitionKeys);
 
             TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath);
-            rangeDesc.getHdfsParams().setFsName(fsName);
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             Log.debug("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
@@ -346,17 +353,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
             FileSplit fileSplit,
             List<String> columnsFromPath) throws DdlException, MetaNotFoundException {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
-        rangeDesc.setFileType(scanProvider.getTableFileType());
-        rangeDesc.setFormatType(scanProvider.getTableFormatType());
         rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
         rangeDesc.setStartOffset(fileSplit.getStart());
         rangeDesc.setSize(fileSplit.getLength());
         rangeDesc.setColumnsFromPath(columnsFromPath);
-        // set hdfs params for hdfs file type.
-        if (scanProvider.getTableFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(scanProvider.getTableProperties());
-            rangeDesc.setHdfsParams(tHdfsParams);
-        }
         return rangeDesc;
     }
 

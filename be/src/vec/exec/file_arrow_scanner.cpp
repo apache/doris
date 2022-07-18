@@ -55,7 +55,7 @@ Status FileArrowScanner::_open_next_reader() {
         const TFileRangeDesc& range = _ranges[_next_range++];
         std::unique_ptr<FileReader> file_reader;
         FileReader* hdfs_reader = nullptr;
-        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path,
+        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(_params.hdfs_params, range.path,
                                                         range.start_offset, &hdfs_reader));
         file_reader.reset(new BufferedReader(_profile, hdfs_reader));
         RETURN_IF_ERROR(file_reader->open());
