@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.Lists;
@@ -57,7 +56,7 @@ import java.util.stream.Collectors;
 public class AggregateDisassemble extends OneRewriteRuleFactory {
 
     @Override
-    public Rule<Plan> build() {
+    public Rule build() {
         return logicalAggregate().when(agg -> !agg.isDisassembled()).thenApply(ctx -> {
             LogicalAggregate<GroupPlan> aggregate = ctx.root;
             List<NamedExpression> originOutputExprs = aggregate.getOutputExpressionList();
@@ -120,14 +119,14 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     .map(e -> ExpressionReplacer.INSTANCE.visit(e, inputSubstitutionMap)).collect(Collectors.toList());
 
             // 4. generate new plan
-            LogicalAggregate localAggregate = new LogicalAggregate(
+            LogicalAggregate localAggregate = new LogicalAggregate<>(
                     localGroupByExprs,
                     localOutputExprs,
                     true,
                     AggPhase.LOCAL,
                     aggregate.child()
             );
-            return new LogicalAggregate(
+            return new LogicalAggregate<>(
                     globalGroupByExprs,
                     globalOutputExprs,
                     true,

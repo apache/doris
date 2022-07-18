@@ -24,7 +24,6 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -33,7 +32,7 @@ import java.util.List;
 /**
  * Job to optimize {@link org.apache.doris.nereids.trees.plans.Plan} in {@link org.apache.doris.nereids.memo.Memo}.
  */
-public class OptimizeGroupExpressionJob extends Job<Plan> {
+public class OptimizeGroupExpressionJob extends Job {
     private final GroupExpression groupExpression;
 
     public OptimizeGroupExpressionJob(GroupExpression groupExpression, JobContext context) {
@@ -43,15 +42,15 @@ public class OptimizeGroupExpressionJob extends Job<Plan> {
 
     @Override
     public void execute() {
-        List<Rule<Plan>> validRules = new ArrayList<>();
-        List<Rule<Plan>> implementationRules = getRuleSet().getImplementationRules();
+        List<Rule> validRules = new ArrayList<>();
+        List<Rule> implementationRules = getRuleSet().getImplementationRules();
         // TODO: enable exploration job after we test it
         // List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
         // validRules.addAll(getValidRules(groupExpression, explorationRules));
         validRules.addAll(getValidRules(groupExpression, implementationRules));
         validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
-        for (Rule<Plan> rule : validRules) {
+        for (Rule rule : validRules) {
             pushTask(new ApplyRuleJob(groupExpression, rule, context));
 
             // If child_pattern has any more children (i.e non-leaf), then we will explore the

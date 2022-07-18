@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.trees.TreeNode;
-
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -26,11 +24,11 @@ import java.util.List;
 /**
  * abstract class for all rule factories build one rule.
  */
-public abstract class OneRuleFactory<TYPE extends TreeNode<TYPE>> implements RuleFactory<TYPE> {
+public abstract class OneRuleFactory implements RuleFactory {
     @Override
-    public final List<Rule<TYPE>> buildRules() {
+    public final List<Rule> buildRules() {
         return ImmutableList.of(build());
     }
 
-    public abstract Rule<TYPE> build();
+    public abstract Rule build();
 }

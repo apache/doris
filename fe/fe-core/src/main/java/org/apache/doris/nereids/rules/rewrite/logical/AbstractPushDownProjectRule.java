@@ -37,11 +37,11 @@ import java.util.Set;
  */
 public abstract class AbstractPushDownProjectRule<C extends Plan> extends OneRewriteRuleFactory {
 
-    PatternDescriptor<C, Plan> target;
+    PatternDescriptor<C> target;
     RuleType ruleType;
 
     @Override
-    public Rule<Plan> build() {
+    public Rule build() {
         return logicalProject(target).then(project -> {
             List<Expression> projects = Lists.newArrayList();
             projects.addAll(project.getProjects());
@@ -52,7 +52,7 @@ public abstract class AbstractPushDownProjectRule<C extends Plan> extends OneRew
 
     protected abstract Plan pushDownProject(C plan, Set<Slot> references);
 
-    public void setTarget(PatternDescriptor<C, Plan> target) {
+    public void setTarget(PatternDescriptor<C> target) {
         this.target = target;
     }
 

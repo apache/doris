@@ -21,7 +21,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
@@ -36,7 +35,7 @@ public class JoinLeftAssociative extends OneExplorationRuleFactory {
      *   A      B                      B      C
      */
     @Override
-    public Rule<Plan> build() {
+    public Rule build() {
         return innerLogicalJoin(innerLogicalJoin(), any()).then(root -> {
             // fixme, just for example now
             return new LogicalJoin(

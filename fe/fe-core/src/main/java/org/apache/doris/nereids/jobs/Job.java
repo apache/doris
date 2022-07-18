@@ -21,7 +21,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.trees.TreeNode;
 
 import java.util.List;
 import java.util.Objects;
@@ -30,7 +29,7 @@ import java.util.stream.Collectors;
 /**
  * Abstract class for all job using for analyze and optimize query plan in Nereids.
  */
-public abstract class Job<NODE_TYPE extends TreeNode<NODE_TYPE>> {
+public abstract class Job {
     protected JobType type;
     protected JobContext context;
 
@@ -54,8 +53,8 @@ public abstract class Job<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * @param candidateRules rules to be applied
      * @return all rules that can be applied on this group expression
      */
-    public List<Rule<NODE_TYPE>> getValidRules(GroupExpression groupExpression,
-            List<Rule<NODE_TYPE>> candidateRules) {
+    public List<Rule> getValidRules(GroupExpression groupExpression,
+            List<Rule> candidateRules) {
         return candidateRules.stream()
                 .filter(rule -> Objects.nonNull(rule) && rule.getPattern().matchRoot(groupExpression.getPlan())
                         && groupExpression.notApplied(rule)).collect(Collectors.toList());

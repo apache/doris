@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -35,8 +34,7 @@ import java.util.List;
  */
 public class BindRelation extends OneAnalysisRuleFactory {
     @Override
-    public Rule<Plan> build() {
-        // fixme, just for example now
+    public Rule build() {
         return unboundRelation().thenApply(ctx -> {
             ConnectContext connectContext = ctx.plannerContext.getConnectContext();
             List<String> nameParts = ctx.root.getNameParts();

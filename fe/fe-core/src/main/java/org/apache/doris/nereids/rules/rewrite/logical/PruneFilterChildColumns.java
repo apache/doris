@@ -66,7 +66,7 @@ public class PruneFilterChildColumns extends AbstractPushDownProjectRule<Logical
             return filterPlan;
         }
         return filterPlan.withChildren(
-            ImmutableList.of(new LogicalProject(Lists.newArrayList(required), filterPlan.child()))
+            ImmutableList.of(new LogicalProject<>(Lists.newArrayList(required), filterPlan.child()))
         );
     }
 }

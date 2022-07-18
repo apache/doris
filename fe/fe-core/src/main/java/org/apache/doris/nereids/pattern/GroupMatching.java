@@ -60,7 +60,7 @@ public class GroupMatching implements Iterable<Plan> {
          * @param pattern pattern to match
          * @param group group to be matched
          */
-        public GroupIterator(Pattern<? extends Plan, Plan> pattern, Group group) {
+        public GroupIterator(Pattern<? extends Plan> pattern, Group group) {
             this.pattern = pattern;
             this.iterator = Lists.newArrayList();
 

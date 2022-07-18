@@ -24,7 +24,6 @@ import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -38,15 +37,15 @@ import java.util.Objects;
  */
 public class BatchRulesJob {
     protected PlannerContext plannerContext;
-    protected List<Job<Plan>> rulesJob = new ArrayList<>();
+    protected List<Job> rulesJob = new ArrayList<>();
 
     BatchRulesJob(PlannerContext plannerContext) {
         this.plannerContext = Objects.requireNonNull(plannerContext, "plannerContext can not null");
     }
 
-    protected Job<Plan> bottomUpBatch(List<RuleFactory<Plan>> ruleFactories) {
-        List<Rule<Plan>> rules = new ArrayList<>();
-        for (RuleFactory<Plan> ruleFactory : ruleFactories) {
+    protected Job bottomUpBatch(List<RuleFactory> ruleFactories) {
+        List<Rule> rules = new ArrayList<>();
+        for (RuleFactory ruleFactory : ruleFactories) {
             rules.addAll(ruleFactory.buildRules());
         }
         Collections.reverse(rules);
@@ -56,9 +55,9 @@ public class BatchRulesJob {
                 plannerContext.getCurrentJobContext());
     }
 
-    protected Job<Plan> topDownBatch(List<RuleFactory<Plan>> ruleFactories) {
-        List<Rule<Plan>> rules = new ArrayList<>();
-        for (RuleFactory<Plan> ruleFactory : ruleFactories) {
+    protected Job topDownBatch(List<RuleFactory> ruleFactories) {
+        List<Rule> rules = new ArrayList<>();
+        for (RuleFactory ruleFactory : ruleFactories) {
             rules.addAll(ruleFactory.buildRules());
         }
         Collections.reverse(rules);
@@ -68,7 +67,7 @@ public class BatchRulesJob {
                 plannerContext.getCurrentJobContext());
     }
 
-    protected Job<Plan> optimize() {
+    protected Job optimize() {
         return new OptimizeGroupJob(
                 plannerContext.getMemo().getRoot(),
                 plannerContext.getCurrentJobContext());

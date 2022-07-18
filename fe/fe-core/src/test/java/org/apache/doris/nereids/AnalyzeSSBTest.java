@@ -152,7 +152,7 @@ public class AnalyzeSSBTest extends TestWithFeService {
         return (LogicalPlan) memo.copyOut();
     }
 
-    private void executeRewriteBottomUpJob(PlannerContext plannerContext, RuleFactory<Plan> ruleFactory) {
+    private void executeRewriteBottomUpJob(PlannerContext plannerContext, RuleFactory ruleFactory) {
         Group rootGroup = plannerContext.getMemo().getRoot();
         RewriteBottomUpJob job = new RewriteBottomUpJob(rootGroup,
                 plannerContext.getCurrentJobContext(), ImmutableList.of(ruleFactory));

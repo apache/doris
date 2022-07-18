@@ -33,12 +33,12 @@ public class PhysicalBinaryPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return "<" + opType.name + "<GroupPlan, GroupPlan>, Plan>";
+        return "<" + opType.name + "<GroupPlan, GroupPlan>>";
     }
 
     @Override
     public String genericTypeWithChildren() {
-        return "<" + opType.name + "<C1, C2>, Plan>";
+        return "<" + opType.name + "<C1, C2>>";
     }
 
     @Override

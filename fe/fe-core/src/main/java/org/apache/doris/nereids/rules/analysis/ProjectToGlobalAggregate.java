@@ -21,7 +21,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import com.google.common.collect.ImmutableList;
@@ -29,7 +28,7 @@ import com.google.common.collect.ImmutableList;
 /** ProjectToGlobalAggregate. */
 public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
     @Override
-    public Rule<Plan> build() {
+    public Rule build() {
         return RuleType.PROJECT_TO_GLOBAL_AGGREGATE.build(
            logicalProject().then(project -> {
                boolean needGlobalAggregate = project.getProjects()
@@ -37,7 +36,7 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
                        .anyMatch(this::hasNonWindowedAggregateFunction);
 
                if (needGlobalAggregate) {
-                   return new LogicalAggregate(ImmutableList.of(), project.getProjects(), project.child());
+                   return new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child());
                } else {
                    return project;
                }

@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.implementation;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 
 import java.util.Optional;
@@ -30,7 +29,7 @@ import java.util.Optional;
  */
 public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFactory {
     @Override
-    public Rule<Plan> build() {
+    public Rule build() {
         return logicalOlapScan().then(olapScan ->
                 // TODO: olapScan should get (OlapTable);
                 new PhysicalOlapScan(

@@ -246,7 +246,7 @@ public class PushDownPredicateTest {
         JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
         plannerContext.setCurrentJobContext(jobContext);
 
-        List<Rule<Plan>> fakeRules = Lists.newArrayList(new PushPredicateThroughJoin().build());
+        List<Rule> fakeRules = Lists.newArrayList(new PushPredicateThroughJoin().build());
         RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), fakeRules, jobContext);
         plannerContext.pushJob(rewriteTopDownJob);
         plannerContext.getJobScheduler().executeJobPool(plannerContext);
