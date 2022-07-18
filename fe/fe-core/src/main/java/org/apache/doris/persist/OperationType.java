@@ -69,6 +69,9 @@ public class OperationType {
     public static final short OP_MODIFY_COMMENT = 126;
     public static final short OP_MODIFY_TABLE_ENGINE = 127;
 
+    //schema change for add and drop columns
+    public static final short OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 128;
+
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
     public static final short OP_LOAD_START = 30;
@@ -228,6 +231,7 @@ public class OperationType {
     public static final short OP_DROP_DS = 313;
     public static final short OP_ALTER_DS_NAME = 314;
     public static final short OP_ALTER_DS_PROPS = 315;
+    public static final short OP_ALTER_STORAGE_POLICY = 316;
 
     // get opcode name by op codeStri
     public static String getOpName(short opCode) {

@@ -24,7 +24,6 @@
 #include "env/env.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
-#include "olap/fs/fs_util.h"
 #include "olap/memtable.h"
 #include "olap/olap_define.h"
 #include "olap/row.h"        // ContiguousRow
@@ -88,6 +87,8 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
+    _rowset_meta->set_tablet_schema(_context.tablet_schema);
+
     return Status::OK();
 }
 
@@ -276,7 +277,7 @@ Status BetaRowsetWriter::_create_segment_writer(
     if (!fs) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
     }
-    std::unique_ptr<io::FileWriter> file_writer;
+    io::FileWriterPtr file_writer;
     Status st = fs->create_file(path, &file_writer);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path

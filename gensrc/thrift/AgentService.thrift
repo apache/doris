@@ -25,25 +25,12 @@ include "PlanNodes.thrift"
 include "Descriptors.thrift"
 include "Exprs.thrift"
 
-struct TColumn {
-    1: required string column_name
-    2: required Types.TColumnType column_type
-    3: optional Types.TAggregationType aggregation_type
-    4: optional bool is_key
-    5: optional bool is_allow_null
-    6: optional string default_value
-    7: optional bool is_bloom_filter_column
-    8: optional Exprs.TExpr define_expr
-    9: optional bool visible = true
-    10: optional list<TColumn> children_column
-}
-
 struct TTabletSchema {
     1: required i16 short_key_column_count
     2: required Types.TSchemaHash schema_hash
     3: required Types.TKeysType keys_type
     4: required Types.TStorageType storage_type
-    5: required list<TColumn> columns
+    5: required list<Descriptors.TColumn> columns
     6: optional double bloom_filter_fpp
     7: optional list<Descriptors.TOlapTableIndex> indexes
     8: optional bool is_in_memory
@@ -92,12 +79,6 @@ struct TGetStoragePolicyResult {
     2: required list<TGetStoragePolicy> result_entrys
 }
 
-struct TStorageParam {
-    1: required Types.TStorageMedium storage_medium = TStorageMedium.HDD
-    2: required string storage_name = "";
-    3: optional TS3StorageParam s3_storage_param
-}
-
 enum TCompressionType {
     UNKNOWN_COMPRESSION = 0,
     DEFAULT_COMPRESSION = 1,
@@ -130,10 +111,11 @@ struct TCreateTabletReq {
     12: optional bool is_eco_mode
     13: optional TStorageFormat storage_format
     14: optional TTabletType tablet_type
-    15: optional TStorageParam storage_param
+    // 15: optional TStorageParam storage_param
     16: optional TCompressionType compression_type = TCompressionType.LZ4F
     17: optional Types.TReplicaId replica_id = 0
     18: optional string storage_policy
+    19: optional bool enable_unique_key_merge_on_write = false
 }
 
 struct TDropTabletReq {
@@ -168,6 +150,7 @@ struct TAlterTabletReqV2 {
     7: optional list<TAlterMaterializedViewParam> materialized_view_params
     8: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
     9: optional Descriptors.TDescriptorTable desc_tbl
+    10: optional list<Descriptors.TColumn> columns
 }
 
 struct TAlterMaterializedViewParam {
@@ -209,6 +192,7 @@ struct TPushReq {
     // 14 and 15 are used by spark load
     14: optional PlanNodes.TBrokerScanRange broker_scan_range
     15: optional Descriptors.TDescriptorTable desc_tbl
+    16: optional list<Descriptors.TColumn> columns_desc
 }
 
 struct TCloneReq {

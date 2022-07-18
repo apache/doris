@@ -225,6 +225,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
     }
     for (auto& tablet : request.tablets()) {
         WriteRequest wrequest;
+        wrequest.index_id = request.index_id();
         wrequest.tablet_id = tablet.tablet_id();
         wrequest.schema_hash = schema_hash;
         wrequest.write_type = WriteType::LOAD;
@@ -234,6 +235,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.tuple_desc = _tuple_desc;
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
+        wrequest.ptable_schema_param = request.schema();
 
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&wrequest, &writer, _is_vec);

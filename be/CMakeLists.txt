@@ -603,7 +603,6 @@ set(DORIS_LINK_LIBS
     IO
     Olap
     Rowset
-    OlapFs
     Runtime
     Service
     Udf
@@ -815,6 +814,7 @@ install(FILES
 install(FILES
     ${BASE_DIR}/../conf/be.conf
     ${BASE_DIR}/../conf/odbcinst.ini
+    ${BASE_DIR}/../conf/asan_suppr.conf
     DESTINATION ${OUTPUT_DIR}/conf)
 
 get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)

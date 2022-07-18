@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "olap/column_predicate.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
@@ -136,14 +135,13 @@ Status SegmentIterator::_init(bool is_vec) {
     SCOPED_RAW_TIMER(&_opts.stats->block_init_ns);
     DorisMetrics::instance()->segment_read_total->increment(1);
     // get file handle from file descriptor of segment
-    auto fs = _segment->_fs;
-    RETURN_IF_ERROR(fs->open_file(_segment->_path, &_file_reader));
+    _file_reader = _segment->_file_reader;
 
     _row_bitmap.addRange(0, _segment->num_rows());
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
     // z-order can not use prefix index
-    if (_segment->_tablet_schema->sort_type() != SortType::ZORDER) {
+    if (_segment->_tablet_schema.sort_type() != SortType::ZORDER) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
@@ -812,6 +810,8 @@ void SegmentIterator::_init_current_block(
                 current_columns[cid]->set_datetime_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DATEV2) {
                 current_columns[cid]->set_date_v2_type();
+            } else if (column_desc->type() == OLAP_FIELD_TYPE_DECIMAL) {
+                current_columns[cid]->set_decimalv2_type();
             }
             current_columns[cid]->reserve(_opts.block_row_max);
         }

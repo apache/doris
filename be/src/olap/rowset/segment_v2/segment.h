@@ -76,7 +76,7 @@ public:
 
     Status new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter);
 
-    size_t num_short_keys() const { return _tablet_schema->num_short_key_columns(); }
+    size_t num_short_keys() const { return _tablet_schema.num_short_key_columns(); }
 
     uint32_t num_rows_per_block() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
@@ -100,13 +100,14 @@ public:
         return _sk_index_decoder->num_items() - 1;
     }
 
+    Status lookup_row_key(const Slice& key, RowLocation* row_location);
+
     // only used by UT
     const SegmentFooterPB& footer() const { return _footer; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
-    Segment(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
-            const TabletSchema* tablet_schema);
+    Segment(uint32_t segment_id, const TabletSchema* tablet_schema);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer();
@@ -117,11 +118,10 @@ private:
 
 private:
     friend class SegmentIterator;
-    io::FileSystem* _fs;
-    std::string _path;
+    io::FileReaderSPtr _file_reader;
 
     uint32_t _segment_id;
-    const TabletSchema* _tablet_schema;
+    TabletSchema _tablet_schema;
 
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
     // The memory consumed by querying is tracked in segment iterator.
@@ -144,9 +144,6 @@ private:
     PageHandle _sk_index_handle;
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
-    // segment footer need not to be read for remote storage, so _is_open is false. When remote file
-    // need to be read. footer will be read and _is_open will be set to true.
-    bool _is_open = false;
 };
 
 } // namespace segment_v2

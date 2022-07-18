@@ -125,6 +125,9 @@ export ODBCSYSINI=$DORIS_HOME/conf
 # support utf8 for oracle database
 export NLS_LANG=AMERICAN_AMERICA.AL32UTF8
 
+#filter known leak for lsan.
+export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
+
 while read line; do
     envline=$(echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
     envline=$(eval "echo $envline")

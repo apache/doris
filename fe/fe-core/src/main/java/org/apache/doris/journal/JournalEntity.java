@@ -87,12 +87,14 @@ import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
+import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -654,11 +656,21 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_ALTER_STORAGE_POLICY: {
+                data = StoragePolicy.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_DS:
             case OperationType.OP_DROP_DS:
             case OperationType.OP_ALTER_DS_NAME:
             case OperationType.OP_ALTER_DS_PROPS: {
                 data = CatalogLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
+                data = TableAddOrDropColumnsInfo.read(in);
                 isRead = true;
                 break;
             }

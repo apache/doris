@@ -25,7 +25,6 @@
 #include "io/fs/local_file_system.h"
 #include "olap/column_block.h"
 #include "olap/decimal12.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_writer.h"
@@ -87,7 +86,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
     std::string fname = TEST_DIR + "/" + test_name;
     auto fs = io::global_local_filesystem();
     {
-        std::unique_ptr<io::FileWriter> file_writer;
+        io::FileWriterPtr file_writer;
         Status st = fs->create_file(fname, &file_writer);
         EXPECT_TRUE(st.ok()) << st.get_error_msg();
 
@@ -131,22 +130,21 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
         EXPECT_TRUE(file_writer->close().ok());
     }
     auto type_info = get_scalar_type_info(type);
+    io::FileReaderSPtr file_reader;
+    ASSERT_EQ(fs->open_file(fname, &file_reader), Status::OK());
     // read and check
     {
         // sequence read
         {
             ColumnReaderOptions reader_opts;
             std::unique_ptr<ColumnReader> reader;
-            auto st = ColumnReader::create(reader_opts, meta, num_rows, fs, fname, &reader);
+            auto st = ColumnReader::create(reader_opts, meta, num_rows, file_reader, &reader);
             EXPECT_TRUE(st.ok());
 
             ColumnIterator* iter = nullptr;
             st = reader->new_iterator(&iter);
             EXPECT_TRUE(st.ok());
 
-            std::unique_ptr<io::FileReader> file_reader;
-            st = fs->open_file(fname, &file_reader);
-            EXPECT_TRUE(st.ok());
             ColumnIteratorOptions iter_opts;
             OlapReaderStatistics stats;
             iter_opts.stats = &stats;
@@ -194,21 +192,18 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
         {
             ColumnReaderOptions reader_opts;
             std::unique_ptr<ColumnReader> reader;
-            auto st = ColumnReader::create(reader_opts, meta, num_rows, fs, fname, &reader);
+            auto st = ColumnReader::create(reader_opts, meta, num_rows, file_reader, &reader);
             EXPECT_TRUE(st.ok());
 
             ColumnIterator* iter = nullptr;
             st = reader->new_iterator(&iter);
             EXPECT_TRUE(st.ok());
 
-            std::unique_ptr<io::FileReader> rblock;
-            st = fs->open_file(fname, &rblock);
-
             EXPECT_TRUE(st.ok());
             ColumnIteratorOptions iter_opts;
             OlapReaderStatistics stats;
             iter_opts.stats = &stats;
-            iter_opts.file_reader = rblock.get();
+            iter_opts.file_reader = file_reader.get();
             st = iter->init(iter_opts);
             EXPECT_TRUE(st.ok());
 
@@ -266,7 +261,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
     std::string fname = TEST_DIR + "/" + test_name;
     auto fs = io::global_local_filesystem();
     {
-        std::unique_ptr<io::FileWriter> file_writer;
+        io::FileWriterPtr file_writer;
         Status st = fs->create_file(fname, &file_writer);
         EXPECT_TRUE(st.ok()) << st.get_error_msg();
 
@@ -313,25 +308,23 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         EXPECT_TRUE(file_writer->close().ok());
     }
     auto type_info = get_type_info(&meta);
-
+    io::FileReaderSPtr file_reader;
+    ASSERT_EQ(fs->open_file(fname, &file_reader), Status::OK());
     // read and check
     {
         ColumnReaderOptions reader_opts;
         std::unique_ptr<ColumnReader> reader;
-        auto st = ColumnReader::create(reader_opts, meta, num_rows, fs, fname, &reader);
+        auto st = ColumnReader::create(reader_opts, meta, num_rows, file_reader, &reader);
         EXPECT_TRUE(st.ok());
 
         ColumnIterator* iter = nullptr;
         st = reader->new_iterator(&iter);
         EXPECT_TRUE(st.ok());
 
-        std::unique_ptr<io::FileReader> rblock;
-        st = fs->open_file(fname, &rblock);
-        EXPECT_TRUE(st.ok());
         ColumnIteratorOptions iter_opts;
         OlapReaderStatistics stats;
         iter_opts.stats = &stats;
-        iter_opts.file_reader = rblock.get();
+        iter_opts.file_reader = file_reader.get();
         st = iter->init(iter_opts);
         EXPECT_TRUE(st.ok());
         // sequence read
@@ -463,10 +456,10 @@ void test_read_default_value(string value, void* result) {
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
-        DefaultValueColumnIterator iter(tablet_column.has_default_value(),
-                                        tablet_column.default_value(), tablet_column.is_nullable(),
-                                        create_static_type_info_ptr(scalar_type_info),
-                                        tablet_column.length());
+        DefaultValueColumnIterator iter(
+                tablet_column.has_default_value(), tablet_column.default_value(),
+                tablet_column.is_nullable(), create_static_type_info_ptr(scalar_type_info),
+                tablet_column.length(), tablet_column.precision(), tablet_column.frac());
         ColumnIteratorOptions iter_opts;
         auto st = iter.init(iter_opts);
         EXPECT_TRUE(st.ok());
@@ -575,10 +568,10 @@ void test_v_read_default_value(string value, void* result) {
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
-        DefaultValueColumnIterator iter(tablet_column.has_default_value(),
-                                        tablet_column.default_value(), tablet_column.is_nullable(),
-                                        create_static_type_info_ptr(scalar_type_info),
-                                        tablet_column.length());
+        DefaultValueColumnIterator iter(
+                tablet_column.has_default_value(), tablet_column.default_value(),
+                tablet_column.is_nullable(), create_static_type_info_ptr(scalar_type_info),
+                tablet_column.length(), tablet_column.precision(), tablet_column.frac());
         ColumnIteratorOptions iter_opts;
         auto st = iter.init(iter_opts);
         EXPECT_TRUE(st.ok());

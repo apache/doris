@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import java.util.List;
@@ -28,8 +27,7 @@ import java.util.Objects;
  * Compound predicate expression.
  * Such as &&,||,AND,OR.
  */
-public class CompoundPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Expression implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class CompoundPredicate extends Expression implements BinaryExpression {
 
     /**
      * Desc: Constructor for CompoundPredicate.
@@ -38,7 +36,7 @@ public class CompoundPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_T
      * @param left  left child of comparison predicate
      * @param right right child of comparison predicate
      */
-    public CompoundPredicate(NodeType type, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+    public CompoundPredicate(ExpressionType type, Expression left, Expression right) {
         super(type, left, right);
     }
 
@@ -60,7 +58,7 @@ public class CompoundPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_T
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        return new CompoundPredicate<>(getType(), children.get(0), children.get(1));
+        return new CompoundPredicate(getType(), children.get(0), children.get(1));
     }
 
     @Override
@@ -82,11 +80,11 @@ public class CompoundPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_T
         return nodeType + "(" + left() + ", " + right() + ")";
     }
 
-    public NodeType flip() {
-        if (getType() == NodeType.AND) {
-            return NodeType.OR;
+    public ExpressionType flip() {
+        if (getType() == ExpressionType.AND) {
+            return ExpressionType.OR;
         }
-        return NodeType.AND;
+        return ExpressionType.AND;
     }
 }
 

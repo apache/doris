@@ -87,6 +87,9 @@ enum TPrimitiveType {
   DATEV2,
   DATETIMEV2,
   TIMEV2,
+  DECIMAL32,
+  DECIMAL64,
+  DECIMAL128,
 }
 
 enum TTypeNodeType {
@@ -382,6 +385,10 @@ struct TJavaUdfExecutorCtorParams {
   9: optional i64 output_intermediate_state_ptr
 
   10: optional i64 batch_size_ptr
+  
+  // this is used to pass place or places to FE, which could help us call jni
+  // only once and can process a batch size data in JAVA-Udaf
+  11: optional i64 input_places_ptr
 }
 
 // Contains all interesting statistics from a single 'memory pool' in the JVM.

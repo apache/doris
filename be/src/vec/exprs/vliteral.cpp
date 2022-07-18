@@ -22,6 +22,8 @@
 #include "runtime/large_int_value.h"
 #include "util/string_parser.hpp"
 #include "vec/core/field.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -100,7 +102,8 @@ void VLiteral::init(const TExprNode& node) {
             field = value.to_date_uint32();
             break;
         }
-        case TYPE_DATETIME: {
+        case TYPE_DATETIME:
+        case TYPE_DATETIMEV2: {
             VecDateTimeValue value;
             value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size());
             value.to_datetime();
@@ -120,6 +123,42 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK(node.__isset.decimal_literal);
             DecimalV2Value value(node.decimal_literal.value);
             field = DecimalField<Decimal128>(value.value(), value.scale());
+            break;
+        }
+        case TYPE_DECIMAL32: {
+            DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
+            DCHECK(node.__isset.decimal_literal);
+            DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
+                                                  node.type.types[0].scalar_type.scale);
+            auto val = typeid_cast<const DataTypeDecimal<Decimal32>*>(type_ptr.get())
+                               ->parse_from_string(node.decimal_literal.value);
+            auto scale =
+                    typeid_cast<const DataTypeDecimal<Decimal32>*>(type_ptr.get())->get_scale();
+            field = DecimalField<Decimal32>(val, scale);
+            break;
+        }
+        case TYPE_DECIMAL64: {
+            DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
+            DCHECK(node.__isset.decimal_literal);
+            DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
+                                                  node.type.types[0].scalar_type.scale);
+            auto val = typeid_cast<const DataTypeDecimal<Decimal64>*>(type_ptr.get())
+                               ->parse_from_string(node.decimal_literal.value);
+            auto scale =
+                    typeid_cast<const DataTypeDecimal<Decimal64>*>(type_ptr.get())->get_scale();
+            field = DecimalField<Decimal64>(val, scale);
+            break;
+        }
+        case TYPE_DECIMAL128: {
+            DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
+            DCHECK(node.__isset.decimal_literal);
+            DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
+                                                  node.type.types[0].scalar_type.scale);
+            auto val = typeid_cast<const DataTypeDecimal<Decimal128>*>(type_ptr.get())
+                               ->parse_from_string(node.decimal_literal.value);
+            auto scale =
+                    typeid_cast<const DataTypeDecimal<Decimal128>*>(type_ptr.get())->get_scale();
+            field = DecimalField<Decimal128>(val, scale);
             break;
         }
         default: {
@@ -188,6 +227,21 @@ std::string VLiteral::debug_string() const {
             case TYPE_DECIMALV2: {
                 DecimalV2Value value(*(reinterpret_cast<const int128_t*>(ref.data)));
                 out << value;
+                break;
+            }
+            case TYPE_DECIMAL32: {
+                write_text<int32_t>(*(reinterpret_cast<const int32_t*>(ref.data)), _type.scale,
+                                    out);
+                break;
+            }
+            case TYPE_DECIMAL64: {
+                write_text<int64_t>(*(reinterpret_cast<const int64_t*>(ref.data)), _type.scale,
+                                    out);
+                break;
+            }
+            case TYPE_DECIMAL128: {
+                write_text<int128_t>(*(reinterpret_cast<const int128_t*>(ref.data)), _type.scale,
+                                     out);
                 break;
             }
             default: {

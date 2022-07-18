@@ -46,6 +46,7 @@ class Config {
     public String suitePath
     public String dataPath
     public String realDataPath
+    public String sf1DataPath
     public String pluginPath
 
     public String testGroups
@@ -57,6 +58,7 @@ class Config {
     public boolean generateOutputFile
     public boolean forceGenerateOutputFile
     public boolean randomOrder
+    public boolean stopWhenFail
 
     public Properties otherConfigs = new Properties()
 
@@ -79,9 +81,9 @@ class Config {
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword,
-           String suitePath, String dataPath, String realDataPath, String testGroups, String excludeGroups,
-           String testSuites, String excludeSuites, String testDirectories, String excludeDirectories,
-           String pluginPath) {
+           String suitePath, String dataPath, String realDataPath, String sf1DataPath,
+           String testGroups, String excludeGroups, String testSuites, String excludeSuites,
+           String testDirectories, String excludeDirectories, String pluginPath) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -92,6 +94,7 @@ class Config {
         this.suitePath = suitePath
         this.dataPath = dataPath
         this.realDataPath = realDataPath
+        this.sf1DataPath = sf1DataPath
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
         this.testSuites = testSuites
@@ -119,6 +122,7 @@ class Config {
         config.suitePath = FileUtils.getCanonicalPath(cmd.getOptionValue(pathOpt, config.suitePath))
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
+        config.sf1DataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(sf1DataOpt, config.sf1DataPath))
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
@@ -173,6 +177,7 @@ class Config {
         config.actionParallel = Integer.parseInt(cmd.getOptionValue(actionParallelOpt, "10"))
         config.times = Integer.parseInt(cmd.getOptionValue(timesOpt, "1"))
         config.randomOrder = cmd.hasOption(randomOrderOpt)
+        config.stopWhenFail = cmd.hasOption(stopWhenFail)
         config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
 
         Properties props = cmd.getOptionProperties("conf")
@@ -196,6 +201,7 @@ class Config {
             configToString(obj.suitePath),
             configToString(obj.dataPath),
             configToString(obj.realDataPath),
+            configToString(obj.sf1DataPath),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
             configToString(obj.testSuites),
@@ -269,6 +275,11 @@ class Config {
             log.info("Set realDataPath to '${config.realDataPath}' because not specify.".toString())
         }
 
+        if (config.sf1DataPath == null) {
+            config.sf1DataPath = "regression-test/sf1Data"
+            log.info("Set sf1DataPath to '${config.sf1DataPath}' because not specify.".toString())
+        }
+
         if (config.pluginPath == null) {
             config.pluginPath = "regression-test/plugins"
             log.info("Set dataPath to '${config.pluginPath}' because not specify.".toString())
@@ -324,6 +335,11 @@ class Config {
             log.info("set randomOrder to false because not specify.".toString())
         }
 
+        if (config.stopWhenFail == null) {
+            config.stopWhenFail = false
+            log.info("set stopWhenFail to false because not specify.".toString())
+        }
+
         if (config.withOutLoadData == null) {
             config.withOutLoadData = false
             log.info("set withOutLoadData to false because not specify.".toString())
@@ -335,9 +351,13 @@ class Config {
     }
 
     void tryCreateDbIfNotExist() {
+        tryCreateDbIfNotExist(defaultDb)
+    }
+
+    void tryCreateDbIfNotExist(String dbName) {
         // connect without specify default db
         try {
-            String sql = "CREATE DATABASE IF NOT EXISTS ${defaultDb}"
+            String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
             log.info("Try to create db, sql: ${sql}".toString())
             getConnection().withCloseable { conn ->
                 JdbcUtils.executeToList(conn, sql)
@@ -349,6 +369,13 @@ class Config {
 
     Connection getConnection() {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
+    }
+
+    Connection getConnection(String group) {
+        String dbUrl = buildUrl(defaultDb + '_' + group)
+        tryCreateDbIfNotExist(defaultDb + '_' + group)
+        log.info("connect to ${dbUrl}".toString())
+        return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
     }
 
     Predicate<String> getDirectoryFilter() {
@@ -377,25 +404,27 @@ class Config {
     }
 
     private void buildUrlWithDefaultDb() {
+        this.jdbcUrl = buildUrl(defaultDb)
+        log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
+    }
+
+    private String buildUrl(String dbName) {
         String urlWithDb = jdbcUrl
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
         if (urlWithoutSchema.indexOf("/") >= 0) {
             if (jdbcUrl.contains("?")) {
-                // e.g: jdbc:mysql://localhost:8080/?a=b
+                // e.g: jdbc:mysql://locahost:8080/?a=b
                 urlWithDb = jdbcUrl.substring(0, jdbcUrl.lastIndexOf("/"))
-                urlWithDb += ("/" + defaultDb) + jdbcUrl.substring(jdbcUrl.lastIndexOf("?"))
+                urlWithDb += ("/" + dbName) + jdbcUrl.substring(jdbcUrl.lastIndexOf("?"))
             } else {
-                // e.g: jdbc:mysql://localhost:8080/
-                urlWithDb += defaultDb
+                // e.g: jdbc:mysql://locahost:8080/
+                urlWithDb += dbName
             }
         } else {
-            // e.g: jdbc:mysql://localhost:8080
-            urlWithDb += ("/" + defaultDb)
+            // e.g: jdbc:mysql://locahost:8080
+            urlWithDb += ("/" + dbName)
         }
-        this.jdbcUrl = urlWithDb
-        log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
 
-        // check connection with default db
-        getConnection().close()
+        return urlWithDb
     }
 }

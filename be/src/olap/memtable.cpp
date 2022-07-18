@@ -118,6 +118,19 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 }
 
 MemTable::~MemTable() {
+    if (_vec_skip_list != nullptr && _keys_type != KeysType::DUP_KEYS) {
+        VecTable::Iterator it(_vec_skip_list.get());
+        for (it.SeekToFirst(); it.Valid(); it.Next()) {
+            // We should release agg_places here, because they are not relesed when a
+            // load is canceled.
+            for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
+                auto function = _agg_functions[i];
+                DCHECK(function != nullptr);
+                DCHECK(it.key()->agg_places(i) != nullptr);
+                function->destroy(it.key()->agg_places(i));
+            }
+        }
+    }
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _mem_tracker->release(_mem_usage);
     _buffer_mem_pool->free_all();
@@ -179,7 +192,7 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
         _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
     } else {
         row_in_block->init_agg_places(
-                (char*)_table_mem_pool->allocate(_total_size_of_aggregate_states),
+                (char*)_table_mem_pool->allocate_aligned(_total_size_of_aggregate_states, 16),
                 _offsets_of_aggregate_states.data());
         for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
             auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
@@ -321,6 +334,10 @@ void MemTable::_collect_vskiplist_results() {
                     vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
             _output_mutable_block.clear_column_data();
         }
+    }
+
+    if (is_final) {
+        _vec_skip_list.reset();
     }
 }
 

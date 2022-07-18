@@ -26,10 +26,9 @@ import java.util.List;
 /**
  * Multiply Expression.
  */
-public class Multiply<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class Multiply extends Arithmetic implements BinaryExpression {
 
-    public Multiply(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+    public Multiply(Expression left, Expression right) {
         super(ArithmeticOperator.MULTIPLY, left, right);
     }
 
@@ -47,6 +46,6 @@ public class Multiply<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE exten
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Multiply<>(children.get(0), children.get(1));
+        return new Multiply(children.get(0), children.get(1));
     }
 }

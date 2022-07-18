@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -29,8 +28,7 @@ import java.util.Objects;
  * Comparison predicate expression.
  * Such as: "=", "<", "<=", ">", ">=", "<=>"
  */
-public abstract class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Expression implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public abstract class ComparisonPredicate extends Expression implements BinaryExpression {
     /**
      * Constructor of ComparisonPredicate.
      *
@@ -38,7 +36,7 @@ public abstract class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RI
      * @param left     left child of comparison predicate
      * @param right    right child of comparison predicate
      */
-    public ComparisonPredicate(NodeType nodeType, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+    public ComparisonPredicate(ExpressionType nodeType, Expression left, Expression right) {
         super(nodeType, left, right);
     }
 

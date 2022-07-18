@@ -334,6 +334,9 @@ public class ColumnDef {
                 new FloatLiteral(defaultValue);
                 break;
             case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;
@@ -400,7 +403,7 @@ public class ColumnDef {
 
     public Column toColumn() {
         return new Column(name, typeDef.getType(), isKey, aggregateType, isAllowNull, defaultValue.value, comment,
-                visible, defaultValue.defaultValueExprDef);
+                visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE);
     }
 
     @Override

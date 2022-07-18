@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
@@ -28,11 +27,10 @@ import java.util.List;
 /**
  * like expression: a regexp '^xxx$'.
  */
-public class Regexp<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends StringRegexPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class Regexp extends StringRegexPredicate {
 
-    public Regexp(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.REGEXP, left, right);
+    public Regexp(Expression left, Expression right) {
+        super(ExpressionType.REGEXP, left, right);
     }
 
     @Override
@@ -46,9 +44,9 @@ public class Regexp<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends
     }
 
     @Override
-    public Regexp<Expression, Expression> withChildren(List<Expression> children) {
+    public Regexp withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Regexp<>(children.get(0), children.get(1));
+        return new Regexp(children.get(0), children.get(1));
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

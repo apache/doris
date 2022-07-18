@@ -57,21 +57,22 @@ public class UdafExecutor {
     public static final String UDAF_DESERIALIZE_FUNCTION = "deserialize";
     public static final String UDAF_MERGE_FUNCTION = "merge";
     public static final String UDAF_RESULT_FUNCTION = "getValue";
-    private static final Logger LOG = Logger.getLogger(UdfExecutor.class);
+    private static final Logger LOG = Logger.getLogger(UdafExecutor.class);
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private final long inputBufferPtrs;
     private final long inputNullsPtrs;
     private final long inputOffsetsPtrs;
+    private final long inputPlacesPtr;
     private final long outputBufferPtr;
     private final long outputNullPtr;
     private final long outputOffsetsPtr;
     private final long outputIntermediateStatePtr;
     private Object udaf;
     private HashMap<String, Method> allMethods;
+    private HashMap<Long, Object> stateObjMap;
     private URLClassLoader classLoader;
     private JavaUdfDataType[] argTypes;
     private JavaUdfDataType retType;
-    private Object stateObj;
 
     /**
      * Constructor to create an object.
@@ -91,17 +92,18 @@ public class UdafExecutor {
         inputBufferPtrs = request.input_buffer_ptrs;
         inputNullsPtrs = request.input_nulls_ptrs;
         inputOffsetsPtrs = request.input_offsets_ptrs;
+        inputPlacesPtr = request.input_places_ptr;
 
         outputBufferPtr = request.output_buffer_ptr;
         outputNullPtr = request.output_null_ptr;
         outputOffsetsPtr = request.output_offsets_ptr;
         outputIntermediateStatePtr = request.output_intermediate_state_ptr;
         allMethods = new HashMap<>();
+        stateObjMap = new HashMap<>();
         String className = request.fn.aggregate_fn.symbol;
         String jarFile = request.location;
         Type funcRetType = UdfUtils.fromThrift(request.fn.ret_type, 0).first;
         init(jarFile, className, funcRetType, parameterTypes);
-        stateObj = create();
     }
 
     /**
@@ -110,7 +112,6 @@ public class UdafExecutor {
     public void close() {
         if (classLoader != null) {
             try {
-                destroy();
                 classLoader.close();
             } catch (Exception e) {
                 // Log and ignore.
@@ -132,24 +133,23 @@ public class UdafExecutor {
     /**
      * invoke add function, add row in loop [rowStart, rowEnd).
      */
-    public void add(long rowStart, long rowEnd) throws UdfRuntimeException {
+    public void add(boolean isSinglePlace, long rowStart, long rowEnd) throws UdfRuntimeException {
         try {
-            Object[] inputArgs = new Object[argTypes.length + 1];
-            inputArgs[0] = stateObj;
-            for (long row = rowStart; row < rowEnd; ++row) {
-                Object[] inputObjects = allocateInputObjects(row);
-                for (int i = 0; i < argTypes.length; ++i) {
-                    if (UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) == -1
-                            || UdfUtils.UNSAFE.getByte(null,
-                                    UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) + row)
-                                    == 0) {
+            long idx = rowStart;
+            do {
+                Long curPlace = UdfUtils.UNSAFE.getLong(null, UdfUtils.UNSAFE.getLong(null, inputPlacesPtr) + 8L * idx);
+                Object[] inputArgs = new Object[argTypes.length + 1];
+                stateObjMap.putIfAbsent(curPlace, createAggState());
+                inputArgs[0] = stateObjMap.get(curPlace);
+                do {
+                    Object[] inputObjects = allocateInputObjects(idx);
+                    for (int i = 0; i < argTypes.length; ++i) {
                         inputArgs[i + 1] = inputObjects[i];
-                    } else {
-                        inputArgs[i + 1] = null;
                     }
-                }
-                allMethods.get(UDAF_ADD_FUNCTION).invoke(udaf, inputArgs);
-            }
+                    allMethods.get(UDAF_ADD_FUNCTION).invoke(udaf, inputArgs);
+                    idx++;
+                } while (isSinglePlace && idx < rowEnd);
+            } while (idx < rowEnd);
         } catch (Exception e) {
             throw new UdfRuntimeException("UDAF failed to add: ", e);
         }
@@ -158,7 +158,7 @@ public class UdafExecutor {
     /**
      * invoke user create function to get obj.
      */
-    public Object create() throws UdfRuntimeException {
+    public Object createAggState() throws UdfRuntimeException {
         try {
             return allMethods.get(UDAF_CREATE_FUNCTION).invoke(udaf, null);
         } catch (Exception e) {
@@ -167,11 +167,14 @@ public class UdafExecutor {
     }
 
     /**
-     * invoke destroy before colse.
+     * invoke destroy before colse. Here we destroy all data at once
      */
     public void destroy() throws UdfRuntimeException {
         try {
-            allMethods.get(UDAF_DESTROY_FUNCTION).invoke(udaf, stateObj);
+            for (Object obj : stateObjMap.values()) {
+                allMethods.get(UDAF_DESTROY_FUNCTION).invoke(udaf, obj);
+            }
+            stateObjMap.clear();
         } catch (Exception e) {
             throw new UdfRuntimeException("UDAF failed to destroy: ", e);
         }
@@ -180,11 +183,11 @@ public class UdafExecutor {
     /**
      * invoke serialize function and return byte[] to backends.
      */
-    public byte[] serialize() throws UdfRuntimeException {
+    public byte[] serialize(long place) throws UdfRuntimeException {
         try {
             Object[] args = new Object[2];
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            args[0] = stateObj;
+            args[0] = stateObjMap.get((Long) place);
             args[1] = new DataOutputStream(baos);
             allMethods.get(UDAF_SERIALIZE_FUNCTION).invoke(udaf, args);
             return baos.toByteArray();
@@ -197,15 +200,17 @@ public class UdafExecutor {
      * invoke merge function and it's have done deserialze.
      * here call deserialize first, and call merge.
      */
-    public void merge(byte[] data) throws UdfRuntimeException {
+    public void merge(long place, byte[] data) throws UdfRuntimeException {
         try {
             Object[] args = new Object[2];
             ByteArrayInputStream bins = new ByteArrayInputStream(data);
-            args[0] = create();
+            args[0] = createAggState();
             args[1] = new DataInputStream(bins);
             allMethods.get(UDAF_DESERIALIZE_FUNCTION).invoke(udaf, args);
             args[1] = args[0];
-            args[0] = stateObj;
+            Long curPlace = place;
+            stateObjMap.putIfAbsent(curPlace, createAggState());
+            args[0] = stateObjMap.get(curPlace);
             allMethods.get(UDAF_MERGE_FUNCTION).invoke(udaf, args);
         } catch (Exception e) {
             throw new UdfRuntimeException("UDAF failed to merge: ", e);
@@ -215,9 +220,10 @@ public class UdafExecutor {
     /**
      * invoke getValue to return finally result.
      */
-    public boolean getValue(long row) throws UdfRuntimeException {
+    public boolean getValue(long row, long place) throws UdfRuntimeException {
         try {
-            return storeUdfResult(allMethods.get(UDAF_RESULT_FUNCTION).invoke(udaf, stateObj), row);
+            return storeUdfResult(allMethods.get(UDAF_RESULT_FUNCTION).invoke(udaf, stateObjMap.get((Long) place)),
+                    row);
         } catch (Exception e) {
             throw new UdfRuntimeException("UDAF failed to result", e);
         }
@@ -353,6 +359,12 @@ public class UdafExecutor {
         Object[] inputObjects = new Object[argTypes.length];
 
         for (int i = 0; i < argTypes.length; ++i) {
+            // skip the input column of current row is null
+            if (UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) != -1
+                    && UdfUtils.UNSAFE.getByte(null, UdfUtils.getAddressAtOffset(inputNullsPtrs, i) + row) == 1) {
+                inputObjects[i] = null;
+                continue;
+            }
             switch (argTypes[i]) {
                 case BOOLEAN:
                     inputObjects[i] = UdfUtils.UNSAFE.getBoolean(null,

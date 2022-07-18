@@ -67,7 +67,7 @@ protected:
     Status modify_rowsets();
     void gc_output_rowset();
 
-    Status construct_output_rowset_writer();
+    Status construct_output_rowset_writer(const TabletSchema* schema);
     Status construct_input_rowset_readers();
 
     Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
@@ -75,11 +75,6 @@ protected:
     Status find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
                                             std::vector<Version>* missing_version);
     int64_t get_compaction_permits();
-
-private:
-    // get num rows from segment group meta of input rowsets.
-    // return -1 if these are not alpha rowsets.
-    int64_t _get_input_num_rows_from_seg_grps();
 
 protected:
     // the root tracker for this compaction

@@ -41,12 +41,10 @@
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
-#include "olap/fs/file_block_manager.h"
 #include "olap/lru_cache.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
-#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/schema_change.h"
@@ -58,8 +56,6 @@
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
-#include "util/storage_backend.h"
-#include "util/storage_backend_mgr.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -140,7 +136,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _stream_load_recorder(nullptr) {
     _s_instance = this;
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
-        std::lock_guard<std::mutex> lock(_gc_mutex);
+        // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
     });
     REGISTER_HOOK_METRIC(compaction_mem_consumption,
@@ -161,6 +157,11 @@ StorageEngine::~StorageEngine() {
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
     }
+
+    if (_quick_compaction_thread_pool) {
+        _quick_compaction_thread_pool->shutdown();
+    }
+
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
@@ -728,7 +729,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
     auto clean_rowset_func = [this, &invalid_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
                                                            const std::string& meta_str) -> bool {
         // return false will break meta iterator, return true to skip this error
-        RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;

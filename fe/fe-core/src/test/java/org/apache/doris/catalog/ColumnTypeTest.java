@@ -141,7 +141,7 @@ public class ColumnTypeTest {
 
         TypeDef type5 = TypeDef.createDatetimeV2(0);
         TypeDef type6 = TypeDef.create(PrimitiveType.DATETIME);
-        Assert.assertEquals(type5.getType(), type6.getType());
+        Assert.assertNotEquals(type5.getType(), type6.getType());
         Assert.assertNotEquals(type.getType(), type6.getType());
     }
 
@@ -150,7 +150,7 @@ public class ColumnTypeTest {
         TypeDef type = TypeDef.create(PrimitiveType.DATE);
         TypeDef type2 = TypeDef.create(PrimitiveType.DATEV2);
         type.analyze(null);
-        Assert.assertEquals(type.getType(), type2.getType());
+        Assert.assertNotEquals(type.getType(), type2.getType());
 
         // different type
         TypeDef type3 = TypeDef.createDatetimeV2(6);
@@ -182,7 +182,7 @@ public class ColumnTypeTest {
 
         TypeDef type5 = TypeDef.createTimeV2(0);
         TypeDef type6 = TypeDef.create(PrimitiveType.TIME);
-        Assert.assertEquals(type5.getType(), type6.getType());
+        Assert.assertNotEquals(type5.getType(), type6.getType());
         Assert.assertNotEquals(type.getType(), type6.getType());
     }
 
@@ -217,10 +217,10 @@ public class ColumnTypeTest {
         ScalarType type2 = ScalarType.createType(PrimitiveType.BIGINT);
         ColumnType.write(dos, type2);
 
-        ScalarType type3 = ScalarType.createDecimalV2Type(1, 1);
+        ScalarType type3 = ScalarType.createDecimalType(1, 1);
         ColumnType.write(dos, type3);
 
-        ScalarType type4 = ScalarType.createDecimalV2Type(1, 1);
+        ScalarType type4 = ScalarType.createDecimalType(1, 1);
         ColumnType.write(dos, type4);
 
         // 2. Read objects from file
