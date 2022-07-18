@@ -887,6 +887,7 @@ module.exports = [
           "disk-capacity",
           "metadata-operation",
           "tablet-meta-tool",
+          "tablet-local-debug",
           "tablet-repair-and-balance",
           "tablet-restore-tool",
           "monitor-alert",
