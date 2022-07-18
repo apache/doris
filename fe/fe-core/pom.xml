@@ -788,8 +788,8 @@ under the License.
                             <goal>run</goal>
                         </goals>
                         <configuration>
-                            <!--protocCommand>${doris.thirdparty}/installed/bin/protoc</protocCommand-->
-                            <!-->You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools<-->
+                            <!-- <protocCommand>${doris.thirdparty}/installed/bin/protoc</protocCommand> -->
+                            <!--You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools-->
                             <protocArtifact>com.google.protobuf:protoc:${protobuf.version}</protocArtifact>
                             <protocVersion>${protobuf.version}</protocVersion>
                             <inputDirectories>
