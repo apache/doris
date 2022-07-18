@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.restv2;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.system.Backend;
@@ -51,7 +52,7 @@ public class StatisticAction extends RestBaseController {
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
-        resultMap.put("dbCount", catalog.getDbIds().size());
+        resultMap.put("dbCount", catalog.getInternalDataSource().getDbIds().size());
         resultMap.put("tblCount", getTblCount(catalog));
         resultMap.put("diskOccupancy", getDiskOccupancy(infoService));
         resultMap.put("beCount", infoService.getClusterBackendIds(SystemInfoService.DEFAULT_CLUSTER).size());
@@ -62,8 +63,9 @@ public class StatisticAction extends RestBaseController {
     }
 
     private int getTblCount(Catalog catalog) {
-        return catalog.getDbIds().stream().map(catalog::getDbNullable).filter(Objects::nonNull)
-                .map(db -> db.getTables().size()).reduce(Integer::sum).orElse(0);
+        InternalDataSource ds = catalog.getInternalDataSource();
+        return ds.getDbIds().stream().map(ds::getDbNullable).filter(Objects::nonNull).map(db -> db.getTables().size())
+                .reduce(Integer::sum).orElse(0);
     }
 
     private long getDiskOccupancy(SystemInfoService infoService) {

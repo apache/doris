@@ -30,29 +30,32 @@
 namespace doris {
 
 template <>
-std::string cast_to_string(__int128 value) {
-    std::stringstream ss;
-    ss << value;
-    return ss.str();
-}
-
-template <>
-std::string cast_to_string(int8_t value) {
-    return std::to_string(static_cast<int>(value));
-}
-
-template <>
-void ColumnValueRange<StringValue>::convert_to_fixed_value() {
+void ColumnValueRange<PrimitiveType::TYPE_STRING>::convert_to_fixed_value() {
     return;
 }
 
 template <>
-void ColumnValueRange<DecimalV2Value>::convert_to_fixed_value() {
+void ColumnValueRange<PrimitiveType::TYPE_CHAR>::convert_to_fixed_value() {
     return;
 }
 
 template <>
-void ColumnValueRange<__int128>::convert_to_fixed_value() {
+void ColumnValueRange<PrimitiveType::TYPE_VARCHAR>::convert_to_fixed_value() {
+    return;
+}
+
+template <>
+void ColumnValueRange<PrimitiveType::TYPE_HLL>::convert_to_fixed_value() {
+    return;
+}
+
+template <>
+void ColumnValueRange<PrimitiveType::TYPE_DECIMALV2>::convert_to_fixed_value() {
+    return;
+}
+
+template <>
+void ColumnValueRange<PrimitiveType::TYPE_LARGEINT>::convert_to_fixed_value() {
     return;
 }
 

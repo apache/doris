@@ -71,10 +71,9 @@ public:
 
         auto res_column = _execute_non_nullable(args, input_rows_count, src_null_map, dst_null_map);
         if (!res_column) {
-            return Status::RuntimeError(
-                    fmt::format("unsupported types for function {}({}, {})", get_name(),
-                                block.get_by_position(arguments[0]).type->get_name(),
-                                block.get_by_position(arguments[1]).type->get_name()));
+            return Status::RuntimeError("unsupported types for function {}({}, {})", get_name(),
+                                        block.get_by_position(arguments[0]).type->get_name(),
+                                        block.get_by_position(arguments[1]).type->get_name());
         }
         block.replace_by_position(
                 result, ColumnNullable::create(std::move(res_column), std::move(dst_null_column)));
@@ -200,6 +199,10 @@ private:
         if (nested_column->is_date_type()) {
             res = _execute_number<ColumnDate>(offsets, *nested_column, src_null_map,
                                               *arguments[1].column, nested_null_map, dst_null_map);
+        } else if (nested_column->is_date_v2_type()) {
+            res = _execute_number<ColumnDateV2>(offsets, *nested_column, src_null_map,
+                                                *arguments[1].column, nested_null_map,
+                                                dst_null_map);
         } else if (nested_column->is_datetime_type()) {
             res = _execute_number<ColumnDateTime>(offsets, *nested_column, src_null_map,
                                                   *arguments[1].column, nested_null_map,

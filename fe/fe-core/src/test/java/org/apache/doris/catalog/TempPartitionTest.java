@@ -182,7 +182,7 @@ public class TempPartitionTest {
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentCatalog().getDbNames());
+        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
         // create table tbl1
         String createTblStmtStr1 = "create table db1.tbl1(k1 int) distributed by hash(k1)"
                 + " buckets 3 properties('replication_num' = '1');";
@@ -207,7 +207,7 @@ public class TempPartitionTest {
         String createDbStmtStr = "create database db2;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentCatalog().getDbNames());
+        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
 
         // create table tbl2
         String createTblStmtStr1 = "create table db2.tbl2 (k1 int, k2 int)\n"
@@ -222,7 +222,8 @@ public class TempPartitionTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
-        Database db2 = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:db2");
+        Database db2 =
+                Catalog.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db2");
         OlapTable tbl2 = (OlapTable) db2.getTableOrAnalysisException("tbl2");
 
         testSerializeOlapTable(tbl2);
@@ -505,7 +506,7 @@ public class TempPartitionTest {
         String createDbStmtStr = "create database db3;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentCatalog().getDbNames());
+        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
 
         // create table tbl3
         String createTblStmtStr1 = "create table db3.tbl3 (k1 int, k2 int)\n"
@@ -520,7 +521,7 @@ public class TempPartitionTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
-        Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:db3");
+        Catalog.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db3");
 
         // base range is [min, 10), [10, 20), [20, 30)
 
@@ -582,7 +583,7 @@ public class TempPartitionTest {
         String createDbStmtStr = "create database db4;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentCatalog().getDbNames());
+        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
 
         // create table tbl4
         String createTblStmtStr1 = "create table db4.tbl4 (k1 int not null, k2 int)\n"
@@ -597,7 +598,8 @@ public class TempPartitionTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
-        Database db4 = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:db4");
+        Database db4 =
+                Catalog.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db4");
         OlapTable tbl4 = (OlapTable) db4.getTableOrAnalysisException("tbl4");
 
         testSerializeOlapTable(tbl4);
@@ -932,7 +934,7 @@ public class TempPartitionTest {
         String createDbStmtStr = "create database db5;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentCatalog().getDbNames());
+        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
 
         // create table tbl5
         String createTblStmtStr1 = "create table db5.tbl5 (k1 int not null, k2 varchar not null)\n"
@@ -947,7 +949,8 @@ public class TempPartitionTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
-        Database db5 = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:db5");
+        Database db5 =
+                Catalog.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db5");
         OlapTable tbl5 = (OlapTable) db5.getTableOrAnalysisException("tbl5");
 
         testSerializeOlapTable(tbl5);

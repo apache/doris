@@ -27,7 +27,8 @@ suite("test_array_functions", "query") {
             CREATE TABLE IF NOT EXISTS ${tableName} (
               `k1` int(11) NULL COMMENT "",
               `k2` ARRAY<int(11)> NOT NULL COMMENT "",
-              `k3` ARRAY<VARCHAR(20)> NULL COMMENT ""
+              `k3` ARRAY<VARCHAR(20)> NULL COMMENT "",
+              `k4` ARRAY<int(11)> NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -36,10 +37,16 @@ suite("test_array_functions", "query") {
             "storage_format" = "V2"
             )
         """
-    sql """ INSERT INTO ${tableName} VALUES(1, [1, 2, 3], ["a", "b", ""]) """
-    sql """ INSERT INTO ${tableName} VALUES(2, [4], NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(3, [], []) """
+    sql """ INSERT INTO ${tableName} VALUES(1, [1, 2, 3], ["a", "b", ""], [1, 2]) """
+    sql """ INSERT INTO ${tableName} VALUES(2, [4], NULL, [5]) """
+    sql """ INSERT INTO ${tableName} VALUES(3, [], [], NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(4, [1, 2, 3, 4, 5, 4, 3, 2, 1], [], []) """
+    sql """ INSERT INTO ${tableName} VALUES(5, [], ["a", "b", "c", "d", "c", "b", "a"], NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(6, [1, 2, 3, 4, 5, 4, 3, 2, 1], ["a", "b", "c", "d", "c", "b", "a"], NULL) """
 
     qt_select "SELECT k1, size(k2), size(k3) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, cardinality(k2), cardinality(k3) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, arrays_overlap(k2, k4) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_distinct(k2), array_distinct(k3) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT array_remove(k2, k1), k1 FROM ${tableName} ORDER BY k1"
 }

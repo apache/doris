@@ -65,6 +65,7 @@ Status VBlockingJoinNode::prepare(RuntimeState* state) {
 
 Status VBlockingJoinNode::close(RuntimeState* state) {
     if (is_closed()) return Status::OK();
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VBlockingJoinNode::close")
     ExecNode::close(state);
     return Status::OK();
 }
@@ -78,6 +79,7 @@ void VBlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Stat
 }
 
 Status VBlockingJoinNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VBlockingJoinNode::open")
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -113,7 +115,8 @@ Status VBlockingJoinNode::open(RuntimeState* state) {
     // Seed left child in preparation for get_next().
     while (true) {
         release_block_memory(_left_block);
-        RETURN_IF_ERROR(child(0)->get_next(state, &_left_block, &_left_side_eos));
+        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next(state, &_left_block, &_left_side_eos),
+                                       child(0)->get_next_span(), _left_side_eos);
         COUNTER_UPDATE(_left_child_row_counter, _left_block.rows());
         _left_block_pos = 0;
 

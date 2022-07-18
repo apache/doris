@@ -422,7 +422,6 @@ Status PartitionedAggregationNode::CopyStringData(const SlotDescriptor& slot_des
 Status PartitionedAggregationNode::GetNextInternal(RuntimeState* state, RowBatch* row_batch,
                                                    bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(state->check_query_state("New partitioned aggregation, while getting next."));
     // clear tmp expr result alocations

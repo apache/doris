@@ -17,10 +17,14 @@
 
 #pragma once
 
-#include "exec/olap_scan_node.h"
+#include "exec/olap_common.h"
+#include "exec/scan_node.h"
+#include "exprs/bloomfilter_predicate.h"
 #include "exprs/in_predicate.h"
 #include "exprs/runtime_filter.h"
+#include "exprs/function_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "olap/tablet.h"
 #include "util/progress_updater.h"
 
 namespace doris {
@@ -69,29 +73,29 @@ private:
     Status build_key_ranges_and_filters();
     Status build_function_filters();
 
-    template <class T>
+    template <PrimitiveType T>
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
 
-    template <class T>
+    template <PrimitiveType T>
     Status normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
-    template <class T>
+    template <PrimitiveType T>
     Status normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
-    template <class T>
+    template <PrimitiveType T>
     Status normalize_noneq_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
     Status normalize_bloom_filter_predicate(SlotDescriptor* slot);
 
-    template <typename T>
+    template <PrimitiveType T>
     static bool normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
                                             const std::string& is_null_str,
                                             ColumnValueRange<T>* range);
     bool should_push_down_in_predicate(SlotDescriptor* slot, InPredicate* in_pred);
 
-    template <typename T, typename ChangeFixedValueRangeFunc>
-    static Status change_fixed_value_range(ColumnValueRange<T>& range, PrimitiveType type,
-                                           void* value, const ChangeFixedValueRangeFunc& func);
+    template <PrimitiveType T, typename ChangeFixedValueRangeFunc>
+    static Status change_fixed_value_range(ColumnValueRange<T>& range, void* value,
+                                           const ChangeFixedValueRangeFunc& func);
 
     std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred,
                                                          int conj_idx, int child_idx);
@@ -334,6 +338,9 @@ private:
     int _max_materialized_blocks;
 
     size_t _block_size = 0;
+
+    phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
+    std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
 };
 } // namespace vectorized
 } // namespace doris

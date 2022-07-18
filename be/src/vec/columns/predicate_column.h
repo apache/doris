@@ -438,9 +438,19 @@ public:
         } else if constexpr (std::is_same_v<T, uint24_t>) {
             insert_date_to_res_column(sel, sel_size,
                                       reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
-        } else if constexpr (std::is_same_v<T, uint32_t>) { // a trick type judge, need refactor it.
-            insert_date32_to_res_column(
-                    sel, sel_size, reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, uint32_t>) {
+            if (const vectorized::ColumnVector<Int64>* date_col =
+                        check_and_get_column<vectorized::ColumnVector<Int64>>(
+                                const_cast<const IColumn*>(col_ptr))) {
+                // a trick type judge, need refactor it.
+                insert_date32_to_res_column(sel, sel_size,
+                                            const_cast<vectorized::ColumnVector<Int64>*>(date_col));
+            } else {
+                insert_default_value_res_column(
+                        sel, sel_size,
+                        reinterpret_cast<vectorized::ColumnVector<doris::vectorized::UInt32>*>(
+                                col_ptr));
+            }
         } else if constexpr (std::is_same_v<T, doris::vectorized::Int128>) {
             insert_default_value_res_column(
                     sel, sel_size,

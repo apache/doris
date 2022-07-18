@@ -363,7 +363,7 @@ public class RestoreJob extends AbstractJob {
             return;
         }
 
-        Database db = catalog.getDbNullable(dbId);
+        Database db = catalog.getInternalDataSource().getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " has been dropped");
             return;
@@ -418,7 +418,7 @@ public class RestoreJob extends AbstractJob {
      * 6. make snapshot for all replicas for incremental download later.
      */
     private void checkAndPrepareMeta() {
-        Database db = catalog.getDbNullable(dbId);
+        Database db = catalog.getInternalDataSource().getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
             return;
@@ -973,7 +973,10 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getCopiedIndexes(),
                             localTbl.isInMemory(),
                             localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
-                            localTbl.getCompressionType());
+                            null,
+                            localTbl.getCompressionType(),
+                            localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy());
+
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
                 }
@@ -1086,7 +1089,7 @@ public class RestoreJob extends AbstractJob {
     private void replayCheckAndPrepareMeta() {
         Database db;
         try {
-            db = catalog.getDbOrMetaException(dbId);
+            db = catalog.getInternalDataSource().getDbOrMetaException(dbId);
         } catch (MetaNotFoundException e) {
             LOG.warn("[INCONSISTENT META] replayCheckAndPrepareMeta failed", e);
             return;
@@ -1222,7 +1225,7 @@ public class RestoreJob extends AbstractJob {
         for (long dbId : dbToSnapshotInfos.keySet()) {
             List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
 
-            Database db = catalog.getDbNullable(dbId);
+            Database db = catalog.getInternalDataSource().getDbNullable(dbId);
             if (db == null) {
                 status = new Status(ErrCode.NOT_FOUND, "db " + dbId + " does not exist");
                 return;
@@ -1417,7 +1420,7 @@ public class RestoreJob extends AbstractJob {
     }
 
     private Status allTabletCommitted(boolean isReplay) {
-        Database db = catalog.getDbNullable(dbId);
+        Database db = catalog.getInternalDataSource().getDbNullable(dbId);
         if (db == null) {
             return new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
         }
@@ -1451,8 +1454,8 @@ public class RestoreJob extends AbstractJob {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
                                 if (!replica.checkVersionCatchUp(part.getVisibleVersion(), false)) {
-                                    replica.updateVersionInfo(part.getVisibleVersion(),
-                                            replica.getDataSize(), replica.getRowCount());
+                                    replica.updateVersionInfo(part.getVisibleVersion(), replica.getDataSize(),
+                                            replica.getRemoteDataSize(), replica.getRowCount());
                                 }
                             }
                         }
@@ -1587,7 +1590,7 @@ public class RestoreJob extends AbstractJob {
         }
 
         // clean restored objs
-        Database db = catalog.getDbNullable(dbId);
+        Database db = catalog.getInternalDataSource().getDbNullable(dbId);
         if (db != null) {
             // rollback table's state to NORMAL
             setTableStateToNormal(db);

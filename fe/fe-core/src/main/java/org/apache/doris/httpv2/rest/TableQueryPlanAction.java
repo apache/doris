@@ -111,7 +111,7 @@ public class TableQueryPlanAction extends RestBaseController {
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
             Table table;
             try {
-                Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+                Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
                 table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());

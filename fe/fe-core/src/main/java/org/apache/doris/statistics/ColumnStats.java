@@ -149,11 +149,16 @@ public class ColumnStats {
             case DOUBLE:
                 return new FloatLiteral(columnValue);
             case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(columnValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 return decimalLiteral;
             case DATE:
             case DATETIME:
+            case DATEV2:
+            case DATETIMEV2:
                 return new DateLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:

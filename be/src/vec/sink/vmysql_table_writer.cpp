@@ -174,11 +174,30 @@ Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
             fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
             break;
         }
+        case TYPE_DECIMAL32:
+        case TYPE_DECIMAL64:
+        case TYPE_DECIMAL128: {
+            auto val = type_ptr->to_string(*column, row);
+            fmt::format_to(_insert_stmt_buffer, "{}", val);
+            break;
+        }
         case TYPE_DATE:
         case TYPE_DATETIME: {
             int64_t int_val = assert_cast<const vectorized::ColumnInt64&>(*column).get_data()[row];
             vectorized::VecDateTimeValue value =
                     binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(int_val);
+
+            char buf[64];
+            char* pos = value.to_string(buf);
+            std::string str(buf, pos - buf - 1);
+            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+            break;
+        }
+        case TYPE_DATEV2: {
+            uint32_t int_val =
+                    assert_cast<const vectorized::ColumnUInt32&>(*column).get_data()[row];
+            vectorized::DateV2Value value =
+                    binary_cast<uint32_t, doris::vectorized::DateV2Value>(int_val);
 
             char buf[64];
             char* pos = value.to_string(buf);

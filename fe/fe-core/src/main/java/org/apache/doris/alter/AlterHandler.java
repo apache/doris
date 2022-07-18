@@ -64,20 +64,20 @@ public abstract class AlterHandler extends MasterDaemon {
      */
     protected ReentrantLock lock = new ReentrantLock();
 
-    protected void lock() {
-        lock.lock();
-    }
-
-    protected void unlock() {
-        lock.unlock();
-    }
-
     public AlterHandler(String name) {
         this(name, FeConstants.default_scheduler_interval_millisecond);
     }
 
     public AlterHandler(String name, int schedulerIntervalMillisecond) {
         super(name, schedulerIntervalMillisecond);
+    }
+
+    protected void lock() {
+        lock.lock();
+    }
+
+    protected void unlock() {
+        lock.unlock();
     }
 
     protected void addAlterJobV2(AlterJobV2 alterJob) {
@@ -198,7 +198,7 @@ public abstract class AlterHandler extends MasterDaemon {
      * In summary, we only need to update replica's version when replica's version is smaller than X
      */
     public void handleFinishAlterTask(AlterReplicaTask task) throws MetaNotFoundException {
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(task.getDbId());
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(task.getDbId());
 
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(task.getTableId(), Table.TableType.OLAP);
         tbl.writeLockOrMetaException();
@@ -222,7 +222,8 @@ public abstract class AlterHandler extends MasterDaemon {
                     task.getSignature(), replica, task.getVersion());
             boolean versionChanged = false;
             if (replica.getVersion() < task.getVersion()) {
-                replica.updateVersionInfo(task.getVersion(), replica.getDataSize(), replica.getRowCount());
+                replica.updateVersionInfo(task.getVersion(), replica.getDataSize(), replica.getRemoteDataSize(),
+                        replica.getRowCount());
                 versionChanged = true;
             }
 
@@ -230,7 +231,7 @@ public abstract class AlterHandler extends MasterDaemon {
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
                         task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
                         replica.getId(), replica.getVersion(), -1,
-                        replica.getDataSize(), replica.getRowCount(),
+                        replica.getDataSize(), replica.getRemoteDataSize(), replica.getRowCount(),
                         replica.getLastFailedVersion(), replica.getLastSuccessVersion());
                 Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
             }

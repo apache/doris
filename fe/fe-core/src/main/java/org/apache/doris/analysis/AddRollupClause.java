@@ -42,6 +42,17 @@ public class AddRollupClause extends AlterTableClause {
 
     private Map<String, String> properties;
 
+    public AddRollupClause(String rollupName, List<String> columnNames,
+                           List<String> dupKeys, String baseRollupName,
+                           Map<String, String> properties) {
+        super(AlterOpType.ADD_ROLLUP);
+        this.rollupName = rollupName;
+        this.columnNames = columnNames;
+        this.dupKeys = dupKeys;
+        this.baseRollupName = baseRollupName;
+        this.properties = properties;
+    }
+
     public String getRollupName() {
         return rollupName;
     }
@@ -56,17 +67,6 @@ public class AddRollupClause extends AlterTableClause {
 
     public String getBaseRollupName() {
         return baseRollupName;
-    }
-
-    public AddRollupClause(String rollupName, List<String> columnNames,
-                           List<String> dupKeys, String baseRollupName,
-                           Map<String, String> properties) {
-        super(AlterOpType.ADD_ROLLUP);
-        this.rollupName = rollupName;
-        this.columnNames = columnNames;
-        this.dupKeys = dupKeys;
-        this.baseRollupName = baseRollupName;
-        this.properties = properties;
     }
 
     @Override
@@ -89,11 +89,6 @@ public class AddRollupClause extends AlterTableClause {
     }
 
     @Override
-    public Map<String, String> getProperties() {
-        return this.properties;
-    }
-
-    @Override
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("ADD ROLLUP `").append(rollupName).append("` (");
@@ -110,6 +105,11 @@ public class AddRollupClause extends AlterTableClause {
             stringBuilder.append(" FROM `").append(baseRollupName).append("`");
         }
         return stringBuilder.toString();
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return this.properties;
     }
 
     @Override

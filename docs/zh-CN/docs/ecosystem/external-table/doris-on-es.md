@@ -108,6 +108,16 @@ POST /_bulk
 具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
 
 ```
+CREATE EXTERNAL TABLE `test` // 不指定schema，自动拉取es mapping进行建表 
+ENGINE=ELASTICSEARCH 
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test",
+"type" = "doc",
+"user" = "root",
+"password" = "root"
+);
+
 CREATE EXTERNAL TABLE `test` (
   `k1` bigint(20) COMMENT "",
   `k2` datetime COMMENT "",
@@ -119,7 +129,6 @@ PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
 "type" = "doc",
-
 "user" = "root",
 "password" = "root"
 );
@@ -131,7 +140,7 @@ PROPERTIES (
 ---|---
 **hosts** | ES集群地址，可以是一个或多个，也可以是ES前端的负载均衡地址
 **index** | 对应的ES的index名字，支持alias，如果使用doc_value，需要使用真实的名称
-**type** | index的type，不指定的情况会使用_doc
+**type** | index的type，ES 7.x及以后的版本不传此参数
 **user** | ES集群用户名
 **password** | 对应用户的密码信息
 
@@ -187,10 +196,8 @@ CREATE EXTERNAL TABLE `test` (
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
-"type" = "doc",
 "user" = "root",
 "password" = "root",
-
 "enable_docvalue_scan" = "true"
 );
 ```
@@ -228,10 +235,8 @@ CREATE EXTERNAL TABLE `test` (
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
-"type" = "doc",
 "user" = "root",
 "password" = "root",
-
 "enable_keyword_sniff" = "true"
 );
 ```
@@ -340,10 +345,8 @@ CREATE EXTERNAL TABLE `test` (
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
-"type" = "doc",
 "user" = "root",
 "password" = "root",
-
 "nodes_discovery" = "true"
 );
 ```
@@ -369,10 +372,8 @@ CREATE EXTERNAL TABLE `test` (
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "index" = "test",
-"type" = "doc",
 "user" = "root",
 "password" = "root",
-
 "http_ssl_enabled" = "true"
 );
 ```
@@ -561,8 +562,7 @@ PROPERTIES (
 "hosts" = "http://127.0.0.1:8200",
 "user" = "root",
 "password" = "root",
-"index" = "doe",
-"type" = "doc"
+"index" = "doe"
 }
 ```
 

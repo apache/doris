@@ -30,6 +30,7 @@
 #include "gutil/casts.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -184,7 +185,7 @@ static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
 template <typename ArrowType>
 static Status convert_column_with_timestamp_data(const arrow::Array* array, size_t array_idx,
                                                  MutableColumnPtr& data_column, size_t num_elements,
-                                                 const std::string& timezone) {
+                                                 const cctz::time_zone& ctz) {
     auto& column_data = static_cast<ColumnVector<Int64>&>(*data_column).get_data();
     auto concrete_array = down_cast<const ArrowType*>(array);
     int64_t divisor = 1;
@@ -204,11 +205,40 @@ static Status convert_column_with_timestamp_data(const arrow::Array* array, size
     for (size_t value_i = array_idx; value_i < array_idx + num_elements; ++value_i) {
         VecDateTimeValue v;
         v.from_unixtime(static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier,
-                        timezone);
+                        ctz);
         if constexpr (std::is_same_v<ArrowType, arrow::Date32Array>) {
             v.cast_to_date();
         }
         column_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
+    }
+    return Status::OK();
+}
+
+template <typename ArrowType>
+static Status convert_column_with_date_v2_data(const arrow::Array* array, size_t array_idx,
+                                               MutableColumnPtr& data_column, size_t num_elements,
+                                               const cctz::time_zone& ctz) {
+    auto& column_data = static_cast<ColumnVector<UInt32>&>(*data_column).get_data();
+    auto concrete_array = down_cast<const ArrowType*>(array);
+    int64_t divisor = 1;
+    int64_t multiplier = 1;
+    if constexpr (std::is_same_v<ArrowType, arrow::TimestampArray>) {
+        const auto type = std::static_pointer_cast<arrow::TimestampType>(array->type());
+        divisor = time_unit_divisor(type->unit());
+        if (divisor == 0L) {
+            return Status::InternalError(fmt::format("Invalid Time Type:{}", type->name()));
+        }
+    } else if constexpr (std::is_same_v<ArrowType, arrow::Date32Array>) {
+        multiplier = 24 * 60 * 60; // day => secs
+    } else if constexpr (std::is_same_v<ArrowType, arrow::Date64Array>) {
+        divisor = 1000; //ms => secs
+    }
+
+    for (size_t value_i = array_idx; value_i < array_idx + num_elements; ++value_i) {
+        DateV2Value v;
+        v.from_unixtime(static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier,
+                        ctz);
+        column_data.emplace_back(binary_cast<DateV2Value, UInt32>(v));
     }
     return Status::OK();
 }
@@ -244,19 +274,22 @@ static Status convert_offset_from_list_column(const arrow::Array* array, size_t 
     auto concrete_array = down_cast<const arrow::ListArray*>(array);
     auto arrow_offsets_array = concrete_array->offsets();
     auto arrow_offsets = down_cast<arrow::Int32Array*>(arrow_offsets_array.get());
+    auto prev_size = offsets_data.back();
     for (int64_t i = array_idx + 1; i < array_idx + num_elements + 1; ++i) {
-        // convert to doris offset, start from 0
-        offsets_data.emplace_back(arrow_offsets->Value(i) - arrow_offsets->Value(array_idx));
+        // convert to doris offset, start from offsets.back()
+        offsets_data.emplace_back(prev_size + arrow_offsets->Value(i) -
+                                  arrow_offsets->Value(array_idx));
     }
     *start_idx_for_data = arrow_offsets->Value(array_idx);
-    *num_for_data = offsets_data.back();
+    *num_for_data = offsets_data.back() - prev_size;
 
     return Status::OK();
 }
 
 static Status convert_column_with_list_data(const arrow::Array* array, size_t array_idx,
                                             MutableColumnPtr& data_column, size_t num_elements,
-                                            const std::string& timezone) {
+                                            const cctz::time_zone& ctz,
+                                            const DataTypePtr& nested_type) {
     size_t start_idx_of_data = 0;
     size_t num_of_data = 0;
     // get start idx and num of values from arrow offsets
@@ -267,23 +300,30 @@ static Status convert_column_with_list_data(const arrow::Array* array, size_t ar
     std::shared_ptr<arrow::Array> arrow_data = concrete_array->values();
 
     return arrow_column_to_doris_column(arrow_data.get(), start_idx_of_data, data_column_ptr,
-                                        num_of_data, timezone);
+                                        nested_type, num_of_data, ctz);
+}
+
+// For convenient unit test. Not use this in formal code.
+Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,
+                                    ColumnPtr& doris_column, const DataTypePtr& type,
+                                    size_t num_elements, const std::string& timezone) {
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(timezone, ctz);
+    return arrow_column_to_doris_column(arrow_column, arrow_batch_cur_idx, doris_column, type,
+                                        num_elements, ctz);
 }
 
 Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,
-                                    ColumnPtr& doirs_column, size_t num_elements,
-                                    const std::string& timezone) {
+                                    ColumnPtr& doris_column, const DataTypePtr& type,
+                                    size_t num_elements, const cctz::time_zone& ctz) {
     // src column always be nullable for simpify converting
-    assert(doirs_column->is_nullable());
+    CHECK(doris_column->is_nullable());
     MutableColumnPtr data_column = nullptr;
-    if (doirs_column->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doirs_column)).mutate().get());
-        fill_nullable_column(arrow_column, arrow_batch_cur_idx, nullable_column, num_elements);
-        data_column = nullable_column->get_nested_column_ptr();
-    } else {
-        data_column = (*std::move(doirs_column)).mutate();
-    }
+    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+            (*std::move(doris_column)).mutate().get());
+    fill_nullable_column(arrow_column, arrow_batch_cur_idx, nullable_column, num_elements);
+    data_column = nullable_column->get_nested_column_ptr();
+    WhichDataType which_type(type);
     // process data
     switch (arrow_column->type()->id()) {
     case arrow::Type::STRING:
@@ -303,20 +343,27 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
         return convert_column_with_boolean_data(arrow_column, arrow_batch_cur_idx, data_column,
                                                 num_elements);
     case arrow::Type::DATE32:
-        return convert_column_with_timestamp_data<arrow::Date32Array>(
-                arrow_column, arrow_batch_cur_idx, data_column, num_elements, timezone);
+        if (which_type.is_date_v2()) {
+            return convert_column_with_date_v2_data<arrow::Date32Array>(
+                    arrow_column, arrow_batch_cur_idx, data_column, num_elements, ctz);
+        } else {
+            return convert_column_with_timestamp_data<arrow::Date32Array>(
+                    arrow_column, arrow_batch_cur_idx, data_column, num_elements, ctz);
+        }
     case arrow::Type::DATE64:
         return convert_column_with_timestamp_data<arrow::Date64Array>(
-                arrow_column, arrow_batch_cur_idx, data_column, num_elements, timezone);
+                arrow_column, arrow_batch_cur_idx, data_column, num_elements, ctz);
     case arrow::Type::TIMESTAMP:
         return convert_column_with_timestamp_data<arrow::TimestampArray>(
-                arrow_column, arrow_batch_cur_idx, data_column, num_elements, timezone);
+                arrow_column, arrow_batch_cur_idx, data_column, num_elements, ctz);
     case arrow::Type::DECIMAL:
         return convert_column_with_decimal_data(arrow_column, arrow_batch_cur_idx, data_column,
                                                 num_elements);
     case arrow::Type::LIST:
-        return convert_column_with_list_data(arrow_column, arrow_batch_cur_idx, data_column,
-                                             num_elements, timezone);
+        CHECK(type->have_subtypes());
+        return convert_column_with_list_data(
+                arrow_column, arrow_batch_cur_idx, data_column, num_elements, ctz,
+                (reinterpret_cast<const DataTypeArray*>(type.get()))->get_nested_type());
     default:
         break;
     }

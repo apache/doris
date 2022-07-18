@@ -247,7 +247,7 @@ public class RoutineLoadManager implements Writable {
             throws MetaNotFoundException, DdlException, AnalysisException {
 
         List<RoutineLoadJob> result = Lists.newArrayList();
-        Database database = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database database = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         long dbId = database.getId();
         Map<String, List<RoutineLoadJob>> jobMap = dbToNameToRoutineLoadJob.get(dbId);
         if (jobMap == null) {
@@ -510,7 +510,7 @@ public class RoutineLoadManager implements Writable {
 
     private Set<Tag> getTagsFromReplicaAllocation(long dbId, long tblId) throws LoadException {
         try {
-            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+            Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
             OlapTable tbl = (OlapTable) db.getTableOrMetaException(tblId, Table.TableType.OLAP);
             tbl.readLock();
             try {
@@ -565,7 +565,7 @@ public class RoutineLoadManager implements Writable {
                 break RESULT;
             }
 
-            Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbFullName);
+            Database database = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbFullName);
             long dbId = database.getId();
             if (!dbToNameToRoutineLoadJob.containsKey(dbId)) {
                 result = new ArrayList<>();

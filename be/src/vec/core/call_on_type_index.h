@@ -159,6 +159,7 @@ inline bool call_on_basic_types(TypeIndex type_num1, TypeIndex type_num2, F&& f)
 }
 
 class DataTypeDate;
+class DataTypeDateV2;
 class DataTypeDateTime;
 class DataTypeString;
 template <typename T>
@@ -205,6 +206,8 @@ bool call_on_index_and_data_type(TypeIndex number, F&& f) {
 
     case TypeIndex::Date:
         return f(TypePair<DataTypeDate, T>());
+    case TypeIndex::DateV2:
+        return f(TypePair<DataTypeDateV2, T>());
     case TypeIndex::DateTime:
         return f(TypePair<DataTypeDateTime, T>());
 

@@ -129,7 +129,7 @@ public class DemoMultiBackendsTest {
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentCatalog().getDbNames());
+        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
         // 3. create table tbl1
         String createTblStmtStr = "create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3"
                 + " properties('replication_num' = '3',"
@@ -140,7 +140,7 @@ public class DemoMultiBackendsTest {
         updateReplicaPathHash();
 
         // 4. get and test the created db and table
-        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1");
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
         tbl.readLock();

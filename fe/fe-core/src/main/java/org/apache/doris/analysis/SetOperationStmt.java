@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -40,7 +40,7 @@ import java.util.Set;
  * During analysis, the operands are normalized (separated into a single sequence of
  * DISTINCT followed by a single sequence of ALL operands) and unnested to the extent
  * possible. This also creates the AggregationInfo for DISTINCT operands.
- *
+ * <p>
  * Use of resultExprs vs. baseTblResultExprs:
  * We consistently use/cast the resultExprs of set operands because the final expr
  * substitution happens during planning. The only place where baseTblResultExprs are
@@ -213,7 +213,7 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
-    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet)
+    public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
             throws AnalysisException {
         getWithClauseTables(analyzer, tableMap, parentViewNameSet);
         for (SetOperand op : operands) {
@@ -326,8 +326,8 @@ public class SetOperationStmt extends QueryStmt {
             List<Expr> exprs = query.getResultExprs();
             if (firstExprs.size() != exprs.size()) {
                 throw new AnalysisException("Operands have unequal number of columns:\n"
-                        +    "'" + queryStmtToSql(firstQuery) + "' has "
-                        +    firstExprs.size() + " column(s)\n"
+                        + "'" + queryStmtToSql(firstQuery) + "' has "
+                        + firstExprs.size() + " column(s)\n"
                         + "'" + queryStmtToSql(query) + "' has " + exprs.size() + " column(s)");
             }
         }
@@ -791,13 +791,17 @@ public class SetOperationStmt extends QueryStmt {
 
     @Override
     public void substituteSelectList(Analyzer analyzer, List<String> newColLabels)
-            throws AnalysisException, UserException {
-        QueryStmt firstQuery = operands.get(0).getQueryStmt();
-        firstQuery.substituteSelectList(analyzer, newColLabels);
-        // substitute order by
-        if (orderByElements != null) {
-            orderByElements = OrderByElement.substitute(orderByElements, firstQuery.aliasSMap, analyzer);
+            throws UserException {
+        for (int i = 0; i < operands.size(); i++) {
+            Analyzer childAnalyzer = new Analyzer(analyzer);
+            QueryStmt query = operands.get(i).getQueryStmt();
+            query.substituteSelectList(childAnalyzer, newColLabels);
+            // substitute order by
+            if (orderByElements != null && i == 0) {
+                orderByElements = OrderByElement.substitute(orderByElements, query.aliasSMap, childAnalyzer);
+            }
         }
+
     }
 
     /**

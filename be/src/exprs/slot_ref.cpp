@@ -60,15 +60,12 @@ SlotRef::SlotRef(const TypeDescriptor& type, int offset)
 
 Status SlotRef::prepare(const SlotDescriptor* slot_desc, const RowDescriptor& row_desc) {
     if (!slot_desc->is_materialized()) {
-        std::stringstream error;
-        error << "reference to non-materialized slot. slot_id: " << _slot_id;
-        return Status::InternalError(error.str());
+        return Status::InternalError("reference to non-materialized slot. slot_id: {}", _slot_id);
     }
     _tuple_idx = row_desc.get_tuple_idx(slot_desc->parent());
     if (_tuple_idx == RowDescriptor::INVALID_IDX) {
-        return Status::InternalError(
-                strings::Substitute("failed to get tuple idx with tuple id: $0, slot id: $1",
-                                    slot_desc->parent(), _slot_id));
+        return Status::InternalError("failed to get tuple idx with tuple id: {}, slot id: {}",
+                                     slot_desc->parent(), _slot_id);
     }
     _tuple_is_nullable = row_desc.tuple_is_nullable(_tuple_idx);
     _slot_offset = slot_desc->tuple_offset();
@@ -86,23 +83,19 @@ Status SlotRef::prepare(RuntimeState* state, const RowDescriptor& row_desc, Expr
     const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);
     if (slot_desc == nullptr) {
         // TODO: create macro MAKE_ERROR() that returns a stream
-        std::stringstream error;
-        error << "couldn't resolve slot descriptor " << _slot_id;
-        return Status::InternalError(error.str());
+        return Status::InternalError("couldn't resolve slot descriptor {}", _slot_id);
     }
 
     if (!slot_desc->is_materialized()) {
-        std::stringstream error;
-        error << "reference to non-materialized slot. slot_id: " << _slot_id;
-        return Status::InternalError(error.str());
+        return Status::InternalError("reference to non-materialized slot. slot_id: {}", _slot_id);
     }
 
     // TODO(marcel): get from runtime state
     _tuple_idx = row_desc.get_tuple_idx(slot_desc->parent());
     if (_tuple_idx == RowDescriptor::INVALID_IDX) {
-        return Status::InternalError(strings::Substitute(
-                "failed to get tuple idx when prepare with tuple id: $0, slot id: $1",
-                slot_desc->parent(), _slot_id));
+        return Status::InternalError(
+                "failed to get tuple idx when prepare with tuple id: {}, slot id: {}",
+                slot_desc->parent(), _slot_id);
     }
     DCHECK(_tuple_idx != RowDescriptor::INVALID_IDX);
     _tuple_is_nullable = row_desc.tuple_is_nullable(_tuple_idx);
@@ -232,6 +225,19 @@ DateTimeVal SlotRef::get_datetime_val(ExprContext* context, TupleRow* row) {
     return result;
 }
 
+DateV2Val SlotRef::get_datev2_val(ExprContext* context, TupleRow* row) {
+    DCHECK(_type.is_date_type());
+    Tuple* t = row->get_tuple(_tuple_idx);
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
+        return DateV2Val::null();
+    }
+    doris::vectorized::DateV2Value* tv =
+            reinterpret_cast<doris::vectorized::DateV2Value*>(t->get_slot(_slot_offset));
+    DateV2Val result;
+    tv->to_datev2_val(&result);
+    return result;
+}
+
 DecimalV2Val SlotRef::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_DECIMALV2);
     Tuple* t = row->get_tuple(_tuple_idx);
@@ -240,6 +246,36 @@ DecimalV2Val SlotRef::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     }
 
     return DecimalV2Val(reinterpret_cast<PackedInt128*>(t->get_slot(_slot_offset))->value);
+}
+
+Decimal32Val SlotRef::get_decimal32_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_DECIMAL32);
+    Tuple* t = row->get_tuple(_tuple_idx);
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
+        return Decimal32Val::null();
+    }
+
+    return Decimal32Val(*reinterpret_cast<int32_t*>(t->get_slot(_slot_offset)));
+}
+
+Decimal64Val SlotRef::get_decimal64_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_DECIMAL64);
+    Tuple* t = row->get_tuple(_tuple_idx);
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
+        return Decimal64Val::null();
+    }
+
+    return Decimal64Val(*reinterpret_cast<int64_t*>(t->get_slot(_slot_offset)));
+}
+
+Decimal128Val SlotRef::get_decimal128_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_DECIMAL128);
+    Tuple* t = row->get_tuple(_tuple_idx);
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
+        return Decimal128Val::null();
+    }
+
+    return Decimal128Val(reinterpret_cast<PackedInt128*>(t->get_slot(_slot_offset))->value);
 }
 
 doris_udf::CollectionVal SlotRef::get_array_val(ExprContext* context, TupleRow* row) {

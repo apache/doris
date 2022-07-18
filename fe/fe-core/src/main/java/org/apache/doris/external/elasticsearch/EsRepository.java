@@ -73,7 +73,7 @@ public class EsRepository extends MasterDaemon {
     protected void runAfterCatalogReady() {
         for (EsTable esTable : esTables.values()) {
             try {
-                esTable.syncTableMetaData(esClients.get(esTable.getId()));
+                esTable.syncTableMetaData();
             } catch (Throwable e) {
                 LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster",
                         esTable.getName(), e);
@@ -90,9 +90,9 @@ public class EsRepository extends MasterDaemon {
         if (Catalog.isCheckpointThread()) {
             return;
         }
-        List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
+        List<Long> dbIds = Catalog.getCurrentCatalog().getInternalDataSource().getDbIds();
         for (Long dbId : dbIds) {
-            Database database = Catalog.getCurrentCatalog().getDbNullable(dbId);
+            Database database = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
             if (database == null) {
                 continue;
             }

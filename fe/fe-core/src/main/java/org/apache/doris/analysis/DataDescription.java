@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -379,7 +378,7 @@ public class DataDescription {
     }
 
     private static void validateNowFunction(Column mappingColumn) throws AnalysisException {
-        if (!mappingColumn.getOriginType().equals(Type.DATE) && !mappingColumn.getOriginType().equals(Type.DATETIME)) {
+        if (!mappingColumn.getOriginType().isDateType()) {
             throw new AnalysisException("Now() function is only support for DATE/DATETIME column");
         }
     }
@@ -713,7 +712,7 @@ public class DataDescription {
     }
 
     private void analyzeSequenceCol(String fullDbName) throws AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(fullDbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(fullDbName);
         OlapTable olapTable = db.getOlapTableOrAnalysisException(tableName);
         // no sequence column in load and table schema
         if (!hasSequenceCol() && !olapTable.hasSequenceCol()) {

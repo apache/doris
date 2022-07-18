@@ -112,8 +112,10 @@ public class CreateTableLikeTest {
             String existedDbName, String newTblName, String existedTblName, int rollupSize) throws Exception {
         createTable(createTableSql);
         createTableLike(createTableLikeSql);
-        Database newDb = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:" + newDbName);
-        Database existedDb = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:" + existedDbName);
+        Database newDb =
+                Catalog.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:" + newDbName);
+        Database existedDb = Catalog.getCurrentInternalCatalog()
+                .getDbOrDdlException("default_cluster:" + existedDbName);
         OlapTable newTbl = (OlapTable) newDb.getTableOrDdlException(newTblName);
         OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
         checkTableEqual(newTbl, existedTbl, rollupSize);
@@ -124,8 +126,10 @@ public class CreateTableLikeTest {
 
         createTable(createTableSql);
         createTableLike(createTableLikeSql);
-        Database newDb = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:" + newDbName);
-        Database existedDb = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:" + existedDbName);
+        Database newDb =
+                Catalog.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:" + newDbName);
+        Database existedDb = Catalog.getCurrentInternalCatalog()
+                .getDbOrDdlException("default_cluster:" + existedDbName);
         MysqlTable newTbl = (MysqlTable) newDb.getTableOrDdlException(newTblName);
         MysqlTable existedTbl = (MysqlTable) existedDb.getTableOrDdlException(existedTblName);
         checkTableEqual(newTbl, existedTbl, 0);
@@ -141,7 +145,7 @@ public class CreateTableLikeTest {
                 + "    partition p2 VALUES  [(\"20211201\"),(\"20220101\"))\n" + ")\n"
                 + "DISTRIBUTED BY HASH(`id1`) BUCKETS 1\n" + "PROPERTIES (\n" + "\"replication_num\" = \"1\"\n" + ");";
         createTable(createTableSql);
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable table = (OlapTable) db.getTableOrDdlException("bucket_distribution_test");
         DistributionInfo defaultInfo = table.getDefaultDistributionInfo();
         DistributionInfo previous = null;

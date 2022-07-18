@@ -116,7 +116,7 @@ public class ModifyBackendTest {
         // although there is no exception throw, but partition create failed, because there is no BE
         // with "default" tag
         ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt3));
-        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
         Table tbl3 = db.getTableNullable("tbl3");
         String err = Catalog.getCurrentCatalog().getDynamicPartitionScheduler().getRuntimeInfo(tbl3.getId(), DynamicPartitionScheduler.CREATE_PARTITION_MSG);
         Assert.assertTrue(err.contains("Failed to find 1 backends for policy:"));

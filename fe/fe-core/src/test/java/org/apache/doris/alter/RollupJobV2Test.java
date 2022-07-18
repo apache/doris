@@ -51,6 +51,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.AgentTask;
@@ -149,7 +150,7 @@ public class RollupJobV2Test {
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(clause);
         alterClauses.add(clause2);
-        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = masterCatalog.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
@@ -169,7 +170,7 @@ public class RollupJobV2Test {
         MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getMaterializedViewHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(clause);
-        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = masterCatalog.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
@@ -188,7 +189,7 @@ public class RollupJobV2Test {
         // add a rollup job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(clause);
-        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = masterCatalog.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
@@ -222,6 +223,7 @@ public class RollupJobV2Test {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
                 shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(),
                         shadowReplica.getDataSize(),
+                        shadowReplica.getRemoteDataSize(),
                         shadowReplica.getRowCount());
             }
         }
@@ -240,7 +242,7 @@ public class RollupJobV2Test {
         // add a rollup job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(clause);
-        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = masterCatalog.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
@@ -301,6 +303,7 @@ public class RollupJobV2Test {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
                 shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(),
                         shadowReplica.getDataSize(),
+                        shadowReplica.getRemoteDataSize(),
                         shadowReplica.getRowCount());
             }
         }
@@ -335,7 +338,7 @@ public class RollupJobV2Test {
         out.close();
 
         List<Expr> params = Lists.newArrayList();
-        SlotRef param1 = new SlotRef(new TableName(null, "test"), "c1");
+        SlotRef param1 = new SlotRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "test"), "c1");
         params.add(param1);
         MVColumnItem mvColumnItem = new MVColumnItem(mvColumnName, Type.BITMAP);
         mvColumnItem.setDefineExpr(new FunctionCallExpr(new FunctionName("to_bitmap"), params));
@@ -373,7 +376,7 @@ public class RollupJobV2Test {
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
         MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getMaterializedViewHandler();
-        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = masterCatalog.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
 
         AddRollupClause addRollupClause = new AddRollupClause("r1", Lists.newArrayList("k1", "v1", "v2"), null, CatalogTestUtil.testIndex2, null);

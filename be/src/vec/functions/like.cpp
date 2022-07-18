@@ -101,7 +101,8 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
     // result column
     auto res = ColumnUInt8::create();
     ColumnUInt8::Container& vec_res = res->get_data();
-    vec_res.resize(values->size());
+    // set default value to 0, and match functions only need to set 1/true
+    vec_res.resize_fill(values->size());
 
     auto* state = reinterpret_cast<LikeState*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
@@ -129,6 +130,42 @@ Status FunctionLikeBase::vector_vector(const ColumnString::Chars& values,
                                        const ColumnString::Offsets& pattern_offsets,
                                        ColumnUInt8::Container& result, const LikeFn& function,
                                        LikeSearchState* search_state) {
+    // for constant_substring_fn, use long run length search for performance
+    if (constant_substring_fn ==
+        *(function.target<doris::Status (*)(LikeSearchState * state, const StringValue&,
+                                            const StringValue&, unsigned char*)>())) {
+        // treat continous multi string data as a long string data
+        const UInt8* begin = values.data();
+        const UInt8* end = begin + values.size();
+        const UInt8* pos = begin;
+
+        /// Current index in the array of strings.
+        size_t i = 0;
+        size_t needle_size = search_state->substring_pattern.get_pattern_length();
+
+        /// We will search for the next occurrence in all strings at once.
+        while (pos < end) {
+            // search return matched substring start offset
+            pos = (UInt8*)search_state->substring_pattern.search((char*)pos, end - pos);
+            if (pos >= end) break;
+
+            /// Determine which index it refers to.
+            /// begin + value_offsets[i] is the start offset of string at i+1
+            while (begin + value_offsets[i] <= pos) ++i;
+
+            /// We check that the entry does not pass through the boundaries of strings.
+            if (pos + needle_size < begin + value_offsets[i]) {
+                result[i] = 1;
+            }
+
+            // move to next string offset
+            pos = begin + value_offsets[i];
+            ++i;
+        }
+
+        return Status::OK();
+    }
+
     const auto size = value_offsets.size();
 
     for (int i = 0; i < size; ++i) {
@@ -155,7 +192,7 @@ Status FunctionLike::like_fn(LikeSearchState* state, const StringValue& val,
         *result = RE2::FullMatch(re2::StringPiece(val.ptr, val.len), re);
         return Status::OK();
     } else {
-        return Status::RuntimeError(fmt::format("Invalid pattern: {}", pattern.debug_string()));
+        return Status::RuntimeError("Invalid pattern: {}", pattern.debug_string());
     }
 }
 
@@ -247,8 +284,7 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
             opts.set_dot_nl(true);
             state->search_state.regex = std::make_unique<RE2>(re_pattern, opts);
             if (!state->search_state.regex->ok()) {
-                return Status::InternalError(
-                        fmt::format("Invalid regex expression: {}", pattern_str));
+                return Status::InternalError("Invalid regex expression: {}", pattern_str);
             }
             state->function = constant_regex_full_fn;
         }
@@ -288,8 +324,7 @@ Status FunctionRegexp::prepare(FunctionContext* context,
             opts.set_dot_nl(true);
             state->search_state.regex = std::make_unique<RE2>(pattern_str, opts);
             if (!state->search_state.regex->ok()) {
-                return Status::InternalError(
-                        fmt::format("Invalid regex expression: {}", pattern_str));
+                return Status::InternalError("Invalid regex expression: {}", pattern_str);
             }
             state->function = constant_regex_partial_fn;
         }
@@ -315,7 +350,7 @@ Status FunctionRegexp::regexp_fn(LikeSearchState* state, const StringValue& val,
         *result = RE2::PartialMatch(re2::StringPiece(val.ptr, val.len), re);
         return Status::OK();
     } else {
-        return Status::RuntimeError(fmt::format("Invalid pattern: {}", pattern.debug_string()));
+        return Status::RuntimeError("Invalid pattern: {}", pattern.debug_string());
     }
 }
 

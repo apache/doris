@@ -32,25 +32,25 @@ public class EncryptKeyHelper {
 
     public static void createEncryptKey(CreateEncryptKeyStmt stmt) throws UserException {
         EncryptKeyName name = stmt.getEncryptKeyName();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(name.getDb());
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(name.getDb());
         db.addEncryptKey(stmt.getEncryptKey());
     }
 
     public static void replayCreateEncryptKey(EncryptKey encryptKey) throws MetaNotFoundException {
         String dbName = encryptKey.getEncryptKeyName().getDb();
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbName);
         db.replayAddEncryptKey(encryptKey);
     }
 
     public static void dropEncryptKey(DropEncryptKeyStmt stmt) throws UserException {
         EncryptKeyName name = stmt.getEncryptKeyName();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(name.getDb());
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(name.getDb());
         db.dropEncryptKey(stmt.getEncryptKeysSearchDesc());
     }
 
     public static void replayDropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) throws MetaNotFoundException {
         String dbName = encryptKeySearchDesc.getKeyEncryptKeyName().getDb();
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbName);
         db.replayDropEncryptKey(encryptKeySearchDesc);
     }
 

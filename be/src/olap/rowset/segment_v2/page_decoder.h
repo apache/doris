@@ -86,6 +86,11 @@ public:
         return Status::NotSupported("not implement vec op now");
     }
 
+    virtual Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                                  vectorized::MutableColumnPtr& dst) {
+        return Status::NotSupported("not implement vec op now");
+    }
+
     // Same as `next_batch` except for not moving forward the cursor.
     // When read array's ordinals in `ArrayFileColumnIterator`, we want to read one extra ordinal
     // but do not want to move forward the cursor.

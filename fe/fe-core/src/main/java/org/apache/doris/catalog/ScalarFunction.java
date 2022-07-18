@@ -153,6 +153,7 @@ public class ScalarFunction extends Function {
                     break;
                 case DOUBLE:
                 case TIME:
+                case TIMEV2:
                     beFn += "_double_val";
                     break;
                 case CHAR:
@@ -165,9 +166,14 @@ public class ScalarFunction extends Function {
                     break;
                 case DATE:
                 case DATETIME:
+                case DATEV2:
+                case DATETIMEV2:
                     beFn += "_datetime_val";
                     break;
                 case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
                     beFn += "_decimalv2_val";
                     usesDecimalV2 = true;
                     break;
@@ -227,6 +233,7 @@ public class ScalarFunction extends Function {
                     break;
                 case DOUBLE:
                 case TIME:
+                case TIMEV2:
                     beFn.append("_double_val");
                     break;
                 case CHAR:
@@ -237,9 +244,14 @@ public class ScalarFunction extends Function {
                     break;
                 case DATE:
                 case DATETIME:
+                case DATEV2:
+                case DATETIMEV2:
                     beFn.append("_datetime_val");
                     break;
                 case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
                     beFn.append("_decimalv2_val");
                     usesDecimalV2 = true;
                     break;
@@ -372,8 +384,8 @@ public class ScalarFunction extends Function {
     }
 
     @Override
-    public TFunction toThrift() {
-        TFunction fn = super.toThrift();
+    public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
+        TFunction fn = super.toThrift(realReturnType, realArgTypes);
         fn.setScalarFn(new TScalarFunction());
         fn.getScalarFn().setSymbol(symbolName);
         if (prepareFnSymbol != null) {

@@ -17,14 +17,13 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.cluster.ClusterNamespace;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.MetaException;
@@ -35,10 +34,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Function;
 
 /**
  * External data source for hive metastore compatible data sources.
@@ -46,45 +41,37 @@ import java.util.function.Function;
 public class HMSExternalDataSource extends ExternalDataSource {
     private static final Logger LOG = LogManager.getLogger(HMSExternalDataSource.class);
 
-    //Cache of db name to db id.
-    private ConcurrentHashMap<String, Long> dbNameToId = new ConcurrentHashMap();
-    private AtomicLong nextId = new AtomicLong(0);
-
-    protected String hiveMetastoreUris;
+    // Cache of db name to db id.
+    private Map<String, Long> dbNameToId;
+    private Map<Long, HMSExternalDatabase> idToDb;
+    private boolean initialized = false;
     protected HiveMetaStoreClient client;
 
     /**
      * Default constructor for HMSExternalDataSource.
      */
-    public HMSExternalDataSource(String name, Map<String, String> props) {
-        setName(name);
-        getDsProperty().setProperties(props);
-        setType("hms");
-    }
-
-    /**
-     * Hive metastore data source implementation.
-     *
-     * @param hiveMetastoreUris e.g. thrift://127.0.0.1:9083
-     */
-    public HMSExternalDataSource(long id, String name, String type, DataSourceProperty dsProperty,
-            String hiveMetastoreUris) throws DdlException {
-        this.id = id;
+    public HMSExternalDataSource(long catalogId, String name, Map<String, String> props) {
+        this.id = catalogId;
         this.name = name;
-        this.type = type;
-        this.dsProperty = dsProperty;
-        this.hiveMetastoreUris = hiveMetastoreUris;
-        init();
+        this.type = "hms";
+        this.dsProperty = new DataSourceProperty();
+        this.dsProperty.setProperties(props);
     }
 
-    private void init() throws DdlException {
+    public String getHiveMetastoreUris() {
+        return dsProperty.getOrDefault("hive.metastore.uris", "");
+    }
+
+    private void init() {
+        // Must set here. Because after replay from image, these 2 map will become null again.
+        dbNameToId = Maps.newConcurrentMap();
+        idToDb = Maps.newConcurrentMap();
         HiveConf hiveConf = new HiveConf();
-        hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, hiveMetastoreUris);
+        hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
         try {
             client = new HiveMetaStoreClient(hiveConf);
         } catch (MetaException e) {
             LOG.warn("Failed to create HiveMetaStoreClient: {}", e.getMessage());
-            throw new DdlException("Create HMSExternalDataSource failed.", e);
         }
         List<String> allDatabases;
         try {
@@ -97,30 +84,34 @@ public class HMSExternalDataSource extends ExternalDataSource {
         if (allDatabases == null) {
             return;
         }
-        for (String db : allDatabases) {
-            dbNameToId.put(db, nextId.incrementAndGet());
+        for (String dbName : allDatabases) {
+            long dbId = Catalog.getCurrentCatalog().getNextId();
+            dbNameToId.put(dbName, dbId);
+            idToDb.put(dbId, new HMSExternalDatabase(this, dbId, dbName));
+        }
+    }
+
+    /**
+     * Datasource can't be init when creating because the external datasource may depend on third system.
+     * So you have to make sure the client of third system is initialized before any method was called.
+     */
+    private synchronized void makeSureInitialized() {
+        if (!initialized) {
+            init();
+            initialized = true;
         }
     }
 
     @Override
     public List<String> listDatabaseNames(SessionContext ctx) {
-        try {
-            List<String> allDatabases = client.getAllDatabases();
-            // Update the db name to id map.
-            for (String db : allDatabases) {
-                dbNameToId.putIfAbsent(db, nextId.incrementAndGet());
-            }
-            return allDatabases;
-        } catch (MetaException e) {
-            LOG.warn("List Database Names failed. {}", e.getMessage());
-        }
-        return Lists.newArrayList();
+        makeSureInitialized();
+        return Lists.newArrayList(dbNameToId.keySet());
     }
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         try {
-            return client.getAllTables(dbName);
+            return client.getAllTables(getRealTableName(dbName));
         } catch (MetaException e) {
             LOG.warn("List Table Names failed. {}", e.getMessage());
         }
@@ -130,7 +121,7 @@ public class HMSExternalDataSource extends ExternalDataSource {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         try {
-            return client.tableExists(dbName, tblName);
+            return client.tableExists(getRealTableName(dbName), tblName);
         } catch (TException e) {
             LOG.warn("Check table exist failed. {}", e.getMessage());
         }
@@ -139,92 +130,25 @@ public class HMSExternalDataSource extends ExternalDataSource {
 
     @Nullable
     @Override
-    public DatabaseIf getDbNullable(String dbName) {
-        try {
-            client.getDatabase(dbName);
-        } catch (TException e) {
-            LOG.warn("External database {} not exist.", dbName);
+    public ExternalDatabase getDbNullable(String dbName) {
+        makeSureInitialized();
+        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
+        if (!dbNameToId.containsKey(realDbName)) {
             return null;
         }
-        // The id may change after FE restart since we don't persist it.
-        // Different FEs may have different ids for the same dbName.
-        // May duplicate with internal db id as well.
-        dbNameToId.putIfAbsent(dbName, nextId.incrementAndGet());
-        return new HMSExternalDatabase(this, dbNameToId.get(dbName), dbName, hiveMetastoreUris);
+        return idToDb.get(dbNameToId.get(realDbName));
     }
 
     @Nullable
     @Override
-    public DatabaseIf getDbNullable(long dbId) {
-        for (Map.Entry<String, Long> entry : dbNameToId.entrySet()) {
-            if (entry.getValue() == dbId) {
-                return new HMSExternalDatabase(this, dbId, entry.getKey(), hiveMetastoreUris);
-            }
-        }
-        return null;
+    public ExternalDatabase getDbNullable(long dbId) {
+        makeSureInitialized();
+        return idToDb.get(dbId);
     }
 
     @Override
-    public Optional<DatabaseIf> getDb(String dbName) {
-        return Optional.ofNullable(getDbNullable(dbName));
-    }
-
-    @Override
-    public Optional<DatabaseIf> getDb(long dbId) {
-        return Optional.ofNullable(getDbNullable(dbId));
-    }
-
-    @Override
-    public <E extends Exception> DatabaseIf getDbOrException(String dbName, Function<String, E> e) throws E {
-        DatabaseIf db = getDbNullable(dbName);
-        if (db == null) {
-            throw e.apply(dbName);
-        }
-        return db;
-    }
-
-    @Override
-    public <E extends Exception> DatabaseIf getDbOrException(long dbId, Function<Long, E> e) throws E {
-        DatabaseIf db = getDbNullable(dbId);
-        if (db == null) {
-            throw e.apply(dbId);
-        }
-        return db;
-    }
-
-    @Override
-    public DatabaseIf getDbOrMetaException(String dbName) throws MetaNotFoundException {
-        return getDbOrException(dbName,
-                s -> new MetaNotFoundException("unknown databases, dbName=" + s, ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    @Override
-    public DatabaseIf getDbOrMetaException(long dbId) throws MetaNotFoundException {
-        return getDbOrException(dbId,
-                s -> new MetaNotFoundException("unknown databases, dbId=" + s, ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    @Override
-    public DatabaseIf getDbOrDdlException(String dbName) throws DdlException {
-        return getDbOrException(dbName,
-                s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    @Override
-    public DatabaseIf getDbOrDdlException(long dbId) throws DdlException {
-        return getDbOrException(dbId,
-                s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    @Override
-    public DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException {
-        return getDbOrException(dbName,
-                s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
-    }
-
-    @Override
-    public DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException {
-        return getDbOrException(dbId,
-                s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
+    public List<Long> getDbIds() {
+        makeSureInitialized();
+        return Lists.newArrayList(dbNameToId.values());
     }
 }

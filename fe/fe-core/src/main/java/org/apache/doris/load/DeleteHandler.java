@@ -65,6 +65,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PushTask;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
@@ -145,7 +146,7 @@ public class DeleteHandler implements Writable {
         List<String> partitionNames = stmt.getPartitionNames();
         boolean noPartitionSpecified = partitionNames.isEmpty();
         List<Predicate> conditions = stmt.getDeleteConditions();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         DeleteJob deleteJob = null;
         try {
@@ -238,6 +239,11 @@ public class DeleteHandler implements Writable {
                         long indexId = index.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
 
+                        List<TColumn> columnsDesc = new ArrayList<TColumn>();
+                        for (Column column : olapTable.getSchemaByIndexId(indexId)) {
+                            columnsDesc.add(column.toThrift());
+                        }
+
                         for (Tablet tablet : index.getTablets()) {
                             long tabletId = tablet.getId();
 
@@ -260,7 +266,8 @@ public class DeleteHandler implements Writable {
                                         TTaskType.REALTIME_PUSH,
                                         transactionId,
                                         Catalog.getCurrentGlobalTransactionMgr()
-                                                .getTransactionIDGenerator().getNextTransactionId());
+                                                .getTransactionIDGenerator().getNextTransactionId(),
+                                        columnsDesc);
                                 pushTask.setIsSchemaChanging(false);
                                 pushTask.setCountDownLatch(countDownLatch);
 
@@ -575,7 +582,9 @@ public class DeleteHandler implements Writable {
                             binaryPredicate.setChild(1, LiteralExpr.create("0", Type.TINYINT));
                         }
                     } else if (column.getDataType() == PrimitiveType.DATE
-                            || column.getDataType() == PrimitiveType.DATETIME) {
+                            || column.getDataType() == PrimitiveType.DATETIME
+                            || column.getDataType() == PrimitiveType.DATEV2
+                            || column.getDataType() == PrimitiveType.DATETIMEV2) {
                         DateLiteral dateLiteral = new DateLiteral(value, Type.fromPrimitiveType(column.getDataType()));
                         value = dateLiteral.getStringValue();
                         binaryPredicate.setChild(1, LiteralExpr.create(value,
@@ -591,9 +600,10 @@ public class DeleteHandler implements Writable {
                 try {
                     InPredicate inPredicate = (InPredicate) condition;
                     for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
-                        value = ((LiteralExpr) inPredicate.getChild(i)).getStringValue();
                         if (column.getDataType() == PrimitiveType.DATE
-                                || column.getDataType() == PrimitiveType.DATETIME) {
+                                || column.getDataType() == PrimitiveType.DATETIME
+                                || column.getDataType() == PrimitiveType.DATEV2
+                                || column.getDataType() == PrimitiveType.DATETIMEV2) {
                             DateLiteral dateLiteral = new DateLiteral(value,
                                     Type.fromPrimitiveType(column.getDataType()));
                             value = dateLiteral.getStringValue();
@@ -692,7 +702,7 @@ public class DeleteHandler implements Writable {
     // show delete stmt
     public List<List<Comparable>> getDeleteInfosByDb(long dbId) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             return infos;
         }

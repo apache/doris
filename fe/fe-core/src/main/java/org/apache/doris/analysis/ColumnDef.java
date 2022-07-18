@@ -334,15 +334,20 @@ public class ColumnDef {
                 new FloatLiteral(defaultValue);
                 break;
             case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;
             case DATE:
-                new DateLiteral(defaultValue, type);
+            case DATEV2:
+                new DateLiteral(defaultValue, DateLiteral.getDefaultDateType(type));
                 break;
             case DATETIME:
+            case DATETIMEV2:
                 if (defaultValueExprDef == null) {
-                    new DateLiteral(defaultValue, type);
+                    new DateLiteral(defaultValue, DateLiteral.getDefaultDateType(type));
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
                         break;
@@ -360,11 +365,8 @@ public class ColumnDef {
                 }
                 break;
             case BITMAP:
-                break;
             case ARRAY:
-                break;
             case MAP:
-                break;
             case STRUCT:
                 break;
             case BOOLEAN:
@@ -401,7 +403,7 @@ public class ColumnDef {
 
     public Column toColumn() {
         return new Column(name, typeDef.getType(), isKey, aggregateType, isAllowNull, defaultValue.value, comment,
-                visible, defaultValue.defaultValueExprDef);
+                visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE);
     }
 
     @Override

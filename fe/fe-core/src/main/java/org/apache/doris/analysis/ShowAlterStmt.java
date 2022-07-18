@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -120,7 +120,8 @@ public class ShowAlterStmt extends ShowStmt {
                 throw new AnalysisException("Where clause : CreateTime/FinishTime =|>=|<=|>|<|!= "
                     + "\"2019-12-02|2019-12-02 14:54:00\"");
             }
-            subExpr.setChild(1, ((StringLiteral) subExpr.getChild(1)).castTo(Type.DATETIME));
+            subExpr.setChild(1, (subExpr.getChild(1)).castTo(
+                    DateLiteral.getDefaultDateType(Type.DATETIME)));
         } else {
             throw new AnalysisException("The columns of TableName/CreateTime/FinishTime/State are supported.");
         }
@@ -189,9 +190,8 @@ public class ShowAlterStmt extends ShowStmt {
         }
     }
 
-
     public void handleShowAlterTable(Analyzer analyzer) throws UserException {
-        Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+        DatabaseIf db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbName);
 
         // build proc path
         StringBuilder sb = new StringBuilder();

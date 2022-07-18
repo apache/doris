@@ -44,6 +44,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
@@ -127,10 +128,10 @@ public class SparkLoadJobTest {
     }
 
     @Test
-    public void testCreateFromLoadStmt(@Mocked Catalog catalog, @Injectable LoadStmt loadStmt,
-                                       @Injectable DataDescription dataDescription, @Injectable LabelName labelName,
-                                       @Injectable Database db, @Injectable OlapTable olapTable,
-                                       @Injectable ResourceMgr resourceMgr) throws Exception {
+    public void testCreateFromLoadStmt(@Mocked Catalog catalog, @Mocked InternalDataSource ds,
+            @Injectable LoadStmt loadStmt, @Injectable DataDescription dataDescription, @Injectable LabelName labelName,
+            @Injectable Database db, @Injectable OlapTable olapTable, @Injectable ResourceMgr resourceMgr)
+            throws Exception {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(dataDescription);
         Map<String, String> resourceProperties = Maps.newHashMap();
@@ -144,7 +145,11 @@ public class SparkLoadJobTest {
 
         new Expectations() {
             {
-                catalog.getDbOrDdlException(dbName);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+                ds.getDbOrDdlException(dbName);
+                minTimes = 0;
                 result = db;
                 catalog.getResourceMgr();
                 result = resourceMgr;

@@ -73,8 +73,13 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "float":
                     case "double":
                     case "decimalv2":
+                    case "decimal32":
+                    case "decimal64":
+                    case "decimal128":
                     case "date":
                     case "datetime":
+                    case "datev2":
+                    case "datetimev2":
                         return new NumberMaxAggregator();
                     case "char":
                     case "varchar":
@@ -94,8 +99,13 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "float":
                     case "double":
                     case "decimalv2":
+                    case "decimal32":
+                    case "decimal64":
+                    case "decimal128":
                     case "date":
                     case "datetime":
+                    case "datev2":
+                    case "datetimev2":
                         return new NumberMinAggregator();
                     case "char":
                     case "varchar":
@@ -123,6 +133,9 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "largeint":
                         return new LargeIntSumAggregator();
                     case "decimalv2":
+                    case "decimal32":
+                    case "decimal64":
+                    case "decimal128":
                         return new BigDecimalSumAggregator();
                     default:
                         throw new SparkDppException(

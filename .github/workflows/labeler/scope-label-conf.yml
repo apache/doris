@@ -33,6 +33,7 @@ area/vectorization:
 
 area/nereids:
   - fe/fe-core/src/main/java/org/apache/doris/nereids/**/*
+  - fe/fe-core/src/test/java/org/apache/doris/nereids/**/*
 
 area/planner:
   - fe/fe-core/src/main/java/org/apache/doris/planner/**/*

@@ -165,7 +165,6 @@ else
         BUILD_BROKER=1
         BUILD_META_TOOL=ON
         BUILD_SPARK_DPP=1
-        BUILD_JAVA_UDF=1
         BUILD_HIVE_UDF=1
         CLEAN=0
     fi
@@ -205,14 +204,14 @@ fi
 if [[ -z ${USE_LIBCPP} ]]; then
     USE_LIBCPP=OFF
 fi
-if [[ -z ${USE_LLD} ]]; then
-    USE_LLD=OFF
-fi
 if [[ -z ${STRIP_DEBUG_INFO} ]]; then
     STRIP_DEBUG_INFO=OFF
 fi
 if [[ -z ${USE_MEM_TRACKER} ]]; then
     USE_MEM_TRACKER=ON
+fi
+if [[ -z ${USE_JEMALLOC} ]]; then
+    USE_JEMALLOC=OFF
 fi
 
 if [[ -z ${USE_DWARF} ]]; then
@@ -234,10 +233,10 @@ echo "Get params:
     GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY
     USE_AVX2            -- $USE_AVX2
     USE_LIBCPP          -- $USE_LIBCPP
-    USE_LLD             -- $USE_LLD
     USE_DWARF           -- $USE_DWARF
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
     USE_MEM_TRACKER     -- $USE_MEM_TRACKER
+    USE_JEMALLOC        -- $USE_JEMALLOC
 "
 
 # Clean and build generated code
@@ -247,7 +246,6 @@ fi
 echo "Build generated code"
 cd ${DORIS_HOME}/gensrc
 # DO NOT using parallel make(-j) for gensrc
-python --version
 make
 
 # Assesmble FE modules
@@ -295,11 +293,11 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DWITH_LZO=${WITH_LZO} \
             -DUSE_LIBCPP=${USE_LIBCPP} \
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \
-            -DUSE_LLD=${USE_LLD} \
             -DBUILD_JAVA_UDF=${BUILD_JAVA_UDF} \
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_DWARF=${USE_DWARF} \
             -DUSE_MEM_TRACKER=${USE_MEM_TRACKER} \
+            -DUSE_JEMALLOC=${USE_JEMALLOC} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ${DORIS_HOME}/be/
     ${BUILD_SYSTEM} -j ${PARALLEL}
@@ -399,7 +397,7 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
     cp -r -p ${DORIS_HOME}/be/output/lib/doris_be ${DORIS_OUTPUT}/be/lib/
     # make a soft link palo_be point to doris_be, for forward compatibility
-    cd ${DORIS_OUTPUT}/be/lib && rm palo_be && ln -s doris_be palo_be && cd -
+    cd ${DORIS_OUTPUT}/be/lib && rm -f palo_be && ln -s doris_be palo_be && cd -
 
     if [ "${BUILD_META_TOOL}" = "ON" ]; then
         cp -r -p ${DORIS_HOME}/be/output/lib/meta_tool ${DORIS_OUTPUT}/be/lib/

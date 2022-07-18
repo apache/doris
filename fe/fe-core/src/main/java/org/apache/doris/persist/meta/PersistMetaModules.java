@@ -17,8 +17,8 @@
 
 package org.apache.doris.persist.meta;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.List;

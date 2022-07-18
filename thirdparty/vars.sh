@@ -45,7 +45,7 @@ export TP_LIB_DIR=$TP_INSTALL_DIR/lib
 export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 
 # source of all dependencies, default unuse it
-# export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+# export REPOSITORY_URL=
 
 #####################################################
 # Download url, filename and unpaced filename

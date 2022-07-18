@@ -76,9 +76,9 @@ public class TabletStatMgr extends MasterDaemon {
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
-        List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
+        List<Long> dbIds = Catalog.getCurrentInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
-            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+            Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -127,7 +127,8 @@ public class TabletStatMgr extends MasterDaemon {
                 if (invertedIndex.getTabletMeta(stat.getTabletId()) != null) {
                     Replica replica = invertedIndex.getReplica(stat.getTabletId(), beId);
                     if (replica != null) {
-                        replica.updateStat(stat.getDataSize(), stat.getRowNum(), stat.getVersionCount());
+                        replica.updateStat(stat.getDataSize(), stat.getRemoteDataSize(), stat.getRowNum(),
+                                stat.getVersionCount());
                     }
                 }
             }

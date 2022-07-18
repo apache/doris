@@ -28,7 +28,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
@@ -38,7 +37,6 @@ import com.google.common.collect.Maps;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -120,8 +118,8 @@ public class CatalogTestUtil {
 
     public static boolean compareCatalog(Catalog masterCatalog, Catalog slaveCatalog) {
         try {
-            Database masterDb = masterCatalog.getDbOrMetaException(testDb1);
-            Database slaveDb = slaveCatalog.getDbOrMetaException(testDb1);
+            Database masterDb = masterCatalog.getInternalDataSource().getDbOrMetaException(testDb1);
+            Database slaveDb = slaveCatalog.getInternalDataSource().getDbOrMetaException(testDb1);
             List<Table> tables = masterDb.getTables();
             for (Table table : tables) {
                 Table slaveTable = slaveDb.getTableOrMetaException(table.getId());
@@ -173,11 +171,11 @@ public class CatalogTestUtil {
         Catalog.getCurrentInvertedIndex().clear();
 
         // replica
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L,
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, 0, 0L, 0L,
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, 0, 0L, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, 0, 0L, 0L,
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, 0, 0L, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
 
         // tablet
@@ -244,7 +242,7 @@ public class CatalogTestUtil {
     public static void createDupTable(Database db) {
 
         // replica
-        Replica replica = new Replica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L,
+        Replica replica = new Replica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
 
         // tablet
@@ -322,18 +320,6 @@ public class CatalogTestUtil {
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort) {
         Backend backend = new Backend(id, host, heartPort);
         // backend.updateOnce(bePort, httpPort, 10000);
-        backend.setAlive(true);
-        return backend;
-    }
-
-    public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort,
-            long totalCapacityB, long avaiLabelCapacityB) {
-        Backend backend = createBackend(id, host, heartPort, bePort, httpPort);
-        Map<String, TDisk> backendDisks = new HashMap<String, TDisk>();
-        String rootPath = "root_path";
-        TDisk disk = new TDisk(rootPath, totalCapacityB, avaiLabelCapacityB, true);
-        backendDisks.put(rootPath, disk);
-        backend.updateDisks(backendDisks);
         backend.setAlive(true);
         return backend;
     }

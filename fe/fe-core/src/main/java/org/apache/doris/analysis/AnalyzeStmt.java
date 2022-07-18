@@ -100,7 +100,7 @@ public class AnalyzeStmt extends DdlStmt {
     public Database getDb() throws AnalysisException {
         Preconditions.checkArgument(isAnalyzed(),
                 "The db must be obtained after the parsing is complete");
-        return this.analyzer.getCatalog().getDbOrAnalysisException(this.dbId);
+        return this.analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(this.dbId);
     }
 
     public List<Table> getTables() throws AnalysisException {
@@ -160,11 +160,13 @@ public class AnalyzeStmt extends DdlStmt {
         // step1: analyze db, table and column
         if (this.dbTableName != null) {
             this.dbTableName.analyze(analyzer);
+            // disallow external catalog
+            Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName());
             String dbName = this.dbTableName.getDb();
             String tblName = this.dbTableName.getTbl();
             checkAnalyzePriv(dbName, tblName);
 
-            Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+            Database db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbName);
             Table table = db.getTableOrAnalysisException(tblName);
 
             if (this.columnNames != null && !this.columnNames.isEmpty()) {
@@ -191,7 +193,7 @@ public class AnalyzeStmt extends DdlStmt {
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+            Database db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbName);
 
             db.readLock();
             try {

@@ -70,10 +70,15 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DOUBLE, "double");
         TYPE_STRING_MAP.put(PrimitiveType.DATE, "date");
         TYPE_STRING_MAP.put(PrimitiveType.DATETIME, "datetime");
+        TYPE_STRING_MAP.put(PrimitiveType.DATEV2, "datev2");
+        TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.STRING, "string");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL32, "decimal(%d,%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL64, "decimal(%d,%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL128, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
         TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
@@ -483,6 +488,12 @@ public class Util {
 
         if (!catalog.equals(InternalDataSource.INTERNAL_DS_NAME)) {
             FeNameFormat.checkCommonName("catalog", catalog);
+        }
+    }
+
+    public static void prohibitExternalCatalog(String catalog, String msg) throws AnalysisException {
+        if (!Strings.isNullOrEmpty(catalog) && !catalog.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+            throw new AnalysisException(String.format("External catalog '%s' is not allowed in '%s'", catalog, msg));
         }
     }
 }

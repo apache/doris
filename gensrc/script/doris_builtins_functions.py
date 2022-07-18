@@ -132,6 +132,19 @@ visible_functions = [
     [['element_at', '%element_extract%'], 'VARCHAR', ['ARRAY_VARCHAR', 'BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
 
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_INT', 'ARRAY_INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BIGINT', 'ARRAY_BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_LARGEINT', 'ARRAY_LARGEINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_DATETIME', 'ARRAY_DATETIME'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_DATE', 'ARRAY_DATE'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_FLOAT', 'ARRAY_FLOAT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_DOUBLE', 'ARRAY_DOUBLE'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_DECIMALV2', 'ARRAY_DECIMALV2'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['arrays_overlap'], 'BOOLEAN', ['ARRAY_STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+
     [['array_contains'], 'BOOLEAN', ['ARRAY_TINYINT', 'TINYINT'], '', '', '', 'vec', ''],
     [['array_contains'], 'BOOLEAN', ['ARRAY_SMALLINT', 'SMALLINT'], '', '', '', 'vec', ''],
     [['array_contains'], 'BOOLEAN', ['ARRAY_INT', 'INT'], '', '', '', 'vec', ''],
@@ -160,6 +173,18 @@ visible_functions = [
     [['array_position'], 'BIGINT', ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],
 
     [['cardinality', 'size'], 'BIGINT', ['ARRAY'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_INT',       ['ARRAY_INT'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_BIGINT',    ['ARRAY_BIGINT'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_DATE',      ['ARRAY_DATE'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
+    [['array_distinct'], 'ARRAY_STRING',    ['ARRAY_STRING'], '', '', '', 'vec', ''],
 
     [['array_min'],     'TINYINT',  ['ARRAY_TINYINT'],  '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_min'],     'SMALLINT', ['ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -186,6 +211,19 @@ visible_functions = [
     [['array_product'], 'DOUBLE',   ['ARRAY_INT'],      '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_product'], 'DOUBLE',   ['ARRAY_BIGINT'],   '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_product'], 'DOUBLE',   ['ARRAY_LARGEINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+
+    [['array_remove'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT', 'TINYINT'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT', 'SMALLINT'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_INT',       ['ARRAY_INT', 'INT'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_BIGINT',    ['ARRAY_BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT', 'LARGEINT'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT', 'FLOAT'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE', 'DOUBLE'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2', 'DECIMALV2'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME', 'DATETIME'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_DATE',      ['ARRAY_DATE', 'DATE'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
+    [['array_remove'], 'ARRAY_STRING',    ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],    
 
     # Timestamp functions
     [['unix_timestamp'], 'INT', [],
@@ -980,6 +1018,9 @@ visible_functions = [
     [['concat_ws'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'],
             '_ZN5doris15StringFunctions9concat_wsEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValEiPS5_', '', '', 'vec', 'CUSTOM'],
+    [['concat_ws'], 'VARCHAR', ['VARCHAR', 'ARRAY_VARCHAR'],
+            '_ZN5doris15StringFunctions9concat_wsEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValEiPS5_', '', '', 'vec', 'CUSTOM'],
     [['find_in_set'], 'INT', ['VARCHAR', 'VARCHAR'],
             '_ZN5doris15StringFunctions11find_in_setEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
@@ -1022,10 +1063,10 @@ visible_functions = [
         '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValES9_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['strleft', 'left'], 'STRING', ['STRING', 'INT'],
         '_ZN5doris15StringFunctions4leftEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', ''],
+        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['strright', 'right'], 'STRING', ['STRING', 'INT'],
         '_ZN5doris15StringFunctions5rightEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', ''],
+        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['ends_with'], 'BOOLEAN', ['STRING', 'STRING'],
         '_ZN5doris15StringFunctions9ends_withEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '', '', 'vec', ''],

@@ -21,12 +21,15 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.thrift.TAggregateExpr;
+import org.apache.doris.thrift.TTypeDesc;
 
 import com.google.common.collect.Lists;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -60,6 +63,18 @@ public class FunctionParams implements Writable {
 
     public static FunctionParams createStarParam() {
         return new FunctionParams();
+    }
+
+    public TAggregateExpr createTAggregateExpr(boolean isMergeAggFn) {
+        List<TTypeDesc> paramTypes = new ArrayList<TTypeDesc>();
+        if (exprs != null) {
+            for (Expr expr : exprs) {
+                TTypeDesc desc = expr.getType().toThrift();
+                desc.setIsNullable(expr.isNullable());
+                paramTypes.add(desc);
+            }
+        }
+        return new TAggregateExpr(isMergeAggFn, paramTypes);
     }
 
     public boolean isStar() {

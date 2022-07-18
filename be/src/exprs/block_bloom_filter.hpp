@@ -202,8 +202,6 @@ private:
     }
 
     DISALLOW_COPY_AND_ASSIGN(BlockBloomFilter);
-
-    std::unique_ptr<char[]> _mem_holder;
 };
 
 } // namespace doris

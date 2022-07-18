@@ -19,23 +19,12 @@
 #include "olap/like_column_predicate.h"
 #include "olap/field.h"
 #include "runtime/string_value.hpp"
-#include "runtime/vectorized_row_batch.h"
 
 namespace doris {
 
 LikeColumnPredicate::LikeColumnPredicate(bool opposite, uint32_t column_id, doris_udf::FunctionContext* fn_ctx, doris_udf::StringVal val)
     : ColumnPredicate(column_id, opposite), _fn_ctx(fn_ctx), pattern(val) {
     _state = reinterpret_cast<LikePredicateState*>(_fn_ctx->get_function_state(doris_udf::FunctionContext::THREAD_LOCAL));
-}
-
-void LikeColumnPredicate::evaluate(VectorizedRowBatch* batch) const {
-    uint16_t n = batch->size();
-    uint16_t* sel = batch->selected();
-    if (!batch->selected_in_use()) {
-        for (uint16_t i = 0; i != n; ++i) {
-            sel[i] = i;
-        }
-    }
 }
 
 void LikeColumnPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
@@ -111,7 +100,7 @@ void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, u
     *size = new_size;
 }
 
-void LikeColumnPredicate::evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {
+void LikeColumnPredicate::evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const {
     if (column.is_nullable()) {
         auto* nullable_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
         auto& null_map_data = nullable_col->get_null_map_column().get_data();

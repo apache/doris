@@ -97,7 +97,20 @@ public class PartitionsProcDir implements ProcDirInterface {
             long leftVal;
             long rightVal;
             if (subExpr.getChild(1) instanceof DateLiteral) {
-                leftVal = (new DateLiteral((String) element, Type.DATETIME)).getLongValue();
+                Type type;
+                switch (subExpr.getChild(1).getType().getPrimitiveType()) {
+                    case DATE:
+                    case DATETIME:
+                        type = Type.DATETIME;
+                        break;
+                    case DATEV2:
+                    case DATETIMEV2:
+                        type = Type.DATETIMEV2;
+                        break;
+                    default:
+                        throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
+                }
+                leftVal = (new DateLiteral((String) element, type)).getLongValue();
                 rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
             } else {
                 leftVal = Long.parseLong(element.toString());

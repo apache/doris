@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
@@ -98,12 +99,14 @@ public class UpdateStmt extends DdlStmt {
     private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
         // step1: analyze table name
         tableName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         // step2: resolve table name with catalog, only unique olap table could be update
         String dbName = tableName.getDb();
         String targetTableName = tableName.getTbl();
         Preconditions.checkNotNull(dbName);
         Preconditions.checkNotNull(targetTableName);
-        Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        Database database = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         targetTable = database.getTableOrAnalysisException(tableName.getTbl());
         if (targetTable.getType() != Table.TableType.OLAP
                 || ((OlapTable) targetTable).getKeysType() != KeysType.UNIQUE_KEYS) {

@@ -33,6 +33,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
@@ -54,7 +55,8 @@ TEST(BlockTest, RowBatchCovertToBlock) {
             {"k4", TYPE_VARCHAR, sizeof(StringValue), false},
             {"k5", TYPE_DECIMALV2, sizeof(DecimalV2Value), false},
             {"k6", TYPE_LARGEINT, sizeof(__int128), false},
-            {"k7", TYPE_DATETIME, sizeof(int64_t), false}};
+            {"k7", TYPE_DATETIME, sizeof(int64_t), false},
+            {"k8", TYPE_DATEV2, sizeof(uint32_t), false}};
 
     SchemaScanner schema_scanner(column_descs,
                                  sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc));
@@ -111,6 +113,13 @@ TEST(BlockTest, RowBatchCovertToBlock) {
         k7.date_add_interval(time_interval, vectorized::TimeUnit::DAY);
         memcpy(tuple->get_slot(slot_desc->tuple_offset()), &k7, column_descs[6].size);
 
+        slot_desc = tuple_desc->slots()[7];
+        vectorized::DateV2Value k8;
+        std::string now_date("2020-12-02");
+        k8.from_date_str(now_date.c_str(), now_date.size());
+        k8.date_add_interval(time_interval, vectorized::TimeUnit::DAY);
+        memcpy(tuple->get_slot(slot_desc->tuple_offset()), &k8, column_descs[7].size);
+
         tuple_row->set_tuple(0, tuple);
         row_batch.commit_last_row();
     }
@@ -127,6 +136,7 @@ TEST(BlockTest, RowBatchCovertToBlock) {
         vectorized::ColumnPtr column5 = block.get_columns()[4];
         vectorized::ColumnPtr column6 = block.get_columns()[5];
         vectorized::ColumnPtr column7 = block.get_columns()[6];
+        vectorized::ColumnPtr column8 = block.get_columns()[7];
 
         if (i % 5 != 0) {
             EXPECT_EQ((int16_t)column1->get64(i), k1);
@@ -155,6 +165,16 @@ TEST(BlockTest, RowBatchCovertToBlock) {
 
         EXPECT_EQ(k7, date_time_value);
 
+        larget_int = column8->operator[](i).get<vectorized::UInt32>();
+        vectorized::DateV2Value k8;
+        memcpy(reinterpret_cast<vectorized::Int128*>(&k8), &larget_int, column_descs[7].size);
+        vectorized::DateV2Value date_v2_value;
+        std::string now_date("2020-12-02");
+        date_v2_value.from_date_str(now_date.c_str(), now_date.size());
+        date_v2_value.date_add_interval(time_interval, vectorized::TimeUnit::DAY);
+
+        EXPECT_EQ(k8, date_v2_value);
+
         k1++;
         k3 += 0.1;
     }
@@ -171,6 +191,50 @@ void block_to_pb(const vectorized::Block& block, PBlock* pblock) {
     const vectorized::ColumnWithTypeAndName& type_and_name =
             block.get_columns_with_type_and_name()[0];
     EXPECT_EQ(type_and_name.name, pblock->column_metas()[0].name());
+}
+
+void fill_block_with_array_int(vectorized::Block& block) {
+    auto off_column = vectorized::ColumnVector<vectorized::IColumn::Offset>::create();
+    auto data_column = vectorized::ColumnVector<int32_t>::create();
+    // init column array with [[1,2,3],[],[4],[5,6]]
+    std::vector<vectorized::IColumn::Offset> offs = {0, 3, 3, 4, 6};
+    std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    for (auto& v : vals) {
+        data_column->insert_data((const char*)(&v), 0);
+    }
+
+    auto column_array_ptr =
+            vectorized::ColumnArray::create(std::move(data_column), std::move(off_column));
+    vectorized::DataTypePtr nested_type(std::make_shared<vectorized::DataTypeInt32>());
+    vectorized::DataTypePtr array_type(std::make_shared<vectorized::DataTypeArray>(nested_type));
+    vectorized::ColumnWithTypeAndName test_array_int(std::move(column_array_ptr), array_type,
+                                                     "test_array_int");
+    block.insert(test_array_int);
+}
+
+void fill_block_with_array_string(vectorized::Block& block) {
+    auto off_column = vectorized::ColumnVector<vectorized::IColumn::Offset>::create();
+    auto data_column = vectorized::ColumnString::create();
+    // init column array with [["abc","de"],["fg"],[], [""]];
+    std::vector<vectorized::IColumn::Offset> offs = {0, 2, 3, 3, 4};
+    std::vector<std::string> vals = {"abc", "de", "fg", ""};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    for (auto& v : vals) {
+        data_column->insert_data(v.data(), v.size());
+    }
+
+    auto column_array_ptr =
+            vectorized::ColumnArray::create(std::move(data_column), std::move(off_column));
+    vectorized::DataTypePtr nested_type(std::make_shared<vectorized::DataTypeString>());
+    vectorized::DataTypePtr array_type(std::make_shared<vectorized::DataTypeArray>(nested_type));
+    vectorized::ColumnWithTypeAndName test_array_string(std::move(column_array_ptr), array_type,
+                                                        "test_array_string");
+    block.insert(test_array_string);
 }
 
 TEST(BlockTest, SerializeAndDeserializeBlock) {
@@ -330,6 +394,21 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
     }
+    // array int and array string
+    {
+        vectorized::Block block;
+        fill_block_with_array_int(block);
+        fill_block_with_array_string(block);
+        PBlock pblock;
+        block_to_pb(block, &pblock);
+        std::string s1 = pblock.DebugString();
+
+        vectorized::Block block2(pblock);
+        PBlock pblock2;
+        block_to_pb(block2, &pblock2);
+        std::string s2 = pblock2.DebugString();
+        EXPECT_EQ(s1, s2);
+    }
 }
 
 TEST(BlockTest, dump_data) {
@@ -393,8 +472,26 @@ TEST(BlockTest, dump_data) {
     vectorized::ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),
                                                     datetime_type, "test_datetime");
 
-    vectorized::Block block(
-            {test_int, test_string, test_decimal, test_nullable_int32, test_date, test_datetime});
+    auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
+    auto& date_v2_data = column_vector_date_v2->get_data();
+    for (int i = 0; i < 1024; ++i) {
+        vectorized::DateV2Value value;
+        value.from_date((uint32_t)((2022 << 9) | (6 << 5) | 6));
+        date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
+    }
+    vectorized::DataTypePtr date_v2_type(std::make_shared<vectorized::DataTypeDateV2>());
+    vectorized::ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(), date_v2_type,
+                                                   "test_datev2");
+
+    vectorized::Block block({test_int, test_string, test_decimal, test_nullable_int32, test_date,
+                             test_datetime, test_date_v2});
     EXPECT_GT(block.dump_data().size(), 1);
+
+    // test dump array int and array string
+    vectorized::Block block1;
+    fill_block_with_array_int(block1);
+    fill_block_with_array_string(block1);
+    // Note: here we should set 'row_num' in dump_data
+    EXPECT_GT(block1.dump_data(10).size(), 1);
 }
 } // namespace doris

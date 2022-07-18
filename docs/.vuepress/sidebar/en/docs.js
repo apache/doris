@@ -153,8 +153,7 @@ module.exports = [
         directoryPath: "alter-table/",
         initialOpenGroupIndex: -1,
         children: [
-          "schema-change",
-          "replace-table"
+          "schema-change"
         ],
       },
       {
@@ -520,7 +519,8 @@ module.exports = [
               "explode-bitmap",
               "explode-split",
               "explode-json-array",
-              "outer-combinator"
+              "outer-combinator",
+              "numbers"
             ],
           },
           {
@@ -750,6 +750,7 @@ module.exports = [
               "SHOW-CREATE-TABLE",
               "SHOW-CREATE-MATERIALIZED-VIEW",
               "SHOW-DATA",
+              "SHOW-DATA-SKEW",
               "SHOW-DATABASE-ID",
               "SHOW-DATABASES",
               "SHOW-DELETE",
@@ -867,6 +868,7 @@ module.exports = [
       },
       "sql-interception",
       "query-profile",
+      "tracing",
       "optimization",
       {
         title: "Maintenance and Monitor",

@@ -20,7 +20,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -113,8 +113,8 @@ public class WithClause implements ParseNode {
         }
     }
 
-    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap,
-            Set<String> parentViewNameSet) throws AnalysisException {
+    public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
+            throws AnalysisException {
         for (View view : views) {
             QueryStmt stmt = view.getQueryStmt();
             parentViewNameSet.add(view.getName());

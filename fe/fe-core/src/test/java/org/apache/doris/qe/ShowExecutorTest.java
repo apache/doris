@@ -50,6 +50,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.DataSourceMgr;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.system.SystemInfoService;
@@ -69,10 +71,13 @@ import org.junit.rules.ExpectedException;
 import java.io.IOException;
 import java.net.URL;
 import java.util.List;
+import java.util.function.Function;
 
 public class ShowExecutorTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
     private ConnectContext ctx;
     private Catalog catalog;
+    private InternalDataSource ds;
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -165,25 +170,56 @@ public class ShowExecutorTest {
         // mock auth
         PaloAuth auth = AccessTestUtil.fetchAdminAccess();
 
+        // mock ds
+        ds = Deencapsulation.newInstance(InternalDataSource.class);
+        new Expectations(ds) {
+            {
+                ds.getDbNullable("testCluster:testDb");
+                minTimes = 0;
+                result = db;
+
+                ds.getDbNullable("testCluster:emptyDb");
+                minTimes = 0;
+                result = null;
+
+                ds.getClusterDbNames("testCluster");
+                minTimes = 0;
+                result = Lists.newArrayList("testCluster:testDb");
+
+                ds.getClusterDbNames("");
+                minTimes = 0;
+                result = Lists.newArrayList("");
+            }
+        };
+
+        DataSourceMgr dsMgr = new DataSourceMgr();
+        new Expectations(dsMgr) {
+            {
+                dsMgr.getCatalog((String) any);
+                minTimes = 0;
+                result = ds;
+
+                dsMgr.getCatalogOrException((String) any, (Function) any);
+                minTimes = 0;
+                result = ds;
+
+                dsMgr.getCatalogOrAnalysisException((String) any);
+                minTimes = 0;
+                result = ds;
+            }
+        };
+
         // mock catalog.
         catalog = Deencapsulation.newInstance(Catalog.class);
         new Expectations(catalog) {
             {
-                catalog.getDbNullable("testCluster:testDb");
+                catalog.getInternalDataSource();
                 minTimes = 0;
-                result = db;
+                result = ds;
 
-                catalog.getDbNullable("testCluster:emptyDb");
+                catalog.getCurrentDataSource();
                 minTimes = 0;
-                result = null;
-
-                catalog.getClusterDbNames("testCluster");
-                minTimes = 0;
-                result = Lists.newArrayList("testCluster:testDb");
-
-                catalog.getClusterDbNames("");
-                minTimes = 0;
-                result = Lists.newArrayList("");
+                result = ds;
 
                 catalog.getAuth();
                 minTimes = 0;
@@ -202,6 +238,10 @@ public class ShowExecutorTest {
 
                 Catalog.getDdlStmt((Table) any, (List) any, null, null, anyBoolean, anyBoolean);
                 minTimes = 0;
+
+                catalog.getDataSourceMgr();
+                minTimes = 0;
+                result = dsMgr;
             }
         };
 
@@ -215,6 +255,7 @@ public class ShowExecutorTest {
             }
         };
 
+        ctx.changeDefaultCatalog(InternalDataSource.INTERNAL_DS_NAME);
         ctx.setConnectScheduler(scheduler);
         ctx.setCatalog(AccessTestUtil.fetchAdminCatalog());
         ctx.setQualifiedUser("testCluster:testUser");
@@ -304,7 +345,7 @@ public class ShowExecutorTest {
             }
         };
 
-        DescribeStmt stmt = new DescribeStmt(new TableName("testCluster:testDb", "testTbl"), false);
+        DescribeStmt stmt = new DescribeStmt(new TableName(internalCtl, "testCluster:testDb", "testTbl"), false);
         try {
             stmt.analyze(analyzer);
         } catch (Exception e) {
@@ -404,7 +445,7 @@ public class ShowExecutorTest {
 
     @Test(expected = AnalysisException.class)
     public void testShowCreateTableEmptyDb() throws AnalysisException {
-        ShowCreateTableStmt stmt = new ShowCreateTableStmt(new TableName("testCluster:emptyDb", "testTable"));
+        ShowCreateTableStmt stmt = new ShowCreateTableStmt(new TableName(internalCtl, "testCluster:emptyDb", "testTable"));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         executor.execute();
 
@@ -413,7 +454,7 @@ public class ShowExecutorTest {
 
     @Test(expected = AnalysisException.class)
     public void testShowCreateTableEmptyTbl() throws AnalysisException {
-        ShowCreateTableStmt stmt = new ShowCreateTableStmt(new TableName("testCluster:testDb", "emptyTable"));
+        ShowCreateTableStmt stmt = new ShowCreateTableStmt(new TableName(internalCtl, "testCluster:testDb", "emptyTable"));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
 
@@ -424,7 +465,7 @@ public class ShowExecutorTest {
     public void testShowColumn() throws AnalysisException {
         ctx.setCatalog(catalog);
         ctx.setQualifiedUser("testCluster:testUser");
-        ShowColumnStmt stmt = new ShowColumnStmt(new TableName("testCluster:testDb", "testTbl"), null, null, false);
+        ShowColumnStmt stmt = new ShowColumnStmt(new TableName(internalCtl, "testCluster:testDb", "testTbl"), null, null, false);
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
@@ -437,7 +478,7 @@ public class ShowExecutorTest {
         Assert.assertFalse(resultSet.next());
 
         // verbose
-        stmt = new ShowColumnStmt(new TableName("testCluster:testDb", "testTbl"), null, null, true);
+        stmt = new ShowColumnStmt(new TableName(internalCtl, "testCluster:testDb", "testTbl"), null, null, true);
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         executor = new ShowExecutor(ctx, stmt);
         resultSet = executor.execute();
@@ -451,7 +492,7 @@ public class ShowExecutorTest {
         Assert.assertFalse(resultSet.next());
 
         // pattern
-        stmt = new ShowColumnStmt(new TableName("testCluster:testDb", "testTable"), null, "%1", true);
+        stmt = new ShowColumnStmt(new TableName(internalCtl, "testCluster:testDb", "testTable"), null, "%1", true);
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         executor = new ShowExecutor(ctx, stmt);
         resultSet = executor.execute();
@@ -466,7 +507,7 @@ public class ShowExecutorTest {
     public void testShowView() throws UserException {
         ctx.setCatalog(catalog);
         ctx.setQualifiedUser("testCluster:testUser");
-        ShowViewStmt stmt = new ShowViewStmt("", new TableName("testDb", "testTbl"));
+        ShowViewStmt stmt = new ShowViewStmt("", new TableName(internalCtl, "testDb", "testTbl"));
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(true));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
@@ -476,7 +517,7 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowColumnFromUnknownTable() throws AnalysisException {
-        ShowColumnStmt stmt = new ShowColumnStmt(new TableName("testCluster:emptyDb", "testTable"), null, null, false);
+        ShowColumnStmt stmt = new ShowColumnStmt(new TableName(internalCtl, "testCluster:emptyDb", "testTable"), null, null, false);
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
 
@@ -485,7 +526,7 @@ public class ShowExecutorTest {
         executor.execute();
 
         // empty table
-        stmt = new ShowColumnStmt(new TableName("testCluster:testDb", "emptyTable"), null, null, true);
+        stmt = new ShowColumnStmt(new TableName(internalCtl, "testCluster:testDb", "emptyTable"), null, null, true);
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         executor = new ShowExecutor(ctx, stmt);
 

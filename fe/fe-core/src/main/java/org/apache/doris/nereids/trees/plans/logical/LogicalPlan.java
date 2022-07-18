@@ -17,22 +17,16 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import java.util.List;
+import java.util.Optional;
 import java.util.function.BiFunction;
+import java.util.function.Supplier;
 
 /**
  * Abstract class for all logical plan in Nereids.
  */
 public interface LogicalPlan extends Plan {
-
-    @Override
-    LogicalOperator getOperator();
-
-    @Override
-    LogicalPlan withChildren(List<Plan> children);
 
     /**
      * Map a [[LogicalPlan]] to another [[LogicalPlan]] if the passed context exists using the
@@ -41,6 +35,14 @@ public interface LogicalPlan extends Plan {
     default <C> LogicalPlan optionalMap(C ctx, BiFunction<C, LogicalPlan, LogicalPlan> f) {
         if (ctx != null) {
             return f.apply(ctx, this);
+        } else {
+            return this;
+        }
+    }
+
+    default <C> LogicalPlan optionalMap(Optional<C> ctx, Supplier<LogicalPlan> f) {
+        if (ctx.isPresent()) {
+            return f.get();
         } else {
             return this;
         }

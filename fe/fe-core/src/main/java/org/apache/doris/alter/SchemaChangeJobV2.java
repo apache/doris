@@ -129,13 +129,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     // save all schema change tasks
     private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
-
-    public SchemaChangeJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs) {
-        super(jobId, JobType.SCHEMA_CHANGE, dbId, tableId, tableName, timeoutMs);
-    }
+    // save failed task after retry three times, tabletId -> agentTask
+    private Map<Long, List<AgentTask>> failedAgentTasks = Maps.newHashMap();
 
     private SchemaChangeJobV2() {
         super(JobType.SCHEMA_CHANGE);
+    }
+
+    public SchemaChangeJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs) {
+        super(jobId, JobType.SCHEMA_CHANGE, dbId, tableId, tableName, timeoutMs);
     }
 
     public void addTabletIdMap(long partitionId, long shadowIdxId, long shadowTabletId, long originTabletId) {
@@ -198,7 +200,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected void runPendingJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
         LOG.info("begin to send create replica tasks. job: {}", jobId);
-        Database db = Catalog.getCurrentCatalog()
+        Database db = Catalog.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
 
         if (!checkTableStable(db)) {
@@ -261,7 +263,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     shadowSchema, bfColumns, bfFpp, countDownLatch, indexes,
                                     tbl.isInMemory(),
                                     tbl.getPartitionInfo().getTabletType(partitionId),
-                                    tbl.getCompressionType());
+                                    null,
+                                    tbl.getCompressionType(),
+                                    tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy());
+
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
                             if (this.storageFormat != null) {
@@ -373,7 +378,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         LOG.info("previous transactions are all finished, begin to send schema change tasks. job: {}", jobId);
-        Database db = Catalog.getCurrentCatalog()
+        Database db = Catalog.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
 
         OlapTable tbl;
@@ -437,7 +442,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     long originIdxId = indexIdMap.get(shadowIdxId);
                     int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                     int originSchemaHash = tbl.getSchemaHashByIndexId(indexIdMap.get(shadowIdxId));
-
+                    List<Column> originSchemaColumns = tbl.getSchemaByIndexId(originIdxId);
                     for (Tablet shadowTablet : shadowIdx.getTablets()) {
                         long shadowTabletId = shadowTablet.getId();
                         long originTabletId = partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId);
@@ -446,7 +451,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             AlterReplicaTask rollupTask = new AlterReplicaTask(shadowReplica.getBackendId(), dbId,
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
-                                    JobType.SCHEMA_CHANGE, defineExprs, descTable);
+                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
@@ -479,7 +484,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         // must check if db or table still exist first.
         // or if table is dropped, the tasks will never be finished,
         // and the job will be in RUNNING state forever.
-        Database db = Catalog.getCurrentCatalog()
+        Database db = Catalog.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
 
         OlapTable tbl;
@@ -494,14 +499,25 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() >= 3) {
-                    throw new AlterCancelException("schema change task failed after try three times: "
-                            + task.getErrorMsg());
+                    task.setFinished(true);
+                    AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
+                    LOG.warn("schema change task failed after try three times: " + task.getErrorMsg());
+                    if (!failedAgentTasks.containsKey(task.getTabletId())) {
+                        failedAgentTasks.put(task.getTabletId(), Lists.newArrayList(task));
+                    } else {
+                        failedAgentTasks.get(task.getTabletId()).add(task);
+                    }
+                    int expectSucceedTaskNum = tbl.getPartitionInfo()
+                            .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
+                    int failedTaskCount = failedAgentTasks.get(task.getTabletId()).size();
+                    if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
+                        throw new AlterCancelException("schema change tasks failed on same tablet reach threshold "
+                                    + failedAgentTasks.get(task.getTabletId()));
+                    }
                 }
             }
             return;
         }
-
-
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
@@ -509,7 +525,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
-
+            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+            for (List<AgentTask> tasks : failedAgentTasks.values()) {
+                for (AgentTask task : tasks) {
+                    invertedIndex.getReplica(task.getTabletId(), task.getBackendId()).setBad(true);
+                }
+            }
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
@@ -526,7 +547,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         List<Replica> replicas = shadowTablet.getReplicas();
                         int healthyReplicaNum = 0;
                         for (Replica replica : replicas) {
-                            if (replica.getLastFailedVersion() < 0
+                            if (!replica.isBad() && replica.getLastFailedVersion() < 0
                                     && replica.checkVersionCatchUp(visiableVersion, false)) {
                                 healthyReplicaNum++;
                             }
@@ -627,6 +648,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.setStorageFormat(storageFormat);
         }
 
+        //update max column unique id
+        int maxColUniqueId = tbl.getMaxColUniqueId();
+        for (Column column : tbl.getFullSchema()) {
+            if (column.getUniqueId() > maxColUniqueId) {
+                maxColUniqueId = column.getUniqueId();
+            }
+        }
+        tbl.setMaxColUniqueId(maxColUniqueId);
+        LOG.debug("fullSchema:{}, maxColUniqueId:{}", tbl.getFullSchema(), maxColUniqueId);
+
         tbl.setState(OlapTableState.NORMAL);
     }
 
@@ -655,7 +686,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         AgentTaskQueue.removeBatchTask(schemaChangeBatchTask, TTaskType.ALTER);
         // remove all shadow indexes, and set state to NORMAL
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db != null) {
             OlapTable tbl = (OlapTable) db.getTableNullable(tableId);
             if (tbl != null) {
@@ -699,7 +730,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * These changes should be same as changes in SchemaChangeHandler.createJob()
      */
     private void replayCreateJob(SchemaChangeJobV2 replayedJob) throws MetaNotFoundException {
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -737,7 +768,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * Should replay all changes in runPendingJob()
      */
     private void replayPendingJob(SchemaChangeJobV2 replayedJob) throws MetaNotFoundException {
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -757,7 +788,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * Should replay all changes in runRunningJob()
      */
     private void replayRunningJob(SchemaChangeJobV2 replayedJob) {
-        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db != null) {
             OlapTable tbl = (OlapTable) db.getTableNullable(tableId);
             if (tbl != null) {

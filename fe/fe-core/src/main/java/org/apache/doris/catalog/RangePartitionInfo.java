@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class RangePartitionInfo extends PartitionInfo {
 
@@ -84,7 +85,7 @@ public class RangePartitionInfo extends PartitionInfo {
 
         // generate partitionItemEntryList
         List<Map.Entry<Long, PartitionItem>> partitionItemEntryList = isFixedPartitionKeyValueType
-                ? getPartitionItemEntryList(isTemp, false) : getPartitionItemEntryList(isTemp, true);
+                        ? getPartitionItemEntryList(isTemp, false) : getPartitionItemEntryList(isTemp, true);
 
         if (isFixedPartitionKeyValueType) {
             return createNewRangeForFixedPartitionValueType(partKeyDesc, partitionItemEntryList);
@@ -139,8 +140,8 @@ public class RangePartitionInfo extends PartitionInfo {
 
     private Range<PartitionKey> createNewRangeForLessThanPartitionValueType(PartitionKey newRangeUpper,
             Range<PartitionKey> lastRange, Range<PartitionKey> currentRange) throws AnalysisException, DdlException {
-        PartitionKey lowKey = lastRange == null ? PartitionKey.createInfinityPartitionKey(partitionColumns, false)
-                : lastRange.upperEndpoint();
+        PartitionKey lowKey = lastRange == null
+                ? PartitionKey.createInfinityPartitionKey(partitionColumns, false) : lastRange.upperEndpoint();
 
         // check: [left, right), error if left equal right
         if (lowKey.compareTo(newRangeUpper) >= 0) {
@@ -258,6 +259,13 @@ public class RangePartitionInfo extends PartitionInfo {
             sb.append("PARTITION ").append(partitionName).append(" VALUES [");
             sb.append(range.lowerEndpoint().toSql());
             sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
+
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
+                if (!p.equals("")) {
+                    sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
+                    sb.append(p).append("\")");
+                }
+            });
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());

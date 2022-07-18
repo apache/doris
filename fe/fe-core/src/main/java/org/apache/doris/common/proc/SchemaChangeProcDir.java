@@ -73,7 +73,20 @@ public class SchemaChangeProcDir implements ProcDirInterface {
             return ((StringLiteral) subExpr.getChild(1)).getValue().equals(element);
         }
         if (subExpr.getChild(1) instanceof DateLiteral) {
-            Long leftVal = (new DateLiteral((String) element, Type.DATETIME)).getLongValue();
+            Type type;
+            switch (subExpr.getChild(1).getType().getPrimitiveType()) {
+                case DATE:
+                case DATETIME:
+                    type = Type.DATETIME;
+                    break;
+                case DATEV2:
+                case DATETIMEV2:
+                    type = Type.DATETIMEV2;
+                    break;
+                default:
+                    throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
+            }
+            Long leftVal = (new DateLiteral((String) element, type)).getLongValue();
             Long rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
             switch (binaryPredicate.getOp()) {
                 case EQ:

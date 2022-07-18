@@ -131,8 +131,8 @@ public class SparkLoadPendingTask extends LoadTask {
     }
 
     private void createEtlJobConf() throws LoadException {
-        Database db = Catalog.getCurrentCatalog().getDbOrException(
-                dbId, s -> new LoadException("db does not exist. id: " + s));
+        Database db = Catalog.getCurrentInternalCatalog()
+                .getDbOrException(dbId, s -> new LoadException("db does not exist. id: " + s));
 
         Map<Long, EtlTable> tables = Maps.newHashMap();
         Map<Long, Set<Long>> tableIdToPartitionIds = Maps.newHashMap();
@@ -314,7 +314,7 @@ public class SparkLoadPendingTask extends LoadTask {
         // decimal precision scale
         int precision = 0;
         int scale = 0;
-        if (type.isDecimalV2Type()) {
+        if (type.isDecimalV2Type() || type.isDecimalV3Type()) {
             precision = column.getPrecision();
             scale = column.getScale();
         }

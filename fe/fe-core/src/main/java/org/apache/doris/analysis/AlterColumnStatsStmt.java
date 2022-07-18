@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStats;
@@ -60,6 +61,8 @@ public class AlterColumnStatsStmt extends DdlStmt {
         super.analyze(analyzer);
         // check table name
         tableName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         // check properties
         Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
                 .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType)).findFirst();

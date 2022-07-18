@@ -126,6 +126,7 @@ public:
     // TODO(zc):
     // ArrayVal GetArrayVal(TupleRow* row);
     DateTimeVal get_datetime_val(TupleRow* row);
+    DateV2Val get_datev2_val(TupleRow* row);
     DecimalV2Val get_decimalv2_val(TupleRow* row);
 
     /// Frees all local allocations made by fn_contexts_. This can be called when result
@@ -164,6 +165,7 @@ private:
     friend class BloomFilterPredicate;
     friend class OlapScanNode;
     friend class EsPredicate;
+    friend class RowGroupReader;
     friend class vectorized::VOlapScanNode;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
@@ -193,7 +195,7 @@ private:
 
     /// Calls the appropriate Get*Val() function on 'e' and stores the result in result_.
     /// This is used by Exprs to call GetValue() on a child expr, rather than root_.
-    void* get_value(Expr* e, TupleRow* row);
+    void* get_value(Expr* e, TupleRow* row, int precision = 0, int scale = 0);
 };
 
 inline void* ExprContext::get_value(TupleRow* row) {

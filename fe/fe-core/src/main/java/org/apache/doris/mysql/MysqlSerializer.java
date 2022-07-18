@@ -249,16 +249,20 @@ public class MysqlSerializer {
             case DOUBLE:
                 return 22;
             case TIME:
-                return 10;
+            case DATEV2:
             case DATE:
                 return 10;
-            case DATETIME: {
+            case DATETIME:
+            case DATETIMEV2: {
                 if (type.isTimeType()) {
                     return 10;
                 }  else {
                     return 19;
                 }
             }
+            // todo:It needs to be obtained according to the field length set during the actual creation,
+            // todo:which is not supported for the time being.default is 255
+            //  DECIMAL,DECIMALV2,CHAR,VARCHAR:
             default:
                 return 255;
         }

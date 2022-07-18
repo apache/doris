@@ -47,13 +47,13 @@ PROPERTIES (
        ('e1','e2','e3','e4')
 """
 
-    qt_read_single_column_1 "select city from ${table1} where city in ('a1','e1')"
-    qt_read_single_column_2 "select city from ${table1} where city not in ('a1','e1')"
+    qt_read_single_column_1 "select city from ${table1} where city in ('a1','e1') order by city"
+    qt_read_single_column_2 "select city from ${table1} where city not in ('a1','e1') order by city"
     qt_read_single_column_3 "select city from ${table1} where city='a1'"
     qt_read_single_column_4 "select city from ${table1} where city!='a1'"
 
-    qt_read_multiple_column_1 "select * from ${table1} where city in ('a1','e1')"
-    qt_read_multiple_column_2 "select * from ${table1} where city not in ('a1','e1')"
+    qt_read_multiple_column_1 "select * from ${table1} where city in ('a1','e1') order by city"
+    qt_read_multiple_column_2 "select * from ${table1} where city not in ('a1','e1') order by city"
     qt_read_multiple_column_3 "select * from ${table1} where city='a1'"
     qt_read_multiple_column_4 "select * from ${table1} where city!='a1'"
 

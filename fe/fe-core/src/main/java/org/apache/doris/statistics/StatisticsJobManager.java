@@ -101,7 +101,7 @@ public class StatisticsJobManager {
      * - Rule3: The job for external table is not supported
      */
     private void checkRestrict(long dbId, Set<Long> tableIds) throws AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
         db.readLock();
         try {
             // check table type

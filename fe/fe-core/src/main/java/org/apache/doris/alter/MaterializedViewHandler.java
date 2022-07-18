@@ -37,6 +37,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -384,18 +385,19 @@ public class MaterializedViewHandler extends AlterHandler {
                 for (Replica baseReplica : baseReplicas) {
                     long mvReplicaId = catalog.getNextId();
                     long backendId = baseReplica.getBackendId();
-                    if (baseReplica.getState() == Replica.ReplicaState.CLONE
-                            || baseReplica.getState() == Replica.ReplicaState.DECOMMISSION
+                    if (baseReplica.getState() == ReplicaState.CLONE
+                            || baseReplica.getState() == ReplicaState.DECOMMISSION
+                            || baseReplica.getState() == ReplicaState.COMPACTION_TOO_SLOW
                             || baseReplica.getLastFailedVersion() > 0) {
                         LOG.info("base replica {} of tablet {} state is {}, and last failed version is {},"
                                         + " skip creating rollup replica", baseReplica.getId(), baseTabletId,
                                 baseReplica.getState(), baseReplica.getLastFailedVersion());
                         continue;
                     }
-                    Preconditions.checkState(baseReplica.getState() == Replica.ReplicaState.NORMAL,
+                    Preconditions.checkState(baseReplica.getState() == ReplicaState.NORMAL,
                             baseReplica.getState());
                     // replica's init state is ALTER, so that tablet report process will ignore its report
-                    Replica mvReplica = new Replica(mvReplicaId, backendId, Replica.ReplicaState.ALTER,
+                    Replica mvReplica = new Replica(mvReplicaId, backendId, ReplicaState.ALTER,
                             Partition.PARTITION_INIT_VERSION, mvSchemaHash);
                     newTablet.addReplica(mvReplica);
                     healthyReplicaNum++;
@@ -837,7 +839,7 @@ public class MaterializedViewHandler extends AlterHandler {
         long rollupIndexId = dropInfo.getIndexId();
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        Database db = catalog.getDbOrMetaException(dbId);
+        Database db = catalog.getInternalDataSource().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -884,7 +886,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
     private void changeTableStatus(long dbId, long tableId, OlapTableState olapTableState) {
         try {
-            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+            Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
             OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
             olapTable.writeLockOrMetaException();
             try {
@@ -1038,7 +1040,7 @@ public class MaterializedViewHandler extends AlterHandler {
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
         Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
 
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         List<AlterJobV2> rollupJobV2List = new ArrayList<>();
         OlapTable olapTable;

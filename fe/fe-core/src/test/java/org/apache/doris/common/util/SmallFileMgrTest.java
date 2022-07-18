@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.persist.EditLog;
 
 import mockit.Expectations;
@@ -38,6 +39,8 @@ public class SmallFileMgrTest {
     @Mocked
     Catalog catalog;
     @Mocked
+    InternalDataSource ds;
+    @Mocked
     EditLog editLog;
     @Mocked
     Database db;
@@ -50,7 +53,10 @@ public class SmallFileMgrTest {
                 db.getId();
                 minTimes = 0;
                 result = 1L;
-                catalog.getDbNullable(anyString);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+                ds.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
                 stmt1.getDbName();

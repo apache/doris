@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -32,12 +33,14 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.OperationType;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -47,6 +50,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -55,12 +59,15 @@ import java.util.stream.Collectors;
  * Note: Catalog in sql syntax will be treated as  datasource interface in code level.
  * TODO: Change the package name into catalog.
  */
-public class DataSourceMgr implements Writable {
+public class DataSourceMgr implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(DataSourceMgr.class);
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    private final Map<String, DataSourceIf> nameToCatalogs = Maps.newConcurrentMap();
+    @SerializedName(value = "idToCatalog")
+    private final Map<Long, DataSourceIf> idToCatalog = Maps.newConcurrentMap();
+    // this map will be regenerated from idToCatalog, so not need to persist.
+    private final Map<String, DataSourceIf> nameToCatalog = Maps.newConcurrentMap();
 
     // Use a separate instance to facilitate access.
     // internalDataSource still exists in idToDataSource and nameToDataSource
@@ -72,7 +79,20 @@ public class DataSourceMgr implements Writable {
 
     private void initInternalDataSource() {
         internalDataSource = new InternalDataSource();
-        nameToCatalogs.put(internalDataSource.getName(), internalDataSource);
+        addCatalog(internalDataSource);
+    }
+
+    private void addCatalog(DataSourceIf catalog) {
+        nameToCatalog.put(catalog.getName(), catalog);
+        idToCatalog.put(catalog.getId(), catalog);
+    }
+
+    private DataSourceIf removeCatalog(long catalogId) {
+        DataSourceIf catalog = idToCatalog.remove(catalogId);
+        if (catalog != null) {
+            nameToCatalog.remove(catalog.getName());
+        }
+        return catalog;
     }
 
     public InternalDataSource getInternalDataSource() {
@@ -80,7 +100,61 @@ public class DataSourceMgr implements Writable {
     }
 
     public DataSourceIf getCatalog(String name) {
-        return nameToCatalogs.get(name);
+        return nameToCatalog.get(name);
+    }
+
+    public DataSourceIf getCatalog(long id) {
+        return idToCatalog.get(id);
+    }
+
+    public <E extends Exception> DataSourceIf getCatalogOrException(String name, Function<String, E> e) throws E {
+        DataSourceIf ds = nameToCatalog.get(name);
+        if (ds == null) {
+            throw e.apply(name);
+        }
+        return ds;
+    }
+
+    public DataSourceIf getCatalogOrAnalysisException(String name) throws AnalysisException {
+        return getCatalogOrException(name, ds -> new AnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(ds),
+                ErrorCode.ERR_UNKNOWN_CATALOG));
+    }
+
+    public List<Long> getCatalogIds() {
+        return Lists.newArrayList(idToCatalog.keySet());
+    }
+
+    public DatabaseIf getDbNullable(long dbId) {
+        DatabaseIf db = internalDataSource.getDbNullable(dbId);
+        if (db != null) {
+            return db;
+        }
+        for (DataSourceIf ds : nameToCatalog.values()) {
+            if (ds == internalDataSource) {
+                continue;
+            }
+            db = ds.getDbNullable(dbId);
+            if (db != null) {
+                return db;
+            }
+        }
+        return null;
+    }
+
+    public List<Long> getDbIds() {
+        List<Long> dbIds = Lists.newArrayList();
+        for (DataSourceIf ds : nameToCatalog.values()) {
+            dbIds.addAll(ds.getDbIds());
+        }
+        return dbIds;
+    }
+
+    public List<String> getDbNames() {
+        List<String> dbNames = Lists.newArrayList();
+        for (DataSourceIf ds : nameToCatalog.values()) {
+            dbNames.addAll(ds.getDbNames());
+        }
+        return dbNames;
     }
 
     private void writeLock() {
@@ -103,67 +177,90 @@ public class DataSourceMgr implements Writable {
      * Create and hold the catalog instance and write the meta log.
      */
     public void createCatalog(CreateCatalogStmt stmt) throws UserException {
-        if (stmt.isSetIfNotExists() && nameToCatalogs.containsKey(stmt.getCatalogName())) {
-            LOG.warn("Catalog {} is already exist.", stmt.getCatalogName());
-            return;
+        writeLock();
+        try {
+            if (stmt.isSetIfNotExists() && nameToCatalog.containsKey(stmt.getCatalogName())) {
+                LOG.warn("Catalog {} is already exist.", stmt.getCatalogName());
+                return;
+            }
+            if (nameToCatalog.containsKey(stmt.getCatalogName())) {
+                throw new DdlException("Catalog had already exist with name: " + stmt.getCatalogName());
+            }
+            long id = Catalog.getCurrentCatalog().getNextId();
+            CatalogLog log = CatalogFactory.constructorCatalogLog(id, stmt);
+            replayCreateCatalog(log);
+            Catalog.getCurrentCatalog().getEditLog().logDatasourceLog(OperationType.OP_CREATE_DS, log);
+        } finally {
+            writeUnlock();
         }
-        if (nameToCatalogs.containsKey(stmt.getCatalogName())) {
-            throw new DdlException("Catalog had already exist with name: " + stmt.getCatalogName());
-        }
-        CatalogLog log = CatalogFactory.constructorCatalogLog(stmt);
-        replayCreateCatalog(log);
-        Catalog.getCurrentCatalog().getEditLog().logDatasourceLog(OperationType.OP_CREATE_DS, log);
     }
 
     /**
      * Remove the catalog instance by name and write the meta log.
      */
     public void dropCatalog(DropCatalogStmt stmt) throws UserException {
-        if (stmt.isSetIfExists() && !nameToCatalogs.containsKey(stmt.getCatalogName())) {
-            LOG.warn("Non catalog {} is found.", stmt.getCatalogName());
-            return;
+        writeLock();
+        try {
+            if (stmt.isSetIfExists() && !nameToCatalog.containsKey(stmt.getCatalogName())) {
+                LOG.warn("Non catalog {} is found.", stmt.getCatalogName());
+                return;
+            }
+            DataSourceIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            if (catalog == null) {
+                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+            }
+            CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
+            replayDropCatalog(log);
+            Catalog.getCurrentCatalog().getEditLog().logDatasourceLog(OperationType.OP_DROP_DS, log);
+        } finally {
+            writeUnlock();
         }
-        if (!nameToCatalogs.containsKey(stmt.getCatalogName())) {
-            throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
-        }
-        CatalogLog log = CatalogFactory.constructorCatalogLog(stmt);
-        replayDropCatalog(log);
-        Catalog.getCurrentCatalog().getEditLog().logDatasourceLog(OperationType.OP_DROP_DS, log);
     }
 
     /**
      * Modify the catalog name into a new one and write the meta log.
      */
     public void alterCatalogName(AlterCatalogNameStmt stmt) throws UserException {
-        if (!nameToCatalogs.containsKey(stmt.getCatalogName())) {
-            throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+        writeLock();
+        try {
+            DataSourceIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            if (catalog == null) {
+                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+            }
+            CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
+            replayAlterCatalogName(log);
+            Catalog.getCurrentCatalog().getEditLog().logDatasourceLog(OperationType.OP_ALTER_DS_NAME, log);
+        } finally {
+            writeUnlock();
         }
-        CatalogLog log = CatalogFactory.constructorCatalogLog(stmt);
-        replayAlterCatalogName(log);
-        Catalog.getCurrentCatalog().getEditLog().logDatasourceLog(OperationType.OP_ALTER_DS_NAME, log);
     }
 
     /**
      * Modify the catalog property and write the meta log.
      */
     public void alterCatalogProps(AlterCatalogPropertyStmt stmt) throws UserException {
-        if (!nameToCatalogs.containsKey(stmt.getCatalogName())) {
-            throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+        writeLock();
+        try {
+            DataSourceIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            if (catalog == null) {
+                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+            }
+            if (!catalog.getType().equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
+                throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
+            }
+            CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
+            replayAlterCatalogProps(log);
+            Catalog.getCurrentCatalog().getEditLog().logDatasourceLog(OperationType.OP_ALTER_DS_PROPS, log);
+        } finally {
+            writeUnlock();
         }
-        if (!nameToCatalogs.get(stmt.getCatalogName())
-                .getType().equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
-            throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
-        }
-        CatalogLog log = CatalogFactory.constructorCatalogLog(stmt);
-        replayAlterCatalogProps(log);
-        Catalog.getCurrentCatalog().getEditLog().logDatasourceLog(OperationType.OP_ALTER_DS_PROPS, log);
     }
 
     /**
      * Get catalog, or null if not exists.
      */
     public DataSourceIf getCatalogNullable(String catalogName) {
-        return nameToCatalogs.get(catalogName);
+        return nameToCatalog.get(catalogName);
     }
 
     /**
@@ -174,26 +271,27 @@ public class DataSourceMgr implements Writable {
         readLock();
         try {
             if (showStmt.getCatalogName() == null) {
-                for (DataSourceIf ds : nameToCatalogs.values()) {
-                    if (Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
-                            ConnectContext.get(), ds.getName(), PrivPredicate.SHOW)) {
+                for (DataSourceIf ds : nameToCatalog.values()) {
+                    if (Catalog.getCurrentCatalog().getAuth()
+                            .checkCtlPriv(ConnectContext.get(), ds.getName(), PrivPredicate.SHOW)) {
                         List<String> row = Lists.newArrayList();
+                        row.add(String.valueOf(ds.getId()));
                         row.add(ds.getName());
                         row.add(ds.getType());
                         rows.add(row);
                     }
                 }
             } else {
-                if (!nameToCatalogs.containsKey(showStmt.getCatalogName())) {
+                if (!nameToCatalog.containsKey(showStmt.getCatalogName())) {
                     throw new AnalysisException("No catalog found with name: " + showStmt.getCatalogName());
                 }
-                DataSourceIf ds = nameToCatalogs.get(showStmt.getCatalogName());
+                DataSourceIf<DatabaseIf> ds = nameToCatalog.get(showStmt.getCatalogName());
                 if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
                         ConnectContext.get(), ds.getName(), PrivPredicate.SHOW)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                             ConnectContext.get().getQualifiedUser(), ds.getName());
                 }
-                for (Map.Entry<String, String>  elem : ds.getProperties().entrySet()) {
+                for (Map.Entry<String, String> elem : ds.getProperties().entrySet()) {
                     List<String> row = Lists.newArrayList();
                     row.add(elem.getKey());
                     row.add(elem.getValue());
@@ -214,7 +312,7 @@ public class DataSourceMgr implements Writable {
         writeLock();
         try {
             DataSourceIf ds = CatalogFactory.constructorFromLog(log);
-            nameToCatalogs.put(ds.getName(), ds);
+            addCatalog(ds);
         } finally {
             writeUnlock();
         }
@@ -226,7 +324,7 @@ public class DataSourceMgr implements Writable {
     public void replayDropCatalog(CatalogLog log) {
         writeLock();
         try {
-            nameToCatalogs.remove(log.getCatalogName());
+            removeCatalog(log.getCatalogId());
         } finally {
             writeUnlock();
         }
@@ -238,16 +336,16 @@ public class DataSourceMgr implements Writable {
     public void replayAlterCatalogName(CatalogLog log) {
         writeLock();
         try {
-            DataSourceIf ds = nameToCatalogs.remove(log.getCatalogName());
+            DataSourceIf ds = removeCatalog(log.getCatalogId());
             ds.modifyDatasourceName(log.getNewCatalogName());
-            nameToCatalogs.put(ds.getName(), ds);
+            addCatalog(ds);
         } finally {
             writeUnlock();
         }
     }
 
     public List<DataSourceIf> listCatalogs() {
-        return nameToCatalogs.values().stream().collect(Collectors.toList());
+        return nameToCatalog.values().stream().collect(Collectors.toList());
     }
 
     /**
@@ -256,9 +354,8 @@ public class DataSourceMgr implements Writable {
     public void replayAlterCatalogProps(CatalogLog log) {
         writeLock();
         try {
-            DataSourceIf ds = nameToCatalogs.remove(log.getCatalogName());
+            DataSourceIf ds = idToCatalog.get(log.getCatalogId());
             ds.modifyDatasourceProps(log.getNewProps());
-            nameToCatalogs.put(ds.getName(), ds);
         } finally {
             writeUnlock();
         }
@@ -266,11 +363,20 @@ public class DataSourceMgr implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public static DataSourceMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, DataSourceMgr.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        for (DataSourceIf catalog : idToCatalog.values()) {
+            nameToCatalog.put(catalog.getName(), catalog);
+        }
+        internalDataSource = (InternalDataSource) idToCatalog.get(InternalDataSource.INTERNAL_DS_ID);
     }
 }

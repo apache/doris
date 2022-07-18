@@ -47,6 +47,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.TupleIsNullPredicate;
@@ -62,6 +63,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.external.ExternalFileScanNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -1354,14 +1356,9 @@ public class SingleNodePlanner {
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
-                unionNode.init(analyzer);
                 //set outputSmap to substitute literal in outputExpr
-                unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
-                if (analyzer.isOuterJoined(inlineViewRef.getId())) {
-                    List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
-                            inlineViewRef.getSmap().getRhs(), unionNode.getTupleIds(), analyzer);
-                    unionNode.setOutputSmap(new ExprSubstitutionMap(inlineViewRef.getSmap().getLhs(), nullableRhs));
-                }
+                unionNode.setOutputSmap(inlineViewRef.getSmap());
+                unionNode.init(analyzer);
                 return unionNode;
             }
         }
@@ -1389,6 +1386,15 @@ public class SingleNodePlanner {
             List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
                     outputSmap.getRhs(), rootNode.getTupleIds(), analyzer);
             outputSmap = new ExprSubstitutionMap(outputSmap.getLhs(), nullableRhs);
+            // When we process outer join with inline views, we set slot descriptor of inline view to nullable firstly.
+            // When we generate plan, we remove inline view, so the upper node's input is inline view's child.
+            // So we need to set slot descriptor of inline view's child to nullable to ensure consistent behavior
+            // with BaseTable.
+            for (TupleId tupleId : rootNode.getTupleIds()) {
+                for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getMaterializedSlots()) {
+                    slotDescriptor.setIsNullable(true);
+                }
+            }
         }
         // Set output smap of rootNode *before* creating a SelectNode for proper resolution.
         rootNode.setOutputSmap(outputSmap);
@@ -1717,6 +1723,13 @@ public class SingleNodePlanner {
                 scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
                         null, -1);
                 break;
+            case TABLE_VALUED_FUNCTION:
+                scanNode = new TableValuedFunctionScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
+                        "TableValuedFunctionScanNode", ((TableValuedFunctionRef) tblRef).getTableFunction());
+                break;
+            case HMS_EXTERNAL_TABLE:
+                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HMS_FILE_SCAN_NODE");
+                break;
             default:
                 break;
         }
@@ -1888,7 +1901,7 @@ public class SingleNodePlanner {
     private PlanNode createTableRefNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
             throws UserException {
         PlanNode scanNode = null;
-        if (tblRef instanceof BaseTableRef) {
+        if (tblRef instanceof BaseTableRef || tblRef instanceof TableValuedFunctionRef) {
             scanNode = createScanNode(analyzer, tblRef, selectStmt);
         }
         if (tblRef instanceof InlineViewRef) {
@@ -2172,8 +2185,8 @@ public class SingleNodePlanner {
      * @param analyzer
      */
     private void materializeTableResultForCrossJoinOrCountStar(TableRef tblRef, Analyzer analyzer) {
-        if (tblRef instanceof BaseTableRef) {
-            materializeSlotForEmptyMaterializedTableRef((BaseTableRef) tblRef, analyzer);
+        if (tblRef instanceof BaseTableRef || tblRef instanceof TableValuedFunctionRef) {
+            materializeSlotForEmptyMaterializedTableRef(tblRef, analyzer);
         } else if (tblRef instanceof InlineViewRef) {
             materializeInlineViewResultExprForCrossJoinOrCountStar((InlineViewRef) tblRef, analyzer);
         } else {
@@ -2199,7 +2212,7 @@ public class SingleNodePlanner {
      * @param tblRef
      * @param analyzer
      */
-    private void materializeSlotForEmptyMaterializedTableRef(BaseTableRef tblRef, Analyzer analyzer) {
+    private void materializeSlotForEmptyMaterializedTableRef(TableRef tblRef, Analyzer analyzer) {
         if (tblRef.getDesc().getMaterializedSlots().isEmpty()) {
             Column minimuColumn = null;
             for (Column col : tblRef.getTable().getBaseSchema()) {

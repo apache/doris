@@ -180,6 +180,12 @@ Follow the picture to set runtime Environment Variables in IDEA
 
 ![](/images/DEBUG5.png)
 
-## 5. Start FE
+## 5. Config options
+
+Because part of the dependency is `provided`, idea needs to do a special config. Click on the right `Modify Options` in the `Run/Debug Configurations` setting. Check the `Add Dependencies with "Provided" scope to classpath` option.
+
+![](/images/idea_options.png)
+
+## 6. Start FE
 
 Having fun with Doris FE!

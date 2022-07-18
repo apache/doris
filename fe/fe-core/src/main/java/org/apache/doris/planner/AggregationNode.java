@@ -25,7 +25,6 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
@@ -312,7 +311,7 @@ public class AggregationNode extends PlanNode {
     }
 
     @Override
-    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
+    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
         Set<SlotId> result = Sets.newHashSet();
         // compute group by slot
         ArrayList<Expr> groupingExprs = aggInfo.getGroupingExprs();
@@ -325,19 +324,6 @@ public class AggregationNode extends PlanNode {
         List<SlotId> aggregateSlotIds = Lists.newArrayList();
         Expr.getIds(aggregateExprs, null, aggregateSlotIds);
         result.addAll(aggregateSlotIds);
-
-        // case: select count(*) from test
-        // result is empty
-        // Actually need to take a column as the input column of the agg operator
-        if (result.isEmpty()) {
-            TupleDescriptor tupleDesc = analyzer.getTupleDesc(getChild(0).getOutputTupleIds().get(0));
-            // If the query result is empty set such as: select count(*) from table where 1=2
-            // then the materialized slot will be empty
-            // So the result should be empty also.
-            if (!tupleDesc.getMaterializedSlots().isEmpty()) {
-                result.add(tupleDesc.getMaterializedSlots().get(0).getId());
-            }
-        }
         return result;
     }
 }

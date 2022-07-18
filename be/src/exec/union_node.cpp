@@ -236,10 +236,7 @@ Status UnionNode::get_next_const(RuntimeState* state, RowBatch* row_batch) {
 Status UnionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
-    // TODO(zc)
-    // RETURN_IF_ERROR(QueryMaintenance(state));
 
     if (_to_close_child_idx != -1) {
         // The previous child needs to be closed if passthrough was enabled for it. In the non

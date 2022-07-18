@@ -20,13 +20,10 @@
 #include "olap/column_predicate.h"
 #include "exprs/like_predicate.h"
 #include "runtime/string_value.h"
-#include "runtime/vectorized_row_batch.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/core/types.h"
 
 namespace doris {
-
-class VectorizedRowBatch;
 
 class LikeColumnPredicate : public ColumnPredicate {
 public:
@@ -34,8 +31,7 @@ public:
     ~LikeColumnPredicate() override = default;
 
     PredicateType type() const override { return PredicateType::EQ; }
-    void evaluate(VectorizedRowBatch* batch) const override;
-    void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const override;
+    void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
     void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const;
 
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;

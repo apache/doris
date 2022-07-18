@@ -1,24 +1,26 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
+// or more contributor license agreements. See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
+// regarding copyright ownership. The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// with the License. You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+// http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
+// KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations
 // under the License.
 
 package org.apache.doris.system;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 
@@ -42,8 +44,7 @@ public class Frontend implements Writable {
 
     private boolean isAlive = false;
 
-    public Frontend() {
-    }
+    public Frontend() {}
 
     public Frontend(FrontendNodeType role, String nodeName, String host, int editLogPort) {
         this.role = role;
@@ -97,14 +98,18 @@ public class Frontend implements Writable {
     }
 
     /**
-     * handle Frontend's heartbeat response.
-     * Because the replayed journal id is very likely to be changed at each heartbeat response,
-     * so we simple return true if the heartbeat status is OK.
-     * But if heartbeat status is BAD, only return true if it is the first time to transfer from alive to dead.
+     * handle Frontend's heartbeat response. Because the replayed journal id is very likely to be
+     * changed at each heartbeat response, so we simple return true if the heartbeat status is OK.
+     * But if heartbeat status is BAD, only return true if it is the first time to transfer from
+     * alive to dead.
      */
-    public boolean handleHbResponse(FrontendHbResponse hbResponse) {
+    public boolean handleHbResponse(FrontendHbResponse hbResponse, boolean isReplay) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
+            if (!isAlive && !isReplay) {
+                BDBHA bdbha = (BDBHA) Catalog.getCurrentCatalog().getHaProtocol();
+                bdbha.removeUnReadyElectableNode(nodeName, Catalog.getCurrentCatalog().getFollowerCount());
+            }
             isAlive = true;
             version = hbResponse.getVersion();
             queryPort = hbResponse.getQueryPort();

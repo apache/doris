@@ -183,6 +183,10 @@ public:
             DecimalV2Val val;
             type_limit<DecimalV2Value>::min().to_decimal_val(&val);
             return val;
+        } else if constexpr (std::is_same_v<Val, DateV2Val>) {
+            DateV2Val val;
+            type_limit<doris::vectorized::DateV2Value>::min().to_datev2_val(&val);
+            return val;
         } else {
             return Val(type_limit<decltype(std::declval<Val>().val)>::min());
         }
@@ -205,6 +209,10 @@ public:
         } else if constexpr (std::is_same_v<Val, DecimalV2Val>) {
             DecimalV2Val val;
             type_limit<DecimalV2Value>::max().to_decimal_val(&val);
+            return val;
+        } else if constexpr (std::is_same_v<Val, DateV2Val>) {
+            DateV2Val val;
+            type_limit<doris::vectorized::DateV2Value>::max().to_datev2_val(&val);
             return val;
         } else {
             return Val(type_limit<decltype(std::declval<Val>().val)>::max());
@@ -246,6 +254,8 @@ public:
         case TYPE_STRING:
             return sizeof(doris_udf::StringVal);
 
+        case TYPE_DATEV2:
+            return sizeof(doris_udf::DateV2Val);
         case TYPE_DATE:
         case TYPE_DATETIME:
             return sizeof(doris_udf::DateTimeVal);
@@ -291,6 +301,8 @@ public:
         case TYPE_DATETIME:
         case TYPE_DATE:
             return alignof(DateTimeVal);
+        case TYPE_DATEV2:
+            return alignof(DateV2Val);
         case TYPE_DECIMALV2:
             return alignof(DecimalV2Val);
         case TYPE_ARRAY:
@@ -392,6 +404,18 @@ public:
             reinterpret_cast<doris_udf::DecimalV2Val*>(dst)->val =
                     reinterpret_cast<const PackedInt128*>(slot)->value;
             return;
+        case TYPE_DECIMAL32:
+            reinterpret_cast<doris_udf::Decimal32Val*>(dst)->val =
+                    *reinterpret_cast<const int32_t*>(slot);
+            return;
+        case TYPE_DECIMAL64:
+            reinterpret_cast<doris_udf::Decimal64Val*>(dst)->val =
+                    *reinterpret_cast<const int64_t*>(slot);
+            return;
+        case TYPE_DECIMAL128:
+            memcpy(&reinterpret_cast<doris_udf::Decimal128Val*>(dst)->val, slot, sizeof(__int128));
+            return;
+
         case TYPE_DATE:
             reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
                     reinterpret_cast<doris_udf::DateTimeVal*>(dst));
@@ -399,6 +423,10 @@ public:
         case TYPE_DATETIME:
             reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
                     reinterpret_cast<doris_udf::DateTimeVal*>(dst));
+
+        case TYPE_DATEV2:
+            reinterpret_cast<const doris::vectorized::DateV2Value*>(slot)->to_datev2_val(
+                    reinterpret_cast<doris_udf::DateV2Val*>(dst));
             return;
         case TYPE_ARRAY:
             reinterpret_cast<const CollectionValue*>(slot)->to_collection_val(

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.thrift.TTableDescriptor;
 
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
@@ -43,7 +44,7 @@ public class ExternalTable implements TableIf {
     protected String name;
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
     protected TableType type = null;
-    protected List<Column> fullSchema = null;
+    protected volatile List<Column> fullSchema = null;
 
     /**
      * Create external table.
@@ -67,6 +68,10 @@ public class ExternalTable implements TableIf {
         this.id = id;
         this.name = name;
         this.type = type;
+    }
+
+    public boolean isView() {
+        return false;
     }
 
     @Override
@@ -202,46 +207,57 @@ public class ExternalTable implements TableIf {
     }
 
     @Override
-    public String getMysqlType() {
-        throw new NotImplementedException();
-    }
-
-    @Override
     public String getEngine() {
-        throw new NotImplementedException();
+        return getType().toEngineName();
     }
 
     @Override
-    public String getComment() {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public long getCreateTime() {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public long getUpdateTime() {
-        throw new NotImplementedException();
+    public String getMysqlType() {
+        return getType().toMysqlType();
     }
 
     @Override
     public long getRowCount() {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public long getDataLength() {
-        throw new NotImplementedException();
+        return 0;
     }
 
     @Override
     public long getAvgRowLength() {
-        throw new NotImplementedException();
+        return 0;
     }
 
+    @Override
+    public long getDataLength() {
+        return 0;
+    }
+
+    @Override
+    public long getCreateTime() {
+        return 0;
+    }
+
+    @Override
+    public long getUpdateTime() {
+        return 0;
+    }
+
+    @Override
     public long getLastCheckTime() {
-        throw new NotImplementedException();
+        return 0;
+    }
+
+    @Override
+    public String getComment() {
+        return "";
+    }
+
+    @Override
+    public String getComment(boolean escapeQuota) {
+        return "";
+
+    }
+
+    public TTableDescriptor toThrift() {
+        return null;
     }
 }

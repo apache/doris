@@ -113,16 +113,7 @@ public:
         }
     }
 
-    void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
-        for (int i = 0; i < num; i++) {
-            const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
-            int64_t int_value = *(int64_t*)(cur_ptr);
-            int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
-            DecimalV2Value decimal_val(int_value, frac_value);
-            this->insert_data(reinterpret_cast<char*>(&decimal_val), 0);
-        }
-    }
-
+    void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(T()); }
     void insert(const Field& x) override {
@@ -140,6 +131,16 @@ public:
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
+
+    virtual size_t get_max_row_byte_size() const override;
+
+    virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                               size_t max_row_byte_size) const override;
+
+    virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                             const uint8_t* null_map,
+                                             size_t max_row_byte_size) const override;
+
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -206,6 +207,10 @@ public:
     }
 
     UInt32 get_scale() const { return scale; }
+
+    T get_scale_multiplier() const;
+    T get_whole_part(size_t n) const { return data[n] / get_scale_multiplier(); }
+    T get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
 
 protected:
     Container data;

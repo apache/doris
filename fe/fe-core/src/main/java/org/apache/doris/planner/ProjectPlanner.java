@@ -47,7 +47,6 @@ public class ProjectPlanner {
     public void projectPlanNode(Set<SlotId> outputSlotIds, PlanNode planNode) {
         try {
             planNode.initOutputSlotIds(outputSlotIds, analyzer);
-            planNode.projectOutputTuple();
         } catch (NotImplementedException e) {
             LOG.debug(e);
         }
@@ -56,7 +55,7 @@ public class ProjectPlanner {
         }
         Set<SlotId> inputSlotIds = null;
         try {
-            inputSlotIds = planNode.computeInputSlotIds(analyzer);
+            inputSlotIds = planNode.computeInputSlotIds();
         } catch (NotImplementedException e) {
             LOG.debug(e);
         }

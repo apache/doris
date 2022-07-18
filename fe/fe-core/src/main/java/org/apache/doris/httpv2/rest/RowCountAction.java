@@ -67,7 +67,7 @@ public class RowCountAction extends RestBaseController {
         Map<String, Long> indexRowCountMap = Maps.newHashMap();
         OlapTable olapTable;
         try {
-            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
             olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());

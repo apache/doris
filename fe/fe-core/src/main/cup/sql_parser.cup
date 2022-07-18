@@ -404,6 +404,7 @@ nonterminal WithClause opt_with_clause;
 nonterminal ArrayList<View> with_view_def_list;
 nonterminal View with_view_def;
 nonterminal Subquery subquery;
+nonterminal TableValuedFunctionRef table_valued_function_ref;
 nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
@@ -903,6 +904,10 @@ alter_stmt ::=
     {:
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
         RESULT = new AlterTableStmt(tbl, Lists.newArrayList(clause));
+    :}
+    | KW_ALTER KW_STORAGE KW_POLICY ident_or_text:policyName opt_properties:properties
+    {:
+        RESULT = new AlterPolicyStmt(policyName, properties);
     :}
     ;
 
@@ -1977,6 +1982,10 @@ tbl_pattern ::=
     {:
         RESULT = new TablePattern(db, tbl);
     :}
+    | ident_or_star:ctl DOT ident_or_star:db DOT ident_or_star:tbl
+    {:
+        RESULT = new TablePattern(ctl, db, tbl);
+    :}
     ;
 
 resource_pattern ::=
@@ -2825,11 +2834,11 @@ show_param ::=
     /* Show data statement: used to show data size of specified range */
      | KW_DATA order_by_clause:orderByClause
     {:
-        RESULT = new ShowDataStmt(null, null, orderByClause);
+        RESULT = new ShowDataStmt(null, orderByClause);
     :}
     | KW_DATA KW_FROM table_name:dbTblName order_by_clause:orderByClause
     {:
-        RESULT = new ShowDataStmt(dbTblName.getDb(), dbTblName.getTbl(), orderByClause);
+        RESULT = new ShowDataStmt(dbTblName, orderByClause);
     :}
     | opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
@@ -4151,11 +4160,15 @@ star_expr ::=
     // on IDENT [DOT]
     ident:tbl DOT STAR
     {:
-        RESULT = SelectListItem.createStarItem(new TableName(null, tbl));
+        RESULT = SelectListItem.createStarItem(new TableName(null, null, tbl));
     :}
     | ident:db DOT ident:tbl DOT STAR
     {:
-        RESULT = SelectListItem.createStarItem(new TableName(db, tbl));
+        RESULT = SelectListItem.createStarItem(new TableName(null, db, tbl));
+    :}
+    | ident:ctl DOT ident:db DOT ident:tbl DOT STAR
+    {:
+        RESULT = SelectListItem.createStarItem(new TableName(ctl, db, tbl));
     :}
     ;
 
@@ -4171,9 +4184,11 @@ opt_table_name ::=
 
 table_name ::=
     ident:tbl
-    {: RESULT = new TableName(null, tbl); :}
+    {: RESULT = new TableName(null, null, tbl); :}
     | ident:db DOT ident:tbl
-    {: RESULT = new TableName(db, tbl); :}
+    {: RESULT = new TableName(null, db, tbl); :}
+    | ident:ctl DOT ident:db DOT ident:tbl
+    {: RESULT = new TableName(ctl, db, tbl); :}
     ;
 
 encryptkey_name ::=
@@ -4260,6 +4275,17 @@ table_ref ::=
   {:
     s.setLateralViewRefs(lateralViewRefList);
     RESULT = s;
+  :}
+  | table_valued_function_ref:f
+  {:
+  	RESULT = f;
+  :}
+  ;
+
+table_valued_function_ref ::=
+  ident:func_name LPAREN string_list:param_list RPAREN opt_table_alias:alias
+  {:
+    RESULT = new TableValuedFunctionRef(func_name, alias, param_list);
   :}
   ;
 
@@ -4652,11 +4678,15 @@ type ::=
   | KW_DOUBLE
   {: RESULT = Type.DOUBLE; :}
   | KW_DATE
-  {: RESULT = Type.DATE; :}
+  {: RESULT = ScalarType.createDateType(); :}
+  | KW_DATETIME LPAREN INTEGER_LITERAL:precision RPAREN
+  {: RESULT = ScalarType.createDatetimeV2Type(precision.intValue()); :}
   | KW_DATETIME
-  {: RESULT = Type.DATETIME; :}
+  {: RESULT = ScalarType.createDatetimeType(); :}
+  | KW_TIME LPAREN INTEGER_LITERAL:precision RPAREN
+  {: RESULT = ScalarType.createTimeV2Type(precision.intValue()); :}
   | KW_TIME
-  {: RESULT = Type.TIME; :}
+  {: RESULT = ScalarType.createTimeType(); :}
   | KW_BITMAP
   {: RESULT = Type.BITMAP; :}
   | KW_QUANTILE_STATE
@@ -4698,15 +4728,15 @@ type ::=
   | KW_CHAR
   {: RESULT = ScalarType.createCharType(-1); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision RPAREN
-  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue()); :}
+  {: RESULT = ScalarType.createDecimalType(precision.intValue()); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
-  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue(), scale.intValue()); :}
+  {: RESULT = ScalarType.createDecimalType(precision.intValue(), scale.intValue()); :}
   | KW_DECIMAL
-  {: RESULT = ScalarType.createDecimalV2Type(); :}
+  {: RESULT = ScalarType.createDecimalType(); :}
   | KW_DECIMAL LPAREN ident_or_text:precision RPAREN
-  {: RESULT = ScalarType.createDecimalV2Type(precision); :}
+  {: RESULT = ScalarType.createDecimalType(precision); :}
   | KW_DECIMAL LPAREN ident_or_text:precision COMMA ident_or_text:scale RPAREN
-  {: RESULT = ScalarType.createDecimalV2Type(precision, scale); :}
+  {: RESULT = ScalarType.createDecimalType(precision, scale); :}
   | KW_HLL
   {: ScalarType type = ScalarType.createHllType();
      type.setAssignedStrLenInColDefinition();
@@ -5285,9 +5315,11 @@ column_ref ::=
   {: RESULT = new SlotRef(null, col); :}
   // table_name:tblName DOT IDENT:col causes reduce/reduce conflicts
   | ident:tbl DOT ident:col
-  {: RESULT = new SlotRef(new TableName(null, tbl), col); :}
+  {: RESULT = new SlotRef(new TableName(null, null, tbl), col); :}
   | ident:db DOT ident:tbl DOT ident:col
-  {: RESULT = new SlotRef(new TableName(db, tbl), col); :}
+  {: RESULT = new SlotRef(new TableName(null, db, tbl), col); :}
+  | ident:ctl DOT ident:db DOT ident:tbl DOT ident:col
+  {: RESULT = new SlotRef(new TableName(ctl, db, tbl), col); :}
   ;
 
 column_subscript ::=

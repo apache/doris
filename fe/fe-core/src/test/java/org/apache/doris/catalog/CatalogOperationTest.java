@@ -110,7 +110,7 @@ public class CatalogOperationTest {
         String renameTblStmt = "alter table test.renameTest rename newNewTest";
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
         Assert.assertNotNull(db);
         Assert.assertNotNull(db.getTableNullable("renameTest"));
 

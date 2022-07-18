@@ -86,9 +86,9 @@ private:
             }
         }
 
-        return Status::RuntimeError(
-                fmt::format("Illegal column {} of argument of function {}",
-                            block.get_by_position(arguments[0]).column->get_name(), get_name()));
+        return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                    block.get_by_position(arguments[0]).column->get_name(),
+                                    get_name());
     }
     template <typename T, std::enable_if_t<!std::is_same_v<T, DataTypeString>, T>* = nullptr>
     Status execute_impl(Block& block, const ColumnNumbers& arguments, size_t result,
@@ -119,9 +119,9 @@ private:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(
-                fmt::format("Illegal column {} of argument of function {}",
-                            block.get_by_position(arguments[0]).column->get_name(), get_name()));
+        return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                    block.get_by_position(arguments[0]).column->get_name(),
+                                    get_name());
     }
 };
 
@@ -177,7 +177,7 @@ public:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(fmt::format("unimplements function {}", get_name()));
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 };
 
@@ -240,7 +240,7 @@ private:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(fmt::format("unimplements function {}", get_name()));
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 
     template <typename ReturnDataType,
@@ -262,13 +262,14 @@ private:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(fmt::format("unimplements function {}", get_name()));
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 };
 
 // func(type,type) -> nullable(type)
-template <typename LeftDataType, typename RightDataType,
-          template <typename, typename> typename Impl, typename Name>
+template <typename LeftDataType, typename RightDataType, typename ResultDateType,
+          typename ReturnType, template <typename, typename, typename, typename> typename Impl,
+          typename Name>
 class FunctionBinaryToNullType : public IFunction {
 public:
     static constexpr auto name = Name::name;
@@ -276,7 +277,8 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        using ResultDataType = typename Impl<LeftDataType, RightDataType>::ResultDataType;
+        using ResultDataType = typename Impl<LeftDataType, RightDataType, ResultDateType,
+                                             ReturnType>::ResultDataType;
         return make_nullable(std::make_shared<ResultDataType>());
     }
 
@@ -300,7 +302,8 @@ public:
             }
         }
 
-        using ResultDataType = typename Impl<LeftDataType, RightDataType>::ResultDataType;
+        using ResultDataType = typename Impl<LeftDataType, RightDataType, ResultDateType,
+                                             ReturnType>::ResultDataType;
 
         using T0 = typename LeftDataType::FieldType;
         using T1 = typename RightDataType::FieldType;
@@ -323,14 +326,14 @@ public:
 
         if (auto col_left = check_and_get_column<ColVecLeft>(argument_columns[0].get())) {
             if (auto col_right = check_and_get_column<ColVecRight>(argument_columns[1].get())) {
-                Impl<LeftDataType, RightDataType>::vector_vector(
+                Impl<LeftDataType, RightDataType, ResultDateType, ReturnType>::vector_vector(
                         col_left->get_data(), col_right->get_data(), vec_res, null_map->get_data());
                 block.get_by_position(result).column =
                         ColumnNullable::create(std::move(col_res), std::move(null_map));
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(fmt::format("unimplements function {}", get_name()));
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 };
 
@@ -431,9 +434,9 @@ public:
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
         } else {
-            return Status::RuntimeError(fmt::format(
-                    "Illegal column {} of argument of function {}",
-                    block.get_by_position(arguments[0]).column->get_name(), get_name()));
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        get_name());
         }
         return Status::OK();
     }

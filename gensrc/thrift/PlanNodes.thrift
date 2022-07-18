@@ -22,6 +22,7 @@ include "Exprs.thrift"
 include "Types.thrift"
 include "Opcodes.thrift"
 include "Partitions.thrift"
+include "Descriptors.thrift"
 
 enum TPlanNodeType {
   OLAP_SCAN_NODE,
@@ -52,6 +53,8 @@ enum TPlanNodeType {
   EXCEPT_NODE,
   ODBC_SCAN_NODE,
   TABLE_FUNCTION_NODE,
+  TABLE_VALUED_FUNCTION_SCAN_NODE,
+  FILE_SCAN_NODE,
 }
 
 // phases of an execution node
@@ -212,14 +215,66 @@ struct TEsScanRange {
   4: required i32 shard_id
 }
 
-struct TFileScanRange {
+struct TFileTextScanRangeParams {
+    1: optional string column_separator_str;
+    2: optional string line_delimiter_str;
+}
 
+struct TFileScanSlotInfo {
+    1: optional Types.TSlotId slot_id;
+    2: optional bool is_file_slot;
+}
+
+struct TFileScanRangeParams {
+  // use src_tuple_id to get all slots from src table include both file slot and partition slot.
+  1: optional Types.TTupleId src_tuple_id;
+  // num_of_columns_from_file can spilt the all_file_slot and all_partition_slot
+  2: optional i32 num_of_columns_from_file;
+  // all selected slots which may compose from file and partiton value.
+  3: optional list<TFileScanSlotInfo> required_slots;
+
+  4: optional TFileTextScanRangeParams text_params;
+}
+
+struct TFileRangeDesc {
+    1: optional Types.TFileType file_type;
+    2: optional TFileFormatType format_type;
+    // Path of this range
+    3: optional string path;
+    // Offset of this file start
+    4: optional i64 start_offset;
+    // Size of this range, if size = -1, this means that will read to the end of file
+    5: optional i64 size;
+    // columns parsed from file path should be after the columns read from file
+    6: optional list<string> columns_from_path;
+
+    7: optional THdfsParams hdfs_params;
+}
+
+// HDFS file scan range
+struct TFileScanRange {
+    1: optional list<TFileRangeDesc> ranges
+    2: optional TFileScanRangeParams params
 }
 
 // Scan range for external datasource, such as file on hdfs, es datanode, etc.
 struct TExternalScanRange {
     1: optional TFileScanRange file_scan_range
     // TODO: add more scan range type?
+}
+
+enum TTVFunctionName {
+    NUMBERS = 0,
+}
+
+// Every table valued function should have a scan range definition to save its
+// running parameters
+struct TTVFNumbersScanRange {
+	1: optional i64 totalNumbers
+}
+
+struct TTVFScanRange {
+  1: optional TTVFNumbersScanRange numbers_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -231,6 +286,7 @@ struct TScanRange {
   6: optional TBrokerScanRange broker_scan_range
   7: optional TEsScanRange es_scan_range
   8: optional TExternalScanRange ext_scan_range
+  9: optional TTVFScanRange tvf_scan_range
 }
 
 struct TMySQLScanNode {
@@ -263,6 +319,11 @@ struct TBrokerScanNode {
     2: optional list<Exprs.TExpr> partition_exprs
     3: optional list<Partitions.TRangePartition> partition_infos
     4: optional list<Exprs.TExpr> pre_filter_exprs
+}
+
+struct TFileScanNode {
+    1: optional Types.TTupleId tuple_id
+    2: optional list<Exprs.TExpr> pre_filter_exprs
 }
 
 struct TEsScanNode {
@@ -358,6 +419,7 @@ struct TOlapScanNode {
   5: optional string sort_column
   6: optional Types.TKeysType keyType
   7: optional string table_name
+  8: required list<Descriptors.TColumn> columns_desc
 }
 
 struct TEqJoinCondition {
@@ -409,10 +471,6 @@ struct THashJoinNode {
 
   // hash output column
   6: optional list<Types.TSlotId> hash_output_slot_ids
-
-  7: optional list<Exprs.TExpr> srcExprList
-
-  8: optional Types.TTupleId voutput_tuple_id
 }
 
 struct TMergeJoinNode {
@@ -516,17 +574,8 @@ struct TSortNode {
   // This is the number of rows to skip before returning results
   3: optional i64 offset
 
-  // TODO(lingbin): remove blew, because duplaicate with TSortInfo
-  4: optional list<Exprs.TExpr> ordering_exprs                                   
-  5: optional list<bool> is_asc_order                                            
   // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.           
   6: optional bool is_default_limit                                              
-  // Indicates, for each expr, if nulls should be listed first or last. This is  
-  // independent of is_asc_order.                                                
-  7: optional list<bool> nulls_first                                             
-  // Expressions evaluated over the input row that materialize the tuple to be so
-  // Contains one expr per slot in the materialized tuple.                       
-  8: optional list<Exprs.TExpr> sort_tuple_slot_exprs                            
 }
 
 enum TAnalyticWindowType {
@@ -761,6 +810,11 @@ struct TRuntimeFilterDesc {
   9: optional i64 bloom_filter_size_bytes
 }
 
+struct TTableValuedFunctionScanNode {
+	1: optional Types.TTupleId tuple_id
+  	2: optional TTVFunctionName func_name
+}
+
 // This is essentially a union of all messages corresponding to subclasses
 // of PlanNode.
 struct TPlanNode {
@@ -812,6 +866,10 @@ struct TPlanNode {
 
   // output column
   42: optional list<Types.TSlotId> output_slot_ids
+  43: optional TTableValuedFunctionScanNode table_valued_func_scan_node
+
+  // file scan node
+  44: optional TFileScanNode file_scan_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

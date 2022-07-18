@@ -184,10 +184,8 @@ public class UpdateStmtExecutor {
         try {
             LOG.info("commit and publish transaction for update stmt, query id: {}", DebugUtil.printId(queryId));
             isPublished = globalTransactionMgr.commitAndPublishTransaction(
-                    Catalog.getCurrentCatalog().getDbOrMetaException(dbId),
-                    Lists.newArrayList(targetTable),
-                    txnId,
-                    TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
+                    Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId),
+                    Lists.newArrayList(targetTable), txnId, TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
                     analyzer.getContext().getSessionVariable().getInsertVisibleTimeoutMs());
         } catch (Throwable e) {
             // situation2.1: publish error, throw exception
@@ -226,7 +224,8 @@ public class UpdateStmtExecutor {
         updateStmtExecutor.targetTable = (OlapTable) updateStmt.getTargetTable();
         updateStmtExecutor.whereExpr = updateStmt.getWhereExpr();
         updateStmtExecutor.setExprs = updateStmt.getSetExprs();
-        Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(updateStmt.getTableName().getDb());
+        Database database = Catalog.getCurrentInternalCatalog()
+                .getDbOrAnalysisException(updateStmt.getTableName().getDb());
         updateStmtExecutor.dbId = database.getId();
         updateStmtExecutor.analyzer = updateStmt.getAnalyzer();
         updateStmtExecutor.queryId = updateStmtExecutor.analyzer.getContext().queryId();

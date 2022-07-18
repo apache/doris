@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -30,7 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 public class OptimizeGroupJob extends Job<Plan> {
     private final Group group;
 
-    public OptimizeGroupJob(Group group, PlannerContext context) {
+    public OptimizeGroupJob(Group group, JobContext context) {
         super(JobType.OPTIMIZE_PLAN_SET, context);
         this.group = group;
     }
@@ -38,16 +38,16 @@ public class OptimizeGroupJob extends Job<Plan> {
     @Override
     public void execute() {
         if (group.getCostLowerBound() > context.getCostUpperBound()
-                || group.getLowestCostPlan(context.getPhysicalProperties()).isPresent()) {
+                || group.getLowestCostPlan(context.getRequiredProperties()).isPresent()) {
             return;
         }
         if (!group.isExplored()) {
             for (GroupExpression logicalGroupExpression : group.getLogicalExpressions()) {
-                context.getOptimizerContext().pushJob(new OptimizeGroupExpressionJob(logicalGroupExpression, context));
+                context.getPlannerContext().pushJob(new OptimizeGroupExpressionJob(logicalGroupExpression, context));
             }
         }
         for (GroupExpression physicalGroupExpression : group.getPhysicalExpressions()) {
-            context.getOptimizerContext().pushJob(new CostAndEnforcerJob(physicalGroupExpression, context));
+            context.getPlannerContext().pushJob(new CostAndEnforcerJob(physicalGroupExpression, context));
         }
         group.setExplored(true);
     }
