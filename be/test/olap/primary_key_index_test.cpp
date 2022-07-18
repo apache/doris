@@ -21,7 +21,6 @@
 
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/fs/fs_util.h"
 #include "olap/row_cursor.h"
 #include "olap/tablet_schema_helper.h"
 #include "util/debug_util.h"
@@ -52,7 +51,7 @@ private:
 
 TEST_F(PrimaryKeyIndexTest, builder) {
     std::string filename = kTestDir + "/builder";
-    std::unique_ptr<io::FileWriter> file_writer;
+    io::FileWriterPtr file_writer;
     auto fs = io::global_local_filesystem();
     EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
@@ -67,13 +66,15 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     }
     EXPECT_EQ("1000", builder.min_key().to_string());
     EXPECT_EQ("9998", builder.max_key().to_string());
-    segment_v2::IndexedColumnMetaPB index_meta;
+    segment_v2::PrimaryKeyIndexMetaPB index_meta;
     EXPECT_TRUE(builder.finalize(&index_meta));
     EXPECT_TRUE(file_writer->close().ok());
     EXPECT_EQ(num_rows, builder.num_rows());
 
     PrimaryKeyIndexReader index_reader;
-    EXPECT_TRUE(index_reader.parse(fs, filename, index_meta).ok());
+    io::FileReaderSPtr file_reader;
+    EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+    EXPECT_TRUE(index_reader.parse(file_reader, index_meta).ok());
     EXPECT_EQ(num_rows, index_reader.num_rows());
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
@@ -81,6 +82,8 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     bool exact_match = false;
     uint32_t row_id;
     for (size_t i = 0; i < keys.size(); i++) {
+        bool exists = index_reader.check_present(keys[i]);
+        EXPECT_TRUE(exists);
         auto status = index_iterator->seek_at_or_after(&keys[i], &exact_match);
         EXPECT_TRUE(status.ok());
         EXPECT_TRUE(exact_match);
@@ -91,6 +94,8 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     {
         string key("8701");
         Slice slice(key);
+        bool exists = index_reader.check_present(slice);
+        EXPECT_FALSE(exists);
         auto status = index_iterator->seek_at_or_after(&slice, &exact_match);
         EXPECT_TRUE(status.ok());
         EXPECT_FALSE(exact_match);
@@ -102,6 +107,8 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     {
         string key("87");
         Slice slice(key);
+        bool exists = index_reader.check_present(slice);
+        EXPECT_FALSE(exists);
         auto status = index_iterator->seek_at_or_after(&slice, &exact_match);
         EXPECT_TRUE(status.ok());
         EXPECT_FALSE(exact_match);
@@ -113,6 +120,8 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     {
         string key("9999");
         Slice slice(key);
+        bool exists = index_reader.check_present(slice);
+        EXPECT_FALSE(exists);
         auto status = index_iterator->seek_at_or_after(&slice, &exact_match);
         EXPECT_FALSE(exact_match);
         EXPECT_TRUE(status.is_not_found());

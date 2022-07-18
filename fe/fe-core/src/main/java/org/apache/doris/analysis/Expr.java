@@ -934,7 +934,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         msg.type = type.toThrift();
         msg.num_children = children.size();
         if (fn != null) {
-            msg.setFn(fn.toThrift());
+            msg.setFn(fn.toThrift(type, collectChildReturnTypes()));
             if (fn.hasVarArgs()) {
                 msg.setVarargStartIdx(fn.getNumArgs() - 1);
             }
@@ -1295,7 +1295,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public Expr checkTypeCompatibility(Type targetType) throws AnalysisException {
         if (targetType.getPrimitiveType() != PrimitiveType.ARRAY
                 && targetType.getPrimitiveType() == type.getPrimitiveType()) {
-            return this;
+            if (targetType.isDecimalV2() && type.isDecimalV2()) {
+                return this;
+            } else if (!PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
+                return this;
+            } else if (((ScalarType) targetType).decimalScale() == ((ScalarType) type).decimalScale()
+                    && ((ScalarType) targetType).decimalPrecision() == ((ScalarType) type).decimalPrecision()) {
+                return this;
+            }
         }
         // bitmap must match exactly
         if (targetType.getPrimitiveType() == PrimitiveType.BITMAP) {

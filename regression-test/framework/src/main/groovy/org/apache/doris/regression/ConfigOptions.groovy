@@ -38,6 +38,7 @@ class ConfigOptions {
     static Option pathOpt
     static Option dataOpt
     static Option realDataOpt
+    static Option sf1DataOpt
     static Option pluginOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
@@ -52,6 +53,7 @@ class ConfigOptions {
     static Option suiteParallelOpt
     static Option actionParallelOpt
     static Option randomOrderOpt
+    static Option stopWhenFail
     static Option timesOpt
     static Option withOutLoadDataOpt
 
@@ -126,6 +128,14 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("realDataPath")
                 .desc("the real data path")
+                .build()
+        sf1DataOpt = Option.builder("SD")
+                .argName("sf1DataPath")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("sf1DataPath")
+                .desc("the sf1 data path contains data file for ssb_sf1, tpcds_sf1 and tpch_sf1 cases")
                 .build()
         pluginOpt = Option.builder("plugin")
                 .argName("pluginPath")
@@ -261,6 +271,11 @@ class ConfigOptions {
                 .hasArg(false)
                 .desc("run tests in random order")
                 .build()
+        stopWhenFail = Option.builder("stopWhenFail")
+                .required(false)
+                .hasArg(false)
+                .desc("stop when a failure happens")
+                .build()
         timesOpt = Option.builder("times")
                 .argName("times")
                 .required(false)
@@ -303,6 +318,7 @@ class ConfigOptions {
                 .addOption(suiteParallelOpt)
                 .addOption(actionParallelOpt)
                 .addOption(randomOrderOpt)
+                .addOption(stopWhenFail)
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
 

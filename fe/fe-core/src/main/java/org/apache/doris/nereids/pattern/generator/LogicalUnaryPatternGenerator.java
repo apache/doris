@@ -22,7 +22,7 @@ import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
 import java.util.Set;
 import java.util.TreeSet;
 
-/** used to generate pattern for LogicalUnaryOperator. */
+/** used to generate pattern for LogicalUnary. */
 public class LogicalUnaryPatternGenerator extends PatternGenerator {
 
     public LogicalUnaryPatternGenerator(PatternGeneratorAnalyzer analyzer,
@@ -32,12 +32,12 @@ public class LogicalUnaryPatternGenerator extends PatternGenerator {
 
     @Override
     public String genericType() {
-        return "<LogicalUnaryPlan<" + opType.name + ", GroupPlan>, Plan>";
+        return "<" + opType.name + "<GroupPlan>, Plan>";
     }
 
     @Override
     public String genericTypeWithChildren() {
-        return "<LogicalUnaryPlan<" + opType.name + ", C1>, Plan>";
+        return "<" + opType.name + "<C1>, Plan>";
     }
 
     @Override
@@ -46,7 +46,6 @@ public class LogicalUnaryPatternGenerator extends PatternGenerator {
         imports.add(opType.getFullQualifiedName());
         imports.add("org.apache.doris.nereids.trees.plans.GroupPlan");
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
-        imports.add("org.apache.doris.nereids.trees.plans.logical.LogicalUnaryPlan");
         enumFieldPatternInfos.stream()
                 .map(info -> info.enumFullName)
                 .forEach(imports::add);

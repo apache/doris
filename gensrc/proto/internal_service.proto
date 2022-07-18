@@ -359,6 +359,8 @@ message PColumnValue {
     optional int64 longVal = 3;
     optional double doubleVal = 4;
     optional bytes stringVal = 5;
+    optional int32 precision = 6;
+    optional int32 scale = 7;
 }
 
 // TODO: CHECK ALL TYPE
@@ -379,6 +381,9 @@ enum PColumnType {
     COLUMN_TYPE_DECIMALV2 = 13;
     COLUMN_TYPE_STRING = 14;
     COLUMN_TYPE_DATEV2 = 15;
+    COLUMN_TYPE_DECIMAL32 = 16;
+    COLUMN_TYPE_DECIMAL64 = 17;
+    COLUMN_TYPE_DECIMAL128 = 18;
 }
 
 message PMinMaxFilter {

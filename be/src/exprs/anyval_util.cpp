@@ -37,6 +37,7 @@ using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
 using doris_udf::StringVal;
 using doris_udf::AnyVal;
+using doris_udf::DateV2Val;
 
 Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor& type,
                         const std::string& mem_limit_exceeded_msg, AnyVal** result) {
@@ -93,10 +94,23 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_DECIMALV2:
         return pool->add(new DecimalV2Val);
 
+    case TYPE_DECIMAL32:
+        return pool->add(new IntVal);
+
+    case TYPE_DECIMAL64:
+        return pool->add(new BigIntVal);
+
+    case TYPE_DECIMAL128:
+        return pool->add(new LargeIntVal);
+
     case TYPE_DATE:
         return pool->add(new DateTimeVal);
 
+    case TYPE_DATEV2:
+        return pool->add(new DateV2Val);
+
     case TYPE_DATETIME:
+    case TYPE_DATETIMEV2:
         return pool->add(new DateTimeVal);
 
     case TYPE_ARRAY:
@@ -140,10 +154,26 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
         out.type = FunctionContext::TYPE_DATE;
         break;
     case TYPE_DATETIME:
+    case TYPE_DATETIMEV2:
         out.type = FunctionContext::TYPE_DATETIME;
         break;
     case TYPE_DATEV2:
         out.type = FunctionContext::TYPE_DATEV2;
+        break;
+    case TYPE_DECIMAL32:
+        out.type = FunctionContext::TYPE_DECIMAL32;
+        out.precision = type.precision;
+        out.scale = type.scale;
+        break;
+    case TYPE_DECIMAL64:
+        out.type = FunctionContext::TYPE_DECIMAL64;
+        out.precision = type.precision;
+        out.scale = type.scale;
+        break;
+    case TYPE_DECIMAL128:
+        out.type = FunctionContext::TYPE_DECIMAL128;
+        out.precision = type.precision;
+        out.scale = type.scale;
         break;
     case TYPE_VARCHAR:
         out.type = FunctionContext::TYPE_VARCHAR;

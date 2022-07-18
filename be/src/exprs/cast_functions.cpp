@@ -31,6 +31,8 @@
 #include "util/array_parser.h"
 #include "util/mysql_global.h"
 #include "util/string_parser.hpp"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
@@ -357,6 +359,334 @@ DateTimeVal CastFunctions::cast_to_date_val(FunctionContext* ctx, const StringVa
     // Return null if 'val' did not parse
     DateTimeVal result;
     date_value.to_datetime_val(&result);
+    return result;
+}
+
+#define CAST_TYPE_DECIMAL32(from_type)                                                    \
+    Decimal32Val CastFunctions::cast_to_decimal32_val(FunctionContext* ctx,               \
+                                                      const from_type& val) {             \
+        if (val.is_null) {                                                                \
+            return Decimal32Val::null();                                                  \
+        }                                                                                 \
+        auto scale_to = ctx->get_return_type().scale;                                     \
+        return Decimal32Val(                                                              \
+                val.val *                                                                 \
+                vectorized::DataTypeDecimal<vectorized::Decimal32>::get_scale_multiplier( \
+                        scale_to));                                                       \
+    }
+
+#define CAST_TYPE_DECIMAL64(from_type)                                                    \
+    Decimal64Val CastFunctions::cast_to_decimal64_val(FunctionContext* ctx,               \
+                                                      const from_type& val) {             \
+        if (val.is_null) {                                                                \
+            return Decimal64Val::null();                                                  \
+        }                                                                                 \
+        auto scale_to = ctx->get_return_type().scale;                                     \
+        return Decimal64Val(                                                              \
+                val.val *                                                                 \
+                vectorized::DataTypeDecimal<vectorized::Decimal64>::get_scale_multiplier( \
+                        scale_to));                                                       \
+    }
+
+#define CAST_TYPE_DECIMAL128(from_type)                                                    \
+    Decimal128Val CastFunctions::cast_to_decimal128_val(FunctionContext* ctx,              \
+                                                        const from_type& val) {            \
+        if (val.is_null) {                                                                 \
+            return Decimal128Val::null();                                                  \
+        }                                                                                  \
+        auto scale_to = ctx->get_return_type().scale;                                      \
+        return Decimal128Val(                                                              \
+                val.val *                                                                  \
+                vectorized::DataTypeDecimal<vectorized::Decimal128>::get_scale_multiplier( \
+                        scale_to));                                                        \
+    }
+
+#define CAST_TYPE_DECIMAL(to_type)                                                               \
+    CAST_TYPE_##to_type(TinyIntVal) CAST_TYPE_##to_type(SmallIntVal) CAST_TYPE_##to_type(IntVal) \
+            CAST_TYPE_##to_type(BigIntVal) CAST_TYPE_##to_type(LargeIntVal)                      \
+                    CAST_TYPE_##to_type(FloatVal) CAST_TYPE_##to_type(DoubleVal)
+
+CAST_TYPE_DECIMAL(DECIMAL32)
+CAST_TYPE_DECIMAL(DECIMAL64)
+CAST_TYPE_DECIMAL(DECIMAL128)
+
+Decimal32Val CastFunctions::cast_to_decimal32_val(FunctionContext* context,
+                                                  const DateTimeVal& val) {
+    if (val.is_null) {
+        return Decimal32Val::null();
+    }
+    auto scale_to = context->get_return_type().scale;
+    DateTimeValue dt_value = DateTimeValue::from_datetime_val(val);
+    return Decimal32Val(
+            dt_value.to_int64() *
+            vectorized::DataTypeDecimal<vectorized::Decimal32>::get_scale_multiplier(scale_to));
+}
+
+Decimal32Val CastFunctions::cast_to_decimal32_val(FunctionContext* context, const StringVal& val) {
+    if (val.is_null) {
+        return Decimal32Val::null();
+    }
+    std::stringstream ss;
+    StringParser::ParseResult result;
+    int32_t v = StringParser::string_to_decimal<int32_t>((const char*)val.ptr, val.len,
+                                                         context->get_return_type().precision,
+                                                         context->get_return_type().scale, &result);
+    return Decimal32Val(v);
+}
+
+Decimal32Val CastFunctions::cast_to_decimal32_val(FunctionContext* ctx, const Decimal32Val& val) {
+    if (ctx->get_arg_type(0)->scale == ctx->get_return_type().scale &&
+        ctx->get_arg_type(0)->precision == ctx->get_return_type().precision) {
+        return val;
+    }
+    if (val.is_null) {
+        return Decimal32Val::null();
+    }
+    auto scale_from = ctx->get_arg_type(0)->scale;
+    auto scale_to = ctx->get_return_type().scale;
+    if (scale_to > scale_from) {
+        return Decimal32Val(
+                val.val * vectorized::DataTypeDecimal<vectorized::Decimal32>::get_scale_multiplier(
+                                  scale_to - scale_from));
+    } else {
+        return Decimal32Val(
+                val.val / vectorized::DataTypeDecimal<vectorized::Decimal32>::get_scale_multiplier(
+                                  scale_from - scale_to));
+    }
+}
+
+Decimal64Val CastFunctions::cast_to_decimal64_val(FunctionContext* context,
+                                                  const DateTimeVal& val) {
+    if (val.is_null) {
+        return Decimal64Val::null();
+    }
+    auto scale_to = context->get_return_type().scale;
+    DateTimeValue dt_value = DateTimeValue::from_datetime_val(val);
+    return Decimal64Val(
+            dt_value.to_int64() *
+            vectorized::DataTypeDecimal<vectorized::Decimal64>::get_scale_multiplier(scale_to));
+}
+
+Decimal64Val CastFunctions::cast_to_decimal64_val(FunctionContext* context, const StringVal& val) {
+    if (val.is_null) {
+        return Decimal64Val::null();
+    }
+    std::stringstream ss;
+    StringParser::ParseResult result;
+    int64_t v = StringParser::string_to_decimal<int64_t>((const char*)val.ptr, val.len,
+                                                         context->get_return_type().precision,
+                                                         context->get_return_type().scale, &result);
+    return Decimal64Val(v);
+}
+
+Decimal64Val CastFunctions::cast_to_decimal64_val(FunctionContext* ctx, const Decimal64Val& val) {
+    if (ctx->get_arg_type(0)->scale == ctx->get_return_type().scale &&
+        ctx->get_arg_type(0)->precision == ctx->get_return_type().precision) {
+        return val;
+    }
+    if (val.is_null) {
+        return Decimal64Val::null();
+    }
+    auto scale_from = ctx->get_arg_type(0)->scale;
+    auto scale_to = ctx->get_return_type().scale;
+    if (scale_to > scale_from) {
+        return Decimal64Val(
+                val.val * vectorized::DataTypeDecimal<vectorized::Decimal64>::get_scale_multiplier(
+                                  scale_to - scale_from));
+    } else {
+        return Decimal64Val(
+                val.val / vectorized::DataTypeDecimal<vectorized::Decimal64>::get_scale_multiplier(
+                                  scale_from - scale_to));
+    }
+}
+
+Decimal128Val CastFunctions::cast_to_decimal128_val(FunctionContext* context,
+                                                    const DateTimeVal& val) {
+    if (val.is_null) {
+        return Decimal128Val::null();
+    }
+    auto scale_to = context->get_return_type().scale;
+    DateTimeValue dt_value = DateTimeValue::from_datetime_val(val);
+    return Decimal128Val(
+            dt_value.to_int64() *
+            vectorized::DataTypeDecimal<vectorized::Decimal128>::get_scale_multiplier(scale_to));
+}
+
+Decimal128Val CastFunctions::cast_to_decimal128_val(FunctionContext* context,
+                                                    const StringVal& val) {
+    if (val.is_null) {
+        return Decimal128Val::null();
+    }
+    std::stringstream ss;
+    StringParser::ParseResult result;
+    int128_t v = StringParser::string_to_decimal<int128_t>(
+            (const char*)val.ptr, val.len, context->get_return_type().precision,
+            context->get_return_type().scale, &result);
+    return Decimal128Val(v);
+}
+
+Decimal128Val CastFunctions::cast_to_decimal128_val(FunctionContext* ctx,
+                                                    const Decimal128Val& val) {
+    if (ctx->get_arg_type(0)->scale == ctx->get_return_type().scale &&
+        ctx->get_arg_type(0)->precision == ctx->get_return_type().precision) {
+        return val;
+    }
+    if (val.is_null) {
+        return Decimal128Val::null();
+    }
+    auto scale_from = ctx->get_arg_type(0)->scale;
+    auto scale_to = ctx->get_return_type().scale;
+    if (scale_to > scale_from) {
+        return Decimal128Val(
+                val.val * vectorized::DataTypeDecimal<vectorized::Decimal128>::get_scale_multiplier(
+                                  scale_to - scale_from));
+    } else {
+        return Decimal128Val(
+                val.val / vectorized::DataTypeDecimal<vectorized::Decimal128>::get_scale_multiplier(
+                                  scale_from - scale_to));
+    }
+}
+
+Decimal128Val CastFunctions::cast_to_decimal128_val(FunctionContext* ctx, const Decimal32Val& val) {
+    if (ctx->get_arg_type(0)->scale == ctx->get_return_type().scale &&
+        ctx->get_arg_type(0)->precision == ctx->get_return_type().precision) {
+        return Decimal128Val(val.val);
+    }
+    if (val.is_null) {
+        return Decimal128Val::null();
+    }
+    auto scale_from = ctx->get_arg_type(0)->scale;
+    auto scale_to = ctx->get_return_type().scale;
+    if (scale_to > scale_from) {
+        return Decimal128Val(
+                val.val * vectorized::DataTypeDecimal<vectorized::Decimal128>::get_scale_multiplier(
+                                  scale_to - scale_from));
+    } else {
+        return Decimal128Val(
+                val.val / vectorized::DataTypeDecimal<vectorized::Decimal128>::get_scale_multiplier(
+                                  scale_from - scale_to));
+    }
+}
+
+Decimal128Val CastFunctions::cast_to_decimal128_val(FunctionContext* ctx, const Decimal64Val& val) {
+    if (ctx->get_arg_type(0)->scale == ctx->get_return_type().scale &&
+        ctx->get_arg_type(0)->precision == ctx->get_return_type().precision) {
+        return Decimal128Val(val.val);
+    }
+    if (val.is_null) {
+        return Decimal128Val::null();
+    }
+    auto scale_from = ctx->get_arg_type(0)->scale;
+    auto scale_to = ctx->get_return_type().scale;
+    if (scale_to > scale_from) {
+        return Decimal128Val(
+                val.val * vectorized::DataTypeDecimal<vectorized::Decimal128>::get_scale_multiplier(
+                                  scale_to - scale_from));
+    } else {
+        return Decimal128Val(
+                val.val / vectorized::DataTypeDecimal<vectorized::Decimal128>::get_scale_multiplier(
+                                  scale_from - scale_to));
+    }
+}
+
+Decimal64Val CastFunctions::cast_to_decimal64_val(FunctionContext* ctx, const Decimal32Val& val) {
+    if (ctx->get_arg_type(0)->scale == ctx->get_return_type().scale &&
+        ctx->get_arg_type(0)->precision == ctx->get_return_type().precision) {
+        return Decimal64Val(val.val);
+    }
+    if (val.is_null) {
+        return Decimal64Val::null();
+    }
+    auto scale_from = ctx->get_arg_type(0)->scale;
+    auto scale_to = ctx->get_return_type().scale;
+    if (scale_to > scale_from) {
+        return Decimal64Val(
+                val.val * vectorized::DataTypeDecimal<vectorized::Decimal128>::get_scale_multiplier(
+                                  scale_to - scale_from));
+    } else {
+        return Decimal64Val(
+                val.val / vectorized::DataTypeDecimal<vectorized::Decimal128>::get_scale_multiplier(
+                                  scale_from - scale_to));
+    }
+}
+
+DateTimeVal CastFunctions::cast_to_date_val(FunctionContext* ctx, const DateV2Val& val) {
+    if (val.is_null) {
+        return DateTimeVal::null();
+    }
+    vectorized::DateV2Value datev2_val = vectorized::DateV2Value::from_datev2_val(val);
+    DateTimeValue datetime_value;
+    datev2_val.convert_date_v2_to_dt(&datetime_value);
+    DateTimeVal result;
+    datetime_value.to_datetime_val(&result);
+    return result;
+}
+
+DateTimeVal CastFunctions::cast_to_datetime_val(FunctionContext* ctx, const DateV2Val& val) {
+    if (val.is_null) {
+        return DateTimeVal::null();
+    }
+    vectorized::DateV2Value datev2_val = vectorized::DateV2Value::from_datev2_val(val);
+    DateTimeValue datetime_value;
+    datev2_val.convert_date_v2_to_dt(&datetime_value);
+    datetime_value.set_type(TYPE_DATETIME);
+    DateTimeVal result;
+    datetime_value.to_datetime_val(&result);
+    return result;
+}
+
+#define CAST_TO_DATEV2(from_type)                                                             \
+    DateV2Val CastFunctions::cast_to_datev2_val(FunctionContext* ctx, const from_type& val) { \
+        if (val.is_null) return DateV2Val::null();                                            \
+        doris::vectorized::DateV2Value date_value;                                            \
+        if (!date_value.from_date_int64(val.val)) return DateV2Val::null();                   \
+        DateV2Val result;                                                                     \
+        date_value.to_datev2_val(&result);                                                    \
+        return result;                                                                        \
+    }
+
+#define CAST_NUMERIC_TYPES_TO_DATEV2() \
+    CAST_TO_DATEV2(TinyIntVal);        \
+    CAST_TO_DATEV2(SmallIntVal);       \
+    CAST_TO_DATEV2(IntVal);            \
+    CAST_TO_DATEV2(BigIntVal);         \
+    CAST_TO_DATEV2(LargeIntVal);       \
+    CAST_TO_DATEV2(FloatVal);          \
+    CAST_TO_DATEV2(DoubleVal);
+
+CAST_NUMERIC_TYPES_TO_DATEV2();
+
+DateV2Val CastFunctions::cast_to_datev2_val(FunctionContext* ctx, const DateV2Val& val) {
+    if (val.is_null) {
+        return DateV2Val::null();
+    }
+    return val;
+}
+
+DateV2Val CastFunctions::cast_to_datev2_val(FunctionContext* ctx, const StringVal& val) {
+    if (val.is_null) {
+        return DateV2Val::null();
+    }
+    doris::vectorized::DateV2Value date_value;
+    if (!date_value.from_date_str((char*)val.ptr, val.len)) {
+        return DateV2Val::null();
+    }
+    // Return null if 'val' did not parse
+    DateV2Val result;
+    date_value.to_datev2_val(&result);
+    return result;
+}
+
+DateV2Val CastFunctions::cast_to_datev2_val(FunctionContext* ctx, const DateTimeVal& val) {
+    if (val.is_null) {
+        return DateV2Val::null();
+    }
+    vectorized::VecDateTimeValue date_value = vectorized::VecDateTimeValue::from_datetime_val(val);
+
+    doris::vectorized::DateV2Value datev2_val;
+    datev2_val.from_date(date_value.to_date_v2());
+    DateV2Val result;
+    datev2_val.to_datev2_val(&result);
     return result;
 }
 

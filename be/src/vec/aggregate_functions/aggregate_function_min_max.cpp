@@ -54,8 +54,16 @@ static IAggregateFunction* create_aggregate_function_single_value(const String& 
         return new AggregateFunctionTemplate<Data<SingleValueDataFixed<UInt32>>, false>(
                 argument_type);
     }
+    if (which.idx == TypeIndex::Decimal32) {
+        return new AggregateFunctionTemplate<Data<SingleValueDataDecimal<Decimal32>>, false>(
+                argument_type);
+    }
+    if (which.idx == TypeIndex::Decimal64) {
+        return new AggregateFunctionTemplate<Data<SingleValueDataDecimal<Decimal64>>, false>(
+                argument_type);
+    }
     if (which.idx == TypeIndex::Decimal128) {
-        return new AggregateFunctionTemplate<Data<SingleValueDataFixed<DecimalV2Value>>, false>(
+        return new AggregateFunctionTemplate<Data<SingleValueDataDecimal<Decimal128>>, false>(
                 argument_type);
     }
     return nullptr;

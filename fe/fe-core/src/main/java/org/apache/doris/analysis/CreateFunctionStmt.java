@@ -528,6 +528,9 @@ public class CreateFunctionStmt extends DdlStmt {
                     .put(PrimitiveType.DATETIMEV2, Sets.newHashSet(LocalDateTime.class))
                     .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
                     .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
+                    .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))
+                    .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
+                    .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
                     .build();
 
     private void checkUdfType(Class clazz, Method method, Type expType, Class pType, String pname)
@@ -633,7 +636,20 @@ public class CreateFunctionStmt extends DdlStmt {
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIMEV2);
                 break;
             case DECIMALV2:
+            case DECIMAL128:
                 typeBuilder.setId(Types.PGenericType.TypeId.DECIMAL128)
+                        .getDecimalTypeBuilder()
+                        .setPrecision(((ScalarType) arg).getScalarPrecision())
+                        .setScale(((ScalarType) arg).getScalarScale());
+                break;
+            case DECIMAL32:
+                typeBuilder.setId(Types.PGenericType.TypeId.DECIMAL32)
+                        .getDecimalTypeBuilder()
+                        .setPrecision(((ScalarType) arg).getScalarPrecision())
+                        .setScale(((ScalarType) arg).getScalarScale());
+                break;
+            case DECIMAL64:
+                typeBuilder.setId(Types.PGenericType.TypeId.DECIMAL64)
                         .getDecimalTypeBuilder()
                         .setPrecision(((ScalarType) arg).getScalarPrecision())
                         .setScale(((ScalarType) arg).getScalarScale());

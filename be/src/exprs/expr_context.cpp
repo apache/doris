@@ -171,7 +171,7 @@ bool ExprContext::is_nullable() {
     return false;
 }
 
-void* ExprContext::get_value(Expr* e, TupleRow* row) {
+void* ExprContext::get_value(Expr* e, TupleRow* row, int precision, int scale) {
     switch (e->_type.type) {
     case TYPE_NULL: {
         return nullptr;
@@ -257,7 +257,6 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     }
     case TYPE_DATE:
     case TYPE_DATETIME:
-    case TYPE_DATEV2:
     case TYPE_DATETIMEV2: {
         doris_udf::DateTimeVal v = e->get_datetime_val(this, row);
         if (v.is_null) {
@@ -266,6 +265,14 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         _result.datetime_val = DateTimeValue::from_datetime_val(v);
         return &_result.datetime_val;
     }
+    case TYPE_DATEV2: {
+        doris_udf::DateV2Val v = e->get_datev2_val(this, row);
+        if (v.is_null) {
+            return nullptr;
+        }
+        _result.datev2_val = doris::vectorized::DateV2Value::from_datev2_val(v);
+        return &_result.datev2_val;
+    }
     case TYPE_DECIMALV2: {
         DecimalV2Val v = e->get_decimalv2_val(this, row);
         if (v.is_null) {
@@ -273,6 +280,30 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         }
         _result.decimalv2_val = DecimalV2Value::from_decimal_val(v);
         return &_result.decimalv2_val;
+    }
+    case TYPE_DECIMAL32: {
+        doris_udf::Decimal32Val v = e->get_decimal32_val(this, row);
+        if (v.is_null) {
+            return nullptr;
+        }
+        _result.int_val = v.val;
+        return &_result.int_val;
+    }
+    case TYPE_DECIMAL64: {
+        doris_udf::Decimal64Val v = e->get_decimal64_val(this, row);
+        if (v.is_null) {
+            return nullptr;
+        }
+        _result.bigint_val = v.val;
+        return &_result.bigint_val;
+    }
+    case TYPE_DECIMAL128: {
+        doris_udf::Decimal128Val v = e->get_decimal128_val(this, row);
+        if (v.is_null) {
+            return nullptr;
+        }
+        _result.large_int_val = v.val;
+        return &_result.large_int_val;
     }
     case TYPE_ARRAY: {
         doris_udf::CollectionVal v = e->get_array_val(this, row);
@@ -344,6 +375,10 @@ StringVal ExprContext::get_string_val(TupleRow* row) {
 
 DateTimeVal ExprContext::get_datetime_val(TupleRow* row) {
     return _root->get_datetime_val(this, row);
+}
+
+DateV2Val ExprContext::get_datev2_val(TupleRow* row) {
+    return _root->get_datev2_val(this, row);
 }
 
 DecimalV2Val ExprContext::get_decimalv2_val(TupleRow* row) {

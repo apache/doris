@@ -17,13 +17,12 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 
 /**
@@ -40,27 +39,17 @@ public class JoinExchange extends OneExplorationRuleFactory {
     @Override
     public Rule<Plan> build() {
         return innerLogicalJoin(innerLogicalJoin(), innerLogicalJoin()).then(topJoin -> {
-            LogicalBinaryPlan<LogicalJoin, GroupPlan, GroupPlan> leftJoin = topJoin.left();
-            LogicalBinaryPlan<LogicalJoin, GroupPlan, GroupPlan> rightJoin = topJoin.right();
+            LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left();
+            LogicalJoin<GroupPlan, GroupPlan> rightJoin = topJoin.right();
 
             GroupPlan a = leftJoin.left();
             GroupPlan b = leftJoin.right();
             GroupPlan c = rightJoin.left();
             GroupPlan d = rightJoin.right();
 
-            Plan newLeftJoin = plan(
-                    new LogicalJoin(leftJoin.operator.getJoinType(), leftJoin.operator.getCondition()),
-                    a, c
-            );
-            Plan newRightJoin = plan(
-                    new LogicalJoin(rightJoin.operator.getJoinType(), rightJoin.operator.getCondition()),
-                    b, d
-            );
-            Plan newTopJoin = plan(
-                    new LogicalJoin(topJoin.operator.getJoinType(), topJoin.operator.getCondition()),
-                    newLeftJoin, newRightJoin
-            );
-            return newTopJoin;
+            Plan newLeftJoin = new LogicalJoin(leftJoin.getJoinType(), leftJoin.getCondition(), a, c);
+            Plan newRightJoin = new LogicalJoin(rightJoin.getJoinType(), rightJoin.getCondition(), b, d);
+            return new LogicalJoin(topJoin.getJoinType(), topJoin.getCondition(), newLeftJoin, newRightJoin);
         }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
     }
 }
