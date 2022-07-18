@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
+#include "exprs/rpc_fn_comm.h"
 #include "gen_cpp/function_service.pb.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"

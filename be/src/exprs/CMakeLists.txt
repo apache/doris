@@ -53,6 +53,7 @@ add_library(Exprs
   null_literal.cpp  
   scalar_fn_call.cpp
   rpc_fn.cpp
+  rpc_fn_comm.cpp
   rpc_fn_call.cpp
   slot_ref.cpp
   string_functions.cpp

@@ -21,6 +21,7 @@
 #include "fmt/ranges.h"
 #include "runtime/descriptors.h"
 #include "vec/aggregate_functions/aggregate_function_java_udaf.h"
+#include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/materialize_block.h"
@@ -91,6 +92,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
 #else
         return Status::InternalError("Java UDAF is disabled since no libjvm is found!");
 #endif
+    } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
+        _function = AggregateRpcUdaf::create(_fn, _argument_types, {}, _data_type);
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
                 _fn.name.function_name, _argument_types, {}, _data_type->is_nullable());
