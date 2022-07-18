@@ -107,7 +107,7 @@ Status ParquetScanner::open_next_reader() {
             num_of_columns_from_file = range.num_of_columns_from_file;
         }
         _cur_file_reader = new ParquetReaderWrap(file_reader.release(), _state->batch_size(),
-                                                 num_of_columns_from_file);
+                                                 num_of_columns_from_file, 0, 0);
         auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
         Status status = _cur_file_reader->init_reader(tuple_desc, _src_slot_descs, _conjunct_ctxs,
                                                       _state->timezone());

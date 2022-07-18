@@ -37,18 +37,24 @@ class ParquetReaderWrap;
 
 class RowGroupReader {
 public:
-    RowGroupReader(const std::vector<ExprContext*>& conjunct_ctxs,
+    RowGroupReader(int64_t range_start_offset, int64_t range_size,
+                   const std::vector<ExprContext*>& conjunct_ctxs,
                    std::shared_ptr<parquet::FileMetaData>& file_metadata,
                    ParquetReaderWrap* parent);
     ~RowGroupReader();
 
     Status init_filter_groups(const TupleDescriptor* tuple_desc,
                               const std::map<std::string, int>& map_column,
-                              const std::vector<int>& include_column_ids);
+                              const std::vector<int>& include_column_ids, int64_t file_size);
 
     std::unordered_set<int> filter_groups() { return _filter_group; };
 
 private:
+    void _add_filter_group(int row_group_id,
+                           std::unique_ptr<parquet::RowGroupMetaData>& row_group_meta);
+
+    int64_t _get_group_offset(int row_group_id);
+
     void _init_conjuncts(const TupleDescriptor* tuple_desc,
                          const std::map<std::string, int>& _map_column,
                          const std::unordered_set<int>& include_column_ids);
@@ -78,11 +84,18 @@ private:
     bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes);
 
 private:
+    int64_t _range_start_offset;
+    int64_t _range_size;
+    int64_t _file_size;
     std::map<int, std::vector<ExprContext*>> _slot_conjuncts;
     std::unordered_set<int> _filter_group;
 
     std::vector<ExprContext*> _conjunct_ctxs;
     std::shared_ptr<parquet::FileMetaData> _file_metadata;
     ParquetReaderWrap* _parent;
+
+    int32_t _filtered_num_row_groups = 0;
+    int64_t _filtered_num_rows = 0;
+    int64_t _filtered_total_byte_size = 0;
 };
 } // namespace doris

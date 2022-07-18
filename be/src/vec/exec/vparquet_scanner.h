@@ -48,7 +48,8 @@ public:
 
 protected:
     ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                       int32_t num_of_columns_from_file) override;
+                                       int32_t num_of_columns_from_file, int64_t range_start_offset,
+                                       int64_t range_size) override;
 };
 
 } // namespace doris::vectorized
