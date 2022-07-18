@@ -122,7 +122,7 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
     ////////////////////////////////////////////////////////////////////////////
     // Cache test
     ////////////////////////////////////////////////////////////////////////////
-    {   // Aggregation bitmap contains all row ids that are in versions smaller or
+    { // Aggregation bitmap contains all row ids that are in versions smaller or
         // equal to the given version, boundary test
         auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 2});
         ASSERT_EQ(bm->cardinality(), 1005);
@@ -136,7 +136,7 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
         ASSERT_EQ(bm->cardinality(), 1005);
     }
 
-    {   // Aggregation bitmap contains all row ids that are in versions smaller or
+    { // Aggregation bitmap contains all row ids that are in versions smaller or
         // equal to the given version, normal test
         auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 1000});
         ASSERT_EQ(bm->cardinality(), 1005);
