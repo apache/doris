@@ -38,7 +38,8 @@ suite("test_unique_table_like", "data_model") {
             )
             ENGINE=OLAP
             UNIQUE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1",
+                "function_column.sequence_type" = "int");
         """
     qt_desc_uniq_table "desc ${tbNameA}"    
     sql """

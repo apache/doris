@@ -17,18 +17,45 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
+
 /**
  * Add Expression.
  */
-public class Add<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-    public Add(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+public class Add extends Arithmetic implements BinaryExpression {
+    public Add(Expression left, Expression right) {
         super(ArithmeticOperator.ADD, left, right);
     }
 
     @Override
-    public String sql() {
-        return left().sql() + ' ' + getArithOperator().toString()
-                + ' ' + right().sql();
+    public String toSql() {
+        return left().toSql() + ' ' + getArithmeticOperator().toString()
+                + ' ' + right().toSql();
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new Add(children.get(0), children.get(1));
+    }
+
+    @Override
+    public boolean nullable() throws UnboundException {
+        return left().nullable() || right().nullable();
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitAdd(this, context);
+    }
+
+
+    public String toString() {
+        return left().toString() + ' ' + getArithmeticOperator().toString() + ' ' + right().toString();
     }
 }

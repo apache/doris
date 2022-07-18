@@ -66,16 +66,19 @@ static Status io_error(const std::string& context, int err_number) {
     case ENAMETOOLONG:
     case ENOENT:
     case ENOTDIR:
-        return Status::NotFound(context, err_number, errno_to_string(err_number));
+        return Status::NotFound("{} (error {}) {}", context, err_number,
+                                errno_to_string(err_number));
     case EEXIST:
-        return Status::AlreadyExist(context, err_number, errno_to_string(err_number));
+        return Status::AlreadyExist("{} (error {}) {}", context, err_number,
+                                    errno_to_string(err_number));
     case EOPNOTSUPP:
     case EXDEV: // No cross FS links allowed
-        return Status::NotSupported(context, err_number, errno_to_string(err_number));
+        return Status::NotSupported("{} (error {}) {}", context, err_number,
+                                    errno_to_string(err_number));
     case EIO:
         LOG(ERROR) << "I/O error, context=" << context;
     }
-    return Status::IOError(context, err_number, errno_to_string(err_number));
+    return Status::IOError("{} (error {}) {}", context, err_number, errno_to_string(err_number));
 }
 
 static Status do_sync(int fd, const string& filename) {
@@ -100,7 +103,7 @@ static Status do_open(const string& filename, Env::OpenMode mode, int* fd) {
     case Env::MUST_EXIST:
         break;
     default:
-        return Status::NotSupported(strings::Substitute("Unknown create mode $0", mode));
+        return Status::NotSupported("Unknown create mode {}", mode);
     }
     int f;
     RETRY_ON_EINTR(f, open(filename.c_str(), flags, 0666));
@@ -137,8 +140,7 @@ static Status do_readv_at(int fd, const std::string& filename, uint64_t offset, 
         }
 
         if (PREDICT_FALSE(r == 0)) {
-            return Status::EndOfFile(strings::Substitute("EOF trying to read $0 bytes at offset $1",
-                                                         bytes_req, offset));
+            return Status::EndOfFile("EOF trying to read {} bytes at offset {}", bytes_req, offset);
         }
 
         if (PREDICT_TRUE(r == rem)) {
@@ -244,9 +246,9 @@ public:
     Status read_all(std::string* content) const override {
         std::fstream fs(_filename.c_str(), std::fstream::in);
         if (!fs.is_open()) {
-            RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
-                                                   "failed to open cluster id file $0", _filename)),
-                                           "open file failed");
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    Status::IOError("failed to open cluster id file {}", _filename),
+                    "open file failed");
         }
         std::string data;
         fs >> data;
@@ -255,11 +257,11 @@ public:
             *content = data;
         } else {
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    Status::Corruption(strings::Substitute(
-                            "read_all from file $0 is corrupt. [eofbit=$1 failbit=$2 badbit=$3]",
+                    Status::Corruption(
+                            "read_all from file {} is corrupt. [eofbit={} failbit={} badbit={}]",
                             _filename, fs.rdstate() & std::fstream::eofbit,
                             fs.rdstate() & std::fstream::failbit,
-                            fs.rdstate() & std::fstream::badbit)),
+                            fs.rdstate() & std::fstream::badbit),
                     "read_all is error");
         }
         return Status::OK();
@@ -602,7 +604,7 @@ Status PosixEnv::create_dir_if_missing(const string& dirname, bool* created) {
 
 Status PosixEnv::create_dirs(const string& dirname) {
     if (dirname.empty()) {
-        return Status::InvalidArgument(strings::Substitute("Unknown primitive type($0)", dirname));
+        return Status::InvalidArgument("Unknown primitive type({})", dirname);
     }
 
     std::filesystem::path p(dirname);
@@ -629,7 +631,7 @@ Status PosixEnv::create_dirs(const string& dirname) {
                 // It's a symlink to a directory.
                 continue;
             } else {
-                return Status::IOError(partial_path + " exists but is not a directory");
+                return Status::IOError("{} exists but is not a directory", partial_path);
             }
         }
 
@@ -746,8 +748,7 @@ Status PosixEnv::get_space_info(const std::string& path, int64_t* capacity, int6
         *available = path_info.available;
     } catch (std::filesystem::filesystem_error& e) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(strings::Substitute(
-                        "get path $0 available capacity failed, error=$1", path, e.what())),
+                Status::IOError("get path {} available capacity failed, error={}", path, e.what()),
                 "std::filesystem::space failed");
     }
     return Status::OK();

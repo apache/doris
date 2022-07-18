@@ -76,10 +76,8 @@ Status NodeChannel::init(RuntimeState* state) {
     _state = state;
     auto node = _parent->_nodes_info->find_node(_node_id);
     if (node == nullptr) {
-        std::stringstream ss;
-        ss << "unknown node id, id=" << _node_id;
         _cancelled = true;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("unknown node id, id={}", _node_id);
     }
 
     _node_info = *node;
@@ -178,7 +176,9 @@ Status NodeChannel::open_wait() {
            << ", error_text=" << _open_closure->cntl.ErrorText();
         _cancelled = true;
         LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
+        return Status::InternalError("failed to open tablet writer, error={}, error_text={}",
+                                     berror(_open_closure->cntl.ErrorCode()),
+                                     _open_closure->cntl.ErrorText());
     }
     Status status(_open_closure->result.status());
     if (_open_closure->unref()) {
@@ -266,7 +266,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("add row failed. " + _cancel_msg);
+            return Status::InternalError("add row failed. {}", _cancel_msg);
         } else {
             return st.clone_and_prepend("already stopped, can't add row. cancelled/eos: ");
         }
@@ -350,7 +350,7 @@ Status NodeChannel::close_wait(RuntimeState* state) {
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("wait close failed. " + _cancel_msg);
+            return Status::InternalError("wait close failed. {}", _cancel_msg);
         } else {
             return st.clone_and_prepend(
                     "already stopped, skip waiting for close. cancelled/!eos: ");
@@ -768,6 +768,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         auto slot = _output_tuple_desc->slots()[i];
         switch (slot->type().type) {
+        // For DECIMAL32,DECIMAL64,DECIMAL128, we have done precision and scale conversion so just
+        // skip data validation here.
         case TYPE_DECIMALV2:
             _max_decimalv2_val[i].to_max_decimal(slot->type().precision, slot->type().scale);
             _min_decimalv2_val[i].to_min_decimal(slot->type().precision, slot->type().scale);

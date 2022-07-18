@@ -47,7 +47,7 @@ public class TypeDef implements ParseNode {
     }
 
     public static TypeDef createDecimal(int precision, int scale) {
-        return new TypeDef(ScalarType.createDecimalV2Type(precision, scale));
+        return new TypeDef(ScalarType.createDecimalType(precision, scale));
     }
 
     public static TypeDef createDatetimeV2(int scale) {
@@ -166,13 +166,70 @@ public class TypeDef implements ParseNode {
                 }
                 // scale: [0, 9]
                 if (scale < 0 || scale > 9) {
-                    throw new AnalysisException("Scale of decimal must between 0 and 9."
-                            + " Scale was set to: " + scale + ".");
+                    throw new AnalysisException(
+                            "Scale of decimal must between 0 and 9." + " Scale was set to: " + scale + ".");
                 }
                 // scale < precision
                 if (scale >= precision) {
                     throw new AnalysisException("Scale of decimal must be smaller than precision."
                             + " Scale is " + scale + " and precision is " + precision);
+                }
+                break;
+            }
+            case DECIMAL32: {
+                int decimal32Precision = scalarType.decimalPrecision();
+                int decimal32Scale = scalarType.decimalScale();
+                if (decimal32Precision < 1 || decimal32Precision > ScalarType.MAX_DECIMAL32_PRECISION) {
+                    throw new AnalysisException("Precision of decimal must between 1 and 9."
+                            + " Precision was set to: " + decimal32Precision + ".");
+                }
+                // scale >= 0
+                if (decimal32Scale < 0) {
+                    throw new AnalysisException(
+                            "Scale of decimal must not be less than 0." + " Scale was set to: " + decimal32Scale + ".");
+                }
+                // scale < precision
+                if (decimal32Scale >= decimal32Precision) {
+                    throw new AnalysisException("Scale of decimal must be smaller than precision."
+                            + " Scale is " + decimal32Scale + " and precision is " + decimal32Precision);
+                }
+                break;
+            }
+            case DECIMAL64: {
+                int decimal64Precision = scalarType.decimalPrecision();
+                int decimal64Scale = scalarType.decimalScale();
+                if (decimal64Precision < 1 || decimal64Precision > ScalarType.MAX_DECIMAL64_PRECISION) {
+                    throw new AnalysisException("Precision of decimal64 must between 1 and 18."
+                            + " Precision was set to: " + decimal64Precision + ".");
+                }
+                // scale >= 0
+                if (decimal64Scale < 0) {
+                    throw new AnalysisException(
+                            "Scale of decimal must not be less than 0." + " Scale was set to: " + decimal64Scale + ".");
+                }
+                // scale < precision
+                if (decimal64Scale >= decimal64Precision) {
+                    throw new AnalysisException("Scale of decimal must be smaller than precision."
+                            + " Scale is " + decimal64Scale + " and precision is " + decimal64Precision);
+                }
+                break;
+            }
+            case DECIMAL128: {
+                int decimal128Precision = scalarType.decimalPrecision();
+                int decimal128Scale = scalarType.decimalScale();
+                if (decimal128Precision < 1 || decimal128Precision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                    throw new AnalysisException("Precision of decimal128 must between 1 and 38."
+                            + " Precision was set to: " + decimal128Precision + ".");
+                }
+                // scale >= 0
+                if (decimal128Scale < 0) {
+                    throw new AnalysisException("Scale of decimal must not be less than 0." + " Scale was set to: "
+                            + decimal128Scale + ".");
+                }
+                // scale < precision
+                if (decimal128Scale >= decimal128Precision) {
+                    throw new AnalysisException("Scale of decimal must be smaller than precision."
+                            + " Scale is " + decimal128Scale + " and precision is " + decimal128Precision);
                 }
                 break;
             }

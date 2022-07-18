@@ -33,7 +33,7 @@ under the License.
     </module>
 
     <module name="SuppressionFilter">
-        <property name="file" value="fe/check/checkstyle/suppressions.xml"/>
+        <property name="file" value="check/checkstyle/suppressions.xml"/>
         <property name="optional" value="true"/>
     </module>
     <module name="SuppressWithPlainTextCommentFilter">

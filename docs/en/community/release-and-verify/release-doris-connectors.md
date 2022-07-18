@@ -33,8 +33,8 @@ Doris Connectors currently contains:
 
 The code base is separate from the main Doris code base and is located at:
 
-- https://github.com/apache/incubator-doris-flink-connector
-- https://github.com/apache/incubator-doris-spark-connector
+- https://github.com/apache/doris-flink-connector
+- https://github.com/apache/doris-spark-connector
 
 ## Preparing for release
 
@@ -100,7 +100,7 @@ Once the local tag is verified, you need to push the tag to the repository.
 
 `git push upstream --tags`
 
-where upstream points to the `apache/incubator-doris-flink-connector` repository.
+where upstream points to the `apache/doris-flink-connector` repository.
 
 Finally, execute perform:
 
@@ -123,26 +123,26 @@ After checking, click the `close` button in the figure to finish staging release
 Check out the svn repository.
 
 ```
-svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
+svn co https://dist.apache.org/repos/dist/dev/doris/
 ```
 
 Package the tag source code and generate the signature file and sha256 checksum file. Here we take `1.14_2.12-1.0.0` as an example.
 
 ```
-git archive --format=tar 1.14_2.12-1.0.0 --prefix=apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src/ | gzip > apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz
-gpg -u xxx@apache.org --armor --output apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.asc  --detach-sign apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz
-sha512sum apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz > apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.sha512
+git archive --format=tar 1.14_2.12-1.0.0 --prefix=apache-doris-flink-connector-1.14_2.12-1.0.0-src/ | gzip > apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz
+gpg -u xxx@apache.org --armor --output apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz.asc  --detach-sign apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz
+sha512sum apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz > apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz.sha512
 
 Mac:
-shasum -a 512 apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz > apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.sha512
+shasum -a 512 apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz > apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz.sha512
 ```
 
 The end result is three files:
 
 ```
-apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz
-apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.asc
-apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.sha512
+apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz
+apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz.asc
+apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz.sha512
 ```
 
 Move these three files to the svn directory:
@@ -178,27 +178,27 @@ Initiate a poll in the dev@doris mailgroup, with the following template.
 ```
 Hi All,
 
-This is a call for vote to release Flink Connectors v1.0.0 for Apache Doris(Incubating).
+This is a call for vote to release Flink Connectors v1.0.0 for Apache Doris
 
-- apache-doris-flink-connector-1.14_2.12-1.0.0-incubating
+- apache-doris-flink-connector-1.14_2.12-1.0.0
 
 The release node:
 xxxxx
 
 The release candidates:
-https://dist.apache.org/repos/dist/dev/incubator/doris/flink-connector/1.0.0/
+https://dist.apache.org/repos/dist/dev/doris/flink-connector/1.0.0/
 
 Maven 2 staging repository:
 https://repository.apache.org/content/repositories/orgapachedoris-1002/org/apache/doris/doris-flink-connector/
 
 Git tag for the release:
-https://github.com/apache/incubator-doris-flink-connector/tree/1.14_2.12-1.0.0
+https://github.com/apache/doris-flink-connector/tree/1.14_2.12-1.0.0
 
 Keys to verify the Release Candidate:
-https://downloads.apache.org/incubator/doris/KEYS
+https://downloads.apache.org/doris/KEYS
 
 Look at here for how to verify this release candidate:
-http://doris.incubator.apache.org/community/release-and-verify/release-verify.html
+http://doris.apache.org/community/release-and-verify/release-verify.html
 
 The vote will be open for at least 72 hours or until necessary number of votes are reached.
 
@@ -207,46 +207,6 @@ Please vote accordingly:
 [ ] +1 approve
 [ ] +0 no opinion
 [ ] -1 disapprove with the reason
-```
-
-After the dev mail group is approved, send an email to the general@incubator mail group for IPMC voting.
-
-```
-Hi All,
-
-This is a call for vote to release Flink Connectors v1.0.0 for Apache Doris(Incubating).
-
-- apache-doris-flink-connector-1.14_2.12-1.0.0-incubating
-
-The release node:
-xxxxx
-
-The release candidates:
-https://dist.apache.org/repos/dist/dev/incubator/doris/flink-connector/1.0.0/
-
-Maven 2 staging repository:
-https://repository.apache.org/content/repositories/orgapachedoris-1002/org/apache/doris/doris-flink-connector/
-
-Git tag for the release:
-https://github.com/apache/incubator-doris-flink-connector/tree/1.14_2.12-1.0.0
-
-Keys to verify the Release Candidate:
-https://downloads.apache.org/incubator/doris/KEYS
-
-Look at here for how to verify this release candidate:
-http://doris.incubator.apache.org/community/release-and-verify/release-verify.html
-
-Vote thread at dev@doris: [1]
-
-The vote will be open for at least 72 hours or until necessary number of votes are reached.
-
-Please vote accordingly:
-
-[ ] +1 approve
-[ ] +0 no opinion
-[ ] -1 disapprove with the reason
-
-[1] vote thread in dev@doris
 ```
 
 ## Completing the release

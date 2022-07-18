@@ -50,7 +50,7 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
             SlotRef slotRef = child0FnExpr.getChild(0).unwrapSlotRef();
             if (slotRef == null) {
                 return false;
-            } else if (slotRef.getType() == Type.DECIMALV2) {
+            } else if (slotRef.getType() == Type.DECIMALV2 || slotRef.getType().isDecimalV3()) {
                 return false;
             }
             return true;

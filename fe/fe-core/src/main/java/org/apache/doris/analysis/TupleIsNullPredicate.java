@@ -198,4 +198,9 @@ public class TupleIsNullPredicate extends Predicate {
     public boolean isNullable() {
         return false;
     }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        super.finalizeImplForNereids();
+    }
 }

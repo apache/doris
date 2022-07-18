@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.memo;
 
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -35,8 +37,10 @@ import javax.annotation.Nullable;
  * Representation for memo in cascades optimizer.
  */
 public class Memo {
+    // generate group id in memo is better for test, since we can reproduce exactly same Memo.
+    private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final List<Group> groups = Lists.newArrayList();
-    // we could not use Set, because Set has no get method.
+    // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
     private Group root;
 
@@ -81,7 +85,8 @@ public class Memo {
                 childrenGroups.add(copyIn(child, null, rewrite).getParent());
             }
         }
-        GroupExpression newGroupExpression = new GroupExpression(node.getOperator());
+        node = replaceChildrenToGroupPlan(node, childrenGroups);
+        GroupExpression newGroupExpression = new GroupExpression(node);
         newGroupExpression.setChildren(childrenGroups);
         return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite, node.getLogicalProperties());
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
@@ -97,7 +102,10 @@ public class Memo {
         for (Group child : logicalExpression.children()) {
             childrenNode.add(groupToTreeNode(child));
         }
-        Plan result = logicalExpression.getOperator().toTreeNode(logicalExpression);
+        Plan result = logicalExpression.getPlan();
+        if (result.children().size() == 0) {
+            return result;
+        }
         return result.withChildren(childrenNode);
     }
 
@@ -129,7 +137,7 @@ public class Memo {
                 target.addGroupExpression(groupExpression);
             }
         } else {
-            Group group = new Group(groupExpression, logicalProperties);
+            Group group = new Group(groupIdGenerator.getNextId(), groupExpression, logicalProperties);
             Preconditions.checkArgument(!groups.contains(group), "new group with already exist output");
             groups.add(group);
         }
@@ -186,5 +194,21 @@ public class Memo {
             destination.addGroupExpression(groupExpression);
         }
         groups.remove(source);
+    }
+
+    /**
+     * Add enforcer expression into the target group.
+     */
+    public void addEnforcerPlan(GroupExpression groupExpression, Group group) {
+        groupExpression.setParent(group);
+    }
+
+    private Plan replaceChildrenToGroupPlan(Plan plan, List<Group> childrenGroups) {
+        List<Plan> groupPlanChildren = childrenGroups.stream()
+                .map(group -> new GroupPlan(group))
+                .collect(ImmutableList.toImmutableList());
+        LogicalProperties logicalProperties = plan.getLogicalProperties();
+        return plan.withChildren(groupPlanChildren)
+            .withLogicalProperties(Optional.of(logicalProperties));
     }
 }

@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exec/arrow/parquet_reader.h"
 #include "exec/base_scanner.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
@@ -56,6 +57,9 @@ public:
 
     virtual Status get_next(Block* block, bool* eof) override;
 
+    // Update file predicate filter profile
+    void update_profile(std::shared_ptr<Statistics>& statistics);
+
     virtual void close() override;
 
 protected:
@@ -77,6 +81,12 @@ private:
     bool _cur_file_eof; // is read over?
     std::shared_ptr<arrow::RecordBatch> _batch;
     size_t _arrow_batch_cur_idx;
+
+    RuntimeProfile::Counter* _filtered_row_groups_counter;
+    RuntimeProfile::Counter* _filtered_rows_counter;
+    RuntimeProfile::Counter* _filtered_bytes_counter;
+    RuntimeProfile::Counter* _total_rows_counter;
+    RuntimeProfile::Counter* _total_groups_counter;
 };
 
 } // namespace doris::vectorized

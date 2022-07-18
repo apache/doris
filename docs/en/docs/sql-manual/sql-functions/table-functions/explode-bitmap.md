@@ -154,4 +154,4 @@ lateral view explode_split("a,b", ",") tmp2 as e2 order by k1, e1, e2;
 
 ### keywords
 
-    explode_bitmap
+explode,bitmap,explode_bitmap

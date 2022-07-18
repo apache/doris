@@ -17,17 +17,16 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.OptimizerContext;
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.Plans;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -37,20 +36,20 @@ import org.junit.Test;
 
 import java.util.List;
 
-public class LogicalProjectToPhysicalProjectTest implements Plans {
+public class LogicalProjectToPhysicalProjectTest {
     @Test
     public void projectionImplTest(@Mocked Group group) {
-        LogicalProject logicalProject = new LogicalProject(Lists.newArrayList());
-        Plan plan = plan(logicalProject, new GroupPlan(group));
+        Plan plan = new LogicalProject(Lists.newArrayList(), new GroupPlan(group));
 
         Rule<Plan> rule = new LogicalProjectToPhysicalProject().build();
 
-        PlannerContext plannerContext = new PlannerContext(new OptimizerContext(new Memo()), new ConnectContext(),
-                new PhysicalProperties());
+        PlannerContext plannerContext = new PlannerContext(new Memo(), new ConnectContext());
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
         List<Plan> transform = rule.transform(plan, plannerContext);
         Assert.assertEquals(1, transform.size());
 
         Plan implPlan = transform.get(0);
-        Assert.assertEquals(OperatorType.PHYSICAL_PROJECT, implPlan.getOperator().getType());
+        Assert.assertEquals(PlanType.PHYSICAL_PROJECT, implPlan.getType());
     }
 }

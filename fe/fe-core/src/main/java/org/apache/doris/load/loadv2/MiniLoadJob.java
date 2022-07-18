@@ -20,21 +20,11 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DuplicatedRequestException;
-import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.thrift.TMiniLoadBeginRequest;
-import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionState.TxnCoordinator;
-import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -55,22 +45,6 @@ public class MiniLoadJob extends LoadJob {
         super(EtlJobType.MINI);
     }
 
-    public MiniLoadJob(long dbId, long tableId, TMiniLoadBeginRequest request) throws MetaNotFoundException {
-        super(EtlJobType.MINI, dbId, request.getLabel());
-        this.tableId = tableId;
-        this.tableName = request.getTbl();
-        if (request.isSetTimeoutSecond()) {
-            setTimeout(request.getTimeoutSecond());
-        }
-        if (request.isSetMaxFilterRatio()) {
-            setMaxFilterRatio(request.getMaxFilterRatio());
-        }
-        this.createTimestamp = request.getCreateTimestamp();
-        this.loadStartTimestamp = createTimestamp;
-        this.authorizationInfo = gatherAuthInfo();
-        this.requestId = request.getRequestId();
-    }
-
     @Override
     public Set<String> getTableNamesForShow() {
         return Sets.newHashSet(tableName);
@@ -87,15 +61,7 @@ public class MiniLoadJob extends LoadJob {
     }
 
     @Override
-    public void beginTxn()
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
-            QuotaExceedException, MetaNotFoundException {
-        transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, Lists.newArrayList(tableId), label, requestId,
-                                  new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                                  TransactionState.LoadJobSourceType.BACKEND_STREAMING, id,
-                                  getTimeout());
-    }
+    public void beginTxn() {}
 
     @Override
     protected void replayTxnAttachment(TransactionState txnState) {

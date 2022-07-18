@@ -99,7 +99,7 @@ public:
         _rid += count;
     }
 
-    Status finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* index_meta) override {
+    Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override {
         index_meta->set_type(BITMAP_INDEX);
         BitmapIndexPB* meta = index_meta->mutable_bitmap_index();
 
@@ -113,7 +113,7 @@ public:
             options.encoding = EncodingInfo::get_default_encoding(_type_info, true);
             options.compression = LZ4F;
 
-            IndexedColumnWriter dict_column_writer(options, _type_info, wblock);
+            IndexedColumnWriter dict_column_writer(options, _type_info, file_writer);
             RETURN_IF_ERROR(dict_column_writer.init());
             for (auto const& it : _mem_index) {
                 RETURN_IF_ERROR(dict_column_writer.add(&(it.first)));
@@ -148,7 +148,7 @@ public:
             // we already store compressed bitmap, use NO_COMPRESSION to save some cpu
             options.compression = NO_COMPRESSION;
 
-            IndexedColumnWriter bitmap_column_writer(options, bitmap_type_info, wblock);
+            IndexedColumnWriter bitmap_column_writer(options, bitmap_type_info, file_writer);
             RETURN_IF_ERROR(bitmap_column_writer.init());
 
             faststring buf;
@@ -229,11 +229,20 @@ Status BitmapIndexWriter::create(const TypeInfo* type_info,
     case OLAP_FIELD_TYPE_DECIMAL:
         res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(type_info));
         break;
+    case OLAP_FIELD_TYPE_DECIMAL32:
+        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL32>(type_info));
+        break;
+    case OLAP_FIELD_TYPE_DECIMAL64:
+        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL64>(type_info));
+        break;
+    case OLAP_FIELD_TYPE_DECIMAL128:
+        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL128>(type_info));
+        break;
     case OLAP_FIELD_TYPE_BOOL:
         res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_BOOL>(type_info));
         break;
     default:
-        return Status::NotSupported("unsupported type for bitmap index: " + std::to_string(type));
+        return Status::NotSupported("unsupported type for bitmap index: {}", std::to_string(type));
     }
     return Status::OK();
 }

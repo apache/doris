@@ -55,7 +55,7 @@ Status VCollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
 // then merged with the base rowset.
 Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers) {
     DCHECK(rs_readers.size() == _children.size());
-    _skip_same = _reader->_tablet->tablet_schema().keys_type() == KeysType::UNIQUE_KEYS;
+    _skip_same = _reader->_tablet_schema->keys_type() == KeysType::UNIQUE_KEYS;
     if (_children.empty()) {
         _inner_iter.reset(nullptr);
         return Status::OK();
@@ -258,6 +258,14 @@ VCollectIterator::Level1Iterator::~Level1Iterator() {
         if (child != nullptr) {
             delete child;
             child = nullptr;
+        }
+    }
+
+    if (_heap) {
+        while (!_heap->empty()) {
+            auto child = _heap->top();
+            _heap->pop();
+            if (child) delete child;
         }
     }
 }

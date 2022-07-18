@@ -289,10 +289,8 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
                     break;
                 }
                 default: {
-                    fmt::memory_buffer err_out;
-                    fmt::format_to(err_out, "can't convert this type to mysql type. type = {}",
-                                   _output_expr_ctxs[j]->root()->type().type);
-                    return Status::InternalError(fmt::to_string(err_out));
+                    return Status::InternalError("can't convert this type to mysql type. type = {}",
+                                                 _output_expr_ctxs[j]->root()->type().type);
                 }
                 }
             }

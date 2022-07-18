@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -70,6 +71,8 @@ public class CancelAlterTableStmt extends CancelStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         dbTableName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName());
 
         // check access
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),

@@ -165,7 +165,6 @@ else
         BUILD_BROKER=1
         BUILD_META_TOOL=ON
         BUILD_SPARK_DPP=1
-        BUILD_JAVA_UDF=1
         BUILD_HIVE_UDF=1
         CLEAN=0
     fi
@@ -211,6 +210,9 @@ fi
 if [[ -z ${USE_MEM_TRACKER} ]]; then
     USE_MEM_TRACKER=ON
 fi
+if [[ -z ${USE_JEMALLOC} ]]; then
+    USE_JEMALLOC=OFF
+fi
 
 if [[ -z ${USE_DWARF} ]]; then
     USE_DWARF=OFF
@@ -234,6 +236,7 @@ echo "Get params:
     USE_DWARF           -- $USE_DWARF
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
     USE_MEM_TRACKER     -- $USE_MEM_TRACKER
+    USE_JEMALLOC        -- $USE_JEMALLOC
 "
 
 # Clean and build generated code
@@ -294,6 +297,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_DWARF=${USE_DWARF} \
             -DUSE_MEM_TRACKER=${USE_MEM_TRACKER} \
+            -DUSE_JEMALLOC=${USE_JEMALLOC} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ${DORIS_HOME}/be/
     ${BUILD_SYSTEM} -j ${PARALLEL}

@@ -25,7 +25,6 @@ import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TCancelPlanFragmentParams;
 import org.apache.doris.thrift.TCancelPlanFragmentResult;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
-import org.apache.doris.thrift.TDeleteEtlFilesRequest;
 import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
@@ -33,9 +32,6 @@ import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
 import org.apache.doris.thrift.TFetchDataParams;
 import org.apache.doris.thrift.TFetchDataResult;
-import org.apache.doris.thrift.TMiniLoadEtlStatusRequest;
-import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
-import org.apache.doris.thrift.TMiniLoadEtlTaskRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TRoutineLoadTask;
@@ -153,21 +149,6 @@ public class GenericPoolTest {
 
         @Override
         public TAgentResult publishClusterState(TAgentPublishRequest request) throws TException {
-            return null;
-        }
-
-        @Override
-        public TAgentResult submitEtlTask(TMiniLoadEtlTaskRequest request) throws TException {
-            return null;
-        }
-
-        @Override
-        public TMiniLoadEtlStatusResult getEtlStatus(TMiniLoadEtlStatusRequest request) throws TException {
-            return null;
-        }
-
-        @Override
-        public TAgentResult deleteEtlFiles(TDeleteEtlFilesRequest request) throws TException {
             return null;
         }
 

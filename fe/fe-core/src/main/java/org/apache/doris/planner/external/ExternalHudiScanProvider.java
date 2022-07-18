@@ -19,11 +19,15 @@ package org.apache.doris.planner.external;
 
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.thrift.TFileFormatType;
+
+import java.util.Collections;
+import java.util.List;
 
 /**
  * A file scan provider for hudi.
- * HudiProvier is extended with hive since they both use input format interface to get the spilt.
+ * HudiProvier is extended with hive since they both use input format interface to get the split.
  */
 public class ExternalHudiScanProvider extends ExternalHiveScanProvider {
 
@@ -34,5 +38,10 @@ public class ExternalHudiScanProvider extends ExternalHiveScanProvider {
     @Override
     public TFileFormatType getTableFormatType() throws DdlException {
         return TFileFormatType.FORMAT_PARQUET;
+    }
+
+    @Override
+    public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
+        return Collections.emptyList();
     }
 }

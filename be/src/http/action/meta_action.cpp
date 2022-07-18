@@ -52,7 +52,7 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     } catch (const std::exception& e) {
         LOG(WARNING) << "invalid argument.tablet_id:" << req_tablet_id
                      << ", enable_byte_to_base64: " << req_enable_base64;
-        return Status::InternalError(strings::Substitute("convert failed, $0", e.what()));
+        return Status::InternalError("convert failed, {}", e.what());
     }
 
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);

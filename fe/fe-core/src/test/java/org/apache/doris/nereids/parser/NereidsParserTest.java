@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -28,7 +30,7 @@ import java.util.List;
 public class NereidsParserTest {
 
     @Test
-    public void testParseMultiple() throws Exception {
+    public void testParseMultiple() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "SELECT b FROM test;SELECT a FROM test;";
         List<LogicalPlan> logicalPlanList = nereidsParser.parseMultiple(sql);
@@ -36,7 +38,7 @@ public class NereidsParserTest {
     }
 
     @Test
-    public void testSingle() throws Exception {
+    public void testSingle() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "SELECT * FROM test;";
         Exception exceptionOccurred = null;
@@ -46,6 +48,26 @@ public class NereidsParserTest {
             exceptionOccurred = e;
             e.printStackTrace();
         }
-        Assert.assertNull(exceptionOccurred);
+        Assertions.assertNull(exceptionOccurred);
+    }
+
+    @Test
+    public void testErrorListener() {
+        Exception exception = Assertions.assertThrows(ParseException.class, () -> {
+            String sql = "select * from t1 where a = 1 illegal_symbol";
+            NereidsParser nereidsParser = new NereidsParser();
+            nereidsParser.parseSingle(sql);
+        });
+        Assertions.assertEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos29)\n",
+                exception.getMessage());
+    }
+
+    @Test
+    public void testPostProcessor() {
+        String sql = "select `AD``D` from t1 where a = 1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        LogicalProject<Plan> logicalProject = (LogicalProject) logicalPlan;
+        Assertions.assertEquals("AD`D", logicalProject.getProjects().get(0).getName());
     }
 }

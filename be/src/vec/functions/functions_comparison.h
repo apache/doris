@@ -285,9 +285,8 @@ private:
         };
 
         if (!call_on_basic_types<true, false, true, false>(left_number, right_number, call)) {
-            return Status::RuntimeError(fmt::format("Wrong call for {} with {} and {}", get_name(),
-                                                    col_left.type->get_name(),
-                                                    col_right.type->get_name()));
+            return Status::RuntimeError("Wrong call for {} with {} and {}", get_name(),
+                                        col_left.type->get_name(), col_right.type->get_name());
         }
         return Status::OK();
     }
@@ -402,14 +401,12 @@ public:
                   execute_num_left_type<Float64>(block, result, col_left_untyped,
                                                  col_right_untyped)))
 
-                return Status::RuntimeError(
-                        fmt::format("Illegal column {} of first argument of function {}",
-                                    col_left_untyped->get_name(), get_name()));
+                return Status::RuntimeError("Illegal column {} of first argument of function {}",
+                                            col_left_untyped->get_name(), get_name());
         } else if (is_decimal(left_type) || is_decimal(right_type)) {
             if (!allow_decimal_comparison(left_type, right_type)) {
-                return Status::RuntimeError(fmt::format("No operation {} between {} and {}",
-                                                        get_name(), left_type->get_name(),
-                                                        right_type->get_name()));
+                return Status::RuntimeError("No operation {} between {} and {}", get_name(),
+                                            left_type->get_name(), right_type->get_name());
             }
             return execute_decimal(block, result, col_with_type_and_name_left,
                                    col_with_type_and_name_right);

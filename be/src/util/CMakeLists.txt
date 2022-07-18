@@ -51,7 +51,7 @@ set(UTIL_FILES
   progress_updater.cpp
   runtime_profile.cpp
   static_asserts.cpp
-  storage_backend_mgr.cpp
+  # storage_backend_mgr.cpp
   string_parser.cpp
   thrift_util.cpp
   thrift_client.cpp
@@ -107,6 +107,8 @@ set(UTIL_FILES
   hdfs_util.cpp
   topn_counter.cpp
   tuple_row_zorder_compare.cpp
+  telemetry/telemetry.cpp
+  telemetry/brpc_carrier.cpp
   quantile_state.cpp
   jni-util.cpp
 )

@@ -278,8 +278,8 @@ public class BinaryPredicate extends Predicate implements Writable {
         //OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
         //        op.toFilterFunctionOp(), true, true, cmpType, cmpType);
         try {
-            match = getBuiltinFunction(analyzer, op.name, collectChildReturnTypes(),
-                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            match = getBuiltinFunction(op.name, collectChildReturnTypes(),
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } catch (AnalysisException e) {
             Preconditions.checkState(false);
         }
@@ -334,6 +334,9 @@ public class BinaryPredicate extends Predicate implements Writable {
             return Type.STRING;
         }
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
+            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
+        }
+        if (t1.isDecimalV3Type() || t2.isDecimalV3Type()) {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
         }
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMALV2)
@@ -408,8 +411,7 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         this.opcode = op.getOpcode();
         String opName = op.getName();
-        fn = getBuiltinFunction(analyzer, opName, collectChildReturnTypes(),
-                Function.CompareMode.IS_SUPERTYPE_OF);
+        fn = getBuiltinFunction(opName, collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
         if (fn == null) {
             Preconditions.checkState(false, String.format(
                     "No match for '%s' with operand types %s and %s", toSql()));
@@ -696,5 +698,11 @@ public class BinaryPredicate extends Predicate implements Writable {
             return false;
         }
         return hasNullableChild();
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        super.finalizeImplForNereids();
+        fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
     }
 }

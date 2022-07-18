@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -34,9 +34,9 @@ public class ExploreGroupJob extends Job<Plan> {
      * Constructor for ExploreGroupJob.
      *
      * @param group {@link Group} to be explored
-     * @param context context of optimization
+     * @param context context of current job
      */
-    public ExploreGroupJob(Group group, PlannerContext context) {
+    public ExploreGroupJob(Group group, JobContext context) {
         super(JobType.EXPLORE_PLAN_SET, context);
         this.group = group;
     }

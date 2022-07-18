@@ -38,7 +38,8 @@ namespace segment_v2 {
 struct ParsedPage {
     static Status create(PageHandle handle, const Slice& body, const DataPageFooterPB& footer,
                          const EncodingInfo* encoding, const PagePointer& page_pointer,
-                         uint32_t page_index, ParsedPage* result) {
+                         uint32_t page_index, ParsedPage* result,
+                         PageDecoderOptions opts = PageDecoderOptions()) {
         result->~ParsedPage();
         ParsedPage* page = new (result)(ParsedPage);
         page->page_handle = std::move(handle);
@@ -53,7 +54,6 @@ struct ParsedPage {
         }
 
         Slice data_slice(body.data, body.size - null_size);
-        PageDecoderOptions opts;
         RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &page->data_decoder));
         RETURN_IF_ERROR(page->data_decoder->init());
 

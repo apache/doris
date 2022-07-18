@@ -19,9 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 /**
@@ -29,7 +28,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
  */
 public class ShowCatalogStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA_ALL =
-            ShowResultSetMetaData.builder()
+            ShowResultSetMetaData.builder().addColumn(new Column("CatalogId", ScalarType.BIGINT))
                     .addColumn(new Column("CatalogName", ScalarType.createVarchar(64)))
                     .addColumn(new Column("Type", ScalarType.createStringType()))
                     .build();
@@ -55,11 +54,8 @@ public class ShowCatalogStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer)  throws AnalysisException, UserException {
-        if (!Config.enable_multi_catalog) {
-            throw new AnalysisException("The multi-catalog feature is still in experiment, and you can enable it "
-                    + "manually by set fe configuration named `enable_multi_catalog` to be ture.");
-        }
+    public void analyze(Analyzer analyzer) throws UserException {
+        Util.checkCatalogEnabled();
         super.analyze(analyzer);
     }
 

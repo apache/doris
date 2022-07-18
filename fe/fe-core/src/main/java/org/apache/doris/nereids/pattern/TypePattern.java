@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.pattern;
 
-import org.apache.doris.nereids.operators.Operator;
-import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 
 import java.util.List;
 import java.util.Objects;
@@ -31,12 +31,12 @@ public class TypePattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE
     protected final Class<TYPE> type;
 
     public TypePattern(Class clazz, Pattern... children) {
-        super(OperatorType.UNKNOWN, children);
+        super(PlanType.UNKNOWN, children);
         this.type = Objects.requireNonNull(clazz, "class can not be null");
     }
 
     public TypePattern(Class<TYPE> clazz, List<Predicate<TYPE>> predicates, Pattern... children) {
-        super(OperatorType.UNKNOWN, predicates, children);
+        super(PlanType.UNKNOWN, predicates, children);
         this.type = Objects.requireNonNull(clazz, "class can not be null");
     }
 
@@ -46,7 +46,7 @@ public class TypePattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE
     }
 
     @Override
-    public boolean matchOperator(Operator operator) {
-        return type.isInstance(operator);
+    public boolean matchRoot(Plan plan) {
+        return type.isInstance(plan);
     }
 }

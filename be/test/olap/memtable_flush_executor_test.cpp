@@ -69,7 +69,7 @@ void tear_down() {
     delete k_engine;
     k_engine = nullptr;
     system("rm -rf ./flush_test");
-    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
 }
 
 Schema create_schema() {

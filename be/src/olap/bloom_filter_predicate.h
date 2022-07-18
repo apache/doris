@@ -23,18 +23,12 @@
 
 #include "exprs/bloomfilter_predicate.h"
 #include "olap/column_predicate.h"
-#include "olap/field.h"
-#include "runtime/string_value.hpp"
-#include "runtime/vectorized_row_batch.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
-#include "vec/utils/util.hpp"
 
 namespace doris {
-
-class VectorizedRowBatch;
 
 // only use in runtime filter and segment v2
 template <PrimitiveType T>
@@ -51,8 +45,6 @@ public:
 
     PredicateType type() const override { return PredicateType::BF; }
 
-    void evaluate(VectorizedRowBatch* batch) const override;
-
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
 
     void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
@@ -65,18 +57,20 @@ public:
         return Status::OK();
     }
 
-    uint16_t evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t size) const override;
+    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
+                      uint16_t size) const override;
 
 private:
     template <bool is_nullable, typename file_type = void>
-    uint16_t evaluate(vectorized::IColumn& column, uint8_t* null_map, uint16_t* sel,
+    uint16_t evaluate(const vectorized::IColumn& column, const uint8_t* null_map, uint16_t* sel,
                       uint16_t size) const {
-        if constexpr (is_nullable) DCHECK(null_map);
+        if constexpr (is_nullable) {
+            DCHECK(null_map);
+        }
 
         uint16_t new_size = 0;
         if (column.is_column_dictionary()) {
-            auto* dict_col = reinterpret_cast<vectorized::ColumnDictI32*>(&column);
-            dict_col->generate_hash_values_for_runtime_filter();
+            auto* dict_col = reinterpret_cast<const vectorized::ColumnDictI32*>(&column);
             for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
@@ -89,13 +83,16 @@ private:
             }
         } else {
             uint24_t tmp_uint24_value;
-            auto get_column_data = [](vectorized::IColumn& column) {
-                if constexpr (std::is_same_v<file_type, uint24_t>) {
-                    return reinterpret_cast<vectorized::PredicateColumnType<uint32_t>*>(&column)
+            auto get_column_data = [](const vectorized::IColumn& column) {
+                if constexpr (std::is_same_v<file_type, uint24_t> &&
+                              T == PrimitiveType::TYPE_DATE) {
+                    return reinterpret_cast<const vectorized::PredicateColumnType<uint32_t>*>(
+                                   &column)
                             ->get_data()
                             .data();
                 } else {
-                    return reinterpret_cast<vectorized::PredicateColumnType<file_type>*>(&column)
+                    return reinterpret_cast<const vectorized::PredicateColumnType<file_type>*>(
+                                   &column)
                             ->get_data()
                             .data();
                 }
@@ -134,18 +131,6 @@ private:
     mutable bool _enable_pred = true;
 };
 
-// bloom filter column predicate do not support in segment v1
-template <PrimitiveType T>
-void BloomFilterColumnPredicate<T>::evaluate(VectorizedRowBatch* batch) const {
-    uint16_t n = batch->size();
-    uint16_t* sel = batch->selected();
-    if (!batch->selected_in_use()) {
-        for (uint16_t i = 0; i != n; ++i) {
-            sel[i] = i;
-        }
-    }
-}
-
 template <PrimitiveType T>
 void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
                                              uint16_t* size) const {
@@ -170,7 +155,7 @@ void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
 }
 
 template <PrimitiveType T>
-uint16_t BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel,
+uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uint16_t* sel,
                                                  uint16_t size) const {
     uint16_t new_size = 0;
     using FT = typename PredicatePrimitiveTypeTraits<T>::PredicateFieldType;
@@ -178,7 +163,7 @@ uint16_t BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, ui
         return size;
     }
     if (column.is_nullable()) {
-        auto* nullable_col = reinterpret_cast<vectorized::ColumnNullable*>(&column);
+        auto* nullable_col = reinterpret_cast<const vectorized::ColumnNullable*>(&column);
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
         new_size = evaluate<true, FT>(nullable_col->get_nested_column(), null_map_data.data(), sel,
                                       size);

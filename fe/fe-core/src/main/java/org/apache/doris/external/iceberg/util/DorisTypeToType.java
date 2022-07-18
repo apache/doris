@@ -99,7 +99,8 @@ public class DorisTypeToType extends DorisTypeVisitor<Type> {
         } else if (atomic.getPrimitiveType().equals(PrimitiveType.TIME)
                 || atomic.getPrimitiveType().equals(PrimitiveType.TIMEV2)) {
             return Types.TimeType.get();
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.DECIMALV2)) {
+        } else if (atomic.getPrimitiveType().equals(PrimitiveType.DECIMALV2)
+                || atomic.getPrimitiveType().isDecimalV3Type()) {
             return Types.DecimalType.of(
                     ((ScalarType) atomic).getScalarPrecision(),
                     ((ScalarType) atomic).getScalarScale());

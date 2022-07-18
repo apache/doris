@@ -146,7 +146,7 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("add row failed. " + _cancel_msg);
+            return Status::InternalError("add row failed. {}", _cancel_msg);
         } else {
             return st.clone_and_prepend("already stopped, can't add row. cancelled/eos: ");
         }
@@ -168,7 +168,8 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     _cur_mutable_block->add_row(block_row.first, block_row.second);
     _cur_add_block_request.add_tablet_ids(tablet_id);
 
-    if (_cur_mutable_block->rows() == _batch_size) {
+    if (_cur_mutable_block->rows() == _batch_size ||
+        _cur_mutable_block->bytes() > config::doris_scanner_row_bytes) {
         {
             SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
             std::lock_guard<std::mutex> l(_pending_batches_lock);
@@ -368,12 +369,21 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
 }
 
 Status VOlapTableSink::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
     return OlapTableSink::open(state);
 }
 
+size_t VOlapTableSink::get_pending_bytes() const {
+    size_t mem_consumption = 0;
+    for (auto& indexChannel : _channels) {
+        mem_consumption += indexChannel->get_pending_bytes();
+    }
+    return mem_consumption;
+}
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
+    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     Status status = Status::OK();
 
@@ -426,6 +436,13 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     if (findTabletMode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
         _partition_to_tablet_map.clear();
     }
+
+    //if pending bytes is more than 500M, wait
+    //constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
+    //while (get_pending_bytes() > MAX_PENDING_BYTES) {
+    //    std::this_thread::sleep_for(std::chrono::microseconds(500));
+    //}
+
     for (int i = 0; i < num_rows; ++i) {
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
             continue;
@@ -475,6 +492,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
 
 Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) return _close_status;
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::close");
     vectorized::VExpr::close(_output_vexpr_ctxs, state);
     return OlapTableSink::close(state, exec_status);
 }

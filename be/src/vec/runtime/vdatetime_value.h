@@ -142,8 +142,8 @@ static constexpr const char* s_day_name[] = {"Monday", "Tuesday",  "Wednesday", 
 static constexpr size_t MAX_DAY_NAME_LEN = max_char_length(s_day_name, std::size(s_day_name));
 static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::size(s_month_name));
 
-const uint32_t MAX_DATE_V2 = 31 | (12 << 8) | (9999 << 16);
-const uint32_t MIN_DATE_V2 = 1 | (1 << 8) | (1000 << 16);
+const uint32_t MAX_DATE_V2 = 31 | (12 << 5) | (9999 << 9);
+const uint32_t MIN_DATE_V2 = 1 | (1 << 5) | (1000 << 9);
 
 const uint32_t MAX_YEAR = 9999;
 const uint32_t MIN_YEAR = 1000;
@@ -199,6 +199,10 @@ public:
               _month(0), // so this is a difference between Vectorization mode and Rowbatch mode with DateTimeValue;
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
+    // import week_table, week_of_year_table, year_week_table, from 19500101 to 20291230
+#include "vec/runtime/week.data"
+#include "vec/runtime/week_of_year.data"
+#include "vec/runtime/year_week.data"
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use diffrent creator to get data from value.
     // We should use create_from_olap_xxx only at binary data scaned from storage engine and convert to typed data.
@@ -661,9 +665,9 @@ private:
 };
 
 struct DateV2ValueType {
-    uint32_t day_ : 8;
-    uint32_t month_ : 8;
-    uint32_t year_ : 16;
+    uint32_t day_ : 5;
+    uint32_t month_ : 4;
+    uint32_t year_ : 23;
 
     DateV2ValueType(uint16_t year, uint8_t month, uint8_t day)
             : day_(day), month_(month), year_(year) {}
@@ -929,6 +933,16 @@ public:
     uint32_t set_date_uint32(uint32_t int_val);
 
     bool get_date_from_daynr(uint64_t);
+
+    void to_datev2_val(doris_udf::DateV2Val* tv) const {
+        tv->datev2_value = this->to_date_uint32();
+    }
+
+    static DateV2Value from_datev2_val(const doris_udf::DateV2Val& tv) {
+        DateV2Value value;
+        value.from_date(tv.datev2_value);
+        return value;
+    }
 
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,

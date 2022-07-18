@@ -52,6 +52,7 @@ struct IntVal;
 struct BigIntVal;
 struct StringVal;
 struct DateTimeVal;
+struct DateV2Val;
 struct DecimalV2Val;
 struct HllVal;
 struct CollectionVal;
@@ -90,7 +91,10 @@ public:
         TYPE_QUANTILE_STATE,
         TYPE_DATEV2,
         TYPE_DATETIMEV2,
-        TYPE_TIMEV2
+        TYPE_TIMEV2,
+        TYPE_DECIMAL32,
+        TYPE_DECIMAL64,
+        TYPE_DECIMAL128
     };
 
     struct TypeDesc {
@@ -524,6 +528,85 @@ struct BigIntVal : public AnyVal {
     bool operator!=(const BigIntVal& other) const { return !(*this == other); }
 };
 
+struct Decimal32Val : public AnyVal {
+    int32_t val;
+
+    Decimal32Val() : val(0) {}
+    Decimal32Val(int32_t val) : val(val) {}
+
+    static Decimal32Val null() {
+        Decimal32Val result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const Decimal32Val& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const Decimal32Val& other) const { return !(*this == other); }
+};
+
+struct Decimal64Val : public AnyVal {
+    int64_t val;
+
+    Decimal64Val() : val(0) {}
+    Decimal64Val(int64_t val) : val(val) {}
+
+    static Decimal64Val null() {
+        Decimal64Val result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const Decimal64Val& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const Decimal64Val& other) const { return !(*this == other); }
+};
+
+struct Decimal128Val : public AnyVal {
+    __int128 val;
+
+    Decimal128Val() : val(0) {}
+
+    Decimal128Val(__int128 large_value) : val(large_value) {}
+
+    static Decimal128Val null() {
+        Decimal128Val result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const Decimal128Val& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const Decimal128Val& other) const { return !(*this == other); }
+};
+
 struct FloatVal : public AnyVal {
     float val;
 
@@ -596,6 +679,32 @@ struct DateTimeVal : public AnyVal {
         return packed_time == other.packed_time;
     }
     bool operator!=(const DateTimeVal& other) const { return !(*this == other); }
+};
+
+struct DateV2Val : public AnyVal {
+    uint32_t datev2_value;
+
+    DateV2Val() {}
+    DateV2Val(uint32_t val) : datev2_value(val) {}
+
+    static DateV2Val null() {
+        DateV2Val result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const DateV2Val& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return datev2_value == other.datev2_value;
+    }
+    bool operator!=(const DateV2Val& other) const { return !(*this == other); }
 };
 
 // Note: there is a difference between a nullptr string (is_null == true) and an
@@ -780,3 +889,6 @@ using doris_udf::DateTimeVal;
 using doris_udf::HllVal;
 using doris_udf::FunctionContext;
 using doris_udf::CollectionVal;
+using doris_udf::Decimal32Val;
+using doris_udf::Decimal64Val;
+using doris_udf::Decimal128Val;

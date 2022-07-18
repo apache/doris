@@ -14,7 +14,6 @@
 #include "gutil/bits.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_index.h"
 #include "olap/row_block.h"
 #include "olap/utils.h"
 #include "runtime/thread_context.h"

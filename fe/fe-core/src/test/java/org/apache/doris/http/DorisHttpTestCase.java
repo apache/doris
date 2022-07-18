@@ -42,6 +42,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.DataSourceMgr;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.httpv2.IllegalArgException;
@@ -78,6 +79,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 public abstract class DorisHttpTestCase {
 
@@ -141,11 +143,11 @@ public abstract class DorisHttpTestCase {
         columns.add(k1);
         columns.add(k2);
 
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
 
         // tablet
@@ -245,6 +247,23 @@ public abstract class DorisHttpTestCase {
                 }
             };
 
+            DataSourceMgr dsMgr = new DataSourceMgr();
+            new Expectations(dsMgr) {
+                {
+                    dsMgr.getCatalog((String) any);
+                    minTimes = 0;
+                    result = internalDataSource;
+
+                    dsMgr.getCatalogOrException((String) any, (Function) any);
+                    minTimes = 0;
+                    result = internalDataSource;
+
+                    dsMgr.getCatalogOrAnalysisException((String) any);
+                    minTimes = 0;
+                    result = internalDataSource;
+                }
+            };
+
             new Expectations(catalog) {
                 {
                     catalog.getAuth();
@@ -279,6 +298,10 @@ public abstract class DorisHttpTestCase {
 
                     catalog.initDefaultCluster();
                     minTimes = 0;
+
+                    catalog.getDataSourceMgr();
+                    minTimes = 0;
+                    result = dsMgr;
                 }
             };
             return catalog;

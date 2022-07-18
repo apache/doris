@@ -89,6 +89,9 @@ public:
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
+    size_t get_max_row_byte_size() const override;
+    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                       size_t max_row_byte_size) const override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override;
@@ -170,9 +173,11 @@ public:
     bool is_date_type() const override { return get_nested_column().is_date_type(); }
     bool is_date_v2_type() const override { return get_nested_column().is_date_v2_type(); }
     bool is_datetime_type() const override { return get_nested_column().is_datetime_type(); }
+    bool is_decimalv2_type() const override { return get_nested_column().is_decimalv2_type(); }
     void set_date_type() override { get_nested_column().set_date_type(); }
     void set_date_v2_type() override { get_nested_column().set_date_v2_type(); }
     void set_datetime_type() override { get_nested_column().set_datetime_type(); }
+    void set_decimalv2_type() override { get_nested_column().set_decimalv2_type(); }
 
     bool is_nullable() const override { return true; }
     bool is_bitmap() const override { return get_nested_column().is_bitmap(); }
@@ -280,6 +285,10 @@ public:
 
     void convert_dict_codes_if_necessary() override {
         get_nested_column().convert_dict_codes_if_necessary();
+    }
+
+    void generate_hash_values_for_runtime_filter() override {
+        get_nested_column().generate_hash_values_for_runtime_filter();
     }
 
 private:

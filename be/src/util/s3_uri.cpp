@@ -29,7 +29,7 @@ const std::string S3URI::_SCHEME_DELIM = "://";
 const std::string S3URI::_PATH_DELIM = "/";
 const std::string S3URI::_QUERY_DELIM = "?";
 const std::string S3URI::_FRAGMENT_DELIM = "#";
-const StringCaseSet S3URI::_VALID_SCHEMES = {"http", "https", "s3", "s3a", "s3n", "bos"};
+const StringCaseSet S3URI::_VALID_SCHEMES = {"http", "https", "s3", "s3a", "s3n", "bos", "oss"};
 bool S3URI::parse() {
     if (_location.empty()) {
         return false;

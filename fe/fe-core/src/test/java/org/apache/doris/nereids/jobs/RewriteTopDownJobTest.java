@@ -19,17 +19,15 @@ package org.apache.doris.nereids.jobs;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.OptimizerContext;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.operators.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -37,9 +35,12 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.Plans;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -47,37 +48,41 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
-public class RewriteTopDownJobTest implements Plans {
+public class RewriteTopDownJobTest {
     public static class FakeRule extends OneRewriteRuleFactory {
         @Override
         public Rule<Plan> build() {
-            return unboundRelation().then(unboundRelation -> plan(
-                new LogicalOlapScan(new Table(0, "test", Table.TableType.OLAP, ImmutableList.of(
-                    new Column("id", Type.INT),
-                    new Column("name", Type.STRING)
-                )), Lists.newArrayList("test"))
-            )).toRule(RuleType.BINDING_RELATION);
+            return unboundRelation().then(unboundRelation -> {
+                        Table olapTable = new Table(0, "test", TableType.OLAP, ImmutableList.of(
+                                new Column("id", Type.INT),
+                                new Column("name", Type.STRING)
+                        ));
+                        return new LogicalBoundRelation(olapTable, Lists.newArrayList("test"));
+                    }
+                ).toRule(RuleType.BINDING_RELATION);
         }
     }
 
     @Test
     public void testSimplestScene() {
-        UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
-        Plan leaf = plan(unboundRelation);
+        Plan leaf = new UnboundRelation(Lists.newArrayList("test"));
         LogicalProject project = new LogicalProject(ImmutableList.of(
-            new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test")))
+                new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                leaf
         );
-        Plan root = plan(project, leaf);
         Memo memo = new Memo();
-        memo.initialize(root);
+        memo.initialize(project);
 
-        OptimizerContext optimizerContext = new OptimizerContext(memo);
-        PlannerContext plannerContext = new PlannerContext(optimizerContext, null, new PhysicalProperties());
+        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
         List<Rule<Plan>> fakeRules = Lists.newArrayList(new FakeRule().build());
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), fakeRules, plannerContext);
-        plannerContext.getOptimizerContext().pushJob(rewriteTopDownJob);
-        plannerContext.getOptimizerContext().getJobScheduler().executeJobPool(plannerContext);
+        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), fakeRules,
+                plannerContext.getCurrentJobContext());
+        plannerContext.pushJob(rewriteTopDownJob);
+        plannerContext.getJobScheduler().executeJobPool(plannerContext);
 
         Group rootGroup = memo.getRoot();
         Assertions.assertEquals(1, rootGroup.getLogicalExpressions().size());
@@ -87,7 +92,7 @@ public class RewriteTopDownJobTest implements Plans {
         Assertions.assertEquals(output.get(0).getName(), "name");
         Assertions.assertEquals(output.get(0).getDataType(), StringType.INSTANCE);
         Assertions.assertEquals(1, rootGroupExpression.children().size());
-        Assertions.assertEquals(OperatorType.LOGICAL_PROJECT, rootGroupExpression.getOperator().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_PROJECT, rootGroupExpression.getPlan().getType());
 
         Group leafGroup = rootGroupExpression.child(0);
         output = leafGroup.getLogicalProperties().getOutput();
@@ -98,6 +103,28 @@ public class RewriteTopDownJobTest implements Plans {
         Assertions.assertEquals(output.get(1).getDataType(), StringType.INSTANCE);
         Assertions.assertEquals(1, leafGroup.getLogicalExpressions().size());
         GroupExpression leafGroupExpression = leafGroup.getLogicalExpression();
-        Assertions.assertEquals(OperatorType.LOGICAL_BOUND_RELATION, leafGroupExpression.getOperator().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_BOUND_RELATION, leafGroupExpression.getPlan().getType());
+    }
+
+    private static class LogicalBoundRelation extends LogicalRelation {
+
+        public LogicalBoundRelation(Table table, List<String> qualifier) {
+            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier);
+        }
+
+        public LogicalBoundRelation(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
+                Optional<LogicalProperties> logicalProperties) {
+            super(PlanType.LOGICAL_BOUND_RELATION, table, qualifier, groupExpression, logicalProperties);
+        }
+
+        @Override
+        public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+            return new LogicalBoundRelation(table, qualifier, groupExpression, Optional.of(logicalProperties));
+        }
+
+        @Override
+        public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+            return new LogicalBoundRelation(table, qualifier, Optional.empty(), logicalProperties);
+        }
     }
 }

@@ -185,7 +185,7 @@ void MemTracker::init_virtual() {
 MemTracker::~MemTracker() {
     consume(_untracked_mem.exchange(0)); // before memory_leak_check
     // TCMalloc hook will be triggered during destructor memtracker, may cause crash.
-    if (_label == "Process") STOP_THREAD_LOCAL_MEM_TRACKER(false);
+    if (_label == "Process") doris::thread_local_ctx._init = false;
     if (!_virtual && config::memory_leak_detection) MemTracker::memory_leak_check(this);
     if (!_virtual && parent()) {
         // Do not call release on the parent tracker to avoid repeated releases.

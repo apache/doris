@@ -48,13 +48,6 @@ struct ConsumeErrCallBackInfo {
     }
 };
 
-// If there is a memory new/delete operation in the consume method, it may enter infinite recursion.
-// Note: After the tracker is stopped, the memory alloc in the consume method should be released in time,
-// otherwise the MemTracker statistics will be inaccurate.
-// In some cases, we want to turn off thread automatic memory statistics, manually call consume.
-// In addition, when ~RootTracker, TCMalloc delete hook release RootTracker will crash.
-inline thread_local bool start_thread_mem_tracker = false;
-
 // TCMalloc new/delete Hook is counted in the memory_tracker of the current thread.
 //
 // In the original design, the MemTracker consume method is called before the memory is allocated.
@@ -72,7 +65,6 @@ public:
         _mem_trackers.clear();
         _untracked_mems.clear();
         _mem_tracker_labels.clear();
-        start_thread_mem_tracker = false;
     }
 
     // After thread initialization, calling `init` again must call `clear_untracked_mems` first
@@ -177,6 +169,7 @@ private:
     phmap::flat_hash_map<int64_t, std::string> _mem_tracker_labels;
     // If true, call memtracker try_consume, otherwise call consume.
     bool _check_limit;
+    // If there is a memory new/delete operation in the consume method, it may enter infinite recursion.
     bool _stop_consume = false;
 
     int64_t _tracker_id;
@@ -292,11 +285,13 @@ inline void ThreadMemTrackerMgr::noncache_try_consume(int64_t size) {
 }
 
 inline void ThreadMemTrackerMgr::add_tracker(const std::shared_ptr<MemTracker>& mem_tracker) {
+#ifdef USE_MEM_TRACKER
     DCHECK(_mem_trackers.find(mem_tracker->id()) == _mem_trackers.end()) << print_debug_string();
     _mem_trackers[mem_tracker->id()] = mem_tracker;
     DCHECK(_mem_trackers[mem_tracker->id()]) << print_debug_string();
     _untracked_mems[mem_tracker->id()] = 0;
     _mem_tracker_labels[mem_tracker->id()] = mem_tracker->label();
+#endif
 }
 
 inline std::shared_ptr<MemTracker> ThreadMemTrackerMgr::mem_tracker() {

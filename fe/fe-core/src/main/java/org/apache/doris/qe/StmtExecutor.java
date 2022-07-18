@@ -31,6 +31,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.SelectListItem;
@@ -88,7 +89,7 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlanAdapter;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
@@ -127,6 +128,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -301,6 +305,20 @@ public class StmtExecutor implements ProfileWriter {
         return parsedStmt != null && parsedStmt instanceof QueryStmt;
     }
 
+    /**
+     * Used for audit in ConnectProcessor.
+     *
+     * TODO: There are three interface in StatementBase be called when doing audit:
+     *      toDigest needAuditEncryption when parsedStmt is not a query
+     *      and isValuesOrConstantSelect when parsedStmt is instance of InsertStmt.
+     *      toDigest: is used to compute Statement fingerprint for blocking some queries
+     *      needAuditEncryption: when this interface return true,
+     *          log statement use toSql function instead of log original string
+     *      isValuesOrConstantSelect: when this interface return true, original string is truncated at 1024
+     *
+     * @return parsed and analyzed statement for Stale planner.
+     *          an unresolved LogicalPlan wrapped with a LogicalPlanAdapter for Nereids.
+     */
     public StatementBase getParsedStmt() {
         return parsedStmt;
     }
@@ -309,7 +327,16 @@ public class StmtExecutor implements ProfileWriter {
     public void execute() throws Exception {
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        execute(queryId);
+        Span executeSpan = context.getTracer().spanBuilder("execute").setParent(Context.current()).startSpan();
+        executeSpan.setAttribute("queryId", DebugUtil.printId(queryId));
+        if (originStmt != null) {
+            executeSpan.setAttribute("sql", originStmt.originStmt);
+        }
+        try (Scope scope = executeSpan.makeCurrent()) {
+            execute(queryId);
+        } finally {
+            executeSpan.end();
+        }
     }
 
     // Execute one statement with queryId
@@ -319,6 +346,7 @@ public class StmtExecutor implements ProfileWriter {
     // Exception:
     // IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
+        Span span = Span.fromContext(Context.current());
         context.setStartTime();
 
         plannerProfile.setQueryBeginTime();
@@ -335,8 +363,17 @@ public class StmtExecutor implements ProfileWriter {
             analyzeVariablesInStmt();
 
             if (!context.isTxnModel()) {
-                // analyze this query
-                analyze(context.getSessionVariable().toThrift());
+                Span queryAnalysisSpan =
+                        context.getTracer().spanBuilder("query analysis").setParent(Context.current()).startSpan();
+                try (Scope scope = queryAnalysisSpan.makeCurrent()) {
+                    // analyze this query
+                    analyze(context.getSessionVariable().toThrift());
+                } catch (Exception e) {
+                    queryAnalysisSpan.recordException(e);
+                    throw e;
+                } finally {
+                    queryAnalysisSpan.end();
+                }
                 if (isForwardToMaster()) {
                     if (isProxy) {
                         // This is already a stmt forwarded from other FE.
@@ -359,9 +396,9 @@ public class StmtExecutor implements ProfileWriter {
                 parsedStmt.analyze(analyzer);
             }
 
-            if (parsedStmt instanceof QueryStmt) {
+            if (parsedStmt instanceof QueryStmt || parsedStmt instanceof LogicalPlanAdapter) {
                 context.getState().setIsQuery(true);
-                if (!((QueryStmt) parsedStmt).isExplain()) {
+                if (!parsedStmt.isExplain()) {
                     // sql/sqlHash block
                     try {
                         Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(
@@ -397,10 +434,11 @@ public class StmtExecutor implements ProfileWriter {
                             AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
                                     DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                             context.setQueryId(newQueryId);
+                            span.setAttribute("queryId", DebugUtil.printId(newQueryId));
                         }
                         handleQueryStmt();
                         // explain query stmt do not have profile
-                        if (!((QueryStmt) parsedStmt).isExplain()) {
+                        if (!parsedStmt.isExplain()) {
                             writeProfile(true);
                         }
                         break;
@@ -509,6 +547,11 @@ public class StmtExecutor implements ProfileWriter {
         }
     }
 
+    /**
+     * get variables in stmt.
+     * TODO: only support select stmt now. need to support Nereids.
+     * @throws DdlException
+     */
     private void analyzeVariablesInStmt() throws DdlException {
         SessionVariable sessionVariable = context.getSessionVariable();
         if (parsedStmt != null && parsedStmt instanceof SelectStmt) {
@@ -573,7 +616,8 @@ public class StmtExecutor implements ProfileWriter {
 
         if (parsedStmt instanceof QueryStmt
                 || parsedStmt instanceof InsertStmt
-                || parsedStmt instanceof CreateTableAsSelectStmt) {
+                || parsedStmt instanceof CreateTableAsSelectStmt
+                || parsedStmt instanceof LogicalPlanAdapter) {
             Map<Long, TableIf> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;
             Set<String> parentViewNameSet = Sets.newHashSet();
@@ -584,7 +628,7 @@ public class StmtExecutor implements ProfileWriter {
                 CreateTableAsSelectStmt parsedStmt = (CreateTableAsSelectStmt) this.parsedStmt;
                 queryStmt = parsedStmt.getQueryStmt();
                 queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
-            } else {
+            } else if (parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
             }
@@ -748,7 +792,9 @@ public class StmtExecutor implements ProfileWriter {
         } else {
             planner = new OriginalPlanner(analyzer);
         }
-        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
+        if (parsedStmt instanceof QueryStmt
+                || parsedStmt instanceof InsertStmt
+                || parsedStmt instanceof LogicalPlanAdapter) {
             planner.plan(parsedStmt, tQueryOptions);
         }
         // TODO(zc):
@@ -915,7 +961,7 @@ public class StmtExecutor implements ProfileWriter {
             String columnName = columnLabels.get(i);
             if (expr instanceof LiteralExpr) {
                 columns.add(new Column(columnName, PrimitiveType.VARCHAR));
-                data.add(((LiteralExpr) expr).getStringValue());
+                data.add(expr.getStringValue());
             } else {
                 return false;
             }
@@ -929,7 +975,7 @@ public class StmtExecutor implements ProfileWriter {
     private void handleQueryStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
         context.getMysqlChannel().reset();
-        QueryStmt queryStmt = (QueryStmt) parsedStmt;
+        Queriable queryStmt = (Queriable) parsedStmt;
 
         QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
                 DebugUtil.printId(context.queryId()),
@@ -955,7 +1001,6 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
 
-
         MysqlChannel channel = context.getMysqlChannel();
         boolean isOutfileQuery = queryStmt.hasOutFileClause();
 
@@ -969,7 +1014,7 @@ public class StmtExecutor implements ProfileWriter {
     }
 
 
-    private void sendResult(boolean isOutfileQuery, boolean isSendFields, QueryStmt queryStmt, MysqlChannel channel,
+    private void sendResult(boolean isOutfileQuery, boolean isSendFields, Queriable queryStmt, MysqlChannel channel,
             CacheAnalyzer cacheAnalyzer, InternalService.PFetchCacheResult cacheResult) throws Exception {
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
@@ -983,55 +1028,73 @@ public class StmtExecutor implements ProfileWriter {
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
         coord.setProfileWriter(this);
-        coord.exec();
+        Span queryScheduleSpan =
+                context.getTracer().spanBuilder("query schedule").setParent(Context.current()).startSpan();
+        try (Scope scope = queryScheduleSpan.makeCurrent()) {
+            coord.exec();
+        } catch (Exception e) {
+            queryScheduleSpan.recordException(e);
+            throw e;
+        } finally {
+            queryScheduleSpan.end();
+        }
         plannerProfile.setQueryScheduleFinishTime();
         writeProfile(false);
-        while (true) {
-            batch = coord.getNext();
-            // for outfile query, there will be only one empty batch send back with eos flag
-            if (batch.getBatch() != null) {
-                if (cacheAnalyzer != null) {
-                    cacheAnalyzer.copyRowBatch(batch);
-                }
-                // For some language driver, getting error packet after fields packet
-                // will be recognized as a success result
-                // so We need to send fields after first batch arrived
-                if (!isSendFields) {
-                    if (!isOutfileQuery) {
-                        sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
-                    } else {
-                        sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+        Span fetchResultSpan = context.getTracer().spanBuilder("fetch result").setParent(Context.current()).startSpan();
+        try (Scope scope = fetchResultSpan.makeCurrent()) {
+            while (true) {
+                batch = coord.getNext();
+                // for outfile query, there will be only one empty batch send back with eos flag
+                if (batch.getBatch() != null) {
+                    if (cacheAnalyzer != null) {
+                        cacheAnalyzer.copyRowBatch(batch);
                     }
-                    isSendFields = true;
+                    // For some language driver, getting error packet after fields packet
+                    // will be recognized as a success result
+                    // so We need to send fields after first batch arrived
+                    if (!isSendFields) {
+                        if (!isOutfileQuery) {
+                            sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+                        } else {
+                            sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+                        }
+                        isSendFields = true;
+                    }
+                    for (ByteBuffer row : batch.getBatch().getRows()) {
+                        channel.sendOnePacket(row);
+                    }
+                    context.updateReturnRows(batch.getBatch().getRows().size());
                 }
-                for (ByteBuffer row : batch.getBatch().getRows()) {
-                    channel.sendOnePacket(row);
+                if (batch.isEos()) {
+                    break;
                 }
-                context.updateReturnRows(batch.getBatch().getRows().size());
             }
-            if (batch.isEos()) {
-                break;
+            if (cacheAnalyzer != null) {
+                if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
+                    isSendFields =
+                            sendCachedValues(channel, cacheResult.getValuesList(), (SelectStmt) queryStmt, isSendFields,
+                                    false);
+                }
+
+                cacheAnalyzer.updateCache();
             }
-        }
-        if (cacheAnalyzer != null) {
-            if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
-                isSendFields = sendCachedValues(channel, cacheResult.getValuesList(), (SelectStmt) queryStmt,
-                        isSendFields, false);
+            if (!isSendFields) {
+                if (!isOutfileQuery) {
+                    sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+                } else {
+                    sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+                }
             }
 
-            cacheAnalyzer.updateCache();
+            statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
+            context.getState().setEof();
+            plannerProfile.setQueryFetchResultFinishTime();
+        } catch (Exception e) {
+            fetchResultSpan.recordException(e);
+            throw  e;
+        } finally {
+            fetchResultSpan.end();
         }
-        if (!isSendFields) {
-            if (!isOutfileQuery) {
-                sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
-            } else {
-                sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
-            }
-        }
-
-        statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
-        context.getState().setEof();
-        plannerProfile.setQueryFetchResultFinishTime();
     }
 
     private TWaitingTxnStatusResult getWaitingTxnStatus(TWaitingTxnStatusRequest request) throws Exception {

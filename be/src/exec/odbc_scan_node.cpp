@@ -105,7 +105,6 @@ Status OdbcScanNode::open(RuntimeState* state) {
         return Status::InternalError("used before initialize.");
     }
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(_odbc_scanner->open());
     RETURN_IF_ERROR(_odbc_scanner->query());
@@ -138,7 +137,6 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
         return Status::InternalError("used before initialize.");
     }
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
@@ -198,16 +196,13 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
                 if (slot_desc->is_nullable()) {
                     _tuple->set_null(slot_desc->null_indicator_offset());
                 } else {
-                    std::stringstream ss;
-                    ss << "nonnull column contains nullptr. table=" << _table_name
-                       << ", column=" << slot_desc->col_name();
-                    return Status::InternalError(ss.str());
+                    return Status::InternalError(
+                            "nonnull column contains nullptr. table={}, column={}", _table_name,
+                            slot_desc->col_name());
                 }
             } else if (column_data.strlen_or_ind > column_data.buffer_length) {
-                std::stringstream ss;
-                ss << "nonnull column contains nullptr. table=" << _table_name
-                   << ", column=" << slot_desc->col_name();
-                return Status::InternalError(ss.str());
+                return Status::InternalError("nonnull column contains nullptr. table={}, column={}",
+                                             _table_name, slot_desc->col_name());
             } else {
                 RETURN_IF_ERROR(write_text_slot(static_cast<char*>(column_data.target_value_ptr),
                                                 column_data.strlen_or_ind, slot_desc, state));
@@ -234,7 +229,6 @@ Status OdbcScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     _tuple_pool.reset();
