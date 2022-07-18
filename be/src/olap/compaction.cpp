@@ -19,6 +19,7 @@
 
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet.h"
 #include "util/time.h"
@@ -150,9 +151,13 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     LOG(INFO) << "start " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version << ", permits: " << permits;
     // get cur schema if rowset schema exist, rowset schema must be newer than tablet schema
-    const TabletSchema cur_tablet_schema = _tablet->tablet_schema();
+    std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
+    std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
+                   [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
+    TabletSchemaSPtr cur_tablet_schema =
+            _tablet->rowset_meta_with_max_schema_version(rowset_metas)->tablet_schema();
 
-    RETURN_NOT_OK(construct_output_rowset_writer(&cur_tablet_schema));
+    RETURN_NOT_OK(construct_output_rowset_writer(cur_tablet_schema));
     RETURN_NOT_OK(construct_input_rowset_readers());
     TRACE("prepare finished");
 
@@ -166,10 +171,10 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
 
     if (use_vectorized_compaction) {
-        res = Merger::vmerge_rowsets(_tablet, compaction_type(), &cur_tablet_schema,
+        res = Merger::vmerge_rowsets(_tablet, compaction_type(), cur_tablet_schema.get(),
                                      _input_rs_readers, _output_rs_writer.get(), &stats);
     } else {
-        res = Merger::merge_rowsets(_tablet, compaction_type(), &cur_tablet_schema,
+        res = Merger::merge_rowsets(_tablet, compaction_type(), cur_tablet_schema.get(),
                                     _input_rs_readers, _output_rs_writer.get(), &stats);
     }
 
@@ -233,7 +238,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     return Status::OK();
 }
 
-Status Compaction::construct_output_rowset_writer(const TabletSchema* schema) {
+Status Compaction::construct_output_rowset_writer(TabletSchemaSPtr schema) {
     return _tablet->create_rowset_writer(_output_version, VISIBLE, NONOVERLAPPING, schema,
                                          _oldest_write_timestamp, _newest_write_timestamp,
                                          &_output_rs_writer);

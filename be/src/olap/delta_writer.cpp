@@ -123,10 +123,11 @@ Status DeltaWriter::init() {
                                                                   _req.txn_id, _req.load_id));
     }
     // build tablet schema in request level
-    _build_current_tablet_schema(_req.index_id, _req.ptable_schema_param, _tablet->tablet_schema());
+    _build_current_tablet_schema(_req.index_id, _req.ptable_schema_param,
+                                 *_tablet->tablet_schema());
 
     RETURN_NOT_OK(_tablet->create_rowset_writer(_req.txn_id, _req.load_id, PREPARED, OVERLAPPING,
-                                                _tablet_schema.get(), &_rowset_writer));
+                                                _tablet_schema, &_rowset_writer));
     _schema.reset(new Schema(*_tablet_schema));
     _reset_mem_table();
 
@@ -379,7 +380,7 @@ int64_t DeltaWriter::partition_id() const {
 void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
                                                const POlapTableSchemaParam& ptable_schema_param,
                                                const TabletSchema& ori_tablet_schema) {
-    *_tablet_schema = ori_tablet_schema;
+    _tablet_schema->copy_from(ori_tablet_schema);
     //new tablet schame if new table
     if (ptable_schema_param.indexes_size() > 0 &&
         ptable_schema_param.indexes(0).columns_desc_size() != 0 &&
