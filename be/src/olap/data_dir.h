@@ -140,7 +140,6 @@ private:
     Status _init_capacity();
     Status _init_meta();
 
-    Status _check_disk();
     Status _read_and_write_test_file();
     Status read_cluster_id(Env* env, const std::string& cluster_id_path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
@@ -150,8 +149,6 @@ private:
     Status _check_incompatible_old_format_tablet();
 
     void _process_garbage_path(const std::string& path);
-
-    void _remove_check_paths(const std::set<std::string>& paths);
 
 private:
     bool _stop_bg_worker = false;
