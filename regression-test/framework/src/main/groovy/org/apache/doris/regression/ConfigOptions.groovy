@@ -53,6 +53,7 @@ class ConfigOptions {
     static Option suiteParallelOpt
     static Option actionParallelOpt
     static Option randomOrderOpt
+    static Option stopWhenFail
     static Option timesOpt
     static Option withOutLoadDataOpt
 
@@ -270,6 +271,11 @@ class ConfigOptions {
                 .hasArg(false)
                 .desc("run tests in random order")
                 .build()
+        stopWhenFail = Option.builder("stopWhenFail")
+                .required(false)
+                .hasArg(false)
+                .desc("stop when a failure happens")
+                .build()
         timesOpt = Option.builder("times")
                 .argName("times")
                 .required(false)
@@ -312,6 +318,7 @@ class ConfigOptions {
                 .addOption(suiteParallelOpt)
                 .addOption(actionParallelOpt)
                 .addOption(randomOrderOpt)
+                .addOption(stopWhenFail)
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
 
