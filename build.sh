@@ -215,6 +215,10 @@ if [[ -z ${STRIP_DEBUG_INFO} ]]; then
     STRIP_DEBUG_INFO=OFF
 fi
 
+if [[ -z ${STRICT_MEMORY_USE} ]]; then
+    STRICT_MEMORY_USE=OFF
+fi
+
 echo "Get params:
     BUILD_BE            -- $BUILD_BE
     BUILD_FE            -- $BUILD_FE
@@ -231,6 +235,7 @@ echo "Get params:
     BUILD_META_TOOL     -- $BUILD_META_TOOL
     USE_LLD             -- $USE_LLD
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
+    STRICT_MEMORY_USE   -- $STRICT_MEMORY_USE
 "
 
 # Clean and build generated code
@@ -267,6 +272,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \
             -DUSE_LLD=${USE_LLD} \
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
+            -DSTRICT_MEMORY_USE=${STRICT_MEMORY_USE} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}
