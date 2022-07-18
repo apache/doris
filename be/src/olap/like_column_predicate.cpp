@@ -15,16 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf/udf.h"
 #include "olap/like_column_predicate.h"
+
 #include "olap/field.h"
 #include "runtime/string_value.hpp"
+#include "udf/udf.h"
 
 namespace doris {
 
-LikeColumnPredicate::LikeColumnPredicate(bool opposite, uint32_t column_id, doris_udf::FunctionContext* fn_ctx, doris_udf::StringVal val)
-    : ColumnPredicate(column_id, opposite), _fn_ctx(fn_ctx), pattern(val) {
-    _state = reinterpret_cast<LikePredicateState*>(_fn_ctx->get_function_state(doris_udf::FunctionContext::THREAD_LOCAL));
+LikeColumnPredicate::LikeColumnPredicate(bool opposite, uint32_t column_id,
+                                         doris_udf::FunctionContext* fn_ctx,
+                                         doris_udf::StringVal val)
+        : ColumnPredicate(column_id, opposite), _fn_ctx(fn_ctx), pattern(val) {
+    _state = reinterpret_cast<LikePredicateState*>(
+            _fn_ctx->get_function_state(doris_udf::FunctionContext::THREAD_LOCAL));
 }
 
 void LikeColumnPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
@@ -35,7 +39,8 @@ void LikeColumnPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* 
     }
 }
 
-void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {
+void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel,
+                                   uint16_t* size) const {
     uint16_t new_size = 0;
 
     if (column.is_nullable()) {
@@ -43,7 +48,8 @@ void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, u
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
         auto& nested_col = nullable_col->get_nested_column();
         if (nested_col.is_column_dictionary()) {
-            auto* nested_col_ptr = vectorized::check_and_get_column<vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
+            auto* nested_col_ptr = vectorized::check_and_get_column<
+                    vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
             auto& data_array = nested_col_ptr->get_data();
             for (uint16_t i = 0; i < *size; i++) {
                 uint16_t idx = sel[i];
@@ -58,9 +64,7 @@ void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, u
                 cell_value.to_string_val(&target);
                 new_size += _opposite ^ ((_state->function)(_fn_ctx, target, pattern).val);
             }
-        }
-        else
-        {
+        } else {
             for (uint16_t i = 0; i < *size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
@@ -76,7 +80,8 @@ void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, u
         }
     } else {
         if (column.is_column_dictionary()) {
-            auto* nested_col_ptr = vectorized::check_and_get_column<vectorized::ColumnDictionary<vectorized::Int32>>(column);
+            auto* nested_col_ptr = vectorized::check_and_get_column<
+                    vectorized::ColumnDictionary<vectorized::Int32>>(column);
             auto& data_array = nested_col_ptr->get_data();
             for (uint16_t i = 0; i < *size; i++) {
                 uint16_t idx = sel[i];
@@ -100,13 +105,15 @@ void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, u
     *size = new_size;
 }
 
-void LikeColumnPredicate::evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const {
+void LikeColumnPredicate::evaluate_vec(const vectorized::IColumn& column, uint16_t size,
+                                       bool* flags) const {
     if (column.is_nullable()) {
         auto* nullable_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
         auto& nested_col = nullable_col->get_nested_column();
         if (nested_col.is_column_dictionary()) {
-            auto* nested_col_ptr = vectorized::check_and_get_column<vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
+            auto* nested_col_ptr = vectorized::check_and_get_column<
+                    vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
             auto& data_array = nested_col_ptr->get_data();
             for (uint16_t i = 0; i < size; i++) {
                 if (null_map_data[i]) {
@@ -119,9 +126,7 @@ void LikeColumnPredicate::evaluate_vec(const vectorized::IColumn& column, uint16
                 cell_value.to_string_val(&target);
                 flags[i] = _opposite ^ ((_state->function)(_fn_ctx, target, pattern).val);
             }
-        }
-        else
-        {
+        } else {
             for (uint16_t i = 0; i < size; i++) {
                 if (null_map_data[i]) {
                     flags[i] = _opposite;
@@ -135,7 +140,8 @@ void LikeColumnPredicate::evaluate_vec(const vectorized::IColumn& column, uint16
         }
     } else {
         if (column.is_column_dictionary()) {
-            auto* nested_col_ptr = vectorized::check_and_get_column<vectorized::ColumnDictionary<vectorized::Int32>>(column);
+            auto* nested_col_ptr = vectorized::check_and_get_column<
+                    vectorized::ColumnDictionary<vectorized::Int32>>(column);
             auto& data_array = nested_col_ptr->get_data();
             for (uint16_t i = 0; i < size; i++) {
                 StringValue cell_value = nested_col_ptr->get_value(data_array[i]);
@@ -152,6 +158,5 @@ void LikeColumnPredicate::evaluate_vec(const vectorized::IColumn& column, uint16
         }
     }
 }
-
 
 } //namespace doris

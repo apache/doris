@@ -20,9 +20,9 @@
 #include "exec/olap_common.h"
 #include "exec/scan_node.h"
 #include "exprs/bloomfilter_predicate.h"
+#include "exprs/function_filter.h"
 #include "exprs/in_predicate.h"
 #include "exprs/runtime_filter.h"
-#include "exprs/function_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/tablet.h"
 #include "util/progress_updater.h"
@@ -148,7 +148,7 @@ private:
     std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>
             _bloom_filters_push_down;
 
-   // push down functions to storage engine
+    // push down functions to storage engine
     // only support scalar functions, now just support like / not like
     std::vector<FunctionFilter> _push_down_functions;
     // functions conjunct's index which already be push down storage engine

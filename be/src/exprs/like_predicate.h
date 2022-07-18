@@ -29,10 +29,9 @@
 
 namespace doris {
 
-
 typedef doris_udf::BooleanVal (*LikePredicateFunction)(doris_udf::FunctionContext*,
-                                                        const doris_udf::StringVal&,
-                                                        const doris_udf::StringVal&);
+                                                       const doris_udf::StringVal&,
+                                                       const doris_udf::StringVal&);
 struct LikePredicateState {
     char escape_char;
 
@@ -77,7 +76,6 @@ public:
     static void init();
 
 private:
-
     friend class OpcodeRegistry;
 
     static void like_prepare(doris_udf::FunctionContext* context,

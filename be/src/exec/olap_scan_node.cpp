@@ -483,8 +483,7 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
     // 3.1 Using ColumnValueRange to Build StorageEngine filters
     RETURN_IF_ERROR(build_key_ranges_and_filters());
     // 3.2 Function pushdown
-    if (config::enable_function_pushdown)
-        RETURN_IF_ERROR(build_function_filters());
+    if (config::enable_function_pushdown) RETURN_IF_ERROR(build_function_filters());
 
     VLOG_CRITICAL << "Filter idle conjuncts";
     // 4. Filter idle conjunct which already trans to olap filters
@@ -521,7 +520,8 @@ void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
         if (!_pushed_conjuncts_index.empty() && _pushed_conjuncts_index.count(i)) {
             _conjunct_ctxs[i]->close(state); // pushed condition, just close
         } else if (!_pushed_func_conjuncts_index.empty() && _pushed_func_conjuncts_index.count(i)) {
-            _pushed_func_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]); // pushed functions, need keep ctxs
+            _pushed_func_conjunct_ctxs.emplace_back(
+                    _conjunct_ctxs[i]); // pushed functions, need keep ctxs
         } else {
             new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
         }
@@ -534,7 +534,8 @@ void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
         if (!_pushed_conjuncts_index.empty() && _pushed_conjuncts_index.count(i)) {
             _conjunct_ctxs[i]->close(state); // pushed condition, just close
         } else if (!_pushed_func_conjuncts_index.empty() && _pushed_func_conjuncts_index.count(i)) {
-            _pushed_func_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]); // pushed functions, need keep ctxs
+            _pushed_func_conjunct_ctxs.emplace_back(
+                    _conjunct_ctxs[i]); // pushed functions, need keep ctxs
         } else {
             new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
         }
@@ -563,7 +564,6 @@ void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
     auto checker = [&](int index) { return _pushed_conjuncts_index.count(index); };
     _peel_pushed_vconjunct(state, checker);
 }
-
 
 void OlapScanNode::eval_const_conjuncts() {
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
@@ -705,16 +705,17 @@ Status OlapScanNode::build_function_filters() {
         Expr* fn_expr = ex_ctx->root();
         bool opposite = false;
 
-        if (TExprNodeType::COMPOUND_PRED == fn_expr->node_type() && TExprOpcode::COMPOUND_NOT == fn_expr->op())
-        {
+        if (TExprNodeType::COMPOUND_PRED == fn_expr->node_type() &&
+            TExprOpcode::COMPOUND_NOT == fn_expr->op()) {
             fn_expr = fn_expr->get_child(0);
             opposite = true;
         }
 
         // currently only support like / not like
-        if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type() && "like" == fn_expr->fn().name.function_name)
-        {
-            doris_udf::FunctionContext *func_cxt = ex_ctx->fn_context(fn_expr->get_fn_context_index());
+        if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type() &&
+            "like" == fn_expr->fn().name.function_name) {
+            doris_udf::FunctionContext* func_cxt =
+                    ex_ctx->fn_context(fn_expr->get_fn_context_index());
 
             if (!func_cxt) {
                 continue;
@@ -735,8 +736,7 @@ Status OlapScanNode::build_function_filters() {
                 continue;
             }
 
-            if (TExprNodeType::STRING_LITERAL != literal_expr->node_type())
-                continue;
+            if (TExprNodeType::STRING_LITERAL != literal_expr->node_type()) continue;
 
             const SlotDescriptor* slot_desc = nullptr;
             std::vector<SlotId> slot_ids;

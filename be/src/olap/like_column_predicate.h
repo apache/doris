@@ -16,10 +16,10 @@
 // under the License.
 #pragma once
 
-#include "udf/udf.h"
-#include "olap/column_predicate.h"
 #include "exprs/like_predicate.h"
+#include "olap/column_predicate.h"
 #include "runtime/string_value.h"
+#include "udf/udf.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/core/types.h"
 
@@ -27,7 +27,8 @@ namespace doris {
 
 class LikeColumnPredicate : public ColumnPredicate {
 public:
-    LikeColumnPredicate(bool opposite, uint32_t column_id, doris_udf::FunctionContext* fn_ctx, doris_udf::StringVal val);
+    LikeColumnPredicate(bool opposite, uint32_t column_id, doris_udf::FunctionContext* fn_ctx,
+                        doris_udf::StringVal val);
     ~LikeColumnPredicate() override = default;
 
     PredicateType type() const override { return PredicateType::EQ; }
@@ -36,11 +37,14 @@ public:
 
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
 
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override {}
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override {}
-    Status evaluate(const Schema& schema,
-                            const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows,
-                            roaring::Roaring* roaring) const override { return Status::OK(); }
+    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override {
+    }
+    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
+                      bool* flags) const override {}
+    Status evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,
+                    uint32_t num_rows, roaring::Roaring* roaring) const override {
+        return Status::OK();
+    }
 
 private:
     template <bool is_nullable>
@@ -49,12 +53,13 @@ private:
         for (uint16_t i = 0; i < *size; ++i) {
             uint16_t idx = sel[i];
             sel[new_size] = idx;
-            const StringValue* cell_value = reinterpret_cast<const StringValue*>(block->cell(idx).cell_ptr());
+            const StringValue* cell_value =
+                    reinterpret_cast<const StringValue*>(block->cell(idx).cell_ptr());
             doris_udf::StringVal target;
             cell_value->to_string_val(&target);
             if constexpr (is_nullable) {
                 new_size += _opposite ^ (!block->cell(idx).is_null() &&
-                                          (_state->function)(_fn_ctx, target, pattern).val);
+                                         (_state->function)(_fn_ctx, target, pattern).val);
             } else {
                 new_size += _opposite ^ (_state->function)(_fn_ctx, target, pattern).val;
             }

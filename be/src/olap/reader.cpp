@@ -25,10 +25,10 @@
 
 #include "common/status.h"
 #include "olap/bloom_filter_predicate.h"
-#include "olap/like_column_predicate.h"
 #include "olap/collect_iterator.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
+#include "olap/like_column_predicate.h"
 #include "olap/null_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/row.h"
@@ -623,10 +623,12 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     }
 
     // currently only support like predicate
-    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx, function_filter._string_param);
+    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
+                                   function_filter._string_param);
 }
 
-ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition, bool opposite) const {
+ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
+                                                   bool opposite) const {
     // TODO: not equal and not in predicate is not pushed down
     int32_t index = _tablet_schema->field_index(condition.column_name);
     if (index < 0) {

@@ -269,9 +269,7 @@ public:
         return res;
     }
 
-    inline const StringValue& get_value(value_type code) const {
-        return _dict.get_value(code);
-    }
+    inline const StringValue& get_value(value_type code) const { return _dict.get_value(code); }
 
     class Dictionary {
     public:
