@@ -527,8 +527,8 @@ stream {
   ###这里是配置代理的端口，超时时间等
   server {
       listen 6030;
-      proxy_connect_timeout 30s;
-      proxy_timeout 30s;
+      proxy_connect_timeout 300s;
+      proxy_timeout 300s;
       proxy_pass mysqld;
   }
 }
