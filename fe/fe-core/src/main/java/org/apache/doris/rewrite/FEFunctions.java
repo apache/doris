@@ -35,11 +35,10 @@ import org.apache.doris.qe.GlobalVariable;
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.joda.time.DateTimeZone;
-import org.joda.time.LocalDateTime;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.LocalDateTime;
 
 /**
  * compute functions in FE.
@@ -380,7 +379,7 @@ public class FEFunctions {
 
     @FEFunction(name = "now", argTypes = {}, returnType = "DATETIME")
     public static DateLiteral now() throws AnalysisException {
-        return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())),
+        return  new DateLiteral(LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()),
             DateLiteral.getDefaultDateType(Type.DATETIME));
     }
 
@@ -390,8 +389,8 @@ public class FEFunctions {
     }
 
     @FEFunction(name = "curdate", argTypes = {}, returnType = "DATE")
-    public static DateLiteral curDate() throws AnalysisException {
-        return new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())),
+    public static DateLiteral curDate() {
+        return new DateLiteral(LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()),
             DateLiteral.getDefaultDateType(Type.DATE));
     }
 
@@ -408,8 +407,8 @@ public class FEFunctions {
     }
 
     @FEFunction(name = "utc_timestamp", argTypes = {}, returnType = "DATETIME")
-    public static DateLiteral utcTimestamp() throws AnalysisException {
-        return new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getOrSystemTimeZone("+00:00"))),
+    public static DateLiteral utcTimestamp() {
+        return new DateLiteral(LocalDateTime.now(TimeUtils.getOrSystemTimeZone("+00:00").toZoneId()),
             DateLiteral.getDefaultDateType(Type.DATETIME));
     }
 
