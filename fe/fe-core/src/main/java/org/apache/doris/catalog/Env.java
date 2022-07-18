@@ -4193,7 +4193,8 @@ public class Env {
         }
         ctx.changeDefaultCatalog(catalogName);
         if (dataSourceIf instanceof EsExternalDataSource) {
-            ctx.setDatabase(SystemInfoService.DEFAULT_CLUSTER + ClusterNamespace.CLUSTER_DELIMITER + EsExternalDataSource.DEFAULT_DB);
+            ctx.setDatabase(SystemInfoService.DEFAULT_CLUSTER + ClusterNamespace.CLUSTER_DELIMITER
+                    + EsExternalDataSource.DEFAULT_DB);
         }
     }
 
