@@ -96,7 +96,7 @@ public class SystemInfoService {
 
     // for deploy manager
     public void addBackends(List<Pair<String, Integer>> hostPortPairs, boolean isFree) throws UserException {
-        addBackends(hostPortPairs, isFree, "", Tag.DEFAULT_BACKEND_TAG);
+        addBackends(hostPortPairs, isFree, "", Tag.DEFAULT_BACKEND_TAG.toMap());
     }
 
     /**
@@ -105,8 +105,8 @@ public class SystemInfoService {
      * @param destCluster : if not null or empty backend will be added to destCluster
      * @throws DdlException
      */
-    public void addBackends(List<Pair<String, Integer>> hostPortPairs,
-                            boolean isFree, String destCluster, Tag tag) throws UserException {
+    public void addBackends(List<Pair<String, Integer>> hostPortPairs, boolean isFree, String destCluster,
+            Map<String, String> tagMap) throws UserException {
         for (Pair<String, Integer> pair : hostPortPairs) {
             // check is already exist
             if (getBackendWithHeartbeatPort(pair.first, pair.second) != null) {
@@ -115,7 +115,7 @@ public class SystemInfoService {
         }
 
         for (Pair<String, Integer> pair : hostPortPairs) {
-            addBackend(pair.first, pair.second, isFree, destCluster, tag);
+            addBackend(pair.first, pair.second, isFree, destCluster, tagMap);
         }
     }
 
@@ -137,7 +137,7 @@ public class SystemInfoService {
 
     // Final entry of adding backend
     private void addBackend(String host, int heartbeatPort, boolean isFree, String destCluster,
-                            Tag tag) throws UserException {
+            Map<String, String> tagMap) {
         Backend newBackend = new Backend(Catalog.getCurrentCatalog().getNextId(), host, heartbeatPort);
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
@@ -162,7 +162,7 @@ public class SystemInfoService {
         }
 
         // set tags
-        newBackend.setTag(tag);
+        newBackend.setTagMap(tagMap);
 
         // log
         Catalog.getCurrentCatalog().getEditLog().logAddBackend(newBackend);
@@ -1123,12 +1123,10 @@ public class SystemInfoService {
 
         for (Backend be : backends) {
             boolean shouldModify = false;
-            if (alterClause.getTag() != null) {
-                Tag tag = alterClause.getTag();
-                if (!be.getTag().equals(tag)) {
-                    be.setTag(tag);
-                    shouldModify = true;
-                }
+            Map<String, String> tagMap = alterClause.getTagMap();
+            if (!tagMap.isEmpty()) {
+                be.setTagMap(tagMap);
+                shouldModify = true;
             }
 
             if (alterClause.isQueryDisabled() != null) {
@@ -1154,7 +1152,7 @@ public class SystemInfoService {
 
     public void replayModifyBackend(Backend backend) {
         Backend memBe = getBackend(backend.getId());
-        memBe.setTag(backend.getTag());
+        memBe.setTagMap(backend.getTagMap());
         memBe.setQueryDisabled(backend.isQueryDisabled());
         memBe.setLoadDisabled(backend.isLoadDisabled());
         LOG.debug("replay modify backend: {}", backend);
@@ -1164,10 +1162,10 @@ public class SystemInfoService {
     public void checkReplicaAllocation(String cluster, ReplicaAllocation replicaAlloc) throws DdlException {
         List<Backend> backends = getClusterBackends(cluster);
         for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
-            if (backends.stream().filter(b -> b.getTag().equals(entry.getKey())).count()
-                    < entry.getValue()) {
-                throw new DdlException("Failed to find enough host with tag(" + entry.getKey()
-                        + ") in all backends. need: " + entry.getValue());
+            if (backends.stream().filter(b -> b.getLocationTag().equals(entry.getKey())).count() < entry.getValue()) {
+                throw new DdlException(
+                        "Failed to find enough host with tag(" + entry.getKey() + ") in all backends. need: "
+                                + entry.getValue());
             }
         }
     }
@@ -1176,13 +1174,13 @@ public class SystemInfoService {
         List<Backend> bes = getClusterBackends(clusterName);
         Set<Tag> tags = Sets.newHashSet();
         for (Backend be : bes) {
-            tags.add(be.getTag());
+            tags.add(be.getLocationTag());
         }
         return tags;
     }
 
     public List<Backend> getBackendsByTagInCluster(String clusterName, Tag tag) {
         List<Backend> bes = getClusterBackends(clusterName);
-        return bes.stream().filter(b -> b.getTag().equals(tag)).collect(Collectors.toList());
+        return bes.stream().filter(b -> b.getLocationTag().equals(tag)).collect(Collectors.toList());
     }
 }

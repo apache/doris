@@ -24,12 +24,14 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -44,6 +46,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -116,8 +119,14 @@ public class Backend implements Writable {
     // additional backendStatus information for BE, display in JSON format
     @SerializedName("backendStatus")
     private BackendStatus backendStatus = new BackendStatus();
-    @SerializedName("tag")
-    private Tag tag = Tag.DEFAULT_BACKEND_TAG;
+    // the locationTag is also saved in tagMap, use a single field here to avoid
+    // creating this everytime we get it.
+    @SerializedName(value = "locationTag", alternate = {"tag"})
+    private Tag locationTag = Tag.DEFAULT_BACKEND_TAG;
+    // tag type -> tag value.
+    // A backend can only be assigned to one tag type, and each type can only have one value.
+    @SerializedName("tagMap")
+    private Map<String, String> tagMap = Maps.newHashMap();
 
     public Backend() {
         this.host = "";
@@ -135,6 +144,7 @@ public class Backend implements Writable {
         this.ownerClusterName = "";
         this.backendState = BackendState.free.ordinal();
         this.decommissionType = DecommissionType.SystemDecommission.ordinal();
+        this.tagMap.put(locationTag.type, locationTag.value);
     }
 
     public Backend(long id, String host, int heartbeatPort) {
@@ -155,6 +165,7 @@ public class Backend implements Writable {
         this.ownerClusterName = "";
         this.backendState = BackendState.free.ordinal();
         this.decommissionType = DecommissionType.SystemDecommission.ordinal();
+        this.tagMap.put(locationTag.type, locationTag.value);
     }
 
     public long getId() {
@@ -534,41 +545,36 @@ public class Backend implements Writable {
         }
     }
 
+    /**
+     * In old version, there is only one tag for a Backend, and it is a "location" type tag.
+     * But in new version, a Backend can have multi tag, so we need to put locationTag to
+     * the new tagMap
+     */
+    private void convertToTagMapAndSetLocationTag() {
+        if (tagMap == null) {
+            // When first upgrade from old version, tags may be null
+            tagMap = Maps.newHashMap();
+        }
+        if (!tagMap.containsKey(Tag.TYPE_LOCATION)) {
+            // ATTN: here we use Tag.TYPE_LOCATION directly, not locationTag.type,
+            // because we need to make sure the previous tag must be a location type tag,
+            // and if not, convert it to location type.
+            tagMap.put(Tag.TYPE_LOCATION, locationTag.value);
+        }
+        locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, tagMap.get(Tag.TYPE_LOCATION));
+    }
+
     public static Backend read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Backend.class);
+        Backend be = GsonUtils.GSON.fromJson(json, Backend.class);
+        be.convertToTagMapAndSetLocationTag();
+        return be;
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        id = in.readLong();
-        host = Text.readString(in);
-        heartbeatPort = in.readInt();
-        bePort = in.readInt();
-        httpPort = in.readInt();
-        beRpcPort = in.readInt();
-        isAlive.set(in.readBoolean());
-        isDecommissioned.set(in.readBoolean());
-        lastUpdateMs = in.readLong();
-        lastStartTime = in.readLong();
-        Map<String, DiskInfo> disks = Maps.newHashMap();
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String rootPath = Text.readString(in);
-            DiskInfo diskInfo = DiskInfo.read(in);
-            disks.put(rootPath, diskInfo);
-        }
-        disksRef = ImmutableMap.copyOf(disks);
-        ownerClusterName = Text.readString(in);
-        backendState = in.readInt();
-        decommissionType = in.readInt();
-        brpcPort = in.readInt();
     }
 
     @Override
@@ -594,7 +600,7 @@ public class Backend implements Writable {
     @Override
     public String toString() {
         return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
-                + ", tag: " + tag + "]";
+                + ", tags: " + tagMap + "]";
     }
 
     public String getOwnerClusterName() {
@@ -717,11 +723,34 @@ public class Backend implements Writable {
         public volatile boolean isLoadDisabled = false;
     }
 
-    public void setTag(Tag tag) {
-        this.tag = tag;
+    public Tag getLocationTag() {
+        return locationTag;
     }
 
-    public Tag getTag() {
-        return tag;
+    public void setTagMap(Map<String, String> tagMap) {
+        Preconditions.checkState(tagMap.containsKey(Tag.TYPE_LOCATION));
+        this.tagMap = tagMap;
+        this.locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, tagMap.get(Tag.TYPE_LOCATION));
+    }
+
+    public Map<String, String> getTagMap() {
+        return tagMap;
+    }
+
+    public String getTagMapString() {
+        return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
+    }
+
+    /**
+     * Get Tag by type, return Optional.empty if no such tag with given type
+     *
+     * @param type
+     * @return
+     */
+    public Optional<Tag> getTagByType(String type) {
+        if (!tagMap.containsKey(type)) {
+            return Optional.empty();
+        }
+        return Optional.of(Tag.createNotCheck(type, tagMap.get(type)));
     }
 }

@@ -463,8 +463,8 @@ public class Tablet extends MetaObject implements Writable {
 
             versions.add(replica.getVersionCount());
 
-            short curNum = currentAllocMap.getOrDefault(backend.getTag(), (short) 0);
-            currentAllocMap.put(backend.getTag(), (short) (curNum + 1));
+            short curNum = currentAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
+            currentAllocMap.put(backend.getLocationTag(), (short) (curNum + 1));
         }
 
         // 1. alive replicas are not enough

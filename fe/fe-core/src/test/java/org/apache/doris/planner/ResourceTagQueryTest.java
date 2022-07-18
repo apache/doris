@@ -239,9 +239,9 @@ public class ResourceTagQueryTest {
             AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
             DdlExecutor.execute(Catalog.getCurrentCatalog(), stmt);
         }
-        Assert.assertEquals(tag1, backends.get(0).getTag());
-        Assert.assertEquals(tag1, backends.get(1).getTag());
-        Assert.assertEquals(tag1, backends.get(2).getTag());
+        Assert.assertEquals(tag1, backends.get(0).getLocationTag());
+        Assert.assertEquals(tag1, backends.get(1).getLocationTag());
+        Assert.assertEquals(tag1, backends.get(2).getLocationTag());
 
         queryStr = "explain select * from test.tbl1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
@@ -251,7 +251,8 @@ public class ResourceTagQueryTest {
         // for now, 3 backends with tag zone1, 2 with tag default, so table is not stable.
         ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
         // alter table's replication allocation to zone1:2 and default:1
-        String alterStr = "alter table test.tbl1 modify partition (p1, p2, p3) set ('replication_allocation' = 'tag.location.zone1:2, tag.location.default:1')";
+        String alterStr
+                = "alter table test.tbl1 modify partition (p1, p2, p3) set ('replication_allocation' = 'tag.location.zone1:2, tag.location.default:1')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr));
         Map<Tag, Short> expectedAllocMap = Maps.newHashMap();
         expectedAllocMap.put(Tag.DEFAULT_BACKEND_TAG, (short) 1);

@@ -39,10 +39,6 @@ grammar:
 ```sql
 -- Add nodes (add this method if you do not use the multi-tenancy function)
    ALTER SYSTEM ADD BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
--- Add idle nodes (that is, add BACKEND that does not belong to any cluster)
-   ALTER SYSTEM ADD FREE BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
--- Add nodes to a cluster
-   ALTER SYSTEM ADD BACKEND TO cluster_name "host:heartbeat_port"[,"host:heartbeat_port"...];
 ````
 
  illustrate:
@@ -57,12 +53,6 @@ grammar:
 
     ```sql
     ALTER SYSTEM ADD BACKEND "host:port";
-    ````
-
- 1. Add an idle node
-
-    ```sql
-    ALTER SYSTEM ADD FREE BACKEND "host:port";
     ````
 
 ### Keywords

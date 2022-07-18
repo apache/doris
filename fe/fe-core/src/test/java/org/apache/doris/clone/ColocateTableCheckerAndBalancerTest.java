@@ -346,7 +346,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend2.isScheduleAvailable();
                 result = true;
                 minTimes = 0;
-                myBackend2.getTag();
+                myBackend2.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
                 minTimes = 0;
 
@@ -363,7 +363,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend3.getLastUpdateMs();
                 result = System.currentTimeMillis() - (Config.colocate_group_relocate_delay_second + 20) * 1000;
                 minTimes = 0;
-                myBackend3.getTag();
+                myBackend3.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
                 minTimes = 0;
 
@@ -380,7 +380,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend4.getLastUpdateMs();
                 result = System.currentTimeMillis();
                 minTimes = 0;
-                myBackend4.getTag();
+                myBackend4.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
                 minTimes = 0;
 
@@ -397,7 +397,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend5.isDecommissioned();
                 result = true;
                 minTimes = 0;
-                myBackend5.getTag();
+                myBackend5.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
                 minTimes = 0;
 
@@ -439,7 +439,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend2.isScheduleAvailable();
                 result = true;
                 minTimes = 0;
-                myBackend2.getTag();
+                myBackend2.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
                 minTimes = 0;
 
@@ -456,7 +456,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend3.getLastUpdateMs();
                 result = System.currentTimeMillis() - (Config.colocate_group_relocate_delay_second + 20) * 1000;
                 minTimes = 0;
-                myBackend3.getTag();
+                myBackend3.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
                 minTimes = 0;
 
@@ -473,7 +473,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend4.getLastUpdateMs();
                 result = System.currentTimeMillis();
                 minTimes = 0;
-                myBackend4.getTag();
+                myBackend4.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
                 minTimes = 0;
 
@@ -490,7 +490,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend5.isDecommissioned();
                 result = true;
                 minTimes = 0;
-                myBackend5.getTag();
+                myBackend5.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
                 minTimes = 0;
 
@@ -507,7 +507,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend6.isDecommissioned();
                 result = false;
                 minTimes = 0;
-                myBackend6.getTag();
+                myBackend6.getLocationTag();
                 result = Tag.create(Tag.TYPE_LOCATION, "new_loc");
                 minTimes = 0;
 
@@ -524,7 +524,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 myBackend7.isDecommissioned();
                 result = false;
                 minTimes = 0;
-                myBackend7.getTag();
+                myBackend7.getLocationTag();
                 result = Tag.DEFAULT_BACKEND_TAG;
                 minTimes = 0;
                 myBackend7.getId();

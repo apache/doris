@@ -72,7 +72,7 @@ public class ClusterLoadStatByTag implements ProcDirInterface {
         for (long beId : beIds) {
             Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
             if (be != null) {
-                tags.add(be.getTag());
+                tags.add(be.getLocationTag());
             }
         }
         return tags;

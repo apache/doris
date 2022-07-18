@@ -1445,11 +1445,11 @@ public class OlapTable extends Table {
                     if (be == null) {
                         continue;
                     }
-                    short num = currentReplicaAlloc.getOrDefault(be.getTag(), (short) 0);
-                    currentReplicaAlloc.put(be.getTag(), (short) (num + 1));
-                    List<Long> beIds = tag2beIds.getOrDefault(be.getTag(), Lists.newArrayList());
+                    short num = currentReplicaAlloc.getOrDefault(be.getLocationTag(), (short) 0);
+                    currentReplicaAlloc.put(be.getLocationTag(), (short) (num + 1));
+                    List<Long> beIds = tag2beIds.getOrDefault(be.getLocationTag(), Lists.newArrayList());
                     beIds.add(beId);
-                    tag2beIds.put(be.getTag(), beIds);
+                    tag2beIds.put(be.getLocationTag(), beIds);
                 }
                 if (!currentReplicaAlloc.equals(replicaAlloc.getAllocMap())) {
                     throw new DdlException("The relica allocation is " + currentReplicaAlloc.toString()
@@ -1840,8 +1840,8 @@ public class OlapTable extends Table {
                         if (be == null) {
                             continue;
                         }
-                        short num = curMap.getOrDefault(be.getTag(), (short) 0);
-                        curMap.put(be.getTag(), (short) (num + 1));
+                        short num = curMap.getOrDefault(be.getLocationTag(), (short) 0);
+                        curMap.put(be.getLocationTag(), (short) (num + 1));
                     }
                     if (!curMap.equals(allocMap)) {
                         throw new UserException("replica allocation of tablet " + tablet.getId() + " is not expected"

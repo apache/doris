@@ -90,8 +90,8 @@ public class ClusterLoadStatistic {
                 // So balance will be blocked.
                 continue;
             }
-            BackendLoadStatistic beStatistic = new BackendLoadStatistic(backend.getId(),
-                    backend.getOwnerClusterName(), backend.getTag(), infoService, invertedIndex);
+            BackendLoadStatistic beStatistic = new BackendLoadStatistic(backend.getId(), backend.getOwnerClusterName(),
+                    backend.getLocationTag(), infoService, invertedIndex);
             try {
                 beStatistic.init();
             } catch (LoadBalanceException e) {

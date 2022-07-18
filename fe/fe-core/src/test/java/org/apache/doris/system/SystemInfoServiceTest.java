@@ -152,22 +152,22 @@ public class SystemInfoServiceTest {
 
         Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
         Tag tagb = Tag.create(Tag.TYPE_LOCATION, "tagb");
-        be1.setTag(taga);
-        be2.setTag(taga);
-        be3.setTag(tagb);
-        be4.setTag(tagb);
-        be5.setTag(tagb);
+        be1.setTagMap(taga.toMap());
+        be2.setTagMap(taga.toMap());
+        be3.setTagMap(tagb.toMap());
+        be4.setTagMap(tagb.toMap());
+        be5.setTagMap(tagb.toMap());
 
-        BeSelectionPolicy policy7 = new BeSelectionPolicy.Builder().needQueryAvailable()
-                .addTags(Sets.newHashSet(taga)).build();
+        BeSelectionPolicy policy7 = new BeSelectionPolicy.Builder().needQueryAvailable().addTags(Sets.newHashSet(taga))
+                .build();
         Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy7, 1).size());
         Assert.assertEquals(2, infoService.selectBackendIdsByPolicy(policy7, 2).size());
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy7, 2).contains(10001L));
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy7, 2).contains(10002L));
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy7, 3).size());
 
-        BeSelectionPolicy policy8 = new BeSelectionPolicy.Builder()
-                .needQueryAvailable().addTags(Sets.newHashSet(tagb)).build();
+        BeSelectionPolicy policy8 = new BeSelectionPolicy.Builder().needQueryAvailable().addTags(Sets.newHashSet(tagb))
+                .build();
         Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy8, 3).size());
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy8, 3).contains(10003L));
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy8, 3).contains(10004L));
@@ -209,7 +209,7 @@ public class SystemInfoServiceTest {
         // 8. check same host
         addBackend(10006, "192.168.1.1", 9051);
         Backend be6 = infoService.getBackend(10006);
-        be6.setTag(taga);
+        be6.setTagMap(taga.toMap());
         be6.setAlive(true);
         addDisk(be1, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 100 * 1024 * 1024L);
         addDisk(be6, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 100 * 1024 * 1024L);
