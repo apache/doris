@@ -534,7 +534,8 @@ distribution_info
     PROPERTIES (
         "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
     );
-    
+    ```
+    ```sql
     CREATE TABLE example_db.dynamic_partition
     (
     	k1 DATE,
@@ -553,6 +554,7 @@ distribution_info
         "dynamic_partition.buckets" = "32",
         "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
      );
+    ```
 
 ### Keywords
 
