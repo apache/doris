@@ -24,7 +24,7 @@
 #include "common/logging.h"
 #include "common/status.h"         // for Status
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
-#include "io/fs/file_system.h"
+#include "io/fs/file_reader.h"
 #include "olap/olap_cond.h"                             // for CondColumn
 #include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
 #include "olap/rowset/segment_v2/common.h"
@@ -88,7 +88,7 @@ public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                         uint64_t num_rows, io::FileSystem* fs, const std::string& path,
+                         uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                          std::unique_ptr<ColumnReader>* reader);
 
     enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
@@ -147,7 +147,7 @@ public:
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 io::FileSystem* fs, const std::string& path);
+                 io::FileReaderSPtr file_reader);
     Status init();
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
@@ -184,8 +184,7 @@ private:
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
 
-    io::FileSystem* _fs;
-    std::string _path;
+    io::FileReaderSPtr _file_reader;
 
     DictEncodingType _dict_encoding_type;
 
@@ -247,12 +246,12 @@ public:
     virtual Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) = 0;
 
     virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) {
-        return Status::NotSupported("not implement");
+        return Status::NotSupported("next_batch not implement");
     }
 
     virtual Status read_by_rowids(const rowid_t* rowids, const size_t count,
                                   vectorized::MutableColumnPtr& dst) {
-        return Status::NotSupported("not implement");
+        return Status::NotSupported("read_by_rowids not implement");
     }
 
     virtual ordinal_t get_current_ordinal() const = 0;
@@ -367,6 +366,9 @@ public:
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
 
     Status seek_to_first() override {
         RETURN_IF_ERROR(_length_iterator->seek_to_first());

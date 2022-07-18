@@ -55,10 +55,9 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-                                                   const StorageParamPB& storage_param,
                                                    DataDir* data_dir = nullptr);
 
-    Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param, DataDir* data_dir,
+    Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
            const std::string& cumulative_compaction_type = "");
 
     Status init();
@@ -90,6 +89,7 @@ public:
     int version_count() const;
     Version max_version() const;
     CumulativeCompactionPolicy* cumulative_compaction_policy();
+    bool enable_unique_key_merge_on_write() const;
 
     // properties encapsulated in TabletSchema
     KeysType keys_type() const;
@@ -149,7 +149,9 @@ public:
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowsetReaderSharedPtr>* rs_readers) const;
 
-    DelPredicateArray delete_predicates() { return _tablet_meta->delete_predicates(); }
+    const std::vector<DeletePredicatePB>& delete_predicates() {
+        return _tablet_meta->delete_predicates();
+    }
     void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     bool version_for_delete_predicate(const Version& version);
     bool version_for_load_deletion(const Version& version);
@@ -302,6 +304,11 @@ public:
     // Physically remove remote rowsets.
     void remove_all_remote_rowsets();
 
+    // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
+    // NOTE: the method only works in unique key model with primary key index, you will got a
+    //       not supported error in other data model.
+    Status lookup_row_key(const Slice& encoded_key, RowLocation* row_location);
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -428,6 +435,10 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
             << "Unexpected cumulative point: " << new_point
             << ", origin: " << _cumulative_point.load();
     _cumulative_point = new_point;
+}
+
+inline bool Tablet::enable_unique_key_merge_on_write() const {
+    return _tablet_meta->enable_unique_key_merge_on_write();
 }
 
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta
