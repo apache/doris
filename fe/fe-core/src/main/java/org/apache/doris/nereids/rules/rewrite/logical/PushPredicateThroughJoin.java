@@ -65,7 +65,7 @@ import java.util.Set;
 public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
 
     @Override
-    public Rule<Plan> build() {
+    public Rule build() {
         return logicalFilter(innerLogicalJoin()).then(filter -> {
 
             LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
@@ -134,7 +134,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             rightPlan = new LogicalFilter(exprRewriter.rewrite(right), rightPlan);
         }
 
-        return new LogicalJoin(joinPlan.getJoinType(), Optional.of(joinConditions), leftPlan, rightPlan);
+        return new LogicalJoin<>(joinPlan.getJoinType(), Optional.of(joinConditions), leftPlan, rightPlan);
     }
 
     private Expression getJoinCondition(Expression predicate, List<Slot> leftOutputs, List<Slot> rightOutputs) {

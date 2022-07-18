@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
@@ -38,12 +37,12 @@ import java.util.stream.Collectors;
  */
 public class BindFunction implements AnalysisRuleFactory {
     @Override
-    public List<Rule<Plan>> buildRules() {
+    public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.BINDING_PROJECT_FUNCTION.build(
                 logicalProject().then(project -> {
                     List<NamedExpression> boundExpr = bind(project.getProjects());
-                    return new LogicalProject(boundExpr, project.child());
+                    return new LogicalProject<>(boundExpr, project.child());
                 })
             ),
             RuleType.BINDING_AGGREGATE_FUNCTION.build(
