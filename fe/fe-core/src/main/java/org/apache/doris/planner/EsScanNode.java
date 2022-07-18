@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
@@ -30,6 +31,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
+import org.apache.doris.external.elasticsearch.EsUrls;
+import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.external.elasticsearch.QueryBuilders;
+import org.apache.doris.external.elasticsearch.QueryBuilders.BoolQueryBuilder;
+import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
@@ -47,6 +54,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import lombok.SneakyThrows;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,6 +66,9 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
+/**
+ * ScanNode for Elasticsearch.
+ **/
 public class EsScanNode extends ScanNode {
 
     private static final Logger LOG = LogManager.getLogger(EsScanNode.class);
@@ -68,8 +79,8 @@ public class EsScanNode extends ScanNode {
     private EsTablePartitions esTablePartitions;
     private List<TScanRangeLocations> shardScanRanges = Lists.newArrayList();
     private EsTable table;
-
-    boolean isFinalized = false;
+    private QueryBuilder queryBuilder;
+    private boolean isFinalized = false;
 
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName, StatisticalType.ES_SCAN_NODE);
@@ -114,9 +125,8 @@ public class EsScanNode extends ScanNode {
      * return whether can use the doc_values scan
      * 0 and 1 are returned to facilitate Doris BE processing
      *
-     * @param desc            the fields needs to read from ES
+     * @param desc the fields needs to read from ES
      * @param docValueContext the mapping for docvalues fields from origin field to doc_value fields
-     * @return
      */
     private int useDocValueScan(TupleDescriptor desc, Map<String, String> docValueContext) {
         ArrayList<SlotDescriptor> slotDescriptors = desc.getSlots();
@@ -138,13 +148,11 @@ public class EsScanNode extends ScanNode {
         return useDocValue ? 1 : 0;
     }
 
+    @SneakyThrows
     @Override
     protected void toThrift(TPlanNode msg) {
-        if (EsTable.TRANSPORT_HTTP.equals(table.getTransport())) {
-            msg.node_type = TPlanNodeType.ES_HTTP_SCAN_NODE;
-        } else {
-            msg.node_type = TPlanNodeType.ES_SCAN_NODE;
-        }
+        buildQuery();
+        msg.node_type = TPlanNodeType.ES_HTTP_SCAN_NODE;
         Map<String, String> properties = Maps.newHashMap();
         properties.put(EsTable.USER, table.getUserName());
         properties.put(EsTable.PASSWORD, table.getPasswd());
@@ -154,6 +162,17 @@ public class EsScanNode extends ScanNode {
         if (table.isDocValueScanEnable()) {
             esScanNode.setDocvalueContext(table.docValueContext());
             properties.put(EsTable.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
+        }
+        properties.put(EsTable.ES_DSL, queryBuilder.toJson());
+
+        // Be use it add es host_port and shardId to query.
+        EsUrls esUrls = EsUtil.genEsUrls(table.getIndexName(), table.getMappingType(), table.isDocValueScanEnable(),
+                ConnectContext.get().getSessionVariable().batchSize, msg.limit);
+        if (esUrls.getSearchUrl() != null) {
+            properties.put(EsTable.SEARCH_URL, esUrls.getSearchUrl());
+        } else {
+            properties.put(EsTable.INIT_SCROLL_URL, esUrls.getInitScrollUrl());
+            properties.put(EsTable.NEXT_SCROLL_URL, esUrls.getNextScrollUrl());
         }
         if (table.isKeywordSniffEnable() && table.fieldsContext().size() > 0) {
             esScanNode.setFieldsContext(table.fieldsContext());
@@ -181,8 +200,8 @@ public class EsScanNode extends ScanNode {
         // info is generated from es cluster state dynamically
         if (esTablePartitions == null) {
             if (table.getLastMetaDataSyncException() != null) {
-                throw new UserException("fetch es table [" + table.getName()
-                        + "] metadata failure: " + table.getLastMetaDataSyncException().getLocalizedMessage());
+                throw new UserException("fetch es table [" + table.getName() + "] metadata failure: "
+                        + table.getLastMetaDataSyncException().getLocalizedMessage());
             }
             throw new UserException("EsTable metadata has not been synced, Try it later");
         }
@@ -202,10 +221,8 @@ public class EsScanNode extends ScanNode {
             }
         }
         if (LOG.isDebugEnabled()) {
-            LOG.debug("partition prune finished, unpartitioned index [{}], "
-                            + "partitioned index [{}]",
-                    String.join(",", unPartitionedIndices),
-                    String.join(",", partitionedIndices));
+            LOG.debug("partition prune finished, unpartitioned index [{}], " + "partitioned index [{}]",
+                    String.join(",", unPartitionedIndices), String.join(",", partitionedIndices));
         }
         int size = backendList.size();
         int beIndex = random.nextInt(size);
@@ -217,8 +234,7 @@ public class EsScanNode extends ScanNode {
                 int numBe = Math.min(3, size);
                 List<TNetworkAddress> shardAllocations = new ArrayList<>();
                 for (EsShardRouting item : shardRouting) {
-                    shardAllocations.add(EsTable.TRANSPORT_HTTP.equals(table.getTransport())
-                            ? item.getHttpAddress() : item.getAddress());
+                    shardAllocations.add(item.getHttpAddress());
                 }
 
                 Collections.shuffle(shardAllocations, random);
@@ -279,15 +295,13 @@ public class EsScanNode extends ScanNode {
      * with one or more indices some indices could be pruned by using partition info
      * in index settings currently only support range partition setting
      *
-     * @param partitionInfo
-     * @return
-     * @throws AnalysisException
+     * @param partitionInfo partitionInfo
      */
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo) throws AnalysisException {
         if (partitionInfo == null) {
             return null;
         }
-        PartitionPruner partitionPruner = null;
+        PartitionPruner partitionPruner;
         switch (partitionInfo.getType()) {
             case RANGE: {
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
@@ -319,22 +333,40 @@ public class EsScanNode extends ScanNode {
         }
 
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("PREDICATES: ").append(
-                    getExplainString(conjuncts)).append("\n");
+            output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
             // reserved for later using: LOCAL_PREDICATES is processed by Doris EsScanNode
             output.append(prefix).append("LOCAL_PREDICATES: ").append(" ").append("\n");
             // reserved for later using: REMOTE_PREDICATES is processed by remote ES Cluster
             output.append(prefix).append("REMOTE_PREDICATES: ").append(" ").append("\n");
-            // reserved for later using: translate predicates to ES queryDSL
-            output.append(prefix).append("ES_QUERY_DSL: ").append(" ").append("\n");
+            buildQuery();
+            output.append(prefix).append("ES_QUERY_DSL: ").append(queryBuilder.toJson()).append("\n");
         } else {
             output.append(prefix).append("ES_QUERY_DSL: ").append("{\"match_all\": {}}").append("\n");
         }
         String indexName = table.getIndexName();
         String typeName = table.getMappingType();
-        output.append(prefix)
-                .append(String.format("ES index/type: %s/%s", indexName, typeName))
-                .append("\n");
+        output.append(prefix).append(String.format("ES index/type: %s/%s", indexName, typeName)).append("\n");
         return output.toString();
+    }
+
+    private void buildQuery() {
+        if (conjuncts.isEmpty()) {
+            queryBuilder = QueryBuilders.matchAllQuery();
+        } else {
+            boolean hasFilter = false;
+            BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
+            for (Expr expr : conjuncts) {
+                QueryBuilder queryBuilder = EsUtil.toEsDsl(expr);
+                if (queryBuilder != null) {
+                    hasFilter = true;
+                    boolQueryBuilder.must(queryBuilder);
+                }
+            }
+            if (!hasFilter) {
+                queryBuilder = QueryBuilders.matchAllQuery();
+            } else {
+                queryBuilder = boolQueryBuilder;
+            }
+        }
     }
 }
