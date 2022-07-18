@@ -185,6 +185,19 @@ visible_functions = [
     [['array_distinct'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
     [['array_distinct'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
     [['array_distinct'], 'ARRAY_STRING',    ['ARRAY_STRING'], '', '', '', 'vec', ''],
+    
+    [['array_sort'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
+    [['array_sort'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],
+    [['array_sort'], 'ARRAY_INT',       ['ARRAY_INT'], '', '', '', 'vec', ''],
+    [['array_sort'], 'ARRAY_BIGINT',    ['ARRAY_BIGINT'], '', '', '', 'vec', ''],
+    [['array_sort'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT'], '', '', '', 'vec', ''],
+    [['array_sort'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME'], '', '', '', 'vec', ''],
+    [['array_sort'], 'ARRAY_DATE',      ['ARRAY_DATE'], '', '', '', 'vec', ''],
+    [['array_sort'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
+    [['array_sort'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE'], '', '', '', 'vec', ''],
+    [['array_sort'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
+    [['array_sort'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
+    [['array_sort'], 'ARRAY_STRING',    ['ARRAY_STRING'], '', '', '', 'vec', ''],
 
     [['array_min'],     'TINYINT',  ['ARRAY_TINYINT'],  '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_min'],     'SMALLINT', ['ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -1016,6 +1029,9 @@ visible_functions = [
             '_ZN5doris15StringFunctions7replaceEPN9doris_udf15FunctionContextERKNS1_9StringValES6_S6_',
             '', '', 'vec', ''],
     [['concat_ws'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'],
+            '_ZN5doris15StringFunctions9concat_wsEPN9doris_udf'
+            '15FunctionContextERKNS1_9StringValEiPS5_', '', '', 'vec', 'CUSTOM'],
+    [['concat_ws'], 'VARCHAR', ['VARCHAR', 'ARRAY_VARCHAR'],
             '_ZN5doris15StringFunctions9concat_wsEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValEiPS5_', '', '', 'vec', 'CUSTOM'],
     [['find_in_set'], 'INT', ['VARCHAR', 'VARCHAR'],

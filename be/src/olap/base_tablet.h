@@ -33,8 +33,7 @@ class DataDir;
 // storage engine evolves.
 class BaseTablet : public std::enable_shared_from_this<BaseTablet> {
 public:
-    BaseTablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param,
-               DataDir* data_dir);
+    BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
     virtual ~BaseTablet();
 
     DataDir* data_dir() const;
@@ -76,7 +75,6 @@ protected:
 protected:
     TabletState _state;
     TabletMetaSharedPtr _tablet_meta;
-    StorageParamPB _storage_param;
     const TabletSchema& _schema;
 
     DataDir* _data_dir;

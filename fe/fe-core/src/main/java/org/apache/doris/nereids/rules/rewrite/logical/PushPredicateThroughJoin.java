@@ -21,9 +21,9 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -71,7 +71,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
 
             Expression wherePredicates = filter.getPredicates();
-            Expression onPredicates = Literal.TRUE_LITERAL;
+            Expression onPredicates = BooleanLiteral.TRUE;
 
             List<Expression> otherConditions = Lists.newArrayList();
             List<Expression> eqConditions = Lists.newArrayList();
@@ -126,12 +126,12 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
         ExpressionRuleExecutor exprRewriter = new ExpressionRuleExecutor();
         Plan leftPlan = joinPlan.left();
         Plan rightPlan = joinPlan.right();
-        if (!left.equals(Literal.TRUE_LITERAL)) {
-            leftPlan = new LogicalFilter<>(exprRewriter.rewrite(left), leftPlan);
+        if (!left.equals(BooleanLiteral.TRUE)) {
+            leftPlan = new LogicalFilter(exprRewriter.rewrite(left), leftPlan);
         }
 
-        if (!right.equals(Literal.TRUE_LITERAL)) {
-            rightPlan = new LogicalFilter<>(exprRewriter.rewrite(right), rightPlan);
+        if (!right.equals(BooleanLiteral.TRUE)) {
+            rightPlan = new LogicalFilter(exprRewriter.rewrite(right), rightPlan);
         }
 
         return new LogicalJoin<>(joinPlan.getJoinType(), Optional.of(joinConditions), leftPlan, rightPlan);

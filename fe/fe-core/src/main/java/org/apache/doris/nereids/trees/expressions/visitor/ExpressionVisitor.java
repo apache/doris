@@ -25,13 +25,16 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -40,10 +43,12 @@ import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
@@ -106,6 +111,26 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitLiteral(Literal literal, C context) {
         return visit(literal, context);
+    }
+
+    public R visitBooleanLiteral(BooleanLiteral booleanLiteral, C context) {
+        return visit(booleanLiteral, context);
+    }
+
+    public R visitStringLiteral(StringLiteral stringLiteral, C context) {
+        return visit(stringLiteral, context);
+    }
+
+    public R visitIntegerLiteral(IntegerLiteral integerLiteral, C context) {
+        return visit(integerLiteral, context);
+    }
+
+    public R visitNullLiteral(NullLiteral nullLiteral, C context) {
+        return visit(nullLiteral, context);
+    }
+
+    public R visitDoubleLiteral(DoubleLiteral doubleLiteral, C context) {
+        return visit(doubleLiteral, context);
     }
 
     public R visitBetween(Between between, C context) {

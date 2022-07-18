@@ -284,4 +284,14 @@ bool valid_bool(const std::string& value_str);
         }                                                   \
     } while (0)
 
+struct RowLocation {
+    RowLocation() : segment_id(0), row_id(0) {}
+    RowLocation(uint32_t sid, uint32_t rid) : segment_id(sid), row_id(rid) {}
+    RowLocation(RowsetId rsid, uint32_t sid, uint32_t rid)
+            : rowset_id(rsid), segment_id(sid), row_id(rid) {}
+    RowsetId rowset_id;
+    uint32_t segment_id;
+    uint32_t row_id;
+};
+
 } // namespace doris
