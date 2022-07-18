@@ -523,13 +523,13 @@ void PerfCounters::pretty_print(std::ostream* s) const {
 
 // Refactor below
 
-int PerfCounters::parser_int(const string& state_key) {
+int PerfCounters::parse_int(const string& state_key) {
     auto it = _process_state.find(state_key);
     if (it != _process_state.end()) return atoi(it->second.c_str());
     return -1;
 }
 
-int64_t PerfCounters::parser_int64(const string& state_key) {
+int64_t PerfCounters::parse_int64(const string& state_key) {
     auto it = _process_state.find(state_key);
     if (it != _process_state.end()) {
         StringParser::ParseResult result;
@@ -540,13 +540,13 @@ int64_t PerfCounters::parser_int64(const string& state_key) {
     return -1;
 }
 
-string PerfCounters::parser_string(const string& state_key) {
+string PerfCounters::parse_string(const string& state_key) {
     auto it = _process_state.find(state_key);
     if (it != _process_state.end()) return it->second;
     return string();
 }
 
-int64_t PerfCounters::parser_bytes(const string& state_key) {
+int64_t PerfCounters::parse_bytes(const string& state_key) {
     auto it = _process_state.find(state_key);
     if (it != _process_state.end()) {
         vector<string> fields = split(it->second, " ");
@@ -578,9 +578,9 @@ void PerfCounters::refresh_proc_status() {
 }
 
 void PerfCounters::get_proc_status(ProcStatus* out) {
-    out->vm_size = parser_bytes("status/VmSize");
-    out->vm_peak = parser_bytes("status/VmPeak");
-    out->vm_rss = parser_bytes("status/VmRSS");
+    out->vm_size = parse_bytes("status/VmSize");
+    out->vm_peak = parse_bytes("status/VmPeak");
+    out->vm_rss = parse_bytes("status/VmRSS");
 }
 
 } // namespace doris

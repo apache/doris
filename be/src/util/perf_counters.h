@@ -105,17 +105,17 @@ public:
         int64_t vm_rss = 0;
     };
 
-    static int parser_int(const std::string& state_key);
-    static int64_t parser_int64(const std::string& state_key);
-    static std::string parser_string(const std::string& state_key);
+    static int parse_int(const std::string& state_key);
+    static int64_t parse_int64(const std::string& state_key);
+    static std::string parse_string(const std::string& state_key);
     // Original data's unit is B or KB.
-    static int64_t parser_bytes(const std::string& state_key);
+    static int64_t parse_bytes(const std::string& state_key);
 
     // Flush cached process status info from `/proc/self/status`.
     static void refresh_proc_status();
     static void get_proc_status(ProcStatus* out);
     // Return the process actual physical memory in bytes.
-    static inline int64_t get_vm_rss() { return parser_bytes("status/VmRSS"); }
+    static inline int64_t get_vm_rss() { return parse_bytes("status/VmRSS"); }
 
 private:
     // Copy constructor and assignment not allowed
