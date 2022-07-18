@@ -61,7 +61,6 @@
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
-#include "util/time_lut.h"
 #include "util/uid_util.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
@@ -469,10 +468,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
 #endif
-
-    if (config::enable_time_lut) {
-        init_time_lut();
-    }
 
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)

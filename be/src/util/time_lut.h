@@ -20,47 +20,57 @@
 
 #include <stdint.h>
 
+#include <atomic>
+#include <mutex>
+
 namespace doris {
 
-static constexpr uint32_t LUT_START_YEAR = 1950;
-static constexpr uint32_t LUT_END_YEAR = 2030;
+constexpr uint32_t LUT_START_YEAR = 1950;
+constexpr uint32_t LUT_END_YEAR = 2030;
 
-static constexpr uint32_t NUM_MONTHS = 12;
-static constexpr uint32_t NUM_DAYS = 31;
+constexpr uint32_t NUM_MONTHS = 12;
+constexpr uint32_t NUM_DAYS = 31;
 
-static int8_t week_of_year_table[LUT_END_YEAR - LUT_START_YEAR][NUM_MONTHS][NUM_DAYS];
+uint32_t year_week(uint16_t yy, uint8_t month, uint8_t day);
 
-static int8_t year_week_table[LUT_END_YEAR - LUT_START_YEAR][NUM_MONTHS][NUM_DAYS];
+uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day);
 
-static int8_t week_table[LUT_END_YEAR - LUT_START_YEAR][NUM_MONTHS][NUM_DAYS];
+uint8_t calc_weekday(uint64_t day_nr, bool is_sunday_first_day);
 
-static uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day);
+bool is_leap(uint32_t year);
 
-static uint8_t calc_weekday(uint64_t day_nr, bool is_sunday_first_day) {
-    return (day_nr + 5L + (is_sunday_first_day ? 1L : 0L)) % 7;
-}
+uint32_t calc_days_in_year(uint32_t year);
 
-bool is_leap(uint32_t year) {
-    return ((year % 4) == 0) && ((year % 100 != 0) || ((year % 400) == 0 && year));
-}
+uint8_t calc_week(uint16_t yy, uint8_t month, uint8_t day, bool monday_first, bool week_year,
+                  bool first_weekday, uint16_t* to_year);
 
-uint32_t calc_days_in_year(uint32_t year) {
-    return is_leap(year) ? 366 : 365;
-}
+class TimeLUTImpl {
+public:
+    int8_t week_of_year_table[LUT_END_YEAR - LUT_START_YEAR][NUM_MONTHS][NUM_DAYS];
 
-uint8_t calc_week(uint16_t yy, uint8_t mm, uint8_t dd, bool monday_first, bool week_year);
+    uint32_t year_week_table[LUT_END_YEAR - LUT_START_YEAR][NUM_MONTHS][NUM_DAYS];
 
-void init_time_lut() {
-    for (uint32_t y = LUT_START_YEAR; y < LUT_END_YEAR; y++) {
-        for (uint8_t m = 0; m < NUM_MONTHS; m++) {
-            for (uint8_t i = 0; i < NUM_DAYS; i++) {
-                week_table[y - LUT_START_YEAR][m][i] = calc_week(y, m + 1, i + 1, false, false);
-                week_of_year_table[y - LUT_START_YEAR][m][i] =
-                        calc_week(y, m + 1, i + 1, true, true);
-                year_week_table[y - LUT_START_YEAR][m][i] = calc_week(y, m + 1, i + 1, false, true);
-            }
-        }
+    int8_t week_table[LUT_END_YEAR - LUT_START_YEAR][NUM_MONTHS][NUM_DAYS];
+
+private:
+    friend class TimeLUT;
+
+    TimeLUTImpl();
+    void init_time_lut();
+};
+
+class TimeLUT {
+public:
+    static const TimeLUTImpl* GetImplement() {
+        static TimeLUT time_lut;
+        return time_lut._impl.load();
     }
-}
+
+protected:
+    TimeLUT() { _impl.store(new TimeLUTImpl()); }
+
+private:
+    std::atomic<const TimeLUTImpl*> _impl;
+};
 
 } // namespace doris
