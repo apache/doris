@@ -25,9 +25,9 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -107,16 +107,16 @@ public abstract class LogicalRelation extends LogicalLeaf {
     }
 
     /**
-     * Full qualified name parts, i.e., concat qualifier and name in a list.
+     * Full qualified name parts, i.e., concat qualifier and name into a list.
      */
     public List<String> qualified() {
-        return new ImmutableList.Builder<String>().addAll(qualifier).add(table.getName()).build();
+        return Utils.qualifiedNameParts(qualifier, table.getName());
     }
 
     /**
      * Full qualified table name, concat qualifier and name with `.` as separator.
      */
     public String qualifiedName() {
-        return StringUtils.join(qualified());
+        return Utils.qualifiedName(qualifier, table.getName());
     }
 }

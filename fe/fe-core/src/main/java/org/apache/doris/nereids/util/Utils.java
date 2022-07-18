@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.util;
 
+import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.List;
+
 /**
  * Utils for Nereids.
  */
@@ -31,5 +36,19 @@ public class Utils {
         // We quote strings except the ones which consist of digits only.
         return part.matches("\\w*[\\w&&[^\\d]]+\\w*")
                 ? part : part.replace("`", "``");
+    }
+
+    /**
+     * Fully qualified identifier name parts, i.e., concat qualifier and name into a list.
+     */
+    public static List<String> qualifiedNameParts(List<String> qualifier, String name) {
+        return new ImmutableList.Builder<String>().addAll(qualifier).add(name).build();
+    }
+
+    /**
+     * Fully qualified identifier name, concat qualifier and name with `.` as separator.
+     */
+    public static String qualifiedName(List<String> qualifier, String name) {
+        return StringUtils.join(qualifiedNameParts(qualifier, name), ".");
     }
 }

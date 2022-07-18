@@ -24,9 +24,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
-import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
-
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -53,13 +50,7 @@ public class LogicalOlapScan extends LogicalRelation  {
 
     @Override
     public String toString() {
-        // TODO: move this building full qualified table name to common logic, thus
-        // could be used in both logical and physical table scans.
-        return "ScanOlapTable ("
-                + StringUtils.join(
-                ImmutableList.builder().addAll(qualifier).add(table.getName()).build(),
-                ".")
-                + ")";
+        return "ScanOlapTable (" + qualifiedName() + ")";
     }
 
     @Override
