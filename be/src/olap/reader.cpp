@@ -226,6 +226,7 @@ OLAPStatus TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
 
     *valid_rs_readers = *rs_readers;
+    _reader_context.merged_rows = &_merged_rows;
 
     return OLAP_SUCCESS;
 }

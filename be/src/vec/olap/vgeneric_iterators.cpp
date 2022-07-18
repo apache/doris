@@ -294,10 +294,12 @@ public:
     // VMergeIterator takes the ownership of input iterators
     VMergeIterator(std::vector<RowwiseIterator*>& iters, std::shared_ptr<MemTracker> parent,
                    int sequence_id_idx, bool is_unique,
+                   uint64_t* merged_rows,
                    const std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set)
             : _origin_iters(iters),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
+              _merged_rows(merged_rows),
               _tablet_columns_convert_to_null_set(tablet_columns_convert_to_null_set) {
         // use for count the mem use of Block use in Merge
         _mem_tracker = MemTracker::CreateTracker(-1, "VMergeIterator", parent, false);
@@ -338,6 +340,7 @@ private:
     int block_row_max = 0;
     int _sequence_id_idx = -1;
     bool _is_unique = false;
+    uint64_t* _merged_rows;
     const std::unordered_set<uint32_t>* _tablet_columns_convert_to_null_set = nullptr;
 };
 
@@ -374,6 +377,8 @@ Status VMergeIterator::next_batch(vectorized::Block* block) {
         if (!ctx->need_skip()) {
             // copy current row to block
             ctx->copy_row(block);
+        } else if(_merged_rows != nullptr){
+            (*_merged_rows)++;
         }
 
         RETURN_IF_ERROR(ctx->advance());
@@ -453,11 +458,12 @@ Status VUnionIterator::next_batch(vectorized::Block* block) {
 RowwiseIterator* new_merge_iterator(
         std::vector<RowwiseIterator*>& inputs, std::shared_ptr<MemTracker> parent,
         int sequence_id_idx, bool is_unique,
+        uint64_t* merged_rows,
         const std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set) {
     if (inputs.size() == 1) {
         return *(inputs.begin());
     }
-    return new VMergeIterator(inputs, parent, sequence_id_idx, is_unique,
+    return new VMergeIterator(inputs, parent, sequence_id_idx, is_unique, merged_rows,
                               tablet_columns_convert_to_null_set);
 }
 
