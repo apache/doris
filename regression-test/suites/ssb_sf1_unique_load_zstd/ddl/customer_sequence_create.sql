@@ -13,5 +13,5 @@ DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 10
 PROPERTIES (
 "function_column.sequence_type" = 'int',
 "compression"="zstd",
-"replication_num" = ""
+"replication_num" = "1"
 );
