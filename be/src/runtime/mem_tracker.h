@@ -32,6 +32,7 @@
 #include "gen_cpp/Types_types.h" // for TUniqueId
 #include "util/mem_info.h"
 #include "util/metrics.h"
+#include "util/perf_counters.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 
@@ -173,7 +174,11 @@ public:
             Release(-bytes);
             return Status::OK();
         }
-        if (MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
+        // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
+        // This is independent of the consumption value of the mem tracker, which counts the virtual memory
+        // of the process malloc.
+        // for fast, expect MemInfo::initialized() to be true.
+        if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit()) {
             return Status::MemoryLimitExceeded(fmt::format(
                     "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
                     label_, bytes, MemInfo::current_mem(), MemInfo::mem_limit()));
