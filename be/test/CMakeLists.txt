@@ -175,14 +175,12 @@ set(OLAP_TEST_FILES
     olap/tablet_meta_manager_test.cpp
     olap/tablet_mgr_test.cpp
     olap/tablet_test.cpp
-    # TODO yiguolei: it is using alpha rowset to test, should use beta rowset
-    #olap/rowset/rowset_meta_manager_test.cpp
+    olap/rowset/rowset_meta_manager_test.cpp
     olap/rowset/rowset_meta_test.cpp
     olap/rowset/beta_rowset_test.cpp
     olap/rowset/unique_rowset_id_generator_test.cpp
     olap/rowset/rowset_tree_test.cpp
-    # TODO yiguolei: it is using alpha rowset to test, should use beta rowset
-    #olap/txn_manager_test.cpp
+    olap/txn_manager_test.cpp
     olap/generic_iterators_test.cpp
     olap/key_coder_test.cpp
     olap/short_key_index_test.cpp
