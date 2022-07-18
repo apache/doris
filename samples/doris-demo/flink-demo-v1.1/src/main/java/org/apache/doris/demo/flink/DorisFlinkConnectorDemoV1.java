@@ -49,15 +49,6 @@ public class DorisFlinkConnectorDemoV1 {
 
         DorisSink.Builder<String> builder = DorisSink.builder();
         final DorisReadOptions.Builder readOptionBuilder = DorisReadOptions.builder();
-        readOptionBuilder.setDeserializeArrowAsync(false)
-            .setDeserializeQueueSize(64)
-            .setExecMemLimit(2147483648L)
-            .setRequestQueryTimeoutS(3600)
-            .setRequestBatchSize(1000)
-            .setRequestConnectTimeoutMs(10000)
-            .setRequestReadTimeoutMs(10000)
-            .setRequestRetries(3)
-            .setRequestTabletSize(1024 * 1024);
         Properties pro = new Properties();
         pro.setProperty("format", "json");
         pro.setProperty("read_json_by_line", "true");
@@ -71,8 +62,6 @@ public class DorisFlinkConnectorDemoV1 {
         executionBuilder
             .setStreamLoadProp(pro)
             .setLabelPrefix("doris_test")
-            .setBufferSize(8*1024)
-            .setBufferCount(3);
 
 
         builder.setDorisReadOptions(readOptionBuilder.build())
