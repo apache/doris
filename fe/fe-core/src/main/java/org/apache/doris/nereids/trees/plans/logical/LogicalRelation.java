@@ -52,7 +52,7 @@ public abstract class LogicalRelation extends LogicalLeaf {
      * @param qualifier qualified relation name
      */
     public LogicalRelation(PlanType type, Table table, List<String> qualifier,
-                           Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
@@ -69,6 +69,23 @@ public abstract class LogicalRelation extends LogicalLeaf {
     @Override
     public String toString() {
         return "LogicalRelation (" + StringUtils.join(qualifier, ".") + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        LogicalRelation that = (LogicalRelation) o;
+        return Objects.equals(table.getId(), that.table.getId()) && Objects.equals(qualifier, that.qualifier);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(table.getId(), qualifier);
     }
 
     @Override

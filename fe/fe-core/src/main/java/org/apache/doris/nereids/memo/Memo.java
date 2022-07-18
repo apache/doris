@@ -123,7 +123,8 @@ public class Memo {
     private GroupExpression insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
             boolean rewrite, LogicalProperties logicalProperties) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
-        if (existedGroupExpression != null) {
+        if (existedGroupExpression != null
+                && existedGroupExpression.getParent().getLogicalProperties().equals(logicalProperties)) {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getParent().getGroupId())) {
                 mergeGroup(target, existedGroupExpression.getParent());
             }

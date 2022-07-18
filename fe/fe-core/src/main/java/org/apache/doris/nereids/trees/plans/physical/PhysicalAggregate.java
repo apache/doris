@@ -30,6 +30,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -111,6 +112,29 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
     public String toString() {
         return "PhysicalAggregate([key=" + groupByExprList
                 + "], [output=" + outputExpressionList + "])";
+    }
+
+    /**
+     * Determine the equality with another operator
+     */
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalAggregate that = (PhysicalAggregate) o;
+        return Objects.equals(groupByExprList, that.groupByExprList)
+                && Objects.equals(outputExpressionList, that.outputExpressionList)
+                && Objects.equals(partitionExprList, that.partitionExprList)
+                && usingStream == that.usingStream
+                && aggPhase == that.aggPhase;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(groupByExprList, outputExpressionList, partitionExprList, aggPhase, usingStream);
     }
 
     @Override

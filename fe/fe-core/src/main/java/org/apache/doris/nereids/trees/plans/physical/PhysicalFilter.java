@@ -58,6 +58,23 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalFilter that = (PhysicalFilter) o;
+        return predicates.equals(that.predicates);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(predicates);
+    }
+
+    @Override
     public List<Expression> getExpressions() {
         return ImmutableList.of(predicates);
     }

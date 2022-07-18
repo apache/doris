@@ -57,7 +57,7 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
      * Constructor for LogicalSort.
      */
     public LogicalSort(List<OrderKey> orderKeys, Optional<GroupExpression> groupExpression,
-                       Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SORT, groupExpression, logicalProperties, child);
         this.orderKeys = Objects.requireNonNull(orderKeys, "orderKeys can not be null");
     }
@@ -83,6 +83,24 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     public String toString() {
         return "Sort (" + StringUtils.join(orderKeys, ", ") + ")";
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        LogicalSort that = (LogicalSort) o;
+        return offset == that.offset && Objects.equals(orderKeys, that.orderKeys);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(orderKeys, offset);
+    }
+
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
