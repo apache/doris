@@ -400,7 +400,7 @@ TEST_F(TestTablet, rowset_tree_update) {
     ASSERT_TRUE(tablet->lookup_row_key("500", &loc, 7).is_not_found());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
-    ASSERT_TRUE(tablet->lookup_row_key("600", &loc, 8).precise_code() ==
+    ASSERT_TRUE(tablet->lookup_row_key("500", &loc, 8).precise_code() ==
                 OLAP_ERR_ROWSET_LOAD_FAILED);
 }
 
