@@ -156,7 +156,7 @@ Status FileTextScanner::_open_file_reader() {
     const TFileRangeDesc& range = _ranges[_next_range];
 
     FileReader* hdfs_reader = nullptr;
-    RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path,
+    RETURN_IF_ERROR(HdfsReaderWriter::create_reader(_params.hdfs_params, range.path,
                                                     range.start_offset, &hdfs_reader));
     _cur_file_reader.reset(new BufferedReader(_profile, hdfs_reader));
     return _cur_file_reader->open();
@@ -171,7 +171,7 @@ Status FileTextScanner::_open_line_reader() {
     const TFileRangeDesc& range = _ranges[_next_range];
     int64_t size = range.size;
     if (range.start_offset != 0) {
-        if (range.format_type != TFileFormatType::FORMAT_CSV_PLAIN) {
+        if (_params.format_type != TFileFormatType::FORMAT_CSV_PLAIN) {
             std::stringstream ss;
             ss << "For now we do not support split compressed file";
             return Status::InternalError(ss.str());
@@ -182,14 +182,14 @@ Status FileTextScanner::_open_line_reader() {
     }
 
     // open line reader
-    switch (range.format_type) {
+    switch (_params.format_type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _cur_line_reader = new PlainTextLineReader(_profile, _cur_file_reader.get(), nullptr, size,
                                                    _line_delimiter, _line_delimiter_length);
         break;
     default: {
         std::stringstream ss;
-        ss << "Unknown format type, cannot init line reader, type=" << range.format_type;
+        ss << "Unknown format type, cannot init line reader, type=" << _params.format_type;
         return Status::InternalError(ss.str());
     }
     }
