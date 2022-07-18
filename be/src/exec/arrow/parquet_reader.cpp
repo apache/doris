@@ -37,11 +37,14 @@ namespace doris {
 
 // Broker
 ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
-                                     int32_t num_of_columns_from_file)
+                                     int32_t num_of_columns_from_file, int64_t range_start_offset,
+                                     int64_t range_size)
         : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file),
           _rows_of_group(0),
           _current_line_of_group(0),
-          _current_line_of_batch(0) {}
+          _current_line_of_batch(0),
+          _range_start_offset(range_start_offset),
+          _range_size(range_size) {}
 
 ParquetReaderWrap::~ParquetReaderWrap() {
     _closed = true;
@@ -101,8 +104,12 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
 
         RETURN_IF_ERROR(column_indices(tuple_slot_descs));
         if (config::parquet_predicate_push_down) {
-            _row_group_reader.reset(new RowGroupReader(conjunct_ctxs, _file_metadata, this));
-            _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids);
+            int64_t file_size = 0;
+            size(&file_size);
+            _row_group_reader.reset(new RowGroupReader(_range_start_offset, _range_size,
+                                                       conjunct_ctxs, _file_metadata, this));
+            _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids,
+                                                  file_size);
         }
         _thread = std::thread(&ParquetReaderWrap::prefetch_batch, this);
         return Status::OK();
