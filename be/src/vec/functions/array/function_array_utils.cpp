@@ -65,8 +65,7 @@ ColumnArrayMutableData create_mutable_data(const IColumn* nested_col, bool is_nu
 }
 
 MutableColumnPtr assemble_column_array(ColumnArrayMutableData& data) {
-    return ColumnArray::create(std::move(data.array_nested_col),
-                               std::move(data.offsets_col));
+    return ColumnArray::create(std::move(data.array_nested_col), std::move(data.offsets_col));
 }
 
 } // namespace doris::vectorized

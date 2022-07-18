@@ -17,7 +17,6 @@
 
 #include "vec/functions/array/function_array_binary.h"
 #include "vec/functions/array/function_array_set.h"
-
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -37,32 +36,38 @@ struct IntersectAction {
 
     // Handle Null element.
     // Return true means this null element should put into result column.
-    bool apply_null(bool is_left) {
-        if (is_left) {
-            if (!result_null_flag) {
-                result_null_flag = true;
-                return null_flag;
-            }
-        } else {
-            if (!null_flag) {
-                null_flag = true;
-            }
+    template<bool is_left>
+    bool apply_null() {
+        if (!result_null_flag) {
+            result_null_flag = true;
+            return null_flag;
+        }
+        return false;
+    }
+
+    template<>
+    bool apply_null<false>() {
+        if (!null_flag) {
+            null_flag = true;
         }
         return false;
     }
 
     // Handle Non-Null element.
     // Return ture means this Non-Null element should put into result column.
-    bool apply(Set& set, Set& result_set, const Element& elem, bool is_left) {
-        if (is_left) {
-            if (set.find(elem) && !result_set.find(elem)) {
-                result_set.insert(elem);
-                return true;
-            }
-        } else {
-            if (!set.find(elem)) {
-                set.insert(elem);
-            }
+    template<bool is_left>
+    bool apply(Set& set, Set& result_set, const Element& elem) {
+        if (set.find(elem) && !result_set.find(elem)) {
+            result_set.insert(elem);
+            return true;
+        }
+        return false;
+    }
+
+    template<>
+    bool apply<false>(Set& set, Set& result_set, const Element& elem) {
+        if (!set.find(elem)) {
+            set.insert(elem);
         }
         return false;
     }
@@ -76,4 +81,3 @@ void register_function_array_intersect(SimpleFunctionFactory& factory) {
 }
 
 } // namespace doris::vectorized
-

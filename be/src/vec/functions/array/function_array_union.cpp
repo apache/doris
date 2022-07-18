@@ -17,7 +17,6 @@
 
 #include "vec/functions/array/function_array_binary.h"
 #include "vec/functions/array/function_array_set.h"
-
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -37,7 +36,8 @@ struct UnionAction {
 
     // Handle Null element.
     // Return true means this null element should put into result column.
-    bool apply_null(bool is_left) {
+    template<bool is_left>
+    bool apply_null() {
         if (!null_flag) {
             null_flag = true;
             return true;
@@ -47,7 +47,8 @@ struct UnionAction {
 
     // Handle Non-Null element.
     // Return ture means this Non-Null element should put into result column.
-    bool apply(Set& set, Set& result_set, const Element& elem, bool is_left) {
+    template<bool is_left>
+    bool apply(Set& set, Set& result_set, const Element& elem) {
         if (!set.find(elem)) {
             set.insert(elem);
             return true;
@@ -56,12 +57,10 @@ struct UnionAction {
     }
 };
 
-using FunctionArrayUnion =
-        FunctionArrayBinary<ArraySetImpl<SetOperation::UNION>, NameArrayUnion>;
+using FunctionArrayUnion = FunctionArrayBinary<ArraySetImpl<SetOperation::UNION>, NameArrayUnion>;
 
 void register_function_array_union(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayUnion>();
 }
 
 } // namespace doris::vectorized
-
