@@ -684,6 +684,12 @@ under the License.
                     <exclude>cup</exclude>
                 </excludes>
             </resource>
+            <resource>
+               <directory>src/main/resources</directory>
+               <includes>
+                  <include>**/*.*</include>
+               </includes>
+            </resource>
         </resources>
         <plugins>
             <!--jcup-->
