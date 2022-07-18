@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 
 /**
@@ -27,8 +26,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
  */
 public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
     @Override
-    public Rule<Plan> build() {
-        return logicalJoin().then(join -> new PhysicalHashJoin(
+    public Rule build() {
+        return logicalJoin().then(join -> new PhysicalHashJoin<>(
             join.getJoinType(),
             join.getCondition(),
             join.getLogicalProperties(),
