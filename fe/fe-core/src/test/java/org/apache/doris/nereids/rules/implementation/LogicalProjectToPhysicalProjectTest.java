@@ -41,7 +41,7 @@ public class LogicalProjectToPhysicalProjectTest {
     public void projectionImplTest(@Mocked Group group) {
         Plan plan = new LogicalProject(Lists.newArrayList(), new GroupPlan(group));
 
-        Rule<Plan> rule = new LogicalProjectToPhysicalProject().build();
+        Rule rule = new LogicalProjectToPhysicalProject().build();
 
         PlannerContext plannerContext = new PlannerContext(new Memo(), new ConnectContext());
         JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);

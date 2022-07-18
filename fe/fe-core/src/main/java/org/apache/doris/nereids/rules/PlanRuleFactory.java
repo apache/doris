@@ -17,10 +17,8 @@
 
 package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.trees.plans.Plan;
-
 /**
  * interface for all plan rule factories.
  */
-public interface PlanRuleFactory extends RuleFactory<Plan> {
+public interface PlanRuleFactory extends RuleFactory {
 }
