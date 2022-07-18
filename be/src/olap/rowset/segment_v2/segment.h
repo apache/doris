@@ -72,9 +72,9 @@ public:
 
     uint32_t num_rows() const { return _footer.num_rows(); }
 
-    Status new_column_iterator(uint32_t cid, ColumnIterator** iter);
+    Status new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter);
 
-    Status new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter);
+    Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
 
     size_t num_short_keys() const { return _tablet_schema.num_short_key_columns(); }
 
@@ -133,10 +133,11 @@ private:
     // with an old schema.
     std::unordered_map<uint32_t, uint32_t> _column_id_to_footer_ordinal;
 
+    // map column unique id ---> column reader
     // ColumnReader for each column in TabletSchema. If ColumnReader is nullptr,
     // This means that this segment has no data for that column, which may be added
     // after this segment is generated.
-    std::vector<std::unique_ptr<ColumnReader>> _column_readers;
+    std::map<int32_t, std::unique_ptr<ColumnReader>> _column_readers;
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;

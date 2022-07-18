@@ -216,7 +216,8 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
+            RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
+                                                          &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.file_reader = _file_reader.get();
@@ -344,7 +345,8 @@ Status SegmentIterator::_init_return_column_iterators() {
     }
     for (auto cid : _schema.column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
+            RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
+                                                          &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
@@ -361,8 +363,8 @@ Status SegmentIterator::_init_bitmap_index_iterators() {
     }
     for (auto cid : _schema.column_ids()) {
         if (_bitmap_index_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(
-                    _segment->new_bitmap_index_iterator(cid, &_bitmap_index_iterators[cid]));
+            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(_opts.tablet_schema->column(cid),
+                                                                &_bitmap_index_iterators[cid]));
         }
     }
     return Status::OK();

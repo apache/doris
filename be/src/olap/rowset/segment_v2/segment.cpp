@@ -70,12 +70,12 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     // trying to prune the current segment by segment-level zone map
     if (read_options.conditions != nullptr) {
         for (auto& column_condition : read_options.conditions->columns()) {
-            int32_t column_id = column_condition.first;
-            if (_column_readers[column_id] == nullptr ||
-                !_column_readers[column_id]->has_zone_map()) {
+            int32_t column_unique_id = _tablet_schema.column(column_condition.first).unique_id();
+            if (_column_readers.count(column_unique_id) < 1 ||
+                !_column_readers.at(column_unique_id)->has_zone_map()) {
                 continue;
             }
-            if (!_column_readers[column_id]->match_condition(column_condition.second)) {
+            if (!_column_readers.at(column_unique_id)->match_condition(column_condition.second)) {
                 // any condition not satisfied, return.
                 iter->reset(new EmptySegmentIterator(schema));
                 read_options.stats->filtered_segment_number++;
@@ -168,9 +168,8 @@ Status Segment::_create_column_readers() {
         _column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
     }
 
-    _column_readers.resize(_tablet_schema.columns().size());
     for (uint32_t ordinal = 0; ordinal < _tablet_schema.num_columns(); ++ordinal) {
-        auto& column = _tablet_schema.columns()[ordinal];
+        auto& column = _tablet_schema.column(ordinal);
         auto iter = _column_id_to_footer_ordinal.find(column.unique_id());
         if (iter == _column_id_to_footer_ordinal.end()) {
             continue;
@@ -181,14 +180,20 @@ Status Segment::_create_column_readers() {
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, _footer.columns(iter->second),
                                              _footer.num_rows(), _file_reader, &reader));
-        _column_readers[ordinal] = std::move(reader);
+        _column_readers.emplace(column.unique_id(), std::move(reader));
     }
     return Status::OK();
 }
 
-Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
-    if (_column_readers[cid] == nullptr) {
-        const TabletColumn& tablet_column = _tablet_schema.column(cid);
+// Not use cid anymore, for example original table schema is colA int, then user do following actions
+// 1.add column b
+// 2. drop column b
+// 3. add column c
+// in the new schema column c's cid == 2
+// but in the old schema column b's cid == 2
+// but they are not the same column
+Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter) {
+    if (_column_readers.count(tablet_column.unique_id()) < 1) {
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
         }
@@ -204,12 +209,15 @@ Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
         *iter = default_value_iter.release();
         return Status::OK();
     }
-    return _column_readers[cid]->new_iterator(iter);
+    return _column_readers.at(tablet_column.unique_id())->new_iterator(iter);
 }
 
-Status Segment::new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter) {
-    if (_column_readers[cid] != nullptr && _column_readers[cid]->has_bitmap_index()) {
-        return _column_readers[cid]->new_bitmap_index_iterator(iter);
+Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
+                                          BitmapIndexIterator** iter) {
+    auto col_unique_id = tablet_column.unique_id();
+    if (_column_readers.count(col_unique_id) > 0 &&
+        _column_readers.at(col_unique_id)->has_bitmap_index()) {
+        return _column_readers.at(col_unique_id)->new_bitmap_index_iterator(iter);
     }
     return Status::OK();
 }
