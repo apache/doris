@@ -45,6 +45,8 @@ import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
 import org.apache.doris.thrift.TExprOpcode;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
@@ -59,6 +61,8 @@ import java.util.stream.Collectors;
  * Util for ES, some static method.
  **/
 public class EsUtil {
+
+    private static final Logger LOG = LogManager.getLogger(EsUtil.class);
 
     /**
      * Analyze partition and distributionDesc.
@@ -145,6 +149,18 @@ public class EsUtil {
         // Elasticsearch 8.x, include_type_name parameter is removed
         if (rootSchema == null) {
             properties = (JSONObject) mappings.get("properties");
+            // Compatible es6 with no type passed in.
+            if (mappingType == null) {
+                String typeKey = (String) mappings.keySet().iterator().next();
+                JSONObject typeProps = (JSONObject) ((JSONObject) mappings.get(typeKey)).get("properties");
+                if (typeProps != null) {
+                    properties = typeProps;
+                    if (properties.containsKey("mappings")) {
+                        properties.remove("mappings");
+                        properties.remove("settings");
+                    }
+                }
+            }
         } else {
             properties = (JSONObject) rootSchema.get("properties");
         }

@@ -19,6 +19,7 @@ package org.apache.doris.catalog.external;
 
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -47,6 +48,7 @@ public class ExternalTable implements TableIf {
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
     protected TableType type = null;
     protected volatile List<Column> fullSchema = null;
+    protected EsTable esTable;
 
     /**
      * Create external table.

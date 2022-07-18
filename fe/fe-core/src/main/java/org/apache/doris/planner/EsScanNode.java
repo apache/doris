@@ -94,7 +94,7 @@ public class EsScanNode extends ScanNode {
         super(id, desc, planNodeName, StatisticalType.ES_SCAN_NODE);
         if (esExternalTable) {
             EsExternalTable externalTable = (EsExternalTable) (desc.getTable());
-            table = externalTable.toEsTable();
+            table = externalTable.getEsTable();
         } else {
             table = (EsTable) (desc.getTable());
         }

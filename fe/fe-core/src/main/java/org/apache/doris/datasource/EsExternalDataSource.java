@@ -44,8 +44,8 @@ import java.util.Map;
 @Getter
 public class EsExternalDataSource extends ExternalDataSource {
 
+    public static final String DEFAULT_DB = "default";
     private static final Logger LOG = LogManager.getLogger(EsExternalDataSource.class);
-
     private static final String PROP_HOSTS = "elasticsearch.hosts";
     private static final String PROP_USERNAME = "elasticsearch.username";
     private static final String PROP_PASSWORD = "elasticsearch.password";
@@ -154,7 +154,7 @@ public class EsExternalDataSource extends ExternalDataSource {
         idToDb = Maps.newConcurrentMap();
         this.esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
         long defaultDbId = Catalog.getCurrentCatalog().getNextId();
-        dbNameToId.put("default", defaultDbId);
+        dbNameToId.put(DEFAULT_DB, defaultDbId);
         idToDb.put(defaultDbId, new EsExternalDatabase(this, defaultDbId, "default"));
     }
 
@@ -182,7 +182,7 @@ public class EsExternalDataSource extends ExternalDataSource {
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-        return esRestClient.existIndex(tblName);
+        return esRestClient.existIndex(this.esRestClient.getClient(), tblName);
     }
 
     @Override

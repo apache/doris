@@ -64,6 +64,7 @@ public class EsExternalTable extends ExternalTable {
 
     private void init() {
         fullSchema = EsUtil.genColumnsFromEs(ds.getEsRestClient(), name, null);
+        esTable = toEsTable();
     }
 
     @Override
@@ -93,6 +94,11 @@ public class EsExternalTable extends ExternalTable {
         return null;
     }
 
+    public EsTable getEsTable() {
+        makeSureInitialized();
+        return esTable;
+    }
+
     @Override
     public String getMysqlType() {
         return type.name();
@@ -110,8 +116,8 @@ public class EsExternalTable extends ExternalTable {
         return super.toThrift();
     }
 
-    public EsTable toEsTable() {
-        EsTable esTable = new EsTable(this.id, this.name, this.getFullSchema(), TableType.ES_EXTERNAL_TABLE, name, null,
+    private EsTable toEsTable() {
+        EsTable esTable = new EsTable(this.id, this.name, this.fullSchema, TableType.ES_EXTERNAL_TABLE, name, null,
                 this.ds.getEsRestClient());
         esTable.syncTableMetaData();
         return esTable;

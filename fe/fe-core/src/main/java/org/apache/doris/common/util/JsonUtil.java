@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.MapperFeature;
@@ -54,4 +55,7 @@ public class JsonUtil {
         }
     }
 
+    public static <T> T readValue(String text, Class<T> clazz) throws JsonProcessingException {
+        return objectMapper.readValue(text, clazz);
+    }
 }
