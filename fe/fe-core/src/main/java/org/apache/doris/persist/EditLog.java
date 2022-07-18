@@ -66,6 +66,7 @@ import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -466,7 +467,7 @@ public class EditLog {
                     if (version > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
                                 + "please update FeConstants.meta_version and restart.",
-                                MetaContext.get().getMetaVersion(), FeConstants.meta_version);
+                                version, FeConstants.meta_version);
                         System.exit(-1);
                     }
                     MetaContext.get().setMetaVersion(version);
@@ -823,6 +824,11 @@ public class EditLog {
                 case OperationType.OP_DROP_POLICY: {
                     DropPolicyLog log = (DropPolicyLog) journal.getData();
                     catalog.getPolicyMgr().replayDrop(log);
+                    break;
+                }
+                case OperationType.OP_ALTER_STORAGE_POLICY: {
+                    StoragePolicy log = (StoragePolicy) journal.getData();
+                    catalog.getPolicyMgr().replayStoragePolicyAlter(log);
                     break;
                 }
                 case OperationType.OP_CREATE_DS: {
@@ -1367,6 +1373,10 @@ public class EditLog {
 
     public void logAlterResource(Resource resource) {
         logEdit(OperationType.OP_ALTER_RESOURCE, resource);
+    }
+
+    public void logAlterStoragePolicy(StoragePolicy storagePolicy) {
+        logEdit(OperationType.OP_ALTER_STORAGE_POLICY, storagePolicy);
     }
 
     public void logCreateSmallFile(SmallFile info) {

@@ -99,6 +99,15 @@ public class ResourceMgr implements Writable {
         if (!nameToResource.containsKey(resourceName)) {
             throw new DdlException("Resource(" + resourceName + ") does not exist");
         }
+
+        Resource resource = nameToResource.get(resourceName);
+        if (resource.getType().equals(ResourceType.S3)
+                && !((S3Resource) resource).getCopiedUsedByPolicySet().isEmpty()) {
+            LOG.warn("S3 resource used by policy {}, can't drop it",
+                    ((S3Resource) resource).getCopiedUsedByPolicySet());
+            throw new DdlException("S3 resource used by policy, can't drop it.");
+        }
+
         // Check whether the resource is in use before deleting it, except spark resource
         StoragePolicy checkedStoragePolicy = new StoragePolicy(PolicyTypeEnum.STORAGE, null);
         checkedStoragePolicy.setStorageResource(resourceName);

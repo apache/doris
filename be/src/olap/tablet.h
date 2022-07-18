@@ -55,10 +55,9 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-                                                   const StorageParamPB& storage_param,
                                                    DataDir* data_dir = nullptr);
 
-    Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param, DataDir* data_dir,
+    Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
            const std::string& cumulative_compaction_type = "");
 
     Status init();
@@ -150,7 +149,9 @@ public:
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowsetReaderSharedPtr>* rs_readers) const;
 
-    DelPredicateArray delete_predicates() { return _tablet_meta->delete_predicates(); }
+    const std::vector<DeletePredicatePB>& delete_predicates() {
+        return _tablet_meta->delete_predicates();
+    }
     void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     bool version_for_delete_predicate(const Version& version);
     bool version_for_load_deletion(const Version& version);
@@ -302,6 +303,11 @@ public:
 
     // Physically remove remote rowsets.
     void remove_all_remote_rowsets();
+
+    // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
+    // NOTE: the method only works in unique key model with primary key index, you will got a
+    //       not supported error in other data model.
+    Status lookup_row_key(const Slice& encoded_key, RowLocation* row_location);
 
 private:
     Status _init_once_action();

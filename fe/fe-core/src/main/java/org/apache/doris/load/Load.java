@@ -2177,7 +2177,8 @@ public class Load {
                         LOG.warn("the replica[{}] is missing", info.getReplicaId());
                         continue;
                     }
-                    replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRowCount());
+                    replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRemoteDataSize(),
+                            info.getRowCount());
                 }
             }
 
@@ -2289,7 +2290,8 @@ public class Load {
                         LOG.warn("the replica[{}] is missing", info.getReplicaId());
                         continue;
                     }
-                    replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRowCount());
+                    replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRemoteDataSize(),
+                            info.getRowCount());
                 }
             }
         } else {

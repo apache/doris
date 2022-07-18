@@ -30,7 +30,7 @@ import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Literal;
+import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
@@ -144,9 +144,9 @@ public class AggregateDisassembleTest {
     @Test
     public void aliasGroupBy() {
         List<Expression> groupExpressionList = Lists.newArrayList(
-                new Add(rStudent.getOutput().get(2).toSlot(), new Literal(1)));
+                new Add(rStudent.getOutput().get(2).toSlot(), new IntegerLiteral(1)));
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
-                new Alias(new Add(rStudent.getOutput().get(2).toSlot(), new Literal(1)), "key"),
+                new Alias(new Add(rStudent.getOutput().get(2).toSlot(), new IntegerLiteral(1)), "key"),
                 new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
 
@@ -170,9 +170,9 @@ public class AggregateDisassembleTest {
         Assertions.assertEquals(AggPhase.GLOBAL, global.getAggPhase());
         Assertions.assertEquals(AggPhase.LOCAL, local.getAggPhase());
 
-        Expression localOutput0 = new Add(rStudent.getOutput().get(2).toSlot(), new Literal(1));
+        Expression localOutput0 = new Add(rStudent.getOutput().get(2).toSlot(), new IntegerLiteral(1));
         Expression localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
-        Expression localGroupBy = new Add(rStudent.getOutput().get(2).toSlot(), new Literal(1));
+        Expression localGroupBy = new Add(rStudent.getOutput().get(2).toSlot(), new IntegerLiteral(1));
 
         Assertions.assertEquals(2, local.getOutputExpressionList().size());
         Assertions.assertTrue(local.getOutputExpressionList().get(0) instanceof Alias);

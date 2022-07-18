@@ -67,7 +67,7 @@ static int64_t calc_channel_timeout_s(int64_t timeout_in_req_s) {
 
 LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
     REGISTER_HOOK_METRIC(load_channel_count, [this]() {
-        std::lock_guard<std::mutex> l(_lock);
+        // std::lock_guard<std::mutex> l(_lock);
         return _load_channels.size();
     });
 }

@@ -52,6 +52,8 @@ ADD ROLLUP rollup_name (column_name1, column_name2, ...)
 [PROPERTIES ("key"="value", ...)]
 ```
 
+properties: Support setting timeout time, the default timeout time is 1 day.
+
 2. Create rollup indexes in batches
 
 grammar:
@@ -120,7 +122,16 @@ ALTER TABLE example_db.my_table
 DROP ROLLUP example_rollup_index2;
 ```
 
-### Keywords
+5. Batch Delete rollup index
+
+```sql
+ALTER TABLE example_db.my_table
+DROP ROLLUP example_rollup_index2,example_rollup_index3;
+```
+
+### 
+
+4. Keywords
 
 ```text
 ALTER, TABLE, ROLLUP, ALTER TABLE

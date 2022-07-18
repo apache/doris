@@ -102,7 +102,8 @@ void VLiteral::init(const TExprNode& node) {
             field = value.to_date_uint32();
             break;
         }
-        case TYPE_DATETIME: {
+        case TYPE_DATETIME:
+        case TYPE_DATETIMEV2: {
             VecDateTimeValue value;
             value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size());
             value.to_datetime();

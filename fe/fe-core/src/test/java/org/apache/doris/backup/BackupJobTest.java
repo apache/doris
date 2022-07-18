@@ -267,7 +267,6 @@ public class BackupJobTest {
         Assert.assertEquals(job.getJobId(), upTask.getJobId());
         Map<String, String> srcToDest = upTask.getSrcToDestPath();
         Assert.assertEquals(1, srcToDest.size());
-        System.out.println(srcToDest);
         String dest = srcToDest.get(snapshotPath + "/" + tabletId + "/" + 0);
         Assert.assertNotNull(dest);
 
