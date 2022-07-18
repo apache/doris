@@ -47,7 +47,7 @@ public class DorisFlinkConnectorDemoV1 {
         pro.setProperty("read_json_by_line", "true");
         pro.setProperty("line_delimiter", "\n");
         DorisOptions.Builder dorisBuilder = DorisOptions.builder();
-        dorisBuilder.setFenodes("47.109.38.38:8030")
+        dorisBuilder.setFenodes("fe_ip:8030")
             .setTableIdentifier("test.test_flink")
             .setUsername("root")
             .setPassword("");
