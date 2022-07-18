@@ -19,11 +19,13 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -192,9 +194,15 @@ public class BackendTest {
         back1.updateOnce(1, 1, 1);
         back2 = new Backend(1, "a", 2);
         back2.updateOnce(1, 1, 1);
+        Map<String, String> tagMap = Maps.newHashMap();
+        tagMap.put(Tag.TYPE_LOCATION, "l1");
+        tagMap.put("compute", "c1");
+        back2.setTagMap(tagMap);
         Assert.assertFalse(back1.equals(back2));
 
-        Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true, tag: {\"location\" : \"default\"}]", back1.toString());
+        Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true, tags: {location=default}]",
+                back1.toString());
+        Assert.assertEquals("{\"compute\" : \"c1\", \"location\" : \"l1\"}", back2.getTagMapString());
 
         // 3. delete files
         dis.close();

@@ -253,7 +253,8 @@ public class CreateFunctionStmt extends DdlStmt {
                 .hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType())
                 .location(URI.create(userFile));
         String initFnSymbol = properties.get(INIT_KEY);
-        if (initFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF)) {
+        if (initFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF
+                || binaryType == TFunctionBinaryType.RPC)) {
             throw new AnalysisException("No 'init_fn' in properties");
         }
         String updateFnSymbol = properties.get(UPDATE_KEY);
@@ -270,7 +271,9 @@ public class CreateFunctionStmt extends DdlStmt {
         String removeFnSymbol = properties.get(REMOVE_KEY);
         String symbol = properties.get(SYMBOL_KEY);
         if (binaryType == TFunctionBinaryType.RPC && !userFile.contains("://")) {
-            checkRPCUdf(initFnSymbol);
+            if (initFnSymbol != null) {
+                checkRPCUdf(initFnSymbol);
+            }
             checkRPCUdf(updateFnSymbol);
             checkRPCUdf(mergeFnSymbol);
             if (serializeFnSymbol != null) {
