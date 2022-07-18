@@ -74,15 +74,16 @@ public class ReorderJoin extends OneRewriteRuleFactory {
 
     /**
      * Reorder join orders according to join conditions to eliminate cross join.
-     * <pre>
+     * <p/>
      * Let's say we have input join tables: [t1, t2, t3] and
      * conjunctive predicates: [t1.id=t3.id, t2.id=t3.id]
      * The input join for t1 and t2 is cross join.
-     * </pre>
+     * <p/>
      * The algorithm split join inputs into two groups: `left input` t1 and `candidate right input` [t2, t3].
      * Try to find an inner join from t1 and candidate right inputs [t2, t3], if any combination
-     * of [Join(t1, t1), Join(t1, t3)] could be optimized to inner join according to the join conditions.
-     * Join(t1, t3) is an inner join.
+     * of [Join(t1, t2), Join(t1, t3)] could be optimized to inner join according to the join conditions.
+     * <p/>
+     * As a result, Join(t1, t3) is an inner join.
      * Then the logic is applied to the rest of [Join(t1, t3), t2] recursively.
      */
     private Plan reorderJoinsAccordingToConditions(List<Plan> joinInputs, List<Expression> conjuncts) {
