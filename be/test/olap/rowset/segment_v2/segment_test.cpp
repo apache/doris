@@ -29,8 +29,6 @@
 #include "io/fs/local_file_system.h"
 #include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
 #include "olap/in_list_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/row_block.h"
@@ -116,7 +114,7 @@ protected:
         std::string path = fmt::format("{}/{}", kSegmentDir, filename);
         auto fs = io::global_local_filesystem();
 
-        std::unique_ptr<io::FileWriter> file_writer;
+        io::FileWriterPtr file_writer;
         Status st = fs->create_file(path, &file_writer);
         EXPECT_TRUE(st.ok());
         DataDir data_dir(kSegmentDir);
@@ -616,7 +614,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     std::string fname = kSegmentDir + "/int_case";
     auto fs = io::global_local_filesystem();
 
-    std::unique_ptr<io::FileWriter> file_writer;
+    io::FileWriterPtr file_writer;
     Status st = fs->create_file(fname, &file_writer);
     EXPECT_TRUE(st.ok()) << st.to_string();
     DataDir data_dir(kSegmentDir);
@@ -783,7 +781,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     std::string fname = kSegmentDir + "/string_case";
     auto fs = io::global_local_filesystem();
 
-    std::unique_ptr<io::FileWriter> file_writer;
+    io::FileWriterPtr file_writer;
     Status st = fs->create_file(fname, &file_writer);
     EXPECT_TRUE(st.ok());
     DataDir data_dir(kSegmentDir);

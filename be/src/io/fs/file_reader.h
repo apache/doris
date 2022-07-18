@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "common/status.h"
 #include "gutil/macros.h"
 #include "io/fs/path.h"
@@ -38,7 +40,11 @@ public:
     virtual const Path& path() const = 0;
 
     virtual size_t size() const = 0;
+
+    virtual bool closed() const = 0;
 };
+
+using FileReaderSPtr = std::shared_ptr<FileReader>;
 
 } // namespace io
 } // namespace doris
