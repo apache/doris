@@ -149,7 +149,8 @@ public class EsTable extends Table {
         this.client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
     }
 
-    public EsTable(long id, String name, List<Column> schema, TableType tableType, String index, String mappingType, EsRestClient esRestClient) {
+    public EsTable(long id, String name, List<Column> schema, TableType tableType, String index, String mappingType,
+            EsRestClient esRestClient) {
         super(id, name, tableType, schema);
         this.client = esRestClient;
         this.indexName = index;

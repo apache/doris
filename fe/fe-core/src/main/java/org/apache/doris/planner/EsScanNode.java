@@ -87,6 +87,9 @@ public class EsScanNode extends ScanNode {
         this(id, desc, planNodeName, false);
     }
 
+    /**
+     * For multicatalog es.
+     **/
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, boolean esExternalTable) {
         super(id, desc, planNodeName, StatisticalType.ES_SCAN_NODE);
         if (esExternalTable) {
