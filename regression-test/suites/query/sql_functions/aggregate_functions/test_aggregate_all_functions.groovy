@@ -34,7 +34,7 @@ suite("test_aggregate_all_functions", "query") {
 	    ) 
            """
     sql "INSERT INTO ${tableName_01} values(1,'beijing'), (2,'xian'), (3,'xian')"
-    qt_select1 "select approx_count_distinct(id) from ${tableName_01} group by group_type"
+    qt_select1 "select approx_count_distinct(id) from ${tableName_01} group by group_type order by approx_count_distinct(id) asc"
     sql "DROP TABLE IF EXISTS ${tableName_01}"
     
     
