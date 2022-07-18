@@ -83,10 +83,11 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         }
     }
     read_options.use_page_cache = read_context->use_page_cache;
+    read_options.tablet_schema = read_context->tablet_schema;
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
-            _rowset, &_segment_cache_handle, read_context->tablet_schema,
+            _rowset, &_segment_cache_handle,
             read_context->reader_type == ReaderType::READER_QUERY));
 
     // create iterator for each segment

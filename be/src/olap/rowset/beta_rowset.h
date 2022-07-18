@@ -70,8 +70,7 @@ public:
 
     bool check_file_exist() override;
 
-    Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
-                         const TabletSchema* read_tablet_schema);
+    Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
 
 protected:
     BetaRowset(const TabletSchema* schema, const std::string& tablet_path,

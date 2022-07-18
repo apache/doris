@@ -49,17 +49,11 @@ class SegmentLoader {
 public:
     // The cache key or segment lru cache
     struct CacheKey {
-        CacheKey(RowsetId rowset_id_, const TabletSchema& tablet_schema)
-                : rowset_id(rowset_id_), tablet_schema(tablet_schema) {}
+        CacheKey(RowsetId rowset_id_) : rowset_id(rowset_id_) {}
         RowsetId rowset_id;
-        TabletSchema tablet_schema;
 
         // Encode to a flat binary which can be used as LRUCache's key
-        std::string encode() const {
-            TabletSchemaPB tablet_schema_pb;
-            tablet_schema.to_schema_pb(&tablet_schema_pb);
-            return rowset_id.to_string() + tablet_schema_pb.SerializeAsString();
-        }
+        std::string encode() const { return rowset_id.to_string(); }
     };
 
     // The cache value of segment lru cache.
@@ -89,7 +83,7 @@ public:
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
-                         const TabletSchema* read_tablet_schema, bool use_cache = false);
+                         bool use_cache = false);
 
     // Try to prune the segment cache if expired.
     Status prune();
