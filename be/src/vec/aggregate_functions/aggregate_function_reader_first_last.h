@@ -73,13 +73,17 @@ struct CopiedValue : public Value<ColVecType, arg_is_nullable> {
 public:
     StringRef get_value() const { return _copied_value; }
 
+    bool is_null() const { return Value<ColVecType, arg_is_nullable>::_ptr == nullptr; }
+
     void set_value(const IColumn* column, size_t row) {
-        // here _ptr, maybe null at row, or not
-        // because we will use is_null() check first, so have set _ptr column
-        Value<ColVecType, arg_is_nullable>::set_value(column, row);
+        // here _ptr, maybe null at row, so call reset to set nullptr
+        // because we will use is_null() check first, others have set _ptr column to a meaningless address
+        // the address have meaningless, only need it to check is nullptr
+        Value<ColVecType, arg_is_nullable>::_ptr = (IColumn*)0x00000001;
         if constexpr (arg_is_nullable) {
             auto* col = assert_cast<const ColumnNullable*>(column);
             if (col->is_null_at(row)) {
+                Value<ColVecType, arg_is_nullable>::reset();
                 return;
             } else {
                 _copied_value = assert_cast<const ColVecType&>(col->get_nested_column())
@@ -96,7 +100,7 @@ private:
 };
 
 template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable, bool is_copy>
-struct FirstAndLastData {
+struct ReaderFirstAndLastData {
 public:
     using StoreType = std::conditional_t<is_copy, CopiedValue<ColVecType, arg_is_nullable>,
                                          Value<ColVecType, arg_is_nullable>>;
@@ -135,7 +139,7 @@ public:
 
     bool has_set_value() { return _has_value; }
 
-private:
+protected:
     StoreType _data_value;
     bool _has_value = false;
 };
@@ -239,11 +243,10 @@ static IAggregateFunction* create_function_single_value(const String& name,
     auto type = remove_nullable(argument_types[0]);
     WhichDataType which(*type);
 
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                            \
-    if (which.idx == TypeIndex::TYPE)                                                          \
-        return new AggregateFunctionTemplate<Impl<                                             \
-                FirstAndLastData<COLUMN_TYPE, result_is_nullable, arg_is_nullable, is_copy>>>( \
-                argument_types);
+#define DISPATCH(TYPE, COLUMN_TYPE)                                       \
+    if (which.idx == TypeIndex::TYPE)                                     \
+        return new AggregateFunctionTemplate<Impl<ReaderFirstAndLastData< \
+                COLUMN_TYPE, result_is_nullable, arg_is_nullable, is_copy>>>(argument_types);
     TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
 

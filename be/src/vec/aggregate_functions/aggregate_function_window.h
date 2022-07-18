@@ -22,6 +22,7 @@
 
 #include "factory_helpers.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/aggregate_function_reader_first_last.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -207,30 +208,34 @@ public:
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
 };
 
-struct BaseValue {
+template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
+struct FirstLastData
+        : public ReaderFirstAndLastData<ColVecType, result_is_nullable, arg_is_nullable, false> {
 public:
-    bool is_null() const { return _is_null; }
-    void set_null_flag(bool is_null) { _is_null = is_null; }
-    void set_value(StringRef value) { _value = value; }
-    StringRef get_value() const { return _value; }
+    void set_is_null() { this->_data_value.reset(); }
+};
 
-    void reset() {
-        _is_null = false;
-        _value = {};
-    }
-
-protected:
-    StringRef _value;
-    bool _is_null;
+template <typename ColVecType, bool arg_is_nullable>
+struct BaseValue : public Value<ColVecType, arg_is_nullable> {
+public:
+    bool is_null() const { return this->_ptr == nullptr; }
+    // because _ptr pointer to first_argument or third argument, so here will call virtual function
+    StringRef get_value() const { return this->_ptr->get_data_at(this->_offset); }
 };
 
 template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
-struct FirstLastData {
+struct LeadLagData {
 public:
     void reset() {
         _data_value.reset();
-        _has_value = false;
+        _default_value.reset();
+        _is_inited = false;
     }
+
+    bool default_is_null() { return _default_value.is_null(); }
+
+    // here _ptr pointer default column, so it's difficult to cast ptr
+    void set_value_from_default() { this->_data_value = _default_value; }
 
     void insert_result_into(IColumn& to) const {
         if constexpr (result_is_nullable) {
@@ -239,74 +244,46 @@ public:
                 col.insert_default();
             } else {
                 auto& col = assert_cast<ColumnNullable&>(to);
-                const StringRef& value = _data_value.get_value();
-                col.get_null_map_data().push_back(0);
-                assert_cast<ColVecType&>(col.get_nested_column())
-                        .insert_data(value.data, value.size);
+                StringRef value = _data_value.get_value();
+                col.insert_data(value.data, value.size);
             }
         } else {
-            const StringRef& value = _data_value.get_value();
-            assert_cast<ColVecType&>(to).insert_data(value.data, value.size);
+            StringRef value = _data_value.get_value();
+            to.insert_data(value.data, value.size);
         }
     }
+
+    void set_is_null() { this->_data_value.reset(); }
 
     void set_value(const IColumn** columns, size_t pos) {
         if constexpr (arg_is_nullable) {
-            const auto* nullable_column = assert_cast<const ColumnNullable*>(columns[0]);
-            if (nullable_column->is_null_at(pos)) {
-                _data_value.set_null_flag(true);
-                _has_value = true;
+            if (assert_cast<const ColumnNullable*>(columns[0])->is_null_at(pos)) {
+                // ptr == nullptr means nullable
+                _data_value.reset();
                 return;
-            } else {
-                _data_value.set_value(
-                        assert_cast<const ColVecType&>(nullable_column->get_nested_column())
-                                .get_data_at(pos));
             }
-        } else {
-            _data_value.set_value(assert_cast<const ColVecType*>(columns[0])->get_data_at(pos));
         }
-        _has_value = true;
-        _data_value.set_null_flag(false);
+        // here ptr is pointer to nullable column or not null column
+        _data_value.set_value(columns[0], pos);
     }
-
-    void set_is_null() { _data_value.set_null_flag(true); }
-
-    bool has_set_value() { return _has_value; }
-
-protected:
-    BaseValue _data_value;
-    bool _has_value = false;
-};
-
-template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
-struct LeadLagData : public FirstLastData<ColVecType, result_is_nullable, arg_is_nullable> {
-public:
-    void reset() {
-        FirstLastData<ColVecType, result_is_nullable, arg_is_nullable>::reset();
-        _default_value.reset();
-        _is_inited = false;
-    }
-
-    bool default_is_null() { return _default_value.is_null(); }
-
-    void set_value_from_default() { this->_data_value = _default_value; }
 
     void check_default(const IColumn* column) {
         if (!_is_inited) {
             if (is_column_nullable(*column)) {
                 const auto* nullable_column = assert_cast<const ColumnNullable*>(column);
                 if (nullable_column->is_null_at(0)) {
-                    _default_value.set_null_flag(true);
+                    _default_value.reset();
                 }
             } else {
-                _default_value.set_value(assert_cast<const ColVecType*>(column)->get_data_at(0));
+                _default_value.set_value(column, 0);
             }
             _is_inited = true;
         }
     }
 
 private:
-    BaseValue _default_value;
+    BaseValue<ColVecType, arg_is_nullable> _data_value;
+    BaseValue<ColVecType, arg_is_nullable> _default_value;
     bool _is_inited = false;
 };
 
