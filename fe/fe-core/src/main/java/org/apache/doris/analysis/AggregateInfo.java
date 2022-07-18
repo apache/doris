@@ -22,7 +22,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.MoreObjects;
@@ -282,6 +284,12 @@ public final class AggregateInfo extends AggregateInfoBase {
                 }
                 hasMultiDistinct = true;
             }
+        }
+
+        // for vectorized execution, we force it to using hash set to execution
+        if (!hasMultiDistinct && distinctAggExprs.size() == 1 && distinctAggExprs.get(0).getFnParams().isDistinct()
+                && VectorizedUtil.isVectorized() && ConnectContext.get().getSessionVariable().enableSingleDistinctColumnOpt()) {
+            hasMultiDistinct = true;
         }
         return hasMultiDistinct;
     }
