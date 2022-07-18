@@ -3933,13 +3933,13 @@ public class Catalog {
         Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
-            DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties);
+            DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties, db);
         } else {
             // Merge the new properties with origin properties, and then analyze them
             Map<String, String> origDynamicProperties = tableProperty.getOriginDynamicPartitionProperty();
             origDynamicProperties.putAll(properties);
             Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(
-                    origDynamicProperties, table.getPartitionInfo());
+                    origDynamicProperties, table, db);
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
             tableProperty.buildDynamicProperty();
         }

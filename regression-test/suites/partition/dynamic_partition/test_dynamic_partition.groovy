@@ -30,10 +30,32 @@ suite("test_dynamic_partition", "partition") {
             "dynamic_partition.start"="-3", 
             "dynamic_partition.prefix"="p", 
             "dynamic_partition.time_unit"="DAY", 
-            "dynamic_partition.create_history_partition"="true" )
+            "dynamic_partition.create_history_partition"="true",
+            "dynamic_partition.replication_allocation" = "tag.location.default: 1")
         """
     List<List<Object>> result  = sql "show tables like 'dy_par'"
     logger.info("${result}")
     assertEquals(result.size(), 1)
-    sql "drop table dy_par"    
+    sql "drop table dy_par"
+    //
+    sql "drop table if exists dy_par_bad"
+    test {
+        sql """
+        CREATE TABLE dy_par_bad ( k1 date NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL ) 
+        AGGREGATE KEY(k1,k2) 
+        PARTITION BY RANGE(k1) ( ) 
+        DISTRIBUTED BY HASH(k1) BUCKETS 3 
+        PROPERTIES (  
+            "dynamic_partition.enable"="true", 
+            "dynamic_partition.end"="3", 
+            "dynamic_partition.buckets"="10", 
+            "dynamic_partition.start"="-3", 
+            "dynamic_partition.prefix"="p", 
+            "dynamic_partition.time_unit"="DAY", 
+            "dynamic_partition.create_history_partition"="true",
+            "dynamic_partition.replication_allocation" = "tag.location.not_exist_tag: 1")
+        """
+        // check exception message contains
+        exception "errCode = 2,"
+    }
 }

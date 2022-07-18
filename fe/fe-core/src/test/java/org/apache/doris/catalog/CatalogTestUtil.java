@@ -31,6 +31,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -103,9 +104,16 @@ public class CatalogTestUtil {
         Backend backend1 = createBackend(testBackendId1, "host1", 123, 124, 125);
         Backend backend2 = createBackend(testBackendId2, "host2", 123, 124, 125);
         Backend backend3 = createBackend(testBackendId3, "host3", 123, 124, 125);
+        DiskInfo diskInfo = new DiskInfo("/path/to/disk1/");
+        diskInfo.setAvailableCapacityB(2 << 40); // 1TB
+        diskInfo.setTotalCapacityB(2 << 40);
+        diskInfo.setDataUsedCapacityB(2 << 10);
         backend1.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        backend1.setDisks(ImmutableMap.of("disk1", diskInfo));
         backend2.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        backend2.setDisks(ImmutableMap.of("disk1", diskInfo));
         backend3.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        backend3.setDisks(ImmutableMap.of("disk1", diskInfo));
         Catalog.getCurrentSystemInfo().addBackend(backend1);
         Catalog.getCurrentSystemInfo().addBackend(backend2);
         Catalog.getCurrentSystemInfo().addBackend(backend3);
