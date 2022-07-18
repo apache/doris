@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//  http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -15,29 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_META_H
-#define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_META_H
+package org.apache.doris.nereids.trees.expressions;
 
-#include <memory>
-#include <string>
-#include <vector>
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.NullType;
 
-#include "olap/rowset/rowset_meta.h"
+/**
+ * Represents Null literal
+ */
+public class NullLiteral extends Literal {
 
-namespace doris {
+    public NullLiteral() {
+        super(NullType.INSTANCE);
+    }
 
-class AlphaRowsetMeta;
-using AlphaRowsetMetaSharedPtr = std::shared_ptr<AlphaRowsetMeta>;
+    @Override
+    public Object getValue() {
+        return null;
+    }
 
-class AlphaRowsetMeta : public RowsetMeta {
-public:
-    void get_segment_groups(std::vector<SegmentGroupPB>* segment_groups);
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitNullLiteral(this, context);
+    }
 
-    void add_segment_group(const SegmentGroupPB& segment_group);
-
-    void clear_segment_group();
-};
-
-} // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_META_H
+    @Override
+    public String toString() {
+        return "NULL";
+    }
+}

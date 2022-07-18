@@ -39,7 +39,7 @@ ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env)
                   .ok());
 
     REGISTER_HOOK_METRIC(active_scan_context_count, [this]() {
-        std::lock_guard<std::mutex> l(_lock);
+        // std::lock_guard<std::mutex> l(_lock);
         return _active_contexts.size();
     });
 }

@@ -306,8 +306,14 @@ distribution_info
 
         `"function_column.sequence_type" ='Date'`
 
-    * Dynamic partition related
+    * `compression`
 
+        The default compression method for Doris tables is LZ4. After version 1.1, it is supported to specify the compression method as ZSTD to obtain a higher compression ratio.
+    
+        `"compression"="zstd"`
+    
+    * Dynamic partition related
+    
         The relevant parameters of dynamic partition are as follows:
     
         * `dynamic_partition.enable`: Used to specify whether the dynamic partition function at the table level is enabled. The default is true.
@@ -321,12 +327,11 @@ distribution_info
         * `dynamic_partition.reserved_history_periods`: Used to specify the range of reserved history periods.
     
     * Data Sort Info
-      
+    
         The relevant parameters of data sort info are as follows:
-        
+    
         * `data_sort.sort_type`: the method of data sorting, options: z-order/lexical, default is lexical
         * `data_sort.col_num`:  the first few columns to sort, col_num muster less than total key counts
-    
 ### Example
 
 1. Create a detailed model table
@@ -529,7 +534,8 @@ distribution_info
     PROPERTIES (
         "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
     );
-    
+    ```
+    ```sql
     CREATE TABLE example_db.dynamic_partition
     (
     	k1 DATE,
@@ -548,6 +554,7 @@ distribution_info
         "dynamic_partition.buckets" = "32",
         "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
      );
+    ```
 
 ### Keywords
 
