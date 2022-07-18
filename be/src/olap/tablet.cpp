@@ -243,7 +243,7 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset) {
     _timestamped_version_tracker.add_version(rowset->version());
 
     // Update rowset tree
-    if (keys_type() == UNIQUE_KEYS && speed_up_unique_key_with_aux_index()) {
+    if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
         auto new_rowset_tree = std::make_unique<RowsetTree>();
         ModifyRowSetTree(*_rowset_tree, {}, {rowset}, new_rowset_tree.get());
         _rowset_tree = std::move(new_rowset_tree);
