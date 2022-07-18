@@ -57,6 +57,7 @@
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/logging.h"
+#include "util/perf_counters.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -475,7 +476,8 @@ int main(int argc, char** argv) {
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
         doris::MemInfo::refresh_current_mem();
 #endif
-        sleep(10);
+        doris::PerfCounters::refresh_proc_status();
+        sleep(1);
     }
 
     http_service.stop();
