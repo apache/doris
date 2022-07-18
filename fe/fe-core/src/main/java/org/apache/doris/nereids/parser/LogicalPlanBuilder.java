@@ -592,6 +592,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         });
     }
 
+    @Override
+    public Object visitAliasedQuery(DorisParser.AliasedQueryContext ctx) {
+        return super.visitAliasedQuery(ctx);
+    }
+
     /* ********************************************************************************************
      * Table Identifier parsing
      * ******************************************************************************************** */
