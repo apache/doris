@@ -24,8 +24,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
-import org.apache.commons.lang.StringUtils;
-
 import java.util.List;
 
 /**
