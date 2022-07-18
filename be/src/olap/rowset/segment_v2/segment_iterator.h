@@ -146,6 +146,8 @@ private:
         }
     }
 
+    void _update_max_row(const vectorized::Block* block);
+
 private:
     class BitmapRangeIterator;
 
@@ -194,6 +196,7 @@ private:
 
     // the actual init process is delayed to the first call to next_batch()
     bool _inited;
+    bool _estimate_row_size;
 
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes
