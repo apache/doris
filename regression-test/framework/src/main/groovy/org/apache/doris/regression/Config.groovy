@@ -58,6 +58,7 @@ class Config {
     public boolean generateOutputFile
     public boolean forceGenerateOutputFile
     public boolean randomOrder
+    public boolean stopWhenFail
 
     public Properties otherConfigs = new Properties()
 
@@ -176,6 +177,7 @@ class Config {
         config.actionParallel = Integer.parseInt(cmd.getOptionValue(actionParallelOpt, "10"))
         config.times = Integer.parseInt(cmd.getOptionValue(timesOpt, "1"))
         config.randomOrder = cmd.hasOption(randomOrderOpt)
+        config.stopWhenFail = cmd.hasOption(stopWhenFail)
         config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
 
         Properties props = cmd.getOptionProperties("conf")
@@ -331,6 +333,11 @@ class Config {
         if (config.randomOrder == null) {
             config.randomOrder = false
             log.info("set randomOrder to false because not specify.".toString())
+        }
+
+        if (config.stopWhenFail == null) {
+            config.stopWhenFail = false
+            log.info("set stopWhenFail to false because not specify.".toString())
         }
 
         if (config.withOutLoadData == null) {
