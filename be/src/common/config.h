@@ -169,6 +169,8 @@ CONF_mInt64(thrift_client_retry_interval_ms, "1000");
 CONF_mInt32(doris_scan_range_row_count, "524288");
 // max bytes number for single scan range, used in segmentv2
 CONF_mInt32(doris_scan_range_max_mb, "1024");
+// max bytes number for single scan block, used in segmentv2
+CONF_mInt32(doris_scan_block_max_mb, "67108864");
 // size of scanner queue between scanner thread and compute thread
 CONF_mInt32(doris_scanner_queue_size, "1024");
 // single read execute fragment row number
