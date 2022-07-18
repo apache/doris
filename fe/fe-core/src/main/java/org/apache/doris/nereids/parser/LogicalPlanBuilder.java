@@ -65,11 +65,13 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -78,9 +80,11 @@ import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
+import org.apache.doris.nereids.trees.expressions.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -376,20 +380,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     @Override
     public Expression visitNullLiteral(NullLiteralContext ctx) {
-        return new Literal(null);
+        return new NullLiteral();
     }
 
     @Override
     public Literal visitBooleanLiteral(BooleanLiteralContext ctx) {
         Boolean b = Boolean.valueOf(ctx.getText());
-        return new Literal(b);
+        return new BooleanLiteral(b);
     }
 
     @Override
     public Literal visitIntegerLiteral(IntegerLiteralContext ctx) {
         // TODO: throw NumberFormatException
         Integer l = Integer.valueOf(ctx.getText());
-        return new Literal(l);
+        return new IntegerLiteral(l);
     }
 
     @Override
@@ -400,7 +404,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .map(str -> str.substring(1, str.length() - 1))
                 .reduce((s1, s2) -> s1 + s2)
                 .orElse("");
-        return new Literal(s);
+        return new StringLiteral(s);
     }
 
     @Override
