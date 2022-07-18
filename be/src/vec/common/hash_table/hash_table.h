@@ -244,11 +244,22 @@ template <size_t initial_size_degree = 10>
 struct HashTableGrower {
     /// The state of this structure is enough to get the buffer size of the hash table.
     doris::vectorized::UInt8 size_degree = initial_size_degree;
+    doris::vectorized::Int64 double_grow_degree = 31; // 2GB
 
     /// The size of the hash table in the cells.
     size_t buf_size() const { return 1ULL << size_degree; }
 
+#ifndef STRICT_MEMORY_USE
     size_t max_fill() const { return 1ULL << (size_degree - 1); }
+#else
+    // When capacity is greater than 2G, grow when 75% of the capacity is satisfied.
+    size_t max_fill() const {
+        return size_degree < double_grow_degree
+                       ? 1ULL << (size_degree - 1)
+                       : (1ULL << size_degree) - (1ULL << (size_degree - 2));
+    }
+#endif
+
     size_t mask() const { return buf_size() - 1; }
 
     /// From the hash value, get the cell number in the hash table.
@@ -268,12 +279,20 @@ struct HashTableGrower {
 
     /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
     void set(size_t num_elems) {
-        size_degree =
-                num_elems <= 1
-                        ? initial_size_degree
-                        : ((initial_size_degree > static_cast<size_t>(log2(num_elems - 1)) + 2)
-                                   ? initial_size_degree
-                                   : (static_cast<size_t>(log2(num_elems - 1)) + 2));
+#ifndef STRICT_MEMORY_USE
+        size_t fill_capacity = static_cast<size_t>(log2(num_elems - 1)) + 2;
+#else
+        size_t fill_capacity = static_cast<size_t>(log2(num_elems - 1)) + 1;
+        fill_capacity =
+                fill_capacity < double_grow_degree
+                        ? fill_capacity + 1
+                        : (num_elems < (1ULL << fill_capacity) - (1ULL << (fill_capacity - 2))
+                                   ? fill_capacity
+                                   : fill_capacity + 1);
+#endif
+        size_degree = num_elems <= 1 ? initial_size_degree
+                                     : (initial_size_degree > fill_capacity ? initial_size_degree
+                                                                            : fill_capacity);
     }
 
     void set_buf_size(size_t buf_size_) {
