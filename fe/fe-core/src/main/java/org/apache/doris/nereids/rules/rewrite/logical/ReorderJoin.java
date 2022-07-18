@@ -65,14 +65,27 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             List<Expression> conjuncts = collector.conjuncts;
 
             if (joinInputs.size() >= 3 && !conjuncts.isEmpty()) {
-                return reorderJoins(joinInputs, conjuncts);
+                return reorderJoinsAccordingToConditions(joinInputs, conjuncts);
             } else {
                 return filter;
             }
         }).toRule(RuleType.REORDER_JOIN);
     }
 
-    private Plan reorderJoins(List<Plan> joinInputs, List<Expression> conjuncts) {
+    /**
+     * Reorder join orders according to join conditions to eliminate cross join.
+     * <pre>
+     * Let's say we have input join tables: [t1, t2, t3] and
+     * conjunctive predicates: [t1.id=t3.id, t2.id=t3.id]
+     * The input join for t1 and t2 is cross join.
+     * </pre>
+     * The algorithm split join inputs into two groups: `left input` t1 and `candidate right input` [t2, t3].
+     * Try to find an inner join from t1 and candidate right inputs [t2, t3], if any combination
+     * of [Join(t1, t1), Join(t1, t3)] could be optimized to inner join according to the join conditions.
+     * Join(t1, t3) is an inner join.
+     * Then the logic is applied to the rest of [Join(t1, t3), t2] recursively.
+     */
+    private Plan reorderJoinsAccordingToConditions(List<Plan> joinInputs, List<Expression> conjuncts) {
         if (joinInputs.size() == 2) {
             Set<Slot> joinOutput = getJoinOutput(joinInputs.get(0), joinInputs.get(1));
             Map<Boolean, List<Expression>> split = splitConjuncts(conjuncts, joinOutput);
@@ -139,7 +152,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             List<Plan> newInputs = new ArrayList<>();
             newInputs.add(join);
             newInputs.addAll(candidate.stream().filter(plan -> !right.equals(plan)).collect(Collectors.toList()));
-            return reorderJoins(newInputs, nonJoinConditions);
+            return reorderJoinsAccordingToConditions(newInputs, nonJoinConditions);
         }
     }
 
