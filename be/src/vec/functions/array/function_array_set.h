@@ -67,8 +67,9 @@ struct OpenSetImpl {
     Set set;
     Set result_set;
 
+    template <bool is_left>
     void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
-               ColumnArrayMutableData& dst, size_t* count, bool is_left) {
+               ColumnArrayMutableData& dst, size_t* count) {
         const auto& src_data = assert_cast<const ColumnType&>(*src.nested_col).get_data();
         auto& dst_data = assert_cast<ColumnType&>(*dst.nested_col).get_data();
         for (size_t i = off; i < off + len; ++i) {
@@ -104,8 +105,9 @@ struct OpenSetImpl<operation, ColumnString> {
     Set set;
     Set result_set;
 
+    template <bool is_left>
     void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
-               ColumnArrayMutableData& dst, size_t* count, bool is_left) {
+               ColumnArrayMutableData& dst, size_t* count) {
         const auto& src_column = assert_cast<const ColumnString&>(*src.nested_col);
         auto& dst_column = assert_cast<ColumnString&>(*dst.nested_col);
         for (size_t i = off; i < off + len; ++i) {
@@ -200,11 +202,11 @@ private:
             size_t right_off = (*right_data.offsets_ptr)[row - 1];
             size_t right_len = (*right_data.offsets_ptr)[row] - right_off;
             if constexpr (execute_left_column_first) {
-                impl.apply(left_data, left_off, left_len, dst, &count, true);
-                impl.apply(right_data, right_off, right_len, dst, &count, false);
+                impl.apply<true>(left_data, left_off, left_len, dst, &count);
+                impl.apply<false>(right_data, right_off, right_len, dst, &count);
             } else {
-                impl.apply(right_data, right_off, right_len, dst, &count, false);
-                impl.apply(left_data, left_off, left_len, dst, &count, true);
+                impl.apply<false>(right_data, right_off, right_len, dst, &count);
+                impl.apply<true>(left_data, left_off, left_len, dst, &count);
             }
             current += count;
             dst.offsets_ptr->push_back(current);
