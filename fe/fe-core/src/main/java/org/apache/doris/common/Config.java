@@ -1693,4 +1693,7 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String default_storage_policy = "default_storage_policy";
+
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_multi_tags = false;
 }

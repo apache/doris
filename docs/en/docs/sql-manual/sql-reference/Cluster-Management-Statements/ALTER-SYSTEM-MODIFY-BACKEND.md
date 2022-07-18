@@ -47,9 +47,12 @@ ALTER SYSTEM MODIFY BACKEND "host:heartbeat_port" SET ("key" = "value"[, ...]);
 2. heartbeat_port is the heartbeat port of the node
 3. Modify BE node properties The following properties are currently supported:
 
-- tag.location: resource tag
+- tag.xxxx: resource tag
 - disable_query: query disable attribute
 - disable_load: import disable attribute
+
+Note:
+1. A backend can be set multi resource tags. But must contain "tag.location" type.
 
 ### Example
 
@@ -57,6 +60,7 @@ ALTER SYSTEM MODIFY BACKEND "host:heartbeat_port" SET ("key" = "value"[, ...]);
 
     ```sql
     ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a");
+    ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a", "tag.compute" = "c1");
     ````
 
 2. Modify the query disable property of BE
