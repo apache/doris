@@ -44,11 +44,11 @@ public class SSBJoinReorderTest extends SSBTestBase {
                 SSBUtils.Q4_1,
                 ImmutableList.of(
                         "(lo_orderdate = d_datekey)",
-                        "((lo_custkey = c_custkey) AND (c_region = AMERICA))",
-                        "((lo_suppkey = s_suppkey) AND (s_region = AMERICA))",
+                        "((lo_custkey = c_custkey) AND (c_region = 'AMERICA'))",
+                        "((lo_suppkey = s_suppkey) AND (s_region = 'AMERICA'))",
                         "(lo_partkey = p_partkey)"
                 ),
-                ImmutableList.of("((p_mfgr = MFGR#1) OR (p_mfgr = MFGR#2))")
+                ImmutableList.of("((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2'))")
         );
     }
 
@@ -58,11 +58,12 @@ public class SSBJoinReorderTest extends SSBTestBase {
                 SSBUtils.Q4_2,
                 ImmutableList.of(
                         "(lo_orderdate = d_datekey)",
-                        "((lo_custkey = c_custkey) AND (c_region = AMERICA))",
-                        "((lo_suppkey = s_suppkey) AND (s_region = AMERICA))",
+                        "((lo_custkey = c_custkey) AND (c_region = 'AMERICA'))",
+                        "((lo_suppkey = s_suppkey) AND (s_region = 'AMERICA'))",
                         "(lo_partkey = p_partkey)"
                 ),
-                ImmutableList.of("(((d_year = 1997) OR (d_year = 1998)) AND ((p_mfgr = MFGR#1) OR (p_mfgr = MFGR#2)))")
+                ImmutableList.of(
+                        "(((d_year = 1997) OR (d_year = 1998)) AND ((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2')))")
         );
     }
 
@@ -73,8 +74,8 @@ public class SSBJoinReorderTest extends SSBTestBase {
                 ImmutableList.of(
                         "(lo_orderdate = d_datekey)",
                         "(lo_custkey = c_custkey)",
-                        "((lo_suppkey = s_suppkey) AND (s_nation = UNITED STATES))",
-                        "((lo_partkey = p_partkey) AND (p_category = MFGR#14))"
+                        "((lo_suppkey = s_suppkey) AND (s_nation = 'UNITED STATES'))",
+                        "((lo_partkey = p_partkey) AND (p_category = 'MFGR#14'))"
                 ),
                 ImmutableList.of("((d_year = 1997) OR (d_year = 1998))")
         );
