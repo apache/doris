@@ -44,7 +44,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     public LogicalFilter(Expression predicates, Optional<GroupExpression> groupExpression,
-                         Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
         this.predicates = Objects.requireNonNull(predicates, "predicates can not be null");
     }
@@ -61,6 +61,23 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public String toString() {
         return "LogicalFilter (" + predicates + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        LogicalFilter that = (LogicalFilter) o;
+        return predicates.equals(that.predicates);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(predicates);
     }
 
     @Override
