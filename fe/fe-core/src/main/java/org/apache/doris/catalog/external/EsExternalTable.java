@@ -18,8 +18,10 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.EsTable;
 import org.apache.doris.datasource.EsExternalDataSource;
 import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.thrift.TTableDescriptor;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -49,7 +51,7 @@ public class EsExternalTable extends ExternalTable {
         super(id, name);
         this.dbName = dbName;
         this.ds = ds;
-        this.type = TableType.ELASTICSEARCH;
+        this.type = TableType.ES_EXTERNAL_TABLE;
     }
 
 
@@ -101,5 +103,17 @@ public class EsExternalTable extends ExternalTable {
      */
     public String getDbName() {
         return dbName;
+    }
+
+    @Override
+    public TTableDescriptor toThrift() {
+        return super.toThrift();
+    }
+
+    public EsTable toEsTable() {
+        EsTable esTable = new EsTable(this.id, this.name, this.getFullSchema(), TableType.ES_EXTERNAL_TABLE, name, null,
+                this.ds.getEsRestClient());
+        esTable.syncTableMetaData();
+        return esTable;
     }
 }

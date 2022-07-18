@@ -26,6 +26,7 @@ import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
@@ -83,8 +84,17 @@ public class EsScanNode extends ScanNode {
     private boolean isFinalized = false;
 
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
+        this(id, desc, planNodeName, false);
+    }
+
+    public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, boolean esExternalTable) {
         super(id, desc, planNodeName, StatisticalType.ES_SCAN_NODE);
-        table = (EsTable) (desc.getTable());
+        if (esExternalTable) {
+            EsExternalTable externalTable = (EsExternalTable) (desc.getTable());
+            table = externalTable.toEsTable();
+        } else {
+            table = (EsTable) (desc.getTable());
+        }
         esTablePartitions = table.getEsTablePartitions();
     }
 

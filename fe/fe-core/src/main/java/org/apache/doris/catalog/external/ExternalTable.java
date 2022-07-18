@@ -19,10 +19,13 @@ package org.apache.doris.catalog.external;
 
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
@@ -256,8 +259,11 @@ public class ExternalTable implements TableIf {
         return "";
 
     }
-
     public TTableDescriptor toThrift() {
-        return null;
+        TEsTable tEsTable = new TEsTable();
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE, fullSchema.size(), 0,
+                getName(), "");
+        tTableDescriptor.setEsTable(tEsTable);
+        return tTableDescriptor;
     }
 }
