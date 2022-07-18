@@ -83,6 +83,40 @@ static IAggregateFunction* create_function_lead_lag_first_last(const String& nam
     return nullptr;
 }
 
+#define CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(CREATE_FUNCTION_NAME, FUNCTION_DATA,             \
+                                                  FUNCTION_IMPL)                                   \
+    AggregateFunctionPtr CREATE_FUNCTION_NAME(                                                     \
+            const std::string& name, const DataTypes& argument_types, const Array& parameters,     \
+            const bool result_is_nullable) {                                                       \
+        const bool arg_is_nullable = argument_types[0]->is_nullable();                             \
+        AggregateFunctionPtr res = nullptr;                                                        \
+                                                                                                   \
+        std::visit(                                                                                \
+                [&](auto result_is_nullable, auto arg_is_nullable) {                               \
+                    res = AggregateFunctionPtr(                                                    \
+                            create_function_lead_lag_first_last<WindowFunctionData, FUNCTION_DATA, \
+                                                                FUNCTION_IMPL, result_is_nullable, \
+                                                                arg_is_nullable>(                  \
+                                    name, argument_types, parameters));                            \
+                },                                                                                 \
+                make_bool_variant(result_is_nullable), make_bool_variant(arg_is_nullable));        \
+        if (!res) {                                                                                \
+            LOG(WARNING) << " failed in  create_aggregate_function_" << name                       \
+                         << " and type is: " << argument_types[0]->get_name();                     \
+        }                                                                                          \
+        return res;                                                                                \
+    }
+
+CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_lag, LeadLagData,
+                                          WindowFunctionLagImpl);
+CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_lead, LeadLagData,
+                                          WindowFunctionLeadImpl);
+CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_first, FirstLastData,
+                                          WindowFunctionFirstImpl);
+CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_last, FirstLastData,
+                                          WindowFunctionLastImpl);
+
+/*
 AggregateFunctionPtr create_aggregate_function_window_lag(const std::string& name,
                                                           const DataTypes& argument_types,
                                                           const Array& parameters,
@@ -174,6 +208,7 @@ AggregateFunctionPtr create_aggregate_function_window_last(const std::string& na
     }
     return res;
 }
+*/
 
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("dense_rank", create_aggregate_function_dense_rank);

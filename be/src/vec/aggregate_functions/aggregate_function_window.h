@@ -219,7 +219,8 @@ template <typename ColVecType, bool arg_is_nullable>
 struct BaseValue : public Value<ColVecType, arg_is_nullable> {
 public:
     bool is_null() const { return this->_ptr == nullptr; }
-    // because _ptr pointer to first_argument or third argument, so here will call virtual function
+    // because _ptr pointer to first_argument or third argument, so it's difficult to cast ptr
+    // so here will call virtual function
     StringRef get_value() const { return this->_ptr->get_data_at(this->_offset); }
 };
 
@@ -234,7 +235,7 @@ public:
 
     bool default_is_null() { return _default_value.is_null(); }
 
-    // here _ptr pointer default column, so it's difficult to cast ptr
+    // here _ptr pointer default column from third
     void set_value_from_default() { this->_data_value = _default_value; }
 
     void insert_result_into(IColumn& to) const {
@@ -263,7 +264,7 @@ public:
                 return;
             }
         }
-        // here ptr is pointer to nullable column or not null column
+        // here ptr is pointer to nullable column or not null column from first
         _data_value.set_value(columns[0], pos);
     }
 
