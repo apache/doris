@@ -31,14 +31,21 @@
 
 namespace doris::vectorized {
 
-template <typename ColVecType, bool result_is_nullable>
+template <typename ColVecType, bool arg_is_nullable>
 struct Value {
 public:
-    bool is_null() const { return _is_null; }
-    void set_null(bool is_null) { _is_null = is_null; }
+    bool is_null() const {
+        if (_ptr == nullptr) {
+            return true;
+        }
+        if constexpr (arg_is_nullable) {
+            return assert_cast<const ColumnNullable*>(_ptr)->is_null_at(_offset);
+        }
+        return false;
+    }
 
     StringRef get_value() const {
-        if constexpr (result_is_nullable) {
+        if constexpr (arg_is_nullable) {
             auto* col = assert_cast<const ColumnNullable*>(_ptr);
             return assert_cast<const ColVecType&>(col->get_nested_column()).get_data_at(_offset);
         } else {
@@ -51,19 +58,37 @@ public:
         _offset = row;
     }
 
+    void reset() {
+        _ptr = nullptr;
+        _offset = 0;
+    }
+
 protected:
     const IColumn* _ptr = nullptr;
     size_t _offset = 0;
-    bool _is_null;
 };
 
-template <typename ColVecType, bool result_is_nullable>
-struct CopiedValue : public Value<ColVecType, result_is_nullable> {
+template <typename ColVecType, bool arg_is_nullable>
+struct CopiedValue : public Value<ColVecType, arg_is_nullable> {
 public:
     StringRef get_value() const { return _copied_value; }
 
     void set_value(const IColumn* column, size_t row) {
-        _copied_value = column->get_data_at(row).to_string();
+        // here _ptr, maybe null at row, or not
+        // because we will use is_null() check first, so have set _ptr column
+        Value<ColVecType, arg_is_nullable>::set_value(column, row);
+        if constexpr (arg_is_nullable) {
+            auto* col = assert_cast<const ColumnNullable*>(column);
+            if (col->is_null_at(row)) {
+                return;
+            } else {
+                _copied_value = assert_cast<const ColVecType&>(col->get_nested_column())
+                                        .get_data_at(row)
+                                        .to_string();
+            }
+        } else {
+            _copied_value = assert_cast<const ColVecType*>(column)->get_data_at(row).to_string();
+        }
     }
 
 private:
@@ -73,23 +98,23 @@ private:
 template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable, bool is_copy>
 struct FirstAndLastData {
 public:
-    using StoreType = std::conditional_t<is_copy, CopiedValue<ColVecType, result_is_nullable>,
-                                         Value<ColVecType, result_is_nullable>>;
+    using StoreType = std::conditional_t<is_copy, CopiedValue<ColVecType, arg_is_nullable>,
+                                         Value<ColVecType, arg_is_nullable>>;
     static constexpr bool nullable = arg_is_nullable;
 
-    void set_null_if_need() {
-        if (!_has_value) {
-            this->set_is_null();
-        }
+    void reset() {
+        _data_value.reset();
+        _has_value = false;
     }
 
     void insert_result_into(IColumn& to) const {
         if constexpr (result_is_nullable) {
-            if (_data_value.is_null()) {
+            if (_data_value.is_null()) { //_ptr == nullptr || null data at row
                 auto& col = assert_cast<ColumnNullable&>(to);
                 col.insert_default();
             } else {
                 auto& col = assert_cast<ColumnNullable&>(to);
+                //get_value will never get null value
                 const StringRef& value = _data_value.get_value();
                 col.get_null_map_data().push_back(0);
                 assert_cast<ColVecType&>(col.get_nested_column())
@@ -101,20 +126,12 @@ public:
         }
     }
 
+    // here not check the columns[0] is null at the row,
+    // but it is need to check in other
     void set_value(const IColumn** columns, size_t pos) {
-        if constexpr (arg_is_nullable) {
-            if (assert_cast<const ColumnNullable*>(columns[0])->is_null_at(pos)) {
-                _data_value.set_null(true);
-                _has_value = true;
-                return;
-            }
-        }
         _data_value.set_value(columns[0], pos);
-        _data_value.set_null(false);
         _has_value = true;
     }
-
-    void set_is_null() { _data_value.set_null(true); }
 
     bool has_set_value() { return _has_value; }
 
@@ -141,7 +158,6 @@ struct ReaderFunctionFirstNonNullData : Data {
             return;
         }
         if constexpr (Data::nullable) {
-            this->set_null_if_need();
             const auto* nullable_column = assert_cast<const ColumnNullable*>(columns[0]);
             if (nullable_column->is_null_at(row)) {
                 return;
@@ -162,7 +178,6 @@ template <typename Data>
 struct ReaderFunctionLastNonNullData : Data {
     void add(int64_t row, const IColumn** columns) {
         if constexpr (Data::nullable) {
-            this->set_null_if_need();
             const auto* nullable_column = assert_cast<const ColumnNullable*>(columns[0]);
             if (nullable_column->is_null_at(row)) {
                 return;
@@ -195,9 +210,8 @@ public:
         this->data(place).add(row_num, columns);
     }
 
-    void reset(AggregateDataPtr place) const override {
-        LOG(FATAL) << "ReaderFunctionData do not support reset";
-    }
+    void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
+
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
