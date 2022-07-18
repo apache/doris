@@ -31,7 +31,7 @@ done
 
 PRGDIR=`dirname "$PRG"`
 
-export DORIS_HOME=`cd "$PRG_DIR/.." >/dev/null; pwd`
+export DORIS_HOME=`cd "$PRGDIR/.." >/dev/null; pwd`
 export PID_DIR=`cd "$PRGDIR" >/dev/null; pwd`
 
 signum=9
