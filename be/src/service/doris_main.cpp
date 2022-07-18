@@ -496,11 +496,14 @@ int main(int argc, char** argv) {
 
     delete be_server;
     be_server = nullptr;
-    delete engine;
-    engine = nullptr;
+
     delete heartbeat_thrift_server;
     heartbeat_thrift_server = nullptr;
+
     doris::ExecEnv::destroy(exec_env);
+
+    delete engine;
+    engine = nullptr;
     return 0;
 }
 
