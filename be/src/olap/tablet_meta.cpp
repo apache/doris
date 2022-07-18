@@ -23,7 +23,6 @@
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
@@ -44,8 +43,7 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
             request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK,
-            request.storage_medium, request.storage_param.storage_name, request.compression_type,
-            request.storage_policy,
+            request.compression_type, request.storage_policy,
             request.__isset.enable_unique_key_merge_on_write
                     ? request.enable_unique_key_merge_on_write
                     : false));
@@ -60,7 +58,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        const TTabletSchema& tablet_schema, uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                        TabletUid tablet_uid, TTabletType::type tabletType,
-                       TStorageMedium::type t_storage_medium, const std::string& storage_name,
                        TCompressionType::type compression_type, const std::string& storage_policy,
                        bool enable_unique_key_merge_on_write)
         : _tablet_uid(0, 0), _schema(new TabletSchema), _delete_bitmap(new DeleteBitmap()) {
@@ -79,8 +76,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     tablet_meta_pb.set_tablet_type(tabletType == TTabletType::TABLET_TYPE_DISK
                                            ? TabletTypePB::TABLET_TYPE_DISK
                                            : TabletTypePB::TABLET_TYPE_MEMORY);
-    tablet_meta_pb.set_storage_medium(fs::fs_util::get_storage_medium_pb(t_storage_medium));
-    tablet_meta_pb.set_remote_storage_name(storage_name);
     tablet_meta_pb.set_enable_unique_key_merge_on_write(enable_unique_key_merge_on_write);
     tablet_meta_pb.set_storage_policy(storage_policy);
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
@@ -207,8 +202,6 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _del_predicates(b._del_predicates),
           _in_restore_mode(b._in_restore_mode),
           _preferred_rowset_type(b._preferred_rowset_type),
-          _remote_storage_name(b._remote_storage_name),
-          _storage_medium(b._storage_medium),
           _cooldown_resource(b._cooldown_resource),
           _delete_bitmap(new DeleteBitmap(*b._delete_bitmap)) {};
 
@@ -443,7 +436,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 
     // init _rs_metas
     for (auto& it : tablet_meta_pb.rs_metas()) {
-        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
         rs_meta->init_from_pb(it);
         if (rs_meta->has_delete_predicate()) {
             add_delete_predicate(rs_meta->delete_predicate(), rs_meta->version().first);
@@ -452,7 +445,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     }
 
     for (auto& it : tablet_meta_pb.stale_rs_metas()) {
-        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
         rs_meta->init_from_pb(it);
         _stale_rs_metas.push_back(std::move(rs_meta));
     }
@@ -465,8 +458,6 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _preferred_rowset_type = tablet_meta_pb.preferred_rowset_type();
     }
 
-    _remote_storage_name = tablet_meta_pb.remote_storage_name();
-    _storage_medium = tablet_meta_pb.storage_medium();
     _cooldown_resource = tablet_meta_pb.storage_policy();
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
@@ -534,8 +525,6 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
         tablet_meta_pb->set_preferred_rowset_type(_preferred_rowset_type);
     }
 
-    tablet_meta_pb->set_remote_storage_name(_remote_storage_name);
-    tablet_meta_pb->set_storage_medium(_storage_medium);
     tablet_meta_pb->set_storage_policy(_cooldown_resource);
     tablet_meta_pb->set_enable_unique_key_merge_on_write(_enable_unique_key_merge_on_write);
 
@@ -761,8 +750,6 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     }
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
-    if (a._storage_medium != b._storage_medium) return false;
-    if (a._remote_storage_name != b._remote_storage_name) return false;
     if (a._cooldown_resource != b._cooldown_resource) return false;
     return true;
 }

@@ -312,10 +312,6 @@ public:
         }
     }
 
-    const AlphaRowsetExtraMetaPB& alpha_rowset_extra_meta_pb() const {
-        return _rowset_meta_pb.alpha_rowset_extra_meta_pb();
-    }
-
     void set_oldest_write_timestamp(int64_t timestamp) {
         _rowset_meta_pb.set_oldest_write_timestamp(timestamp);
     }
@@ -337,7 +333,6 @@ public:
     const TabletSchema* tablet_schema() { return _schema.get(); }
 
 private:
-    friend class AlphaRowsetMeta;
     bool _deserialize_from_pb(const std::string& value) {
         return _rowset_meta_pb.ParseFromString(value);
     }
@@ -349,34 +344,11 @@ private:
         return _rowset_meta_pb.SerializeToString(value);
     }
 
-    bool _has_alpha_rowset_extra_meta_pb() {
-        return _rowset_meta_pb.has_alpha_rowset_extra_meta_pb();
-    }
-
-    AlphaRowsetExtraMetaPB* _mutable_alpha_rowset_extra_meta_pb() {
-        return _rowset_meta_pb.mutable_alpha_rowset_extra_meta_pb();
-    }
-
     void _init() {
         if (_rowset_meta_pb.rowset_id() > 0) {
             _rowset_id.init(_rowset_meta_pb.rowset_id());
         } else {
             _rowset_id.init(_rowset_meta_pb.rowset_id_v2());
-        }
-
-        if (num_segments() == 0) {
-            // ATTN(cmy): the num segments should be read from rowset meta pb.
-            // But the previous code error caused this value not to be set in some cases.
-            // So when init the rowset meta and find that the num_segments is 0(not set),
-            // we will try to calculate the num segments from AlphaRowsetExtraMetaPB,
-            // and then set the num_segments field.
-            // This should only happen in some rowsets converted from old version.
-            // and for all newly created rowsets, the num_segments field must be set.
-            int32_t num_segments = 0;
-            for (auto& seg_grp : alpha_rowset_extra_meta_pb().segment_groups()) {
-                num_segments += seg_grp.num_segments();
-            }
-            set_num_segments(num_segments);
         }
         if (_rowset_meta_pb.has_tablet_schema()) {
             _schema = std::make_shared<TabletSchema>();
