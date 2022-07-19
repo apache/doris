@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
@@ -59,7 +60,12 @@ public interface Patterns {
         return new PatternDescriptor<>(Pattern.MULTI_GROUP, defaultPromise());
     }
 
-    /* abstract plan patterns */
+    default <T extends Plan> PatternDescriptor<T> subTree(Class<? extends Plan>... childrenTypes) {
+        return new PatternDescriptor<>(new Pattern(PatternType.SUB_TREE, PlanType.UNKNOWN, childrenTypes),
+                defaultPromise());
+    }
+
+    /* abstract plan operator patterns */
 
     /**
      * create a leafPlan pattern.

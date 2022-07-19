@@ -23,10 +23,12 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
@@ -43,6 +45,8 @@ public class Pattern<TYPE extends Plan>
     protected final List<Predicate<TYPE>> predicates;
     protected final PatternType patternType;
     protected final PlanType planType;
+
+    protected final Set<Class<? extends Plan>> subTreeNodeTypes;
 
     public Pattern(PlanType planType, Pattern... children) {
         this(PatternType.NORMAL, planType, children);
@@ -67,6 +71,15 @@ public class Pattern<TYPE extends Plan>
         this.patternType = patternType;
         this.planType = planType;
         this.predicates = ImmutableList.of();
+        this.subTreeNodeTypes = ImmutableSet.of();
+    }
+
+    public Pattern(PatternType patternType, PlanType planType, Class<? extends Plan>... subTreeTypes) {
+        super();
+        this.patternType = patternType;
+        this.planType = planType;
+        this.predicates = ImmutableList.of();
+        this.subTreeNodeTypes = ImmutableSet.copyOf(subTreeTypes);
     }
 
     /**
@@ -91,6 +104,7 @@ public class Pattern<TYPE extends Plan>
                 throw new IllegalStateException("Pattern.MULTI_GROUP must be last child of current pattern");
             }
         }
+        this.subTreeNodeTypes = ImmutableSet.of();
     }
 
     /**
@@ -136,6 +150,10 @@ public class Pattern<TYPE extends Plan>
         return patternType == PatternType.MULTI;
     }
 
+    public boolean isSubTree() {
+        return patternType == PatternType.SUB_TREE;
+    }
+
     /**
      * Return ture if current Pattern match Plan in params.
      *
@@ -152,6 +170,8 @@ public class Pattern<TYPE extends Plan>
             case GROUP:
             case MULTI_GROUP:
                 return true;
+            case SUB_TREE:
+                return subTreeNodeTypes.contains(plan.getClass());
             default:
                 return planType == plan.getType();
         }

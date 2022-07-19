@@ -37,5 +37,7 @@ public enum PatternType {
     ANY,
     MULTI,
     GROUP,
-    MULTI_GROUP
+    MULTI_GROUP,
+
+    SUB_TREE,
 }

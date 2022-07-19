@@ -190,7 +190,7 @@ public class SessionVariable implements Serializable, Writable {
 
     static final String ENABLE_ARRAY_TYPE = "enable_array_type";
 
-    public static final String ENABLE_NEREIDS = "enable_nereids";
+    public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
 
     public static final String ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER =
             "enable_remove_no_conjuncts_runtime_filter_policy";
@@ -480,7 +480,7 @@ public class SessionVariable implements Serializable, Writable {
      * the new optimizer is fully developed. I hope that day
      * would be coming soon.
      */
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER)
     private boolean enableNereids = false;
 
     @VariableMgr.VarAttr(name = ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER)

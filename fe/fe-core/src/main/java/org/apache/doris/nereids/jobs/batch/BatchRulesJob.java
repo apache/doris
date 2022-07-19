@@ -35,7 +35,7 @@ import java.util.Objects;
  *
  * Each batch of rules will be uniformly executed.
  */
-public class BatchRulesJob {
+public abstract class BatchRulesJob {
     protected PlannerContext plannerContext;
     protected List<Job> rulesJob = new ArrayList<>();
 

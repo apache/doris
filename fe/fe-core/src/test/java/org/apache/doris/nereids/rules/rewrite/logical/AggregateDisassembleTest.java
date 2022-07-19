@@ -21,11 +21,6 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
-import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -39,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
+import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -81,17 +77,7 @@ public class AggregateDisassembleTest {
                 new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
         Plan root = new LogicalAggregate(groupExpressionList, outputExpressionList, rStudent);
 
-        Memo memo = new Memo();
-        memo.initialize(root);
-
-        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), 0);
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                ImmutableList.of(new AggregateDisassemble().build()), jobContext);
-        plannerContext.pushJob(rewriteTopDownJob);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
-
-        Plan after = memo.copyOut();
+        Plan after = rewrite(root);
 
         Assertions.assertTrue(after instanceof LogicalUnary);
         Assertions.assertTrue(after instanceof LogicalAggregate);
@@ -150,17 +136,7 @@ public class AggregateDisassembleTest {
                 new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
 
-        Memo memo = new Memo();
-        memo.initialize(root);
-
-        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), 0);
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                ImmutableList.of(new AggregateDisassemble().build()), jobContext);
-        plannerContext.pushJob(rewriteTopDownJob);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
-
-        Plan after = memo.copyOut();
+        Plan after = rewrite(root);
 
         Assertions.assertTrue(after instanceof LogicalUnary);
         Assertions.assertTrue(after instanceof LogicalAggregate);
@@ -217,17 +193,7 @@ public class AggregateDisassembleTest {
                 new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
         Plan root = new LogicalAggregate(groupExpressionList, outputExpressionList, rStudent);
 
-        Memo memo = new Memo();
-        memo.initialize(root);
-
-        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), 0);
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                ImmutableList.of(new AggregateDisassemble().build()), jobContext);
-        plannerContext.pushJob(rewriteTopDownJob);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
-
-        Plan after = memo.copyOut();
+        Plan after = rewrite(root);
 
         Assertions.assertTrue(after instanceof LogicalUnary);
         Assertions.assertTrue(after instanceof LogicalAggregate);
@@ -273,17 +239,7 @@ public class AggregateDisassembleTest {
                 new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
         Plan root = new LogicalAggregate(groupExpressionList, outputExpressionList, rStudent);
 
-        Memo memo = new Memo();
-        memo.initialize(root);
-
-        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), 0);
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                ImmutableList.of(new AggregateDisassemble().build()), jobContext);
-        plannerContext.pushJob(rewriteTopDownJob);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
-
-        Plan after = memo.copyOut();
+        Plan after = rewrite(root);
 
         Assertions.assertTrue(after instanceof LogicalUnary);
         Assertions.assertTrue(after instanceof LogicalAggregate);
@@ -317,5 +273,9 @@ public class AggregateDisassembleTest {
         // check id:
         Assertions.assertEquals(outputExpressionList.get(0).getExprId(),
                 global.getOutputExpressionList().get(0).getExprId());
+    }
+
+    private Plan rewrite(Plan input) {
+        return PlanRewriter.topDownRewrite(input, new ConnectContext(), new AggregateDisassemble());
     }
 }

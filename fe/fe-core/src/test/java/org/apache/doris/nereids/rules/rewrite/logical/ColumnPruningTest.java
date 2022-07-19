@@ -17,15 +17,11 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
-import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -43,7 +39,6 @@ public class ColumnPruningTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
-
         createDatabase("test");
 
         createTable("create table test.student (\n" + "id int not null,\n" + "name varchar(128),\n"
@@ -59,19 +54,14 @@ public class ColumnPruningTest extends TestWithFeService {
 
 
         connectContext.setDatabase("default_cluster:test");
-
     }
 
     @Test
     public void testPruneColumns1() {
         String sql
                 = "select id,name,grade from student left join score on student.id = score.sid where score.grade > 60";
-        Plan plan = AnalyzeUtils.analyze(sql, connectContext);
-
-        Memo memo = new Memo();
-        memo.initialize(plan);
-
-        Plan out = process(memo);
+        Plan plan = new TestAnalyzer(connectContext).analyze(sql);
+        Plan out = rewrite(plan);
 
         System.out.println(out.treeString());
         Plan l1 = out.child(0).child(0);
@@ -102,16 +92,11 @@ public class ColumnPruningTest extends TestWithFeService {
 
     @Test
     public void testPruneColumns2() {
-
         String sql
                 = "select name,sex,cid,grade from student left join score on student.id = score.sid "
                 + "where score.grade > 60";
-        Plan plan = AnalyzeUtils.analyze(sql, connectContext);
-
-        Memo memo = new Memo();
-        memo.initialize(plan);
-
-        Plan out = process(memo);
+        Plan plan = new TestAnalyzer(connectContext).analyze(sql);
+        Plan out = rewrite(plan);
 
         Plan l1 = out.child(0).child(0);
         Plan l20 = l1.child(0).child(0);
@@ -138,14 +123,9 @@ public class ColumnPruningTest extends TestWithFeService {
 
     @Test
     public void testPruneColumns3() {
-
         String sql = "select id,name from student where age > 18";
-        Plan plan = AnalyzeUtils.analyze(sql, connectContext);
-
-        Memo memo = new Memo();
-        memo.initialize(plan);
-
-        Plan out = process(memo);
+        Plan plan = new TestAnalyzer(connectContext).analyze(sql);
+        Plan out = rewrite(plan);
 
         Plan l1 = out.child(0).child(0);
         LogicalProject p1 = (LogicalProject) l1;
@@ -162,16 +142,11 @@ public class ColumnPruningTest extends TestWithFeService {
 
     @Test
     public void testPruneColumns4() {
-
         String sql
                 = "select name,cname,grade from student left join score on student.id = score.sid left join course "
                 + "on score.cid = course.cid where score.grade > 60";
-        Plan plan = AnalyzeUtils.analyze(sql, connectContext);
-
-        Memo memo = new Memo();
-        memo.initialize(plan);
-
-        Plan out = process(memo);
+        Plan plan = new TestAnalyzer(connectContext).analyze(sql);
+        Plan out = rewrite(plan);
 
         Plan l1 = out.child(0).child(0);
         Plan l20 = l1.child(0).child(0);
@@ -212,14 +187,8 @@ public class ColumnPruningTest extends TestWithFeService {
         Assertions.assertTrue(source.containsAll(target));
     }
 
-    private Plan process(Memo memo) {
-        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), 0);
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                new ColumnPruning().buildRules(), jobContext);
-        plannerContext.pushJob(rewriteTopDownJob);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
-        return memo.copyOut();
+    private Plan rewrite(Plan plan) {
+        return PlanRewriter.topDownRewrite(plan, new ConnectContext(), new ColumnPruning());
     }
 
     private List<String> getStringList(LogicalProject<Plan> p) {

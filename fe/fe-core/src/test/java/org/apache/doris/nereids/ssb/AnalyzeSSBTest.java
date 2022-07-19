@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//  http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -15,45 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids;
+package org.apache.doris.nereids.ssb;
 
 import org.apache.doris.nereids.analyzer.Unbound;
-import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
-import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.RuleFactory;
-import org.apache.doris.nereids.rules.analysis.BindFunction;
-import org.apache.doris.nereids.rules.analysis.BindRelation;
-import org.apache.doris.nereids.rules.analysis.BindSlotReference;
-import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
-import org.apache.doris.nereids.ssb.SSBUtils;
+import org.apache.doris.nereids.rules.rewrite.logical.TestAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class AnalyzeSSBTest extends TestWithFeService {
-
-    private final NereidsParser parser = new NereidsParser();
-
-    @Override
-    protected void runBeforeAll() throws Exception {
-        createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
-
-        SSBUtils.createTables(this);
-    }
-
+public class AnalyzeSSBTest extends SSBTestBase {
     /**
      * TODO: check bound plan and expression details.
      */
@@ -123,41 +98,8 @@ public class AnalyzeSSBTest extends TestWithFeService {
     }
 
     private void checkAnalyze(String sql) {
-        LogicalPlan analyzed = analyze(sql);
-        System.out.println(analyzed.treeString());
+        LogicalPlan analyzed = new TestAnalyzer(connectContext).analyze(sql);
         Assertions.assertTrue(checkBound(analyzed));
-    }
-
-    private LogicalPlan analyze(String sql) {
-        try {
-            LogicalPlan parsed = parser.parseSingle(sql);
-            return analyze(parsed, connectContext);
-        } catch (Throwable t) {
-            throw new IllegalStateException("Analyze failed", t);
-        }
-    }
-
-    private LogicalPlan analyze(LogicalPlan inputPlan, ConnectContext connectContext) {
-        Memo memo = new Memo();
-        memo.initialize(inputPlan);
-
-        PlannerContext plannerContext = new PlannerContext(memo, connectContext);
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
-        plannerContext.setCurrentJobContext(jobContext);
-
-        executeRewriteBottomUpJob(plannerContext, new BindFunction());
-        executeRewriteBottomUpJob(plannerContext, new BindRelation());
-        executeRewriteBottomUpJob(plannerContext, new BindSlotReference());
-        executeRewriteBottomUpJob(plannerContext, new ProjectToGlobalAggregate());
-        return (LogicalPlan) memo.copyOut();
-    }
-
-    private void executeRewriteBottomUpJob(PlannerContext plannerContext, RuleFactory ruleFactory) {
-        Group rootGroup = plannerContext.getMemo().getRoot();
-        RewriteBottomUpJob job = new RewriteBottomUpJob(rootGroup,
-                plannerContext.getCurrentJobContext(), ImmutableList.of(ruleFactory));
-        plannerContext.pushJob(job);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
     }
 
     /**
