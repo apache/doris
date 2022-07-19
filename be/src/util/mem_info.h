@@ -46,6 +46,8 @@ public:
 
     static inline size_t current_mem() { return _s_current_mem; }
 
+    // Tcmalloc property `generic.total_physical_bytes` records the total length of the virtual memory
+    // obtained by the process malloc, not the physical memory actually used by the process in the OS.
     static inline void refresh_current_mem() {
         MallocExtension::instance()->GetNumericProperty("generic.total_physical_bytes",
                                                         &_s_current_mem);
