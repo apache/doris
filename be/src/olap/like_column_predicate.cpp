@@ -40,7 +40,7 @@ void LikeColumnPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* 
 }
 
 uint16_t LikeColumnPredicate::evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                                   uint16_t size) const {
+                                       uint16_t size) const {
     uint16_t new_size = 0;
 
     if (column.is_nullable()) {
