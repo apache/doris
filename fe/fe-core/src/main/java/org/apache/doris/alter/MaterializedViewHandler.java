@@ -446,7 +446,7 @@ public class MaterializedViewHandler extends AlterHandler {
         KeysType mvKeysType = addMVClause.getMVKeysType();
         KeysType originKeysType = olapTable.getKeysType();
         if (mvKeysType != originKeysType && (mvKeysType != KeysType.AGG_KEYS || originKeysType != KeysType.DUP_KEYS)) {
-            throw new DdlException("The materialized view modle type must be keep same with base table"
+            throw new DdlException("The materialized view table type must be keep same with base table"
                     + " or transform from duplicate to aggregate(origin :" + originKeysType + ", mv: " + mvKeysType
                     + ").");
         }
