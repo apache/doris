@@ -83,7 +83,7 @@ suite("load_four_step") {
             set 'compress_type', 'GZ'
             set 'columns', rows[0]
             set 'function_column.sequence_col', rows[2]
-            file """${getS3Url() + '/regression/ssb/sf1/' + tableName}.tbl.gz"""
+            file fileName
 
             time 10000 // limit inflight 10s
 
