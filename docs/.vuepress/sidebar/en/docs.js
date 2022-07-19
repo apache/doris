@@ -248,6 +248,7 @@ module.exports = [
           "spark-sink"
         ],
       },
+      "cloudcanal",
       {
         title: "UDF",
         directoryPath: "udf/",
