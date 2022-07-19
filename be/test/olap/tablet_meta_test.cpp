@@ -139,7 +139,7 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
 
     // Aggregation bitmap contains all row ids that are in versions smaller or
     // equal to the given version, normal test
-    { 
+    {
         auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 1000});
         ASSERT_EQ(bm->cardinality(), 1005);
         ASSERT_TRUE(bm->contains(999));

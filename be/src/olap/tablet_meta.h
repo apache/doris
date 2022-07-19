@@ -373,7 +373,7 @@ public:
 
     /**
      * Gets aggregated delete_bitmap on rowset_id and version, the same effect:
-     * `select sum(roarging::Roaring) where RowsetId=rowset_id and SegmentId=seg_id and Version <= version`
+     * `select sum(roaring::Roaring) where RowsetId=rowset_id and SegmentId=seg_id and Version <= version`
      *
      * @return shared_ptr to a bitmap, which may be empty
      */
@@ -393,7 +393,8 @@ public:
                 AggCache::s_repr.store(tmp, std::memory_order_release);
             });
 
-            while (!s_repr.load(std::memory_order_acquire)) { }
+            while (!s_repr.load(std::memory_order_acquire)) {
+            }
         }
 
         static ShardedLRUCache* repr() { return s_repr.load(std::memory_order_acquire); }

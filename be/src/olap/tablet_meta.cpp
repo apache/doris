@@ -51,7 +51,9 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
 }
 
 TabletMeta::TabletMeta()
-        : _tablet_uid(0, 0), _schema(new TabletSchema), _delete_bitmap(new DeleteBitmap(_tablet_id)) {}
+        : _tablet_uid(0, 0),
+          _schema(new TabletSchema),
+          _delete_bitmap(new DeleteBitmap(_tablet_id)) {}
 
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id,
                        int64_t replica_id, int32_t schema_hash, uint64_t shard_id,
@@ -60,7 +62,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        TabletUid tablet_uid, TTabletType::type tabletType,
                        TCompressionType::type compression_type, const std::string& storage_policy,
                        bool enable_unique_key_merge_on_write)
-        : _tablet_uid(0, 0), _schema(new TabletSchema), _delete_bitmap(new DeleteBitmap(tablet_id)) {
+        : _tablet_uid(0, 0),
+          _schema(new TabletSchema),
+          _delete_bitmap(new DeleteBitmap(tablet_id)) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
     tablet_meta_pb.set_partition_id(partition_id);
@@ -876,11 +880,11 @@ static std::string agg_cache_key(int64_t tablet_id, const DeleteBitmap::BitmapKe
     *reinterpret_cast<int64_t*>(ret.data()) = tablet_id;
     auto t = reinterpret_cast<DeleteBitmap::BitmapKey*>(ret.data() + sizeof(tablet_id));
     std::get<RowsetId>(*t).version = std::get<RowsetId>(bmk).version;
-    std::get<RowsetId>(*t).hi      = std::get<RowsetId>(bmk).hi;
-    std::get<RowsetId>(*t).mi      = std::get<RowsetId>(bmk).mi;
-    std::get<RowsetId>(*t).lo      = std::get<RowsetId>(bmk).lo;
-    std::get<1>(*t)                = std::get<1>(bmk);
-    std::get<2>(*t)                = std::get<2>(bmk);
+    std::get<RowsetId>(*t).hi = std::get<RowsetId>(bmk).hi;
+    std::get<RowsetId>(*t).mi = std::get<RowsetId>(bmk).mi;
+    std::get<RowsetId>(*t).lo = std::get<RowsetId>(bmk).lo;
+    std::get<1>(*t) = std::get<1>(bmk);
+    std::get<2>(*t) = std::get<2>(bmk);
     return ret;
 }
 
@@ -889,9 +893,10 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
     CacheKey key(key_str);
     Cache::Handle* handle = _agg_cache->repr()->lookup(key);
 
-    AggCache::Value* val = handle == nullptr
-                                   ? nullptr
-                                   : reinterpret_cast<AggCache::Value*>(_agg_cache->repr()->value(handle));
+    AggCache::Value* val =
+            handle == nullptr
+                    ? nullptr
+                    : reinterpret_cast<AggCache::Value*>(_agg_cache->repr()->value(handle));
     // FIXME: do we need a mutex here to get rid of duplicated initializations
     //        of cache entries in some cases?
     if (val == nullptr) { // Renew if needed, put a new Value to cache
@@ -916,8 +921,8 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
     }
 
     // It is natural for the cache to reclaim the underlying memory
-    return std::shared_ptr<roaring::Roaring>(&val->bitmap,
-                                             [this, handle](...) { _agg_cache->repr()->release(handle); });
+    return std::shared_ptr<roaring::Roaring>(
+            &val->bitmap, [this, handle](...) { _agg_cache->repr()->release(handle); });
 }
 
 std::atomic<ShardedLRUCache*> DeleteBitmap::AggCache::s_repr {nullptr};
