@@ -94,9 +94,10 @@ struct StringHashTableEmpty //-V730
 public:
     bool has_zero() const { return _has_zero; }
 
-    void set_has_zero() {
+    void set_has_zero(const typename Cell::key_type& key) {
         _has_zero = true;
         new (zero_value()) Cell();
+        zero_value()->value.first = key;
     }
 
     void set_has_zero(const Cell& other) {
@@ -118,9 +119,11 @@ public:
     using ConstLookupResult = const Cell*;
 
     template <typename KeyHolder>
-    void ALWAYS_INLINE emplace(KeyHolder&&, LookupResult& it, bool& inserted, size_t = 0) {
+    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted,
+                               size_t = 0) {
         if (!has_zero()) {
-            set_has_zero();
+            const auto& key = key_holder_get_key(key_holder);
+            set_has_zero(key);
             inserted = true;
         } else
             inserted = false;
@@ -467,7 +470,7 @@ public:
         const size_t sz = x.size;
         if (sz == 0) {
             key_holder_discard_key(key_holder);
-            return func(self.m0, VoidKey {}, 0);
+            return func(self.m0, std::forward<KeyHolder>(key_holder), 0);
         }
 
         if (x.data[sz - 1] == 0) {
