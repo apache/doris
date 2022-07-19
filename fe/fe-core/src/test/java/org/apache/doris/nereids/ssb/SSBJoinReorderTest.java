@@ -106,7 +106,7 @@ public class SSBJoinReorderTest extends SSBTestBase {
 
         public void check(Plan plan) {
             plan.accept(this, new Context(null));
-            
+
             // check join table orders
             Assertions.assertEquals(
                     ImmutableList.of("dates", "lineorder", "customer", "supplier", "part"),
