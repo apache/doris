@@ -147,7 +147,7 @@ public class EsScanNode extends ScanNode {
         for (SlotDescriptor slotDescriptor : slotDescriptors) {
             selectedFields.add(slotDescriptor.getColumn().getName());
         }
-        if (selectedFields.size() > table.maxDocValueFields()) {
+        if (selectedFields.size() > table.getMaxDocValueFields()) {
             return 0;
         }
         Set<String> docValueFields = docValueContext.keySet();
@@ -172,14 +172,14 @@ public class EsScanNode extends ScanNode {
         properties.put(EsTable.HTTP_SSL_ENABLED, String.valueOf(table.isHttpSslEnabled()));
         TEsScanNode esScanNode = new TEsScanNode(desc.getId().asInt());
         esScanNode.setProperties(properties);
-        if (table.isDocValueScanEnable()) {
+        if (table.isEnableDocValueScan()) {
             esScanNode.setDocvalueContext(table.docValueContext());
             properties.put(EsTable.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
         }
         properties.put(EsTable.ES_DSL, queryBuilder.toJson());
 
         // Be use it add es host_port and shardId to query.
-        EsUrls esUrls = EsUtil.genEsUrls(table.getIndexName(), table.getMappingType(), table.isDocValueScanEnable(),
+        EsUrls esUrls = EsUtil.genEsUrls(table.getIndexName(), table.getMappingType(), table.isEnableDocValueScan(),
                 ConnectContext.get().getSessionVariable().batchSize, msg.limit);
         if (esUrls.getSearchUrl() != null) {
             properties.put(EsTable.SEARCH_URL, esUrls.getSearchUrl());
@@ -187,7 +187,7 @@ public class EsScanNode extends ScanNode {
             properties.put(EsTable.INIT_SCROLL_URL, esUrls.getInitScrollUrl());
             properties.put(EsTable.NEXT_SCROLL_URL, esUrls.getNextScrollUrl());
         }
-        if (table.isKeywordSniffEnable() && table.fieldsContext().size() > 0) {
+        if (table.isEnableKeywordSniff() && table.fieldsContext().size() > 0) {
             esScanNode.setFieldsContext(table.fieldsContext());
         }
         msg.es_scan_node = esScanNode;

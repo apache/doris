@@ -64,17 +64,17 @@ public class EsExternalDataSource extends ExternalDataSource {
 
     private String[] nodes;
 
-    private String username;
+    private String username = "";
 
-    private String password;
+    private String password = "";
 
-    private boolean enableDocValueScan;
+    private boolean enableDocValueScan = true;
 
-    private boolean enableKeywordSniff;
+    private boolean enableKeywordSniff = true;
 
-    private boolean enableSsl;
+    private boolean enableSsl = false;
 
-    private boolean enableNodesDiscovery;
+    private boolean enableNodesDiscovery = true;
 
     /**
      * Default constructor for EsExternalDataSource.

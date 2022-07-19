@@ -21,7 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.datasource.EsExternalDataSource;
 import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,6 +40,7 @@ public class EsExternalTable extends ExternalTable {
     private final EsExternalDataSource ds;
     private final String dbName;
     private boolean initialized = false;
+    private EsTable esTable;
 
     /**
      * Create elasticsearch external table.
@@ -113,12 +116,25 @@ public class EsExternalTable extends ExternalTable {
 
     @Override
     public TTableDescriptor toThrift() {
-        return super.toThrift();
+        TEsTable tEsTable = new TEsTable();
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE, fullSchema.size(), 0,
+                getName(), "");
+        tTableDescriptor.setEsTable(tEsTable);
+        return tTableDescriptor;
     }
 
     private EsTable toEsTable() {
-        EsTable esTable = new EsTable(this.id, this.name, this.fullSchema, TableType.ES_EXTERNAL_TABLE, name, null,
-                this.ds.getEsRestClient());
+        EsTable esTable = new EsTable(this.id, this.name, this.fullSchema, TableType.ES_EXTERNAL_TABLE);
+        esTable.setIndexName(name);
+        esTable.setClient(ds.getEsRestClient());
+        esTable.setUserName(ds.getUsername());
+        esTable.setPasswd(ds.getPassword());
+        esTable.setEnableDocValueScan(ds.isEnableDocValueScan());
+        esTable.setEnableKeywordSniff(ds.isEnableKeywordSniff());
+        esTable.setNodesDiscovery(ds.isEnableNodesDiscovery());
+        esTable.setHttpSslEnabled(ds.isEnableSsl());
+        esTable.setSeeds(ds.getNodes());
+        esTable.setHosts(String.join(",", ds.getNodes()));
         esTable.syncTableMetaData();
         return esTable;
     }
