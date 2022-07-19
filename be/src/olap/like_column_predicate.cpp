@@ -39,8 +39,8 @@ void LikeColumnPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* 
     }
 }
 
-void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel,
-                                   uint16_t* size) const {
+uint16_t LikeColumnPredicate::evaluate(const vectorized::IColumn& column, uint16_t* sel,
+                                   uint16_t size) const {
     uint16_t new_size = 0;
 
     if (column.is_nullable()) {
@@ -51,7 +51,7 @@ void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel,
             auto* nested_col_ptr = vectorized::check_and_get_column<
                     vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
             auto& data_array = nested_col_ptr->get_data();
-            for (uint16_t i = 0; i < *size; i++) {
+            for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 if (null_map_data[idx]) {
@@ -65,7 +65,7 @@ void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel,
                 new_size += _opposite ^ ((_state->function)(_fn_ctx, target, pattern).val);
             }
         } else {
-            for (uint16_t i = 0; i < *size; i++) {
+            for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 if (null_map_data[idx]) {
@@ -83,7 +83,7 @@ void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel,
             auto* nested_col_ptr = vectorized::check_and_get_column<
                     vectorized::ColumnDictionary<vectorized::Int32>>(column);
             auto& data_array = nested_col_ptr->get_data();
-            for (uint16_t i = 0; i < *size; i++) {
+            for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 StringValue cell_value = nested_col_ptr->get_value(data_array[idx]);
@@ -92,7 +92,7 @@ void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel,
                 new_size += _opposite ^ ((_state->function)(_fn_ctx, target, pattern).val);
             }
         } else {
-            for (uint16_t i = 0; i < *size; i++) {
+            for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 StringRef cell_value = column.get_data_at(idx);
@@ -102,7 +102,7 @@ void LikeColumnPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel,
         }
     }
 
-    *size = new_size;
+    return new_size;
 }
 
 void LikeColumnPredicate::evaluate_vec(const vectorized::IColumn& column, uint16_t size,
