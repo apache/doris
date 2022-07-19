@@ -20,6 +20,7 @@
 #include "common/config.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "runtime/auto_batch_load_mgr.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/exec_env.h"
@@ -764,12 +765,15 @@ void PInternalServiceImpl::auto_batch_load(google::protobuf::RpcController* cont
     SCOPED_SWITCH_BTHREAD();
     brpc::ClosureGuard closure_guard(done);
     response->mutable_status()->set_status_code(0);
-    // TODO call real auto batch load
-    auto st = Status::OK();
-    // TODO set label and txn_id
+    std::string label;
+    int64_t txn_id;
+    auto st = _exec_env->auto_batch_load_mgr()->auto_batch_load(request, label, txn_id);
     if (!st.ok()) {
         response->mutable_status()->set_status_code(1);
         response->mutable_status()->add_error_msgs(st.get_error_msg());
+    } else {
+        response->set_label(label);
+        response->set_txn_id(txn_id);
     }
 }
 

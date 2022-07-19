@@ -61,6 +61,7 @@ class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
 class StoragePolicyMgr;
+class AutoBatchLoadMgr;
 
 class BackendServiceClient;
 class FrontendServiceClient;
@@ -146,6 +147,7 @@ public:
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     StoragePolicyMgr* storage_policy_mgr() { return _storage_policy_mgr; }
+    AutoBatchLoadMgr* auto_batch_load_mgr() { return _auto_batch_load_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     size_t store_path_to_index(const std::string& path) { return _store_path_map[path]; }
@@ -229,6 +231,7 @@ private:
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
     StoragePolicyMgr* _storage_policy_mgr = nullptr;
+    AutoBatchLoadMgr* _auto_batch_load_mgr = nullptr;
 };
 
 template <>

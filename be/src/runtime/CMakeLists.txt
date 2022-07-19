@@ -107,7 +107,9 @@ set(RUNTIME_FILES
     fold_constant_executor.cpp
     cache/result_node.cpp
     cache/result_cache.cpp
-    odbc_table_sink.cpp	
+    odbc_table_sink.cpp
+    auto_batch_load_mgr.cpp
+    auto_batch_load_table.cpp
 )
 
 if (WITH_MYSQL)

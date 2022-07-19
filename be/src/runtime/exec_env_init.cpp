@@ -25,6 +25,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy_mgr.h"
+#include "runtime/auto_batch_load_mgr.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/bufferpool/reservation_tracker.h"
@@ -158,6 +159,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     RETURN_IF_ERROR(_load_channel_mgr->init(MemTracker::get_process_tracker()->limit()));
     _heartbeat_flags = new HeartbeatFlags();
+    _auto_batch_load_mgr = new AutoBatchLoadMgr(this);
     _register_metrics();
     _is_init = true;
     return Status::OK();
@@ -347,6 +349,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
+    SAFE_DELETE(_auto_batch_load_mgr);
 
     DEREGISTER_HOOK_METRIC(query_mem_consumption);
     DEREGISTER_HOOK_METRIC(load_mem_consumption);
