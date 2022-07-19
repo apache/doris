@@ -248,6 +248,7 @@ module.exports = [
           "spark-sink"
         ],
       },
+      "cloudcanal",
       {
         title: "自定义函数",
         directoryPath: "udf/",
@@ -790,7 +791,7 @@ module.exports = [
               "SHOW-STREAM-LOAD",
               "SHOW-SYNC-JOB",
               "SHOW-TABLE-ID",
-              "SHOW-TABLES",			  
+              "SHOW-TABLES",
               "SHOW-TABLE-STATUS",
               "SHOW-TABLET",
               "SHOW-TRANSACTION",
