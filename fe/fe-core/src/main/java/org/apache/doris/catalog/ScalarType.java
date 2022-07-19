@@ -440,15 +440,30 @@ public class ScalarType extends Type {
                 return "CHAR(*)";
             }
             return "CHAR(" + len + ")";
-        } else  if (type == PrimitiveType.DECIMALV2 || type.isDecimalV3Type()) {
+        } else  if (type == PrimitiveType.DECIMALV2) {
             if (isWildcardDecimal()) {
                 return "DECIMAL(*,*)";
             }
             return "DECIMAL(" + precision + "," + scale + ")";
+        } else  if (type == PrimitiveType.DECIMAL32) {
+            if (isWildcardDecimal()) {
+                return "DECIMAL32(*,*)";
+            }
+            return "DECIMAL32(" + precision + "," + scale + ")";
+        } else  if (type == PrimitiveType.DECIMAL64) {
+            if (isWildcardDecimal()) {
+                return "DECIMAL64(*,*)";
+            }
+            return "DECIMAL64(" + precision + "," + scale + ")";
+        } else  if (type == PrimitiveType.DECIMAL128) {
+            if (isWildcardDecimal()) {
+                return "DECIMAL128(*,*)";
+            }
+            return "DECIMAL128(" + precision + "," + scale + ")";
         } else  if (type == PrimitiveType.DATETIMEV2) {
-            return "Datetime(" + scale + ")";
+            return "DATETIMEV2(" + scale + ")";
         } else  if (type == PrimitiveType.TIMEV2) {
-            return "Time(" + scale + ")";
+            return "TIMEV2(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
                 return "VARCHAR(*)";
@@ -557,7 +572,8 @@ public class ScalarType extends Type {
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:
-            case DECIMAL128: {
+            case DECIMAL128:
+            case DATETIMEV2: {
                 scalarType.setScale(scale);
                 scalarType.setPrecision(precision);
                 break;
@@ -750,10 +766,6 @@ public class ScalarType extends Type {
         }
         if (type.isDecimalV2Type() || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
             return precision == other.precision && scale == other.scale;
-        }
-        if (type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
-            return precision == other.precision && scale == other.scale
-                    && type == ((ScalarType) o).getPrimitiveType();
         }
         return true;
     }

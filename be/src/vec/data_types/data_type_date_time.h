@@ -89,8 +89,13 @@ inline constexpr bool IsDateV2Type<DataTypeDateV2> = true;
 
 template <typename DataType>
 constexpr bool IsDateTimeV2Type = false;
+template <>
+inline constexpr bool IsDateTimeV2Type<DataTypeDateTimeV2> = true;
 
 template <typename DataType>
 constexpr bool IsTimeType = IsDateTimeType<DataType> || IsDateType<DataType>;
+
+template <typename DataType>
+constexpr bool IsTimeV2Type = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
 
 } // namespace doris::vectorized
