@@ -203,6 +203,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod =
                         Catalog.class.getDeclaredMethod("saveDatasource", CountingDataOutputStream.class, long.class);
                 break;
+            case "autoBatchLoadTableAndBe":
+                metaPersistMethod.readMethod = Catalog.class.getDeclaredMethod("loadAutoBatchLoadTableAndBe",
+                        DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod = Catalog.class.getDeclaredMethod("saveAutoBatchLoadTableAndBe",
+                        CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }

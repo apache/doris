@@ -161,6 +161,7 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.AutoBatchLoadTableAndBeInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -247,6 +248,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -418,6 +420,10 @@ public class Catalog {
     private RefreshManager refreshManager;
 
     private PolicyMgr policyMgr;
+
+    // map of table with auto_batch_load on and its load be
+    private volatile ConcurrentHashMap<Long, AutoBatchLoadTableAndBeInfo> autoBatchLoadTableToBackend
+            = new ConcurrentHashMap<>();
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -1899,6 +1905,16 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadAutoBatchLoadTableAndBe(DataInputStream dis, long checksum) throws IOException {
+        int size = dis.readInt();
+        long newChecksum = checksum ^ size;
+        for (int i = 0; i < size; i++) {
+            AutoBatchLoadTableAndBeInfo info = AutoBatchLoadTableAndBeInfo.read(dis);
+            replayAutoBatchLoadTableAndBeInfo(info);
+        }
+        return newChecksum;
+    }
+
     // Only called by checkpoint thread
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
@@ -2169,6 +2185,17 @@ public class Catalog {
      */
     public long saveDatasource(CountingDataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getDataSourceMgr().write(out);
+        return checksum;
+    }
+
+    public long saveAutoBatchLoadTableAndBe(CountingDataOutputStream dos, long checksum) throws IOException {
+        int size = autoBatchLoadTableToBackend.size();
+        checksum ^= size;
+
+        dos.writeInt(size);
+        for (AutoBatchLoadTableAndBeInfo info : autoBatchLoadTableToBackend.values()) {
+            info.write(dos);
+        }
         return checksum;
     }
 
@@ -3174,6 +3201,10 @@ public class Catalog {
         } finally {
             unlock();
         }
+    }
+
+    public void replayAutoBatchLoadTableAndBeInfo(AutoBatchLoadTableAndBeInfo info) {
+        autoBatchLoadTableToBackend.put(info.getTableId(), info);
     }
 
     public int getClusterId() {
@@ -4958,6 +4989,24 @@ public class Catalog {
             }
         }
         return count;
+    }
+
+    public long getOrSelectBackendIdsForAutoBatchLoadTable(long tableId) {
+        if (autoBatchLoadTableToBackend.containsKey(tableId)) {
+            return autoBatchLoadTableToBackend.get(tableId).getBeId();
+        }
+        List<Backend> candidateBes = getCurrentSystemInfo().getIdToBackend().values().stream()
+                .collect(Collectors.toList());
+        Collections.shuffle(candidateBes);
+        long selectBeId = candidateBes.get(0).getId();
+        autoBatchLoadTableToBackend.putIfAbsent(tableId, new AutoBatchLoadTableAndBeInfo(tableId, selectBeId));
+        long beId = autoBatchLoadTableToBackend.get(tableId).getBeId();
+        if (beId == selectBeId) {
+            // save table and be
+            AutoBatchLoadTableAndBeInfo info = new AutoBatchLoadTableAndBeInfo(tableId, beId);
+            editLog.logAutoBatchLoadTableAndBeInfo(info);
+        }
+        return beId;
     }
 
     public TableName getTableNameByTableId(Long tableId) {

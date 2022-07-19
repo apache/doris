@@ -51,6 +51,7 @@ import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
+import org.apache.doris.persist.AutoBatchLoadTableAndBeInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -671,6 +672,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
                 data = TableAddOrDropColumnsInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_AUTO_BATCH_LOAD_TABLE_AND_BE: {
+                data = AutoBatchLoadTableAndBeInfo.read(in);
                 isRead = true;
                 break;
             }

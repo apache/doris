@@ -856,6 +856,11 @@ public class EditLog {
                     catalog.getSchemaChangeHandler().replayModifyTableAddOrDropColumns(info);
                     break;
                 }
+                case OperationType.OP_AUTO_BATCH_LOAD_TABLE_AND_BE: {
+                    AutoBatchLoadTableAndBeInfo log = (AutoBatchLoadTableAndBeInfo) journal.getData();
+                    catalog.replayAutoBatchLoadTableAndBeInfo(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1489,5 +1494,9 @@ public class EditLog {
 
     public void logModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info) {
         logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS, info);
+    }
+
+    public void logAutoBatchLoadTableAndBeInfo(AutoBatchLoadTableAndBeInfo info) {
+        logEdit(OperationType.OP_AUTO_BATCH_LOAD_TABLE_AND_BE, info);
     }
 }
