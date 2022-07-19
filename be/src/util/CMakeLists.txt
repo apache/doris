@@ -47,11 +47,11 @@ set(UTIL_FILES
   parse_util.cpp
   path_builder.cpp
 # TODO: not supported on RHEL 5
-# perf-counters.cpp
+  perf_counters.cpp
   progress_updater.cpp
   runtime_profile.cpp
   static_asserts.cpp
-  storage_backend_mgr.cpp
+  # storage_backend_mgr.cpp
   string_parser.cpp
   thrift_util.cpp
   thrift_client.cpp
@@ -105,6 +105,7 @@ set(UTIL_FILES
   s3_util.cpp
   hdfs_storage_backend.cpp
   hdfs_util.cpp
+  time_lut.cpp
   topn_counter.cpp
   tuple_row_zorder_compare.cpp
   telemetry/telemetry.cpp

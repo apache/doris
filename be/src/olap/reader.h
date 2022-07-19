@@ -21,6 +21,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "exprs/bloomfilter_predicate.h"
+#include "exprs/function_filter.h"
 #include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
@@ -78,6 +79,7 @@ public:
 
         std::vector<TCondition> conditions;
         std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
+        std::vector<FunctionFilter> function_filters;
 
         std::vector<RowsetReaderSharedPtr> rs_readers;
         std::vector<uint32_t> return_columns;
@@ -162,6 +164,8 @@ protected:
 
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter);
+
+    ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter);
 
     Status _init_delete_condition(const ReaderParams& read_params);
 

@@ -192,6 +192,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS = "enable_nereids";
 
+    public static final String ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER =
+            "enable_remove_no_conjuncts_runtime_filter_policy";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -479,6 +482,9 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS)
     private boolean enableNereids = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER)
+    public boolean enableRemoveNoConjunctsRuntimeFilterPolicy = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -996,6 +1002,16 @@ public class SessionVariable implements Serializable, Writable {
      * Serialize to thrift object.
      * Used for rest api.
      **/
+    public boolean isEnableRemoveNoConjunctsRuntimeFilterPolicy() {
+        return enableRemoveNoConjunctsRuntimeFilterPolicy;
+    }
+
+    public void setEnableRemoveNoConjunctsRuntimeFilterPolicy(boolean enableRemoveNoConjunctsRuntimeFilterPolicy) {
+        this.enableRemoveNoConjunctsRuntimeFilterPolicy = enableRemoveNoConjunctsRuntimeFilterPolicy;
+    }
+
+    // Serialize to thrift object
+    // used for rest api
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);

@@ -22,12 +22,11 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
  * Job to explore {@link Group} in {@link org.apache.doris.nereids.memo.Memo}.
  */
-public class ExploreGroupJob extends Job<Plan> {
+public class ExploreGroupJob extends Job {
     private final Group group;
 
     /**

@@ -40,7 +40,7 @@ public:
     virtual void SetUp() {
         _tablet_meta = static_cast<TabletMetaSharedPtr>(new TabletMeta(
                 1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD, "", TCompressionType::LZ4F));
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
         _json_rowset_meta = R"({
             "rowset_id": 540081,
             "tablet_id": 15673,
@@ -192,9 +192,7 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, storage_param, nullptr));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
     _tablet->init();
 
     for (auto ptr : expired_rs_metas) {
@@ -240,9 +238,7 @@ TEST_F(TestTablet, cooldown_policy) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, storage_param, nullptr));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
     _tablet->init();
     _tablet->set_cooldown_resource("test_policy_name");
 

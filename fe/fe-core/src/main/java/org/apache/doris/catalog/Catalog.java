@@ -1515,6 +1515,9 @@ public class Catalog {
                 File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
                 MetaHelper.complete(filename, dir);
+            } else {
+                LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
+                         localImageVersion, version);
             }
         } catch (Exception e) {
             throw new IOException(e);
@@ -2868,6 +2871,12 @@ public class Catalog {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
+            // storage policy
+            if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
+                sb.append(olapTable.getStoragePolicy()).append("\"");
+            }
+
             // sequence type
             if (olapTable.hasSequenceCol()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
@@ -2961,7 +2970,6 @@ public class Catalog {
             if (esTable.getMappingType() != null) {
                 sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\",\n");
             }
-            sb.append("\"transport\" = \"").append(esTable.getTransport()).append("\",\n");
             sb.append("\"enable_docvalue_scan\" = \"").append(esTable.isDocValueScanEnable()).append("\",\n");
             sb.append("\"max_docvalue_fields\" = \"").append(esTable.maxDocValueFields()).append("\",\n");
             sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isKeywordSniffEnable()).append("\",\n");
@@ -3273,9 +3281,14 @@ public class Catalog {
                                     partitionId);
 
                             // log
-                            ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(),
-                                    partition.getId(), hddProperty, ReplicaAllocation.NOT_SET,
-                                    partitionInfo.getIsInMemory(partition.getId()));
+                            ModifyPartitionInfo info =
+                                    new ModifyPartitionInfo(db.getId(), olapTable.getId(),
+                                            partition.getId(),
+                                            hddProperty,
+                                            ReplicaAllocation.NOT_SET,
+                                            partitionInfo.getIsInMemory(partition.getId()),
+                                            partitionInfo.getStoragePolicy(partitionId));
+
                             editLog.logModifyPartition(info);
                         }
                     } // end for partitions
@@ -3922,13 +3935,13 @@ public class Catalog {
         Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
-            DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties);
+            DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties, db);
         } else {
             // Merge the new properties with origin properties, and then analyze them
             Map<String, String> origDynamicProperties = tableProperty.getOriginDynamicPartitionProperty();
             origDynamicProperties.putAll(properties);
             Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(
-                    origDynamicProperties, table.getPartitionInfo());
+                    origDynamicProperties, table, db);
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
             tableProperty.buildDynamicProperty();
         }
@@ -3984,7 +3997,7 @@ public class Catalog {
         partitionInfo.setReplicaAllocation(partition.getId(), replicaAlloc);
         // log
         ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), table.getId(), partition.getId(),
-                newDataProperty, replicaAlloc, isInMemory);
+                newDataProperty, replicaAlloc, isInMemory, partitionInfo.getStoragePolicy(partition.getId()));
         editLog.logModifyPartition(info);
         LOG.debug("modify partition[{}-{}-{}] replica allocation to {}", db.getId(), table.getId(), partition.getName(),
                 replicaAlloc.toCreateStmt());
@@ -4029,10 +4042,12 @@ public class Catalog {
             tableProperty.modifyTableProperties(properties);
         }
         tableProperty.buildInMemory();
+        tableProperty.buildStoragePolicy();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
             table.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
+            table.getPartitionInfo().setStoragePolicy(partition.getId(), tableProperty.getStoragePolicy());
         }
 
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
@@ -4063,6 +4078,9 @@ public class Catalog {
             if (opCode == OperationType.OP_MODIFY_IN_MEMORY) {
                 for (Partition partition : olapTable.getPartitions()) {
                     olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
+                    // storage policy re-use modify in memory
+                    Optional.ofNullable(tableProperty.getStoragePolicy()).filter(p -> !p.isEmpty())
+                        .ifPresent(p -> olapTable.getPartitionInfo().setStoragePolicy(partition.getId(), p));
                 }
             }
         } finally {
@@ -4826,7 +4844,8 @@ public class Catalog {
                         for (Replica replica : replicas) {
                             long backendId = replica.getBackendId();
                             long replicaId = replica.getId();
-                            DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId, replicaId, schemaHash);
+                            DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId,
+                                    replicaId, schemaHash, true);
                             batchTask.addTask(dropTask);
                         } // end for replicas
                     } // end for tablets

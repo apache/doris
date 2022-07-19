@@ -269,6 +269,8 @@ public:
         return res;
     }
 
+    inline const StringValue& get_value(value_type code) const { return _dict.get_value(code); }
+
     class Dictionary {
     public:
         Dictionary() = default;
@@ -294,6 +296,10 @@ public:
         T get_null_code() { return -1; }
 
         inline StringValue& get_value(T code) {
+            return code >= _dict_data.size() ? _null_value : _dict_data[code];
+        }
+
+        inline const StringValue& get_value(T code) const {
             return code >= _dict_data.size() ? _null_value : _dict_data[code];
         }
 
