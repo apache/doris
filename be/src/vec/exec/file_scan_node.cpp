@@ -31,9 +31,9 @@
 #include "util/types.h"
 #include "vec/exec/file_arrow_scanner.h"
 #include "vec/exec/file_text_scanner.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
@@ -47,8 +47,8 @@ FileScanNode::FileScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _max_buffered_batches(32),
           _wait_scanner_timer(nullptr),
           _runtime_filter_descs(tnode.runtime_filters) {
-            LOG(WARNING) << "file scan node runtime filter size=" << _runtime_filter_descs.size();
-          }
+    LOG(WARNING) << "file scan node runtime filter size=" << _runtime_filter_descs.size();
+}
 
 Status FileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::init(tnode, state));
@@ -390,7 +390,7 @@ Status FileScanNode::scanner_scan(const TFileScanRange& scan_range, ScannerCount
         {
             SCOPED_TIMER(_filter_timer);
             RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block.get(),
-                        _tuple_desc->slots().size()));
+                                                       _tuple_desc->slots().size()));
         }
         counter->num_rows_unselected += old_rows - block->rows();
         if (block->rows() == 0) {

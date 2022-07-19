@@ -58,9 +58,10 @@ Status BufferedReader::open() {
     _read_counter = ADD_COUNTER(_profile, "FileReadCalls", TUnit::UNIT);
     _remote_read_counter = ADD_COUNTER(_profile, "FileRemoteReadCalls", TUnit::UNIT);
     _remote_read_bytes = ADD_COUNTER(_profile, "FileRemoteReadBytes", TUnit::BYTES);
-    _remote_read_rate  = _profile->add_derived_counter(
+    _remote_read_rate = _profile->add_derived_counter(
             "FileRemoteReadRate", TUnit::BYTES_PER_SECOND,
-            std::bind<int64_t>(&RuntimeProfile::units_per_second, _remote_read_bytes, _remote_read_timer),
+            std::bind<int64_t>(&RuntimeProfile::units_per_second, _remote_read_bytes,
+                               _remote_read_timer),
             "");
 
     RETURN_IF_ERROR(_reader->open());

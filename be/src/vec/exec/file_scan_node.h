@@ -128,7 +128,6 @@ private:
     std::unique_ptr<MutableBlock> _mutable_block;
 
 protected:
-
     struct RuntimeFilterContext {
         RuntimeFilterContext() : apply_mark(false), runtimefilter(nullptr) {}
         bool apply_mark;
