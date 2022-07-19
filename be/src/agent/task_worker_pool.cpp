@@ -437,15 +437,16 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
                 LOG(WARNING) << "drop table failed! signature: " << agent_task_req.signature;
                 error_msgs.push_back("drop table failed!");
                 status_code = TStatusCode::RUNTIME_ERROR;
-            }
-            // if tablet is dropped by fe, then the related txn should also be removed
-            StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
-                    dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
-                    drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
-            // We remove remote rowset directly.
-            // TODO(cyx): do remove in background
-            if (drop_tablet_req.is_drop_table_or_partition) {
-                dropped_tablet->remove_all_remote_rowsets();
+            } else {
+                // if tablet is dropped by fe, then the related txn should also be removed
+                StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
+                        dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
+                        drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
+                // We remove remote rowset directly.
+                // TODO(cyx): do remove in background
+                if (drop_tablet_req.is_drop_table_or_partition) {
+                    dropped_tablet->remove_all_remote_rowsets();
+                }
             }
         } else {
             status_code = TStatusCode::NOT_FOUND;
