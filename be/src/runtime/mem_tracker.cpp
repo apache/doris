@@ -39,6 +39,7 @@ const std::string MemTracker::COUNTER_NAME = "PeakMemoryUsage";
 
 // The ancestor for all trackers. Every tracker is visible from the process down.
 // All manually created trackers should specify the process tracker as the parent.
+// Not limit total memory by process tracker, and it's just used to track virtual memory of process.
 static std::shared_ptr<MemTracker> process_tracker;
 static MemTracker* raw_process_tracker;
 static GoogleOnceType process_tracker_once = GOOGLE_ONCE_INIT;

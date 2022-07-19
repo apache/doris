@@ -183,7 +183,6 @@ Status ExecEnv::_init_mem_tracker() {
                      << ". Using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
-    MemTracker::get_process_tracker()->set_limit(global_memory_limit_bytes);
     _query_pool_mem_tracker = MemTracker::create_tracker(
             -1, "QueryPool", MemTracker::get_process_tracker(), MemTrackerLevel::OVERVIEW);
     REGISTER_HOOK_METRIC(query_mem_consumption,

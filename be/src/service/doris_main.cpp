@@ -58,6 +58,7 @@
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/logging.h"
+#include "util/perf_counters.h"
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
@@ -478,11 +479,13 @@ int main(int argc, char** argv) {
         !defined(USE_JEMALLOC)
         doris::MemInfo::refresh_current_mem();
 #endif
+        doris::PerfCounters::refresh_proc_status();
+
         // TODO(zxy) 10s is too long to clear the expired task mem tracker.
         // A query mem tracker is about 57 bytes, assuming 10000 qps, which wastes about 55M of memory.
         // It should be actively triggered at the end of query/load.
         doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
-        sleep(10);
+        sleep(1);
     }
 
     http_service.stop();

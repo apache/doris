@@ -29,6 +29,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "util/mem_info.h"
+#include "util/perf_counters.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 
@@ -112,7 +113,11 @@ public:
     static std::shared_ptr<MemTracker> get_temporary_mem_tracker(const std::string& label);
 
     Status check_sys_mem_info(int64_t bytes) {
-        if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
+        // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
+        // This is independent of the consumption value of the mem tracker, which counts the virtual memory
+        // of the process malloc.
+        // for fast, expect MemInfo::initialized() to be true.
+        if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit()) {
             return Status::MemoryLimitExceeded(
                     "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
                     _label, bytes, MemInfo::current_mem(), MemInfo::mem_limit());

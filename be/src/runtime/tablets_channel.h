@@ -171,7 +171,7 @@ Status TabletsChannel::_get_current_seq(int64_t& cur_seq, const Request& request
 template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
 Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
                                  TabletWriterAddResult* response) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t cur_seq = 0;
 
     auto status = _get_current_seq(cur_seq, request);

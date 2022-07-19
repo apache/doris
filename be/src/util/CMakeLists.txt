@@ -47,7 +47,7 @@ set(UTIL_FILES
   parse_util.cpp
   path_builder.cpp
 # TODO: not supported on RHEL 5
-# perf-counters.cpp
+  perf_counters.cpp
   progress_updater.cpp
   runtime_profile.cpp
   static_asserts.cpp
