@@ -33,8 +33,6 @@ public:
 
     PredicateType type() const override { return PredicateType::EQ; }
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
-    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                      uint16_t size) const override;
 
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
 
