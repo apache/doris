@@ -38,13 +38,10 @@ public class IcebergProperty {
     private String table;
     private String hiveMetastoreUris;
     private String catalogType;
-    private Map<String, String> dfsProperties = null;
+    private Map<String, String> dfsProperties = Maps.newHashMap();
 
-    private void getDfsProperties(Map<String, String> properties) {
+    private void initDfsProperties(Map<String, String> properties) {
         Iterator<Map.Entry<String, String>> iterator = properties.entrySet().iterator();
-        if (iterator.hasNext()) {
-            dfsProperties = Maps.newHashMap();
-        }
         while (iterator.hasNext()) {
             Map.Entry<String, String> entry = iterator.next();
             if (entry.getKey().startsWith(ICEBERG_HDFS_PREFIX)) {
@@ -60,7 +57,7 @@ public class IcebergProperty {
             this.table = properties.get(ICEBERG_TABLE);
             this.hiveMetastoreUris = properties.get(ICEBERG_HIVE_METASTORE_URIS);
             this.catalogType = properties.get(ICEBERG_CATALOG_TYPE);
-            getDfsProperties(properties);
+            initDfsProperties(properties);
         } else {
             this.exist = false;
         }
