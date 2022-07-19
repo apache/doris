@@ -59,8 +59,8 @@ public abstract class PlanVisitor<R, C> {
     }
 
 
-    public R visitLogicalAggregate(LogicalAggregate<Plan> relation, C context) {
-        return visit(relation, context);
+    public R visitLogicalAggregate(LogicalAggregate<Plan> agg, C context) {
+        return visit(agg, context);
     }
 
     public R visitLogicalFilter(LogicalFilter<Plan> filter, C context) {

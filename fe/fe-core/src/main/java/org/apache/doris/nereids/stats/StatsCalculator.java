@@ -1,0 +1,135 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.stats;
+
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.statistics.StatsDeriveResult;
+
+import java.util.List;
+
+public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
+
+    private final GroupExpression groupExpression;
+
+    public StatsCalculator(GroupExpression groupExpression) {
+        this.groupExpression = groupExpression;
+    }
+
+    public void estimate() {
+        StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
+        groupExpression.getParent().setStatistics(stats);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalAggregate(LogicalAggregate<Plan> agg, Void context) {
+        List<Expression> expressionList = agg.getGroupByExpressionList();
+        for (Expression expression : expressionList) {
+
+        }
+        return super.visitLogicalAggregate(agg, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalFilter(LogicalFilter<Plan> filter, Void context) {
+        return super.visitLogicalFilter(filter, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalOlapScan(LogicalOlapScan olapScan, Void context) {
+        return super.visitLogicalOlapScan(olapScan, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalProject(LogicalProject<Plan> project, Void context) {
+        return super.visitLogicalProject(project, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalSort(LogicalSort<Plan> sort, Void context) {
+        return super.visitLogicalSort(sort, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalJoin(LogicalJoin<Plan, Plan> join, Void context) {
+        return super.visitLogicalJoin(join, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitGroupPlan(GroupPlan groupPlan, Void context) {
+        return super.visitGroupPlan(groupPlan, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalAggregate(PhysicalAggregate<Plan> agg, Void context) {
+        return super.visitPhysicalAggregate(agg, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalScan(PhysicalRelation scan, Void context) {
+        return super.visitPhysicalScan(scan, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalOlapScan(PhysicalOlapScan olapScan, Void context) {
+        return super.visitPhysicalOlapScan(olapScan, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalHeapSort(PhysicalHeapSort<Plan> sort, Void context) {
+        return super.visitPhysicalHeapSort(sort, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, Void context) {
+        return super.visitPhysicalHashJoin(hashJoin, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalProject(PhysicalProject<Plan> project, Void context) {
+        return super.visitPhysicalProject(project, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalFilter(PhysicalFilter<Plan> filter, Void context) {
+        return super.visitPhysicalFilter(filter, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalDistribution(PhysicalDistribution<Plan> distribution, Void context) {
+        return super.visitPhysicalDistribution(distribution, context);
+    }
+
+}
