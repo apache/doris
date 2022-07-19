@@ -85,12 +85,10 @@ public class RewriteBottomUpJob extends Job {
                     Pair<Boolean, GroupExpression> pair = context.getPlannerContext()
                             .getMemo()
                             .copyIn(after, group, rule.isRewrite());
-                    GroupExpression groupExpr = pair.second;
-                    groupExpr.setApplied(rule);
-                    if (!pair.first) {
+                    if (pair.first) {
                         pushTask(new RewriteBottomUpJob(group, rules, context, false));
+                        return;
                     }
-                    return;
                 }
             }
         }

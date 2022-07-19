@@ -65,7 +65,9 @@ public class ApplyRuleJob extends Job {
             for (Plan newPlan : newPlans) {
                 Pair<Boolean, GroupExpression> pair = context.getPlannerContext().getMemo()
                         .copyIn(newPlan, groupExpression.getOwnerGroup(), rule.isRewrite());
-                if (pair.first) continue;
+                if (!pair.first) {
+                    continue;
+                }
                 GroupExpression newGroupExpression = pair.second;
 
                 if (newPlan instanceof LogicalPlan) {
