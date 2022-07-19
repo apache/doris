@@ -749,7 +749,7 @@ Status PartitionedAggregationNode::Partition::InitStreams() {
         LOG(WARNING) << "Buffer included in reservation " << parent->_id << "\n"
                      << parent->_buffer_pool_client.DebugString() << "\n"
                      << parent->DebugString(2);
-        return Status::BufferAllocFailed("PartitionedAggregationNode buffre prepare failed");
+        return Status::BufferAllocFailed("PartitionedAggregationNode buffer prepare failed");
     }
 
     if (!parent->is_streaming_preagg_) {
