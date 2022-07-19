@@ -29,18 +29,14 @@ ROOT=$(
 )
 
 CURDIR=${ROOT}
-DATA_DIR=$CURDIR/ssb-data/
-DATA_DIR=/mnt/disk1/stephen
+DATA_DIR=$CURDIR/
+# DATA_DIR=/mnt/disk1/stephen/data/clickbench
 
 usage() {
     echo "
-Usage: $0 <options>
-  Optional options:
-     -c             parallelism to load data of lineorder table, default is 5.
-
-  Eg.
-    $0              load data using default value.
-    $0 -c 10        load lineorder table data using parallelism 10.     
+This script is used to load ClickBench data, 
+will use mysql client to connect Doris server which is specified in conf/doris-cluster.conf file.
+Usage: $0 
   "
     exit 1
 }
@@ -48,27 +44,16 @@ Usage: $0 <options>
 OPTS=$(getopt \
     -n $0 \
     -o '' \
-    -o 'hc:' \
+    -o 'h' \
     -- "$@")
-
 eval set -- "$OPTS"
 
-PARALLEL=5
 HELP=0
-
-if [ $# == 0 ]; then
-    usage
-fi
-
 while true; do
     case "$1" in
     -h)
         HELP=1
         shift
-        ;;
-    -c)
-        PARALLEL=$2
-        shift 2
         ;;
     --)
         shift
@@ -117,7 +102,7 @@ function check_doirs_conf() {
         exit_flag=true
     fi
 
-    cv=$(curl "${BE_HOST}:${BE_WEBSERVER_PORT}/varz" | grep 'streaming_load_max_mb' | awk -F'=' '{print $2}')
+    cv=$(curl "${BE_HOST}:${BE_WEBSERVER_PORT}/varz" 2>/dev/null | grep 'streaming_load_max_mb' | awk -F'=' '{print $2}')
     if (($cv < 16000)); then
         echo -e "please revise your Doris BE's conf to set 'streaming_load_max_mb=16000' or above \noptional: 'flush_thread_num_per_store=5' to speed up load."
         exit_flag=true
@@ -129,12 +114,15 @@ function check_doirs_conf() {
 function load() {
     echo "(1/2) prepare clickbench data file"
     if [ ! -f $DATA_DIR/hits.tsv.gz ]; then
-        echo "can not find data file in local, will download it"
+        echo "can not find data file in $DATA_DIR, will download it"
         if [ ! -d $DATA_DIR ]; then mkdir -p $DATA_DIR; fi
-        cd $DATA_DIR && wget --continue 'https://datasets.clickhouse.com/hits_compatible/hits.tsv.gz' && cd -
+        cd $DATA_DIR
+        wget --continue 'https://datasets.clickhouse.com/hits_compatible/hits.tsv.gz'
+        # wget --continue 'https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/ClickBench/hits.tsv.gz'
+        cd -
     fi
 
-    echo "(2/2) load clickbench data file into Doris"
+    echo "(2/2) load clickbench data file $DATA_DIR/hits.tsv.gz into Doris"
     curl --location-trusted \
         -u $USER:$PASSWORD \
         -T "$DATA_DIR/hits.tsv.gz" \
