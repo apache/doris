@@ -20,6 +20,7 @@
 #include "exec/olap_common.h"
 #include "exec/scan_node.h"
 #include "exprs/bloomfilter_predicate.h"
+#include "exprs/function_filter.h"
 #include "exprs/in_predicate.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -65,10 +66,13 @@ private:
     // only key column conjuncts will be remove as idle conjunct
     bool is_key_column(const std::string& key_name);
     void remove_pushed_conjuncts(RuntimeState* state);
+
     Status start_scan(RuntimeState* state);
     void eval_const_conjuncts();
     Status normalize_conjuncts();
     Status build_key_ranges_and_filters();
+    Status build_function_filters();
+
     template <PrimitiveType T>
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
 
@@ -143,6 +147,15 @@ private:
     // 2. std::pair.second :: shared_ptr of BloomFilterFuncBase
     std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>
             _bloom_filters_push_down;
+
+    // push down functions to storage engine
+    // only support scalar functions, now just support like / not like
+    std::vector<FunctionFilter> _push_down_functions;
+    // functions conjunct's index which already be push down storage engine
+    std::set<uint32_t> _pushed_func_conjuncts_index;
+    // need keep these conjunct to the end of scan node,
+    // since some memory referenced by pushed function filters
+    std::vector<ExprContext*> _pushed_func_conjunct_ctxs;
 
     // Pool for storing allocated scanner objects.  We don't want to use the
     // runtime pool to ensure that the scanner objects are deleted before this
