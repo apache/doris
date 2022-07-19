@@ -42,7 +42,7 @@ TEST(TabletMetaTest, SaveAndParse) {
 }
 
 TEST(TabletMetaTest, TestDeleteBitmap) {
-    std::unique_ptr<DeleteBitmap> dbmp(new DeleteBitmap());
+    std::unique_ptr<DeleteBitmap> dbmp(new DeleteBitmap(10086));
     auto gen1 = [&dbmp](int64_t max_rst_id, uint32_t max_seg_id, uint32_t max_row) {
         for (int64_t i = 0; i < max_rst_id; ++i) {
             for (uint32_t j = 0; j < max_seg_id; ++j) {
@@ -96,7 +96,7 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
     }
 
     {
-        DeleteBitmap db_upper;
+        DeleteBitmap db_upper(10086);
         dbmp->subset({RowsetId {2, 0, 1, 1}, 1, 0}, {RowsetId {2, 0, 1, 1}, 1000000, 0}, &db_upper);
         roaring::Roaring d;
         ASSERT_EQ(db_upper.get({RowsetId {2, 0, 1, 1}, 1, 1}, &d), 0);
@@ -109,7 +109,7 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
     {
         auto old_size = dbmp->delete_bitmap.size();
         // test merge
-        DeleteBitmap other;
+        DeleteBitmap other(10086);
         other.add({RowsetId {2, 0, 1, 1}, 1, 1}, 1100);
         dbmp->merge(other);
         ASSERT_EQ(dbmp->delete_bitmap.size(), old_size);
@@ -122,7 +122,8 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
     ////////////////////////////////////////////////////////////////////////////
     // Cache test
     ////////////////////////////////////////////////////////////////////////////
-    { // Aggregation bitmap contains all row ids that are in versions smaller or
+    // Aggregation bitmap contains all row ids that are in versions smaller or
+    {
         // equal to the given version, boundary test
         auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 2});
         ASSERT_EQ(bm->cardinality(), 1005);
@@ -136,8 +137,9 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
         ASSERT_EQ(bm->cardinality(), 1005);
     }
 
-    { // Aggregation bitmap contains all row ids that are in versions smaller or
-        // equal to the given version, normal test
+    // Aggregation bitmap contains all row ids that are in versions smaller or
+    // equal to the given version, normal test
+    { 
         auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 1000});
         ASSERT_EQ(bm->cardinality(), 1005);
         ASSERT_TRUE(bm->contains(999));
@@ -156,40 +158,14 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
     ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 2}, 1104));
     ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 2}, 1103));
 
-    {                                          // Test expiration
-        dbmp->_agg_cache->expiration_ms = 100; // Hack into expiration
-        dbmp->add({RowsetId {2, 0, 1, 1}, 1, 3}, 1105);
-        auto bm1 = dbmp->get({RowsetId {2, 0, 1, 1}, 1, 3});
-        ASSERT_EQ(bm1->cardinality(), 1);
-        // Newly added version will be cached immediately
-        auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 3});
-        ASSERT_EQ(bm->cardinality(), 1006);
-        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1104));
-        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1105));
+    // Test c-tor of agg cache with global LRU
+    int cached_cardinality = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 2})->cardinality();
+    {
+        // New delete bitmap with old agg cache
+        std::unique_ptr<DeleteBitmap> dbmp(new DeleteBitmap(10086));
+        auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 2});
         ASSERT_TRUE(bm->contains(1104));
-        ASSERT_TRUE(bm->contains(1105));
-
-        dbmp->add({RowsetId {2, 0, 1, 1}, 1, 3}, 1106);
-        bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 3});
-        ASSERT_EQ(bm->cardinality(), 1006); // Not changed, due to cache
-        ASSERT_TRUE(dbmp->contains({RowsetId {2, 0, 1, 1}, 1, 3}, 1106));
-        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1104));
-        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1105));
-        ASSERT_FALSE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1106));
-        ASSERT_TRUE(bm->contains(1104));
-        ASSERT_TRUE(bm->contains(1105));
-        ASSERT_FALSE(bm->contains(1106));
-
-        std::this_thread::sleep_for( // Wait for expiration
-                std::chrono::milliseconds(1 + dbmp->_agg_cache->expiration_ms));
-        bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 3});
-        ASSERT_EQ(bm->cardinality(), 1007); // Refreshed
-        ASSERT_TRUE(bm->contains(1104));
-        ASSERT_TRUE(bm->contains(1105));
-        ASSERT_TRUE(bm->contains(1106));
-        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1104));
-        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1105));
-        ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 3}, 1106));
+        ASSERT_EQ(bm->cardinality(), cached_cardinality);
     }
 }
 

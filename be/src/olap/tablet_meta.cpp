@@ -51,7 +51,7 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
 }
 
 TabletMeta::TabletMeta()
-        : _tablet_uid(0, 0), _schema(new TabletSchema), _delete_bitmap(new DeleteBitmap()) {}
+        : _tablet_uid(0, 0), _schema(new TabletSchema), _delete_bitmap(new DeleteBitmap(_tablet_id)) {}
 
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id,
                        int64_t replica_id, int32_t schema_hash, uint64_t shard_id,
@@ -60,7 +60,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        TabletUid tablet_uid, TTabletType::type tabletType,
                        TCompressionType::type compression_type, const std::string& storage_policy,
                        bool enable_unique_key_merge_on_write)
-        : _tablet_uid(0, 0), _schema(new TabletSchema), _delete_bitmap(new DeleteBitmap()) {
+        : _tablet_uid(0, 0), _schema(new TabletSchema), _delete_bitmap(new DeleteBitmap(tablet_id)) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
     tablet_meta_pb.set_partition_id(partition_id);
@@ -758,26 +758,29 @@ bool operator!=(const TabletMeta& a, const TabletMeta& b) {
     return !(a == b);
 }
 
-DeleteBitmap::DeleteBitmap() {
-    _agg_cache.reset(new AggCache(config::delete_bitmap_agg_cache_capacity,
-                                  config::delete_bitmap_agg_cache_expiration_ms));
+DeleteBitmap::DeleteBitmap(int64_t tablet_id) : _tablet_id(tablet_id) {
+    _agg_cache.reset(new AggCache(config::delete_bitmap_agg_cache_capacity));
 }
 
 DeleteBitmap::DeleteBitmap(const DeleteBitmap& o) {
     delete_bitmap = o.delete_bitmap; // just copy data
+    _tablet_id = o._tablet_id;
 }
 
 DeleteBitmap& DeleteBitmap::operator=(const DeleteBitmap& o) {
     delete_bitmap = o.delete_bitmap; // just copy data
+    _tablet_id = o._tablet_id;
     return *this;
 }
 
 DeleteBitmap::DeleteBitmap(DeleteBitmap&& o) {
     delete_bitmap = std::move(o.delete_bitmap);
+    _tablet_id = o._tablet_id;
 }
 
 DeleteBitmap& DeleteBitmap::operator=(DeleteBitmap&& o) {
     delete_bitmap = std::move(o.delete_bitmap);
+    _tablet_id = o._tablet_id;
     return *this;
 }
 
@@ -863,31 +866,36 @@ void DeleteBitmap::merge(const DeleteBitmap& other) {
     }
 }
 
-// FIXME: do we need a mutex here to get rid of duplicated initializations
-//        of cache entries in some cases?
+// We cannot just copy the underlying memory to construct a string
+// due to equivalent objects may have different padding bytes.
+// Reading padding bytes is undefined behavior, neither copy nor
+// placement new will help simplify the code.
+// Refer to C11 standards §6.2.6.1/6 and §6.7.9/21 for more info.
+static std::string agg_cache_key(int64_t tablet_id, const DeleteBitmap::BitmapKey& bmk) {
+    std::string ret(sizeof(tablet_id) + sizeof(bmk), '\0');
+    *reinterpret_cast<int64_t*>(ret.data()) = tablet_id;
+    auto t = reinterpret_cast<DeleteBitmap::BitmapKey*>(ret.data() + sizeof(tablet_id));
+    std::get<RowsetId>(*t).version = std::get<RowsetId>(bmk).version;
+    std::get<RowsetId>(*t).hi      = std::get<RowsetId>(bmk).hi;
+    std::get<RowsetId>(*t).mi      = std::get<RowsetId>(bmk).mi;
+    std::get<RowsetId>(*t).lo      = std::get<RowsetId>(bmk).lo;
+    std::get<1>(*t)                = std::get<1>(bmk);
+    std::get<2>(*t)                = std::get<2>(bmk);
+    return ret;
+}
+
 std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) const {
-    std::string key_str = AggCache::new_key(bmk);
+    std::string key_str = agg_cache_key(_tablet_id, bmk); // Cache key container
     CacheKey key(key_str);
-    Cache::Handle* handle = _agg_cache->lookup(key);
+    Cache::Handle* handle = _agg_cache->repr()->lookup(key);
 
     AggCache::Value* val = handle == nullptr
                                    ? nullptr
-                                   : reinterpret_cast<AggCache::Value*>(_agg_cache->value(handle));
-    static auto ts_ms = [] {
-        return std::chrono::duration_cast<std::chrono::milliseconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                .count();
-    };
-    // Renew if needed
-    if (val == nullptr || (val->expiration > 0 && val->expiration < ts_ms())) {
-        if (val != nullptr) {            // Expired
-            _agg_cache->release(handle); // We just looked-up this key
-            _agg_cache->erase(key);
-        }
-
-        // Put a new Value to cache
-        val = new AggCache::Value(
-                _agg_cache->expiration_ms < 0 ? -1 : ts_ms() + _agg_cache->expiration_ms);
+                                   : reinterpret_cast<AggCache::Value*>(_agg_cache->repr()->value(handle));
+    // FIXME: do we need a mutex here to get rid of duplicated initializations
+    //        of cache entries in some cases?
+    if (val == nullptr) { // Renew if needed, put a new Value to cache
+        val = new AggCache::Value();
         {
             std::shared_lock l(lock);
             DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};
@@ -904,14 +912,14 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
             delete (AggCache::Value*)value; // Just delete to reclaim
         };
         size_t charge = val->bitmap.getSizeInBytes() + sizeof(AggCache::Value);
-        handle = _agg_cache->insert(key, val, charge, deleter, CachePriority::NORMAL);
+        handle = _agg_cache->repr()->insert(key, val, charge, deleter, CachePriority::NORMAL);
     }
 
     // It is natural for the cache to reclaim the underlying memory
     return std::shared_ptr<roaring::Roaring>(&val->bitmap,
-                                             [this, handle](...) { _agg_cache->release(handle); });
+                                             [this, handle](...) { _agg_cache->repr()->release(handle); });
 }
 
-decltype(DeleteBitmap::AggCache::s_unique_id) DeleteBitmap::AggCache::s_unique_id {0};
+std::atomic<ShardedLRUCache*> DeleteBitmap::AggCache::s_repr {nullptr};
 
 } // namespace doris
