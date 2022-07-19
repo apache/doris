@@ -507,6 +507,20 @@ public abstract class Type {
         if (t1.isScalarType() && t2.isScalarType()) {
             return ScalarType.getAssignmentCompatibleType((ScalarType) t1, (ScalarType) t2, strict);
         }
+
+        if (t1.isArrayType() && t2.isArrayType()) {
+            ArrayType arrayType1 = (ArrayType) t1;
+            ArrayType arrayType2 = (ArrayType) t2;
+            Type itemCompatibleType = Type.getAssignmentCompatibleType(arrayType1.getItemType(),
+                    arrayType2.getItemType(), strict);
+
+            if (itemCompatibleType.isInvalid()) {
+                return itemCompatibleType;
+            }
+
+            return new ArrayType(itemCompatibleType, arrayType1.getContainsNull() || arrayType2.getContainsNull());
+        }
+
         return ScalarType.INVALID;
     }
 
