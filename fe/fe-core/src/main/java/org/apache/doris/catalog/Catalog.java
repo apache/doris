@@ -1515,6 +1515,9 @@ public class Catalog {
                 File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
                 MetaHelper.complete(filename, dir);
+            } else {
+                LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
+                         localImageVersion, version);
             }
         } catch (Exception e) {
             throw new IOException(e);
@@ -2869,7 +2872,7 @@ public class Catalog {
             }
 
             // storage policy
-            if (!olapTable.getStoragePolicy().equals("")) {
+            if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
                 sb.append(olapTable.getStoragePolicy()).append("\"");
             }
@@ -2967,7 +2970,6 @@ public class Catalog {
             if (esTable.getMappingType() != null) {
                 sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\",\n");
             }
-            sb.append("\"transport\" = \"").append(esTable.getTransport()).append("\",\n");
             sb.append("\"enable_docvalue_scan\" = \"").append(esTable.isDocValueScanEnable()).append("\",\n");
             sb.append("\"max_docvalue_fields\" = \"").append(esTable.maxDocValueFields()).append("\",\n");
             sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isKeywordSniffEnable()).append("\",\n");
@@ -3933,13 +3935,13 @@ public class Catalog {
         Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
-            DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties);
+            DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties, db);
         } else {
             // Merge the new properties with origin properties, and then analyze them
             Map<String, String> origDynamicProperties = tableProperty.getOriginDynamicPartitionProperty();
             origDynamicProperties.putAll(properties);
             Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(
-                    origDynamicProperties, table.getPartitionInfo());
+                    origDynamicProperties, table, db);
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
             tableProperty.buildDynamicProperty();
         }

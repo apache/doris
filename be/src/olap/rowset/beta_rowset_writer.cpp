@@ -24,7 +24,6 @@
 #include "env/env.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
-#include "olap/fs/fs_util.h"
 #include "olap/memtable.h"
 #include "olap/olap_define.h"
 #include "olap/row.h"        // ContiguousRow
@@ -278,7 +277,7 @@ Status BetaRowsetWriter::_create_segment_writer(
     if (!fs) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
     }
-    std::unique_ptr<io::FileWriter> file_writer;
+    io::FileWriterPtr file_writer;
     Status st = fs->create_file(path, &file_writer);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path

@@ -55,7 +55,7 @@ Status FileArrowScanner::_open_next_reader() {
         const TFileRangeDesc& range = _ranges[_next_range++];
         std::unique_ptr<FileReader> file_reader;
         FileReader* hdfs_reader = nullptr;
-        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path,
+        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(_params.hdfs_params, range.path,
                                                         range.start_offset, &hdfs_reader));
         file_reader.reset(new BufferedReader(_profile, hdfs_reader));
         RETURN_IF_ERROR(file_reader->open());
@@ -66,8 +66,9 @@ Status FileArrowScanner::_open_next_reader() {
 
         int32_t num_of_columns_from_file = _file_slot_descs.size();
 
-        _cur_file_reader = _new_arrow_reader(file_reader.release(), _state->batch_size(),
-                                             num_of_columns_from_file);
+        _cur_file_reader =
+                _new_arrow_reader(file_reader.release(), _state->batch_size(),
+                                  num_of_columns_from_file, range.start_offset, range.size);
 
         auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
         Status status = _cur_file_reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs,
@@ -184,7 +185,7 @@ Status FileArrowScanner::_append_batch_to_block(Block* block) {
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         RETURN_IF_ERROR(arrow_column_to_doris_column(
                 array, _arrow_batch_cur_idx, column_with_type_and_name.column,
-                column_with_type_and_name.type, num_elements, _state->timezone()));
+                column_with_type_and_name.type, num_elements, _state->timezone_obj()));
     }
     _rows += num_elements;
     _arrow_batch_cur_idx += num_elements;
@@ -217,8 +218,11 @@ VFileParquetScanner::VFileParquetScanner(RuntimeState* state, RuntimeProfile* pr
 }
 
 ArrowReaderWrap* VFileParquetScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                                        int32_t num_of_columns_from_file) {
-    return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file);
+                                                        int32_t num_of_columns_from_file,
+                                                        int64_t range_start_offset,
+                                                        int64_t range_size) {
+    return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file,
+                                 range_start_offset, range_size);
 }
 
 void VFileParquetScanner::_init_profiles(RuntimeProfile* profile) {
@@ -237,7 +241,9 @@ VFileORCScanner::VFileORCScanner(RuntimeState* state, RuntimeProfile* profile,
         : FileArrowScanner(state, profile, params, ranges, pre_filter_texprs, counter) {}
 
 ArrowReaderWrap* VFileORCScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                                    int32_t num_of_columns_from_file) {
+                                                    int32_t num_of_columns_from_file,
+                                                    int64_t range_start_offset,
+                                                    int64_t range_size) {
     return new ORCReaderWrap(file_reader, batch_size, num_of_columns_from_file);
 }
 

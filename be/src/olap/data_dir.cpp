@@ -40,7 +40,6 @@
 #include "io/fs/path.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
-#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta_manager.h"
@@ -48,8 +47,6 @@
 #include "service/backend_options.h"
 #include "util/errno.h"
 #include "util/file_utils.h"
-#include "util/storage_backend.h"
-#include "util/storage_backend_mgr.h"
 #include "util/string_util.h"
 
 using strings::Substitute;
@@ -368,7 +365,7 @@ Status DataDir::load() {
     auto load_rowset_func = [&dir_rowset_metas, &local_fs = fs()](
                                     TabletUid tablet_uid, RowsetId rowset_id,
                                     const std::string& meta_str) -> bool {
-        RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;

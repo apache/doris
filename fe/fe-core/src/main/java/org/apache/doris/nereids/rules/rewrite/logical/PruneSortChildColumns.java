@@ -51,7 +51,7 @@ public class PruneSortChildColumns extends AbstractPushDownProjectRule<LogicalSo
             return sortPlan;
         }
         return sortPlan.withChildren(
-            ImmutableList.of(new LogicalProject(Lists.newArrayList(required), sortPlan.child()))
+            ImmutableList.of(new LogicalProject<>(Lists.newArrayList(required), sortPlan.child()))
         );
     }
 }

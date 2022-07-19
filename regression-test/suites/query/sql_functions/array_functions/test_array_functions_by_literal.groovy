@@ -59,4 +59,10 @@ suite("test_array_functions_by_literal", "all") {
     qt_sql "select [1,2,NULL][3]"
     qt_sql "select [1,2,NULL][2]"
     qt_sql "select [][-1]"
+
+    // array_aggregation function
+    qt_sql "select array_avg([1,2,3])"
+    qt_sql "select array_sum([1,2,3])"
+    qt_sql "select array_min([1,2,3])"
+    qt_sql "select array_max([1,2,3])"
 }

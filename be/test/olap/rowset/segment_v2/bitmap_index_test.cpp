@@ -22,6 +22,7 @@
 
 #include "common/logging.h"
 #include "env/env.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -59,7 +60,7 @@ void write_index_file(const std::string& filename, io::FileSystem* fs, const voi
                       size_t value_count, size_t null_count, ColumnIndexMetaPB* meta) {
     const auto* type_info = get_scalar_type_info<type>();
     {
-        std::unique_ptr<io::FileWriter> file_writer;
+        io::FileWriterPtr file_writer;
         EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
         std::unique_ptr<BitmapIndexWriter> writer;
@@ -75,7 +76,9 @@ void write_index_file(const std::string& filename, io::FileSystem* fs, const voi
 template <FieldType type>
 void get_bitmap_reader_iter(const std::string& file_name, const ColumnIndexMetaPB& meta,
                             BitmapIndexReader** reader, BitmapIndexIterator** iter) {
-    *reader = new BitmapIndexReader(io::global_local_filesystem(), file_name, &meta.bitmap_index());
+    io::FileReaderSPtr file_reader;
+    ASSERT_EQ(io::global_local_filesystem()->open_file(file_name, &file_reader), Status::OK());
+    *reader = new BitmapIndexReader(std::move(file_reader), &meta.bitmap_index());
     auto st = (*reader)->load(true, false);
     EXPECT_TRUE(st.ok());
 
@@ -95,7 +98,6 @@ TEST_F(BitmapIndexTest, test_invert) {
     write_index_file<OLAP_FIELD_TYPE_INT>(file_name, io::global_local_filesystem(), val,
                                           num_uint8_rows, 0, &meta);
     {
-        std::unique_ptr<RandomAccessFile> rfile;
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
         get_bitmap_reader_iter<OLAP_FIELD_TYPE_INT>(file_name, meta, &reader, &iter);

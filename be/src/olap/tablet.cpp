@@ -70,14 +70,13 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_count, MetricUnit::OPERATIONS);
 
 TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-                                                const StorageParamPB& storage_param,
                                                 DataDir* data_dir) {
-    return std::make_shared<Tablet>(tablet_meta, storage_param, data_dir);
+    return std::make_shared<Tablet>(tablet_meta, data_dir);
 }
 
-Tablet::Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param,
-               DataDir* data_dir, const std::string& cumulative_compaction_type)
-        : BaseTablet(tablet_meta, storage_param, data_dir),
+Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
+               const std::string& cumulative_compaction_type)
+        : BaseTablet(tablet_meta, data_dir),
           _is_bad(false),
           _last_cumu_compaction_failure_millis(0),
           _last_base_compaction_failure_millis(0),
@@ -1816,6 +1815,12 @@ const TabletSchema& Tablet::tablet_schema() const {
     const RowsetMetaSharedPtr rowset_meta =
             rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas());
     return *rowset_meta->tablet_schema();
+}
+
+Status Tablet::lookup_row_key(const Slice& encoded_key, RowLocation* row_location) {
+    // TODO(zhannngchen): to be implemented in next patch, align with rowset-tree usage and
+    // update.
+    return Status::NotFound("can't find key in all rowsets");
 }
 
 } // namespace doris
