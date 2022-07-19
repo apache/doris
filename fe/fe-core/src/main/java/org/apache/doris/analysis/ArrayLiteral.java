@@ -29,7 +29,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class ArrayLiteral extends LiteralExpr {
@@ -39,20 +38,35 @@ public class ArrayLiteral extends LiteralExpr {
         children = new ArrayList<>();
     }
 
-    public ArrayLiteral(LiteralExpr... v) {
+    public ArrayLiteral(LiteralExpr... exprs) throws AnalysisException {
         Type itemType = Type.NULL;
         boolean containsNull = false;
-        for (LiteralExpr expr : v) {
-            if (itemType == Type.NULL || expr.type.getSlotSize() > itemType.getSlotSize()) {
-                itemType = expr.type;
+        for (LiteralExpr expr : exprs) {
+            if (itemType == Type.NULL) {
+                itemType = expr.getType();
+            } else {
+                itemType = Type.getAssignmentCompatibleType(itemType, expr.getType(), false);
             }
+
             if (expr.isNullable()) {
                 containsNull = true;
             }
         }
+
+        if (itemType == Type.NULL || itemType == Type.INVALID) {
+            throw new AnalysisException("Invalid element type in ARRAY");
+        }
+
         type = new ArrayType(itemType, containsNull);
-        children = new ArrayList<>(v.length);
-        children.addAll(Arrays.asList(v));
+
+        children = new ArrayList<>();
+        for (LiteralExpr expr : exprs) {
+            if (expr.getType() == itemType) {
+                children.add(expr);
+            } else {
+                children.add(expr.castTo(itemType));
+            }
+        }
     }
 
     protected ArrayLiteral(ArrayLiteral other) {
