@@ -1,6 +1,5 @@
 package org.apache.doris.nereids.util;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -14,43 +13,54 @@ import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
-import org.apache.doris.nereids.ssb.SSBUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
+
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class AnalyzeSubQuery extends TestWithFeService {
+public class AnalyzeSubQueryTest extends TestWithFeService {
     private final NereidsParser parser = new NereidsParser();
+
+//    private final String testSql = "SELECT T.id FROM (SELECT id FROM T1)";
+    private final String testSql = "SELECT * FROM (SELECT * FROM T1)";
 
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("default_cluster:test");
 
-        createTables("CREATE TABLE IF NOT EXISTS T1 (\n" +
-            "    id bigint,\n" +
-            "    name char(16),\n" +
-            "    score bigint\n" +
-            ")\n" +
-            "DUPLICATE KEY(id, name)\n" +
-            "DISTRIBUTED BY HASH(id) BUCKETS 1\n" +
-            "PROPERTIES (\n" +
-            "  \"replication_num\" = \"1\"\n" +
-            ")\n");
+        createTables("CREATE TABLE IF NOT EXISTS T1 (\n"
+                + "    id bigint,\n"
+                + "    name char(16),\n"
+                + "    score bigint\n"
+                + ")\n"
+                + "DUPLICATE KEY(id, name)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\"\n"
+                + ")\n");
     }
 
     /**
      * TODO: check bound plan and expression details.
      */
     @Test
-    public void q() {
-        checkAnalyze("SELECT * FROM (SELECT * FROM T1) AS T");
+    public void testAnalyze() {
+        checkAnalyze(testSql);
+    }
+
+    @Test
+    public void testParse() {
+        LogicalPlan plan = parser.parseSingle(testSql);
+        String planStr = plan.treeString();
+        System.out.println(planStr);
     }
 
     private void checkAnalyze(String sql) {
@@ -83,10 +93,10 @@ public class AnalyzeSubQuery extends TestWithFeService {
         return (LogicalPlan) memo.copyOut();
     }
 
-    private void executeRewriteBottomUpJob(PlannerContext plannerContext, RuleFactory<Plan> ruleFactory) {
+    private void executeRewriteBottomUpJob(PlannerContext plannerContext, RuleFactory ruleFactory) {
         Group rootGroup = plannerContext.getMemo().getRoot();
         RewriteBottomUpJob job = new RewriteBottomUpJob(rootGroup,
-            plannerContext.getCurrentJobContext(), ImmutableList.of(ruleFactory));
+                plannerContext.getCurrentJobContext(), ImmutableList.of(ruleFactory));
         plannerContext.pushJob(job);
         plannerContext.getJobScheduler().executeJobPool(plannerContext);
     }

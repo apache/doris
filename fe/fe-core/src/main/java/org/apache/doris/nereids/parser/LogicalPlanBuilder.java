@@ -17,9 +17,10 @@
 
 package org.apache.doris.nereids.parser;
 
-
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
+import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
+import org.apache.doris.nereids.DorisParser.AliasedRelationContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
@@ -52,6 +53,7 @@ import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
+import org.apache.doris.nereids.DorisParser.TableAliasContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
@@ -177,6 +179,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
         // TODO: sample and time travel, alias, sub query
         return new UnboundRelation(tableId);
+    }
+
+    private LogicalPlan mayApplyAlias(TableAliasContext ctx, LogicalPlan plan) {
+        if (null != ctx.strictIdentifier()) {
+            String alias = ctx.strictIdentifier().getText();
+            if (null != ctx.identifierList()) {
+                List<String> colName = visitIdentifierSeq(ctx.identifierList().identifierSeq());
+
+            }
+        }
+        return plan;
+    }
+
+    @Override
+    public LogicalPlan visitAliasedQuery(AliasedQueryContext ctx) {
+        LogicalPlan plan = visitQuery(ctx.query());
+        return plan;
+    }
+
+
+    @Override
+    public LogicalPlan visitAliasedRelation(AliasedRelationContext ctx) {
+        return plan(ctx.relation());
     }
 
     /**
