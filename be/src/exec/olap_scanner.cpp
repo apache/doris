@@ -63,8 +63,8 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
 Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                bloom_filters) {
+        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<FunctionFilter>& function_filters) {
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     set_tablet_reader();
     // set limit to reduce end of rowset and segment mem use
@@ -124,8 +124,9 @@ Status OlapScanner::prepare(
     }
 
     {
-        // Initialize tablet_reader_params
-        RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, bloom_filters));
+        // Initialize _params
+        RETURN_IF_ERROR(
+                _init_tablet_reader_params(key_ranges, filters, bloom_filters, function_filters));
     }
 
     return Status::OK();
@@ -157,8 +158,8 @@ Status OlapScanner::open() {
 // it will be called under tablet read lock because capture rs readers need
 Status OlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                bloom_filters) {
+        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     bool single_version =
             (_tablet_reader_params.rs_readers.size() == 1 &&
@@ -192,6 +193,10 @@ Status OlapScanner::_init_tablet_reader_params(
     std::copy(bloom_filters.cbegin(), bloom_filters.cend(),
               std::inserter(_tablet_reader_params.bloom_filters,
                             _tablet_reader_params.bloom_filters.begin()));
+
+    std::copy(function_filters.cbegin(), function_filters.cend(),
+              std::inserter(_tablet_reader_params.function_filters,
+                            _tablet_reader_params.function_filters.begin()));
 
     // Range
     for (auto key_range : key_ranges) {

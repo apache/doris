@@ -25,8 +25,10 @@
 
 #include "common/status.h"
 #include "olap/bloom_filter_predicate.h"
+#include "olap/collect_iterator.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
+#include "olap/like_column_predicate.h"
 #include "olap/null_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/row.h"
@@ -461,6 +463,11 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     for (const auto& filter : read_params.bloom_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
     }
+
+    // Function filter push down to storage engine
+    for (const auto& filter : read_params.function_filters) {
+        _col_predicates.emplace_back(_parse_to_predicate(filter));
+    }
 }
 
 #define COMPARISON_PREDICATE_CONDITION_VALUE(NAME, PREDICATE)                                      \
@@ -607,6 +614,17 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
     const TabletColumn& column = _tablet_schema->column(index);
     return BloomFilterColumnPredicateFactory::create_column_predicate(index, bloom_filter.second,
                                                                       column.type());
+}
+
+ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& function_filter) {
+    int32_t index = _tablet->field_index(function_filter._col_name);
+    if (index < 0) {
+        return nullptr;
+    }
+
+    // currently only support like predicate
+    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
+                                   function_filter._string_param);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,

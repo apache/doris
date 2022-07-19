@@ -43,7 +43,8 @@ public:
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    const std::vector<TCondition>& filters,
                    const std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                           bloom_filters);
+                           bloom_filters,
+                   const std::vector<FunctionFilter>& function_filters);
 
     Status open();
 
@@ -95,7 +96,8 @@ private:
     Status _init_tablet_reader_params(
             const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
             const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                    bloom_filters);
+                    bloom_filters,
+            const std::vector<FunctionFilter>& function_filters);
     Status _init_return_columns(bool need_seq_col);
 
     // Update profile that need to be reported in realtime.
