@@ -67,7 +67,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                 return;
             }
 
-            if (!pattern.isSubTree()) {
+            if (!(pattern instanceof SubTreePattern)) {
                 // (logicalFilter(), multi()) match (logicalFilter()),
                 // but (logicalFilter(), logicalFilter(), multi()) not match (logicalFilter())
                 boolean extraMulti = pattern.arity() == groupExpression.arity() + 1
@@ -92,7 +92,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
             // getPlan return the plan with GroupPlan as children
             Plan root = groupExpression.getPlan();
             // pattern.arity() == 0 equals to root.arity() == 0
-            if (pattern.arity() == 0 && !pattern.isSubTree()) {
+            if (pattern.arity() == 0 && !(pattern instanceof SubTreePattern)) {
                 if (pattern.matchPredicates(root)) {
                     // if no children pattern, we treat all children as GROUP. e.g. Pattern.ANY.
                     // leaf plan will enter this branch too, e.g. logicalRelation().
@@ -108,7 +108,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                     List<Plan> childrenPlan = matchingChildGroup(pattern, childGroup, i);
 
                     if (childrenPlan.isEmpty()) {
-                        if (pattern.isSubTree()) {
+                        if (pattern instanceof SubTreePattern) {
                             childrenPlan = ImmutableList.of(new GroupPlan(childGroup));
                         } else {
                             // current pattern is match but children patterns not match
@@ -124,7 +124,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
         private List<Plan> matchingChildGroup(Pattern<? extends Plan> parentPattern,
                 Group childGroup, int childIndex) {
             Pattern<? extends Plan> childPattern;
-            if (parentPattern.isSubTree()) {
+            if (parentPattern instanceof SubTreePattern) {
                 childPattern = parentPattern;
             } else {
                 boolean isLastPattern = childIndex + 1 >= parentPattern.arity();
