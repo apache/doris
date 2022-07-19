@@ -26,6 +26,9 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.statistics.ColumnStats;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+
+import java.util.List;
 
 public class ShowColumnStatsStmt extends ShowStmt {
 
@@ -66,5 +69,10 @@ public class ShowColumnStatsStmt extends ShowStmt {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
+    }
+
+    public List<String> getPartitionNames() {
+        // TODO(WZT): partition statistics
+        return Lists.newArrayList();
     }
 }
