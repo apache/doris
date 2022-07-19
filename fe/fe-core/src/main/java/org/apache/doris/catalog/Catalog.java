@@ -1515,6 +1515,9 @@ public class Catalog {
                 File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
                 MetaHelper.complete(filename, dir);
+            } else {
+                LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
+                         localImageVersion, version);
             }
         } catch (Exception e) {
             throw new IOException(e);
