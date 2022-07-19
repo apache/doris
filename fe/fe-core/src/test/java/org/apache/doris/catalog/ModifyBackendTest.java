@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -113,13 +112,9 @@ public class ModifyBackendTest {
                 + "    \"dynamic_partition.replication_num\" = \"1\"\n"
                 + ");";
         CreateTableStmt createStmt3 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
-        // although there is no exception throw, but partition create failed, because there is no BE
-        // with "default" tag
-        ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt3));
+        //partition create failed, because there is no BE with "default" tag
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find 3 backends for policy", () -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt3));
         Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
-        Table tbl3 = db.getTableNullable("tbl3");
-        String err = Catalog.getCurrentCatalog().getDynamicPartitionScheduler().getRuntimeInfo(tbl3.getId(), DynamicPartitionScheduler.CREATE_PARTITION_MSG);
-        Assert.assertTrue(err.contains("Failed to find 1 backends for policy:"));
 
         createStr = "create table test.tbl4(\n"
                 + "k1 date, k2 int\n"

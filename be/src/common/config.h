@@ -769,7 +769,7 @@ CONF_Int32(object_pool_buffer_size, "100");
 
 // ParquetReaderWrap prefetch buffer size
 CONF_Int32(parquet_reader_max_buffer_size, "50");
-CONF_Bool(parquet_predicate_push_down, "false");
+CONF_Bool(parquet_predicate_push_down, "true");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
@@ -786,6 +786,8 @@ CONF_Int32(quick_compaction_batch_size, "10");
 // do compaction min rowsets
 CONF_Int32(quick_compaction_min_rowsets, "10");
 
+CONF_mBool(enable_function_pushdown, "false");
+
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");
 CONF_mInt64(generate_cooldown_task_interval_sec, "20");
@@ -793,6 +795,8 @@ CONF_Int32(concurrency_per_dir, "2");
 CONF_mInt64(cooldown_lag_time_sec, "10800"); // 3h
 
 CONF_Int32(s3_transfer_executor_pool_size, "2");
+
+CONF_Bool(enable_time_lut, "true");
 
 } // namespace config
 
