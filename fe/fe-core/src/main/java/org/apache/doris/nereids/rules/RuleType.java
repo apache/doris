@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.pattern.PatternMatcher;
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
  * Type of rules, each rule has its unique type.
@@ -82,8 +82,8 @@ public enum RuleType {
         return ruleTypeClass;
     }
 
-    public <INPUT_TYPE extends RULE_TYPE, OUTPUT_TYPE extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>>
-            Rule<RULE_TYPE> build(PatternMatcher<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> patternMatcher) {
+    public <INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan>
+            Rule build(PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> patternMatcher) {
         return patternMatcher.toRule(this);
     }
 

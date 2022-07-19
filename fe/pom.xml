@@ -185,7 +185,6 @@ under the License.
         <jetty.version>6.1.14</jetty.version>
         <jflex.version>1.4.3</jflex.version>
         <jmockit.version>1.49</jmockit.version>
-        <joda-time.version>2.10.1</joda-time.version>
         <commons-io.version>2.6</commons-io.version>
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
@@ -231,7 +230,7 @@ under the License.
         <commons-collections.version>3.2.2</commons-collections.version>
         <scala.version>2.12.10</scala.version>
         <kryo.version>4.0.2</kryo.version>
-        <lombok.version>1.18.16</lombok.version>
+        <lombok.version>1.18.24</lombok.version>
         <tree-printer.version>1.2</tree-printer.version>
         <hamcrest.version>2.1</hamcrest.version>
         <httpclient.version>4.5.13</httpclient.version>
@@ -430,12 +429,6 @@ under the License.
                 <artifactId>jmockit</artifactId>
                 <version>${jmockit.version}</version>
                 <scope>test</scope>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/joda-time/joda-time -->
-            <dependency>
-                <groupId>joda-time</groupId>
-                <artifactId>joda-time</artifactId>
-                <version>${joda-time.version}</version>
             </dependency>
             <dependency>
                 <groupId>commons-io</groupId>

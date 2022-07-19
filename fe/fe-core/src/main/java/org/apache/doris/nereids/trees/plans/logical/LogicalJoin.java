@@ -57,7 +57,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     public LogicalJoin(JoinType joinType, Optional<Expression> condition,
-                       LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(joinType, condition, Optional.empty(), Optional.empty(), leftChild, rightChild);
     }
 
@@ -68,8 +68,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
      * @param condition on clause for join node
      */
     public LogicalJoin(JoinType joinType, Optional<Expression> condition,
-                       Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-                       LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.condition = Objects.requireNonNull(condition, "condition can not be null");
@@ -130,6 +130,23 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        LogicalJoin that = (LogicalJoin) o;
+        return joinType == that.joinType && Objects.equals(condition, that.condition);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(joinType, condition);
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalJoin((LogicalJoin<Plan, Plan>) this, context);
     }
@@ -152,7 +169,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalJoin<>(joinType, condition, groupExpression,
-            Optional.of(logicalProperties), left(), right());
+                Optional.of(logicalProperties), left(), right());
     }
 
     @Override

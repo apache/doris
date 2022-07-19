@@ -29,7 +29,6 @@ import org.apache.doris.nereids.properties.ChildrenOutputPropertyDeriver;
 import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
 import org.apache.doris.nereids.properties.ParentRequiredPropertyDeriver;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Lists;
 
@@ -39,7 +38,7 @@ import java.util.Optional;
 /**
  * Job to compute cost and add enforcer.
  */
-public class CostAndEnforcerJob extends Job<Plan> {
+public class CostAndEnforcerJob extends Job {
     // GroupExpression to optimize
     private final GroupExpression groupExpression;
     // Current total cost

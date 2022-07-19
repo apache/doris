@@ -79,11 +79,11 @@ public class PruneJoinChildrenColumns
         Plan rightPlan = joinPlan.right();
 
         if (leftInputs.size() != leftPlan.getOutput().size()) {
-            leftPlan = new LogicalProject(leftInputs, leftPlan);
+            leftPlan = new LogicalProject<>(leftInputs, leftPlan);
         }
 
         if (rightInputs.size() != rightPlan.getOutput().size()) {
-            rightPlan = new LogicalProject(rightInputs, rightPlan);
+            rightPlan = new LogicalProject<>(rightInputs, rightPlan);
         }
         return joinPlan.withChildren(ImmutableList.of(leftPlan, rightPlan));
     }
