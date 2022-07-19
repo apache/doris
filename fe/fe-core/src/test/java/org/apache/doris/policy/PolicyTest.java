@@ -201,13 +201,13 @@ public class PolicyTest extends TestWithFeService {
         long dbId = 10;
         UserIdentity user = new UserIdentity("test_policy", "%");
         String originStmt = "CREATE ROW POLICY test_row_policy ON test.table1"
-                            + " AS PERMISSIVE TO test_policy USING (k1 = 1)";
+                + " AS PERMISSIVE TO test_policy USING (k1 = 1)";
         long tableId = 100;
         FilterType filterType = FilterType.PERMISSIVE;
         Expr wherePredicate = null;
 
-        Policy rowPolicy = new RowPolicy(type, policyName, dbId, user,
-                                         originStmt, tableId, filterType, wherePredicate);
+        Policy rowPolicy = new RowPolicy(10000, policyName, dbId, user, originStmt, tableId, filterType,
+                wherePredicate);
 
         ByteArrayOutputStream emptyOutputStream = new ByteArrayOutputStream();
         DataOutputStream output = new DataOutputStream(emptyOutputStream);
@@ -218,6 +218,7 @@ public class PolicyTest extends TestWithFeService {
         Policy newPolicy = Policy.read(input);
         Assertions.assertTrue(newPolicy instanceof RowPolicy);
         RowPolicy newRowPolicy = (RowPolicy) newPolicy;
+        Assertions.assertEquals(rowPolicy.getPolicyId(), newRowPolicy.getPolicyId());
         Assertions.assertEquals(type, newRowPolicy.getType());
         Assertions.assertEquals(policyName, newRowPolicy.getPolicyName());
         Assertions.assertEquals(dbId, newRowPolicy.getDbId());
