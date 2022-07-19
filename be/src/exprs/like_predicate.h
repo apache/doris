@@ -29,54 +29,53 @@
 
 namespace doris {
 
+typedef doris_udf::BooleanVal (*LikePredicateFunction)(doris_udf::FunctionContext*,
+                                                       const doris_udf::StringVal&,
+                                                       const doris_udf::StringVal&);
+struct LikePredicateState {
+    char escape_char;
+
+    /// This is the function, set in the prepare function, that will be used to determine
+    /// the value of the predicate. It will be set depending on whether the expression is
+    /// a LIKE, RLIKE or REGEXP predicate, whether the pattern is a constant argument
+    /// and whether the pattern has any constant substrings. If the pattern is not a
+    /// constant argument, none of the following fields can be set because we cannot know
+    /// the format of the pattern in the prepare function and must deal with each pattern
+    /// separately.
+    LikePredicateFunction function;
+
+    /// Holds the string the StringValue points to and is set any time StringValue is
+    /// used.
+    std::string search_string;
+
+    /// Used for LIKE predicates if the pattern is a constant argument, and is either a
+    /// constant string or has a constant string at the beginning or end of the pattern.
+    /// This will be set in order to check for that pattern in the corresponding part of
+    /// the string.
+    StringValue search_string_sv;
+
+    /// Used for LIKE predicates if the pattern is a constant argument and has a constant
+    /// string in the middle of it. This will be use in order to check for the substring
+    /// in the value.
+    StringSearch substring_pattern;
+
+    /// Used for RLIKE and REGEXP predicates if the pattern is a constant argument.
+    std::unique_ptr<re2::RE2> regex;
+
+    LikePredicateState() : escape_char('\\') {}
+
+    void set_search_string(const std::string& search_string_arg) {
+        search_string = search_string_arg;
+        search_string_sv = StringValue(search_string);
+        substring_pattern.set_pattern(&search_string_sv);
+    }
+};
+
 class LikePredicate {
 public:
     static void init();
 
 private:
-    typedef doris_udf::BooleanVal (*LikePredicateFunction)(doris_udf::FunctionContext*,
-                                                           const doris_udf::StringVal&,
-                                                           const doris_udf::StringVal&);
-
-    struct LikePredicateState {
-        char escape_char;
-
-        /// This is the function, set in the prepare function, that will be used to determine
-        /// the value of the predicate. It will be set depending on whether the expression is
-        /// a LIKE, RLIKE or REGEXP predicate, whether the pattern is a constant argument
-        /// and whether the pattern has any constant substrings. If the pattern is not a
-        /// constant argument, none of the following fields can be set because we cannot know
-        /// the format of the pattern in the prepare function and must deal with each pattern
-        /// separately.
-        LikePredicateFunction function;
-
-        /// Holds the string the StringValue points to and is set any time StringValue is
-        /// used.
-        std::string search_string;
-
-        /// Used for LIKE predicates if the pattern is a constant argument, and is either a
-        /// constant string or has a constant string at the beginning or end of the pattern.
-        /// This will be set in order to check for that pattern in the corresponding part of
-        /// the string.
-        StringValue search_string_sv;
-
-        /// Used for LIKE predicates if the pattern is a constant argument and has a constant
-        /// string in the middle of it. This will be use in order to check for the substring
-        /// in the value.
-        StringSearch substring_pattern;
-
-        /// Used for RLIKE and REGEXP predicates if the pattern is a constant argument.
-        std::unique_ptr<re2::RE2> regex;
-
-        LikePredicateState() : escape_char('\\') {}
-
-        void set_search_string(const std::string& search_string_arg) {
-            search_string = search_string_arg;
-            search_string_sv = StringValue(search_string);
-            substring_pattern.set_pattern(&search_string_sv);
-        }
-    };
-
     friend class OpcodeRegistry;
 
     static void like_prepare(doris_udf::FunctionContext* context,
