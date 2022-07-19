@@ -65,7 +65,7 @@ private:
     bool is_key_column(const std::string& key_name);
     void remove_pushed_conjuncts(RuntimeState* state);
 
-    Status start_scan(RuntimeState* state);
+    Status init_scan(RuntimeState* state);
     void eval_const_conjuncts();
     Status normalize_conjuncts();
     Status build_key_ranges_and_filters();
@@ -98,12 +98,11 @@ private:
     std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred,
                                                          int conj_idx, int child_idx);
 
-    void transfer_thread(RuntimeState* state);
     void scanner_thread(VOlapScanner* scanner);
-    Status start_scan_thread(RuntimeState* state);
+    Status init_scanners(RuntimeState* state);
 
     Status _add_blocks(std::vector<Block*>& block);
-    int _start_scanner_thread_task(RuntimeState* state, int block_per_scanner);
+    int _start_scanner_thread_task(RuntimeState* state);
     Block* _alloc_block(bool& get_free_block);
 
     void _init_counter(RuntimeState* state);
@@ -112,6 +111,18 @@ private:
     void init_scan_profile();
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const {
         return _runtime_filter_descs;
+    }
+
+    Status _submit_scanner(RuntimeState* state, ThreadPoolToken* thread_token,
+                           PriorityThreadPool* thread_pool, PriorityThreadPool* remote_thread_pool,
+                           VOlapScanner* scanner, const OpentelemetrySpan& cur_span);
+    
+    void _update_nice() {
+        // 16k * 10 * 12 * 8 = 15M(>2s)  --> nice=10
+        // 16k * 20 * 22 * 8 = 55M(>6s)  --> nice=0
+        while (_nice > 0 && _total_assign_num > (22 - _nice) * (20 - _nice) * 6) {
+            --_nice;
+        }
     }
 
     // Tuple id resolved in prepare() to set _tuple_desc;
@@ -160,13 +171,8 @@ private:
     // object is.
     ObjectPool _scanner_pool;
 
-    std::shared_ptr<std::thread> _transfer_thread;
-
     // Keeps track of total splits and the number finished.
     ProgressUpdater _progress;
-
-    // to limit _materialized_row_batches_bytes < _max_scanner_queue_size_bytes / 2
-    std::atomic_size_t _materialized_row_batches_bytes = 0;
 
     std::atomic_int _running_thread = 0;
     std::condition_variable _scan_thread_exit_cv;
@@ -177,14 +183,14 @@ private:
     std::list<VOlapScanner*> _olap_scanners;
 
     int _max_materialized_row_batches;
-    // to limit _materialized_row_batches_bytes and _scan_row_batches_bytes
+    // to limit _scan_row_batches_bytes
     size_t _max_scanner_queue_size_bytes;
     bool _start;
     // Used in Scan thread to ensure thread-safe
     std::atomic_bool _scanner_done;
-    std::atomic_bool _transfer_done;
     size_t _direct_conjunct_size;
 
+    // number of submit count of all scanners, used to calculate nice value
     int _total_assign_num;
     int _nice;
 
@@ -300,22 +306,17 @@ private:
     // for debugging or profiling, record any info as you want
     RuntimeProfile::Counter* _general_debug_timer[GENERAL_DEBUG_COUNT] = {};
 
+    size_t _block_per_scanner = 0;
     std::vector<Block*> _scan_blocks;
-    std::vector<Block*> _materialized_blocks;
-    std::mutex _blocks_lock;
-    std::condition_variable _block_added_cv;
-    std::condition_variable _block_consumed_cv;
-
     std::mutex _scan_blocks_lock;
     std::condition_variable _scan_block_added_cv;
+    std::condition_variable _scan_block_consumed_cv;
 
     std::vector<Block*> _free_blocks;
     std::mutex _free_blocks_lock;
 
     std::list<VOlapScanner*> _volap_scanners;
     std::mutex _volap_scanners_lock;
-
-    int _max_materialized_blocks;
 
     size_t _block_size = 0;
 

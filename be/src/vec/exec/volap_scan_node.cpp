@@ -43,18 +43,14 @@ VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
           _tuple_desc(nullptr),
           _tuple_idx(0),
           _eos(false),
-          _max_materialized_row_batches(config::doris_scanner_queue_size),
           _start(false),
           _scanner_done(false),
-          _transfer_done(false),
           _status(Status::OK()),
           _resource_info(nullptr),
           _buffered_bytes(0),
           _eval_conjuncts_fn(nullptr),
-          _runtime_filter_descs(tnode.runtime_filters),
-          _max_materialized_blocks(config::doris_scanner_queue_size) {
-    _materialized_blocks.reserve(_max_materialized_blocks);
-    _free_blocks.reserve(_max_materialized_blocks);
+          _runtime_filter_descs(tnode.runtime_filters) {
+    _free_blocks.reserve(config::doris_scanner_queue_size);
 }
 
 Status VOlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -276,111 +272,6 @@ Status VOlapScanNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void VOlapScanNode::transfer_thread(RuntimeState* state) {
-    // scanner open pushdown to scanThread
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::transfer_thread");
-    SCOPED_ATTACH_TASK(state);
-    Status status = Status::OK();
-
-    if (_vconjunct_ctx_ptr) {
-        for (auto scanner : _volap_scanners) {
-            status = (*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr());
-            if (!status.ok()) {
-                std::lock_guard<SpinLock> guard(_status_mutex);
-                _status = status;
-                break;
-            }
-        }
-    }
-
-    /*********************************
-     * 优先级调度基本策略:
-     * 1. 通过查询拆分的Range个数来确定初始nice值
-     *    Range个数越多，越倾向于认定为大查询，nice值越小
-     * 2. 通过查询累计读取的数据量来调整nice值
-     *    读取的数据越多，越倾向于认定为大查询，nice值越小
-     * 3. 通过nice值来判断查询的优先级
-     *    nice值越大的，越优先获得的查询资源
-     * 4. 定期提高队列内残留任务的优先级，避免大查询完全饿死
-     *********************************/
-    _total_assign_num = 0;
-    _nice = 18 + std::max(0, 2 - (int)_volap_scanners.size() / 5);
-
-    auto doris_scanner_row_num =
-            _limit == -1 ? config::doris_scanner_row_num
-                         : std::min(static_cast<int64_t>(config::doris_scanner_row_num), _limit);
-    _block_size = _limit == -1 ? state->batch_size()
-                               : std::min(static_cast<int64_t>(state->batch_size()), _limit);
-    auto block_per_scanner = (doris_scanner_row_num + (_block_size - 1)) / _block_size;
-    auto pre_block_count =
-            std::min(_volap_scanners.size(),
-                     static_cast<size_t>(config::doris_scanner_thread_pool_thread_num)) *
-            block_per_scanner;
-
-    for (int i = 0; i < pre_block_count; ++i) {
-        auto block = new Block(_tuple_desc->slots(), _block_size);
-        _free_blocks.emplace_back(block);
-        _buffered_bytes += block->allocated_bytes();
-    }
-
-    // read from scanner
-    while (LIKELY(status.ok())) {
-        int assigned_thread_num = _start_scanner_thread_task(state, block_per_scanner);
-
-        std::vector<Block*> blocks;
-        {
-            // 1 scanner idle task not empty, assign new scanner task
-            std::unique_lock<std::mutex> l(_scan_blocks_lock);
-
-            // scanner_row_num = 16k
-            // 16k * 10 * 12 * 8 = 15M(>2s)  --> nice=10
-            // 16k * 20 * 22 * 8 = 55M(>6s)  --> nice=0
-            while (_nice > 0 && _total_assign_num > (22 - _nice) * (20 - _nice) * 6) {
-                --_nice;
-            }
-
-            // 2 wait when all scanner are running & no result in queue
-            while (UNLIKELY(_running_thread == assigned_thread_num && _scan_blocks.empty() &&
-                            !_scanner_done)) {
-                SCOPED_TIMER(_scanner_wait_batch_timer);
-                _scan_block_added_cv.wait(l);
-            }
-
-            // 3 transfer result block when queue is not empty
-            if (LIKELY(!_scan_blocks.empty())) {
-                blocks.swap(_scan_blocks);
-                for (auto b : blocks) {
-                    _scan_row_batches_bytes -= b->allocated_bytes();
-                }
-                // delete scan_block if transfer thread should be stopped
-                // because scan_block wouldn't be useful anymore
-                if (UNLIKELY(_transfer_done)) {
-                    std::for_each(blocks.begin(), blocks.end(), std::default_delete<Block>());
-                    blocks.clear();
-                }
-            } else {
-                if (_scanner_done) {
-                    break;
-                }
-            }
-        }
-
-        if (!blocks.empty()) {
-            _add_blocks(blocks);
-        }
-    }
-    telemetry::set_span_attribute(span, _scanner_sched_counter);
-
-    VLOG_CRITICAL << "TransferThread finish.";
-    _transfer_done = true;
-    _block_added_cv.notify_all();
-    {
-        std::unique_lock<std::mutex> l(_scan_blocks_lock);
-        _scan_thread_exit_cv.wait(l, [this] { return _running_thread == 0; });
-    }
-    VLOG_CRITICAL << "Scanner threads have been exited. TransferThread exit.";
-}
-
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     START_AND_SCOPE_SPAN(scanner->runtime_state()->get_tracer(), span,
                          "VOlapScanNode::scanner_thread");
@@ -502,6 +393,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     int64_t raw_bytes_read = 0;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     bool get_free_block = true;
+    bool reached_limit = false;
     int num_rows_in_block = 0;
 
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
@@ -509,10 +401,10 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     while (!eos && raw_bytes_read < raw_bytes_threshold &&
            ((raw_rows_read < raw_rows_threshold && get_free_block) ||
             num_rows_in_block < _runtime_state->batch_size())) {
-        if (UNLIKELY(_transfer_done)) {
+        if (UNLIKELY(state->is_cancelled())) {
             eos = true;
             status = Status::Cancelled("Cancelled");
-            LOG(INFO) << "Scan thread cancelled, cause query done, maybe reach limit.";
+            LOG(INFO) << "Scan thread cancelled.";
             break;
         }
 
@@ -545,12 +437,16 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             }
         }
         raw_rows_read = scanner->raw_rows_read();
+        if (_limit != -1 and raw_rows_read >= _limit) {
+            eos = true;
+            reached_limit = true;
+            break;
+        }
     }
 
     {
         // if we failed, check status.
         if (UNLIKELY(!status.ok())) {
-            _transfer_done = true;
             std::lock_guard<SpinLock> guard(_status_mutex);
             if (LIKELY(_status.ok())) {
                 _status = status;
@@ -566,18 +462,53 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             eos = true;
             std::for_each(blocks.begin(), blocks.end(), std::default_delete<Block>());
         } else {
-            std::lock_guard<std::mutex> l(_scan_blocks_lock);
+            std::unique_lock<std::mutex> l(_scan_blocks_lock);
             _scan_blocks.insert(_scan_blocks.end(), blocks.begin(), blocks.end());
             for (auto b : blocks) {
                 _scan_row_batches_bytes += b->allocated_bytes();
             }
+            _scan_block_added_cv.notify_one();
         }
+
+        ThreadPoolToken* thread_token = nullptr;
+        if (_limit > -1 && _limit < 1024) {
+            thread_token = state->get_query_fragments_ctx()->get_serial_token();
+        } else {
+            thread_token = state->get_query_fragments_ctx()->get_token();
+        }
+        PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
+        PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
+
         // If eos is true, we will process out of this lock block.
+        // 1. no more data for this scanner: global_status_ok = true or false 
+        // 2. read return error for this scanner: global_status_ok = false
+        // 3. query is canceled: global_status_ok = false
+        // 4. error occured for any other scanners: global_status_ok = false
+        // 5. reach limit: global_status_ok = true
         if (eos) {
-            scanner->mark_to_need_to_close();
+            scanner->close(state);
+
+            if (global_status_ok && !reached_limit) {
+                std::lock_guard<std::mutex> l(_volap_scanners_lock);
+                if (!_volap_scanners.empty()) {
+                    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
+                    auto s = _submit_scanner(state, thread_token, thread_pool, remote_thread_pool,
+                                             _volap_scanners.front(), cur_span);
+                    if (!s.ok()) {
+                        LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s.get_error_msg();
+                    }
+                    _volap_scanners.pop_front();
+                }
+            }
+        } else {
+            // status is ok and more data to read
+            auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
+            auto s = _submit_scanner(state, thread_token, thread_pool, remote_thread_pool, scanner,
+                                     cur_span);
+            if (!s.ok()) {
+                LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s.get_error_msg();
+            }
         }
-        std::lock_guard<std::mutex> l(_volap_scanners_lock);
-        _volap_scanners.push_front(scanner);
     }
     if (eos) {
         std::lock_guard<std::mutex> l(_scan_blocks_lock);
@@ -597,28 +528,6 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     // Do not access class members after this code.
     _scan_block_added_cv.notify_one();
     _scan_thread_exit_cv.notify_one();
-}
-
-Status VOlapScanNode::_add_blocks(std::vector<Block*>& block) {
-    {
-        std::unique_lock<std::mutex> l(_blocks_lock);
-
-        // check queue limit for both block queue size and bytes
-        while (UNLIKELY((_materialized_blocks.size() >= _max_materialized_blocks ||
-                         _materialized_row_batches_bytes >= _max_scanner_queue_size_bytes / 2) &&
-                        !_transfer_done)) {
-            _block_consumed_cv.wait(l);
-        }
-
-        VLOG_CRITICAL << "Push block to materialized_blocks";
-        _materialized_blocks.insert(_materialized_blocks.end(), block.cbegin(), block.cend());
-        for (auto b : block) {
-            _materialized_row_batches_bytes += b->allocated_bytes();
-        }
-    }
-    // remove one block, notify main thread
-    _block_added_cv.notify_one();
-    return Status::OK();
 }
 
 void VOlapScanNode::eval_const_conjuncts() {
@@ -895,7 +804,7 @@ Status VOlapScanNode::build_key_ranges_and_filters() {
     return Status::OK();
 }
 
-Status VOlapScanNode::start_scan(RuntimeState* state) {
+Status VOlapScanNode::init_scan(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
 
     VLOG_CRITICAL << "Eval Const Conjuncts";
@@ -924,8 +833,8 @@ Status VOlapScanNode::start_scan(RuntimeState* state) {
     remove_pushed_conjuncts(state);
 
     VLOG_CRITICAL << "StartScanThread";
-    // 5. Start multi thread to read several `Sub Sub ScanRange`
-    RETURN_IF_ERROR(start_scan_thread(state));
+    // 5. init scanners
+    RETURN_IF_ERROR(init_scanners(state));
 
     return Status::OK();
 }
@@ -1561,9 +1470,9 @@ Status VOlapScanNode::normalize_bloom_filter_predicate(SlotDescriptor* slot) {
     return Status::OK();
 }
 
-Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
+Status VOlapScanNode::init_scanners(RuntimeState* state) {
     if (_scan_ranges.empty()) {
-        _transfer_done = true;
+        _eos = true;
         return Status::OK();
     }
     auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
@@ -1649,13 +1558,90 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
     ss << "ScanThread complete (node=" << id() << "):";
     _progress = ProgressUpdater(ss.str(), _volap_scanners.size(), 1);
 
-    _transfer_thread.reset(new std::thread(
-            [this, state, parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
-                opentelemetry::trace::Scope scope {parent_span};
-                transfer_thread(state);
-            }));
+    Status status = Status::OK();
+    if (_vconjunct_ctx_ptr) {
+        for (auto scanner : _volap_scanners) {
+            status = (*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr());
+            if (!status.ok()) {
+                _status = status;
+                return status;
+            }
+        }
+    }
+
+    /*********************************
+     * 优先级调度基本策略:
+     * 1. 通过查询拆分的Range个数来确定初始nice值
+     *    Range个数越多，越倾向于认定为大查询，nice值越小
+     * 2. 通过查询累计读取的数据量来调整nice值
+     *    读取的数据越多，越倾向于认定为大查询，nice值越小
+     * 3. 通过nice值来判断查询的优先级
+     *    nice值越大的，越优先获得的查询资源
+     * 4. 定期提高队列内残留任务的优先级，避免大查询完全饿死
+     *********************************/
+    _total_assign_num = 0;
+    _nice = 18 + std::max(0, 2 - (int)_volap_scanners.size() / 5);
+
+    auto doris_scanner_row_num =
+            _limit == -1 ? config::doris_scanner_row_num
+                         : std::min(static_cast<int64_t>(config::doris_scanner_row_num), _limit);
+    _block_size = _limit == -1 ? state->batch_size()
+                               : std::min(static_cast<int64_t>(state->batch_size()), _limit);
+    _block_per_scanner = (doris_scanner_row_num + (_block_size - 1)) / _block_size;
+    auto pre_block_count =
+            std::min(_volap_scanners.size(),
+                     static_cast<size_t>(config::doris_scanner_thread_pool_thread_num)) *
+            _block_per_scanner;
+
+    for (int i = 0; i < pre_block_count; ++i) {
+        auto block = new Block(_tuple_desc->slots(), _block_size);
+        _free_blocks.emplace_back(block);
+        _buffered_bytes += block->allocated_bytes();
+    }
 
     return Status::OK();
+}
+
+Status VOlapScanNode::_submit_scanner(RuntimeState* state, ThreadPoolToken* thread_token,
+                                      PriorityThreadPool* thread_pool, PriorityThreadPool* remote_thread_pool,
+                                      VOlapScanner* scanner, const OpentelemetrySpan& cur_span) {
+
+    Status s = Status::OK();
+    if (thread_token != nullptr) {
+        s = thread_token->submit_func([this, scanner, parent_span = cur_span] {
+            opentelemetry::trace::Scope scope {parent_span};
+            this->scanner_thread(scanner);
+        });
+    } else {
+        PriorityThreadPool::Task task;
+        task.work_function = [this, scanner, parent_span = cur_span] {
+            opentelemetry::trace::Scope scope {parent_span};
+            this->scanner_thread(scanner);
+        };
+        task.priority = _nice;
+        task.queue_id = state->exec_env()->store_path_to_index((scanner)->scan_disk());
+
+        TabletStorageType type = scanner->get_storage_type();
+        bool ret;
+        if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
+            ret = thread_pool->offer(task);
+        } else {
+            ret = remote_thread_pool->offer(task);
+        }
+        
+        if (!ret) {
+            s = Status::InternalError("Failed to schedule olap scanner");
+        }
+    }
+
+    if (s.ok()) {
+        scanner->start_wait_worker_timer();
+        COUNTER_UPDATE(_scanner_sched_counter, 1);
+
+        ++_running_thread;
+        ++_total_assign_num;
+    }
+    return s;
 }
 
 Status VOlapScanNode::close(RuntimeState* state) {
@@ -1663,27 +1649,16 @@ Status VOlapScanNode::close(RuntimeState* state) {
         return Status::OK();
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::close");
-    // change done status
-    {
-        std::unique_lock<std::mutex> l(_blocks_lock);
-        _transfer_done = true;
-    }
     // notify all scanner thread
-    _block_consumed_cv.notify_all();
-    _block_added_cv.notify_all();
+    _scan_block_consumed_cv.notify_all();
     _scan_block_added_cv.notify_all();
 
-    // join transfer thread
-    if (_transfer_thread) {
-        _transfer_thread->join();
+    {
+        std::unique_lock<std::mutex> l(_scan_blocks_lock);
+        _scan_thread_exit_cv.wait(l, [this] { return _running_thread == 0; });
     }
 
     // clear some block in queue
-    // TODO: The presence of transfer_thread here may cause Block's memory alloc and be released not in a thread,
-    // which may lead to potential performance problems. we should rethink whether to delete the transfer thread
-    std::for_each(_materialized_blocks.begin(), _materialized_blocks.end(),
-                  std::default_delete<Block>());
-    _materialized_row_batches_bytes = 0;
     std::for_each(_scan_blocks.begin(), _scan_blocks.end(), std::default_delete<Block>());
     _scan_row_batches_bytes = 0;
     std::for_each(_free_blocks.begin(), _free_blocks.end(), std::default_delete<Block>());
@@ -1718,8 +1693,6 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 
     // check if Canceled.
     if (state->is_cancelled()) {
-        std::unique_lock<std::mutex> l(_blocks_lock);
-        _transfer_done = true;
         std::lock_guard<SpinLock> guard(_status_mutex);
         if (LIKELY(_status.ok())) {
             _status = Status::Cancelled("Cancelled");
@@ -1729,7 +1702,7 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 
     // check if started.
     if (!_start) {
-        Status status = start_scan(state);
+        Status status = init_scan(state);
 
         if (!status.ok()) {
             LOG(ERROR) << "StartScan Failed cause " << status.get_error_msg();
@@ -1740,53 +1713,53 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         _start = true;
     }
 
-    // some conjuncts will be disposed in start_scan function, so
-    // we should check _eos after call start_scan
+    // some conjuncts will be disposed in init_scan function, so
+    // we should check _eos after call init_scan
     if (_eos) {
         *eos = true;
         return Status::OK();
     }
+    
+    _start_scanner_thread_task(state);
+
+    _update_nice();
 
     // wait for block from queue
-    Block* materialized_block = nullptr;
+    Block* scan_block = nullptr;
     {
-        std::unique_lock<std::mutex> l(_blocks_lock);
+        std::unique_lock<std::mutex> l(_scan_blocks_lock);
         SCOPED_TIMER(_olap_wait_batch_queue_timer);
-        while (_materialized_blocks.empty() && !_transfer_done) {
+        while (_scan_blocks.empty() && !_scanner_done) {
             if (state->is_cancelled()) {
-                _transfer_done = true;
+                break;
             }
 
             // use wait_for, not wait, in case to capture the state->is_cancelled()
-            _block_added_cv.wait_for(l, std::chrono::seconds(1));
+            _scan_block_added_cv.wait_for(l, std::chrono::seconds(1));
         }
 
-        if (!_materialized_blocks.empty()) {
-            materialized_block = _materialized_blocks.back();
-            DCHECK(materialized_block != nullptr);
-            _materialized_blocks.pop_back();
-            _materialized_row_batches_bytes -= materialized_block->allocated_bytes();
+        if (!_scan_blocks.empty()) {
+            scan_block = _scan_blocks.back();
+            DCHECK(scan_block != nullptr);
+            _scan_blocks.pop_back();
+            _scan_row_batches_bytes -= scan_block->allocated_bytes();
         }
     }
 
     // return block
-    if (nullptr != materialized_block) {
+    if (nullptr != scan_block) {
         // notify scanner
-        _block_consumed_cv.notify_one();
+        _scan_block_consumed_cv.notify_one();
         // get scanner's block memory
-        block->swap(*materialized_block);
+        block->swap(*scan_block);
         VLOG_ROW << "VOlapScanNode output rows: " << block->rows();
         reached_limit(block, eos);
 
         // reach scan node limit
         if (*eos) {
-            {
-                std::unique_lock<std::mutex> l(_blocks_lock);
-                _transfer_done = true;
-            }
-
-            _block_consumed_cv.notify_all();
+            _scan_block_consumed_cv.notify_all();
             *eos = true;
+            _eos = true;
             LOG(INFO) << "VOlapScanNode ReachedLimit.";
         } else {
             *eos = false;
@@ -1795,7 +1768,7 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         {
             // ReThink whether the SpinLock Better
             std::lock_guard<std::mutex> l(_free_blocks_lock);
-            _free_blocks.emplace_back(materialized_block);
+            _free_blocks.emplace_back(scan_block);
         }
         return Status::OK();
     }
@@ -1823,7 +1796,8 @@ Block* VOlapScanNode::_alloc_block(bool& get_free_block) {
     return block;
 }
 
-int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per_scanner) {
+// Start multi thread to read several `Sub Sub ScanRange`
+int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state) {
     std::list<VOlapScanner*> olap_scanners;
     int assigned_thread_num = _running_thread;
     size_t max_thread = config::doris_scanner_queue_size;
@@ -1838,8 +1812,8 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
         {
             if (_scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
                 std::lock_guard<std::mutex> l(_free_blocks_lock);
-                thread_slot_num = _free_blocks.size() / block_per_scanner;
-                thread_slot_num += (_free_blocks.size() % block_per_scanner != 0);
+                thread_slot_num = _free_blocks.size() / _block_per_scanner;
+                thread_slot_num += (_free_blocks.size() % _block_per_scanner != 0);
                 thread_slot_num = std::min(thread_slot_num, max_thread - assigned_thread_num);
                 if (thread_slot_num <= 0) {
                     thread_slot_num = 1;
@@ -1863,14 +1837,9 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
                 auto scanner = _volap_scanners.front();
                 _volap_scanners.pop_front();
 
-                if (scanner->need_to_close()) {
-                    scanner->close(state);
-                } else {
-                    olap_scanners.push_back(scanner);
-                    _running_thread++;
-                    assigned_thread_num++;
-                    i++;
-                }
+                olap_scanners.push_back(scanner);
+                assigned_thread_num++;
+                i++;
             }
         }
     }
@@ -1883,53 +1852,19 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
     } else {
         thread_token = state->get_query_fragments_ctx()->get_token();
     }
+    PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
+    PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
+
     auto iter = olap_scanners.begin();
-    if (thread_token != nullptr) {
-        while (iter != olap_scanners.end()) {
-            auto s = thread_token->submit_func([this, scanner = *iter, parent_span = cur_span] {
-                opentelemetry::trace::Scope scope {parent_span};
-                this->scanner_thread(scanner);
-            });
-            if (s.ok()) {
-                (*iter)->start_wait_worker_timer();
-                COUNTER_UPDATE(_scanner_sched_counter, 1);
-                olap_scanners.erase(iter++);
-            } else {
-                LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s.get_error_msg();
-            }
-            ++_total_assign_num;
-        }
-    } else {
-        PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
-        PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
-        while (iter != olap_scanners.end()) {
-            PriorityThreadPool::Task task;
-            task.work_function = [this, scanner = *iter, parent_span = cur_span] {
-                opentelemetry::trace::Scope scope {parent_span};
-                this->scanner_thread(scanner);
-            };
-            task.priority = _nice;
-            task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
-            (*iter)->start_wait_worker_timer();
-
-            TabletStorageType type = (*iter)->get_storage_type();
-            bool ret = false;
-            COUNTER_UPDATE(_scanner_sched_counter, 1);
-            if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-                ret = thread_pool->offer(task);
-            } else {
-                ret = remote_thread_pool->offer(task);
-            }
-
-            if (ret) {
-                olap_scanners.erase(iter++);
-            } else {
-                LOG(FATAL) << "Failed to assign scanner task to thread pool!";
-            }
-            ++_total_assign_num;
+    while (iter != olap_scanners.end()) {
+        auto s = _submit_scanner(state, thread_token, thread_pool, remote_thread_pool, *iter,
+                                 cur_span);
+        if (s.ok()) {
+            olap_scanners.erase(iter++);
+        } else {
+            LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s.get_error_msg();
         }
     }
-
     return assigned_thread_num;
 }
 
