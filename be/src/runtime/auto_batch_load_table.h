@@ -27,6 +27,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "gen_cpp/DorisExternalService_types.h"
+#include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/wal_writer.h"
 #include "runtime/stream_load/stream_load_pipe.h"
@@ -66,6 +67,11 @@ private:
     // with 'reason'
     Status _abort_txn(std::string& label, std::string& reason);
 
+    bool _need_commit();
+    Status _commit_auto_batch_load(std::shared_ptr<StreamLoadPipe> pipe, std::string& label,
+                                   int64_t& txn_id, std::shared_ptr<WalWriter> wal_writer);
+    Status _wait_txn_success(std::string& label, int64_t txn_id);
+
     ExecEnv* _exec_env;
     int64_t _db_id;
     int64_t _table_id;
@@ -81,6 +87,8 @@ private:
     int64_t _txn_id;
 
     std::shared_ptr<WalWriter> _wal_writer;
+
+    const int64_t AUTO_LOAD_BATCH_SIZE_BYTES = config::auto_batch_load_size_mbytes * 1024 * 1024;
 };
 
 } // namespace doris
