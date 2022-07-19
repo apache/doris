@@ -125,3 +125,5 @@ $ USE_AVX2=0  sh build.sh
 若支持则直接执行 `sh build.sh` 即可
 
 该脚本会先编译第三方库，之后再编译 Doris 组件（FE、BE）。编译产出在 `output/` 目录下。
+
+如果编译失败，可以尝试执行sh build.sh --clean,这个操作只是清除一些已经生成的文件或者依赖，然后再次提交执行sh build.sh。
