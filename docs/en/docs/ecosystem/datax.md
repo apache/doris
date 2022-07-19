@@ -133,8 +133,8 @@ CREATE TABLE `ods_t_test` (
  `unit_no` varchar(30) DEFAULT NULL COMMENT '',
  `unit_name` varchar(30) DEFAULT NULL COMMENT '',
  `price` decimal(12,2) DEFAULT NULL COMMENT ''
-）ENGINE=OLAP
-UNIQUE KEY(id`, `order_code`)
+)ENGINE=OLAP
+UNIQUE KEY(`id`, `order_code`)
 DISTRIBUTED BY HASH(`order_code`) BUCKETS 1
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 3",
