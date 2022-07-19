@@ -36,7 +36,7 @@ public class WhenClause extends Expression implements BinaryExpression {
 
     @Override
     public String toSql() {
-        return "when " + left().toSql() + " then " + right().toSql();
+        return "WHEN " + left().toSql() + " THEN " + right().toSql();
     }
 
     @Override

@@ -37,13 +37,21 @@ import java.util.stream.Collectors;
  * If an else expr is given then it is the last child.
  */
 public class CaseWhen extends Expression {
+    /**
+     * If default value exists, then defaultValueIndex is the index of the last element in children,
+     * otherwise it is -1
+     */
+    private final int defaultValueIndex;
+
     public CaseWhen(List<WhenClause> whenClauses) {
         super(ExpressionType.CASE, whenClauses.toArray(new Expression[0]));
+        defaultValueIndex = -1;
     }
 
     public CaseWhen(List<WhenClause> whenClauses, Expression defaultValue) {
         super(ExpressionType.CASE,
                 ImmutableList.builder().addAll(whenClauses).add(defaultValue).build().toArray(new Expression[0]));
+        defaultValueIndex = children().size() - 1;
     }
 
     public List<WhenClause> getWhenClauses() {
@@ -55,11 +63,10 @@ public class CaseWhen extends Expression {
     }
 
     public Optional<Expression> getDefaultValue() {
-        int lastIndex = children.size() - 1;
-        if (child(lastIndex) instanceof WhenClause) {
+        if (defaultValueIndex == -1) {
             return Optional.empty();
         }
-        return Optional.of(child(lastIndex));
+        return Optional.of(child(defaultValueIndex));
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -88,7 +95,7 @@ public class CaseWhen extends Expression {
 
     @Override
     public String toSql() throws UnboundException {
-        StringBuilder output = new StringBuilder("case");
+        StringBuilder output = new StringBuilder("CASE ");
         for (Expression child : children()) {
             if (child instanceof WhenClause) {
                 output.append(child.toSql());
