@@ -17,28 +17,31 @@
 
 package org.apache.doris.statistics;
 
-public class StatsGranularityDesc {
-    public enum StatsGranularity {
+/**
+ * The granularity of the statistics.
+ */
+public class StatsGranularity {
+    public enum Granularity {
         TABLE,
         PARTITION,
         TABLET
     }
 
-    private StatsGranularity granularity;
+    private Granularity granularity;
     private long tableId;
     private long partitionId;
     private long tabletId;
 
-    public StatsGranularity getGranularity() {
-        return this.granularity;
+    public Granularity getGranularity() {
+        return granularity;
     }
 
-    public void setGranularity(StatsGranularity granularity) {
+    public void setGranularity(Granularity granularity) {
         this.granularity = granularity;
     }
 
     public long getTableId() {
-        return this.tableId;
+        return tableId;
     }
 
     public void setTableId(long tableId) {
@@ -46,7 +49,7 @@ public class StatsGranularityDesc {
     }
 
     public long getPartitionId() {
-        return this.partitionId;
+        return partitionId;
     }
 
     public void setPartitionId(long partitionId) {
@@ -54,7 +57,7 @@ public class StatsGranularityDesc {
     }
 
     public long getTabletId() {
-        return this.tabletId;
+        return tabletId;
     }
 
     public void setTabletId(long tabletId) {
