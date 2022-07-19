@@ -195,6 +195,7 @@ set(OLAP_TEST_FILES
     # olap/push_handler_test.cpp
     olap/tablet_cooldown_test.cpp
     olap/tablet_clone_test.cpp
+    olap/wal_reader_writer_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
