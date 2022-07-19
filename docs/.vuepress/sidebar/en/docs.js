@@ -363,6 +363,7 @@ module.exports = [
               "starts_with",
               "strleft",
               "strright",
+              "substr",
               "substring",
               "unhex",
               {
