@@ -4991,6 +4991,13 @@ public class Catalog {
         return count;
     }
 
+    public long getBackendIdsForAutoBatchLoadTable(long tableId) {
+        if (autoBatchLoadTableToBackend.containsKey(tableId)) {
+            return autoBatchLoadTableToBackend.get(tableId).getBeId();
+        }
+        return -1;
+    }
+
     public long getOrSelectBackendIdsForAutoBatchLoadTable(long tableId) {
         if (autoBatchLoadTableToBackend.containsKey(tableId)) {
             return autoBatchLoadTableToBackend.get(tableId).getBeId();

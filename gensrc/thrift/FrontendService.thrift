@@ -662,6 +662,15 @@ struct TPropertyVal {
     4: optional bool boolVal
 }
 
+enum TTransactionStatus {
+    UNKNOWN = 0,
+    PREPARE = 1 ,
+    COMMITTED = 2,
+    VISIBLE = 3,
+    ABORTED = 4,
+    PRECOMMITTED = 5;
+}
+
 struct TWaitingTxnStatusRequest {
     1: optional i64 db_id
     2: optional i64 txn_id
@@ -671,6 +680,29 @@ struct TWaitingTxnStatusRequest {
 struct TWaitingTxnStatusResult {
     1: optional Status.TStatus status
     2: optional i32 txn_status_id
+    3: optional TTransactionStatus txn_status
+}
+
+struct TBeginAutoBatchLoadRequest {
+    1: required i64 db_id
+    2: required i64 table_id
+    3: required string label
+}
+
+struct TBeginAutoBatchLoadResult {
+    1: optional Status.TStatus status
+    2: optional Types.TUniqueId fragment_instance_id
+    3: optional i64 txn_id
+}
+
+struct TAbortAutoBatchLoadRequest {
+    1: required i64 db_id
+    2: required string label
+    3: required string reason
+}
+
+struct TAbortAutoBatchLoadResult {
+    1: optional Status.TStatus status
 }
 
 service FrontendService {
@@ -708,4 +740,7 @@ service FrontendService {
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 
     AgentService.TGetStoragePolicyResult refreshStoragePolicy()
+
+    TBeginAutoBatchLoadResult beginAutoBatchLoad(1: TBeginAutoBatchLoadRequest request);
+    TAbortAutoBatchLoadResult abortAutoBatchLoad(1: TAbortAutoBatchLoadRequest request);
 }

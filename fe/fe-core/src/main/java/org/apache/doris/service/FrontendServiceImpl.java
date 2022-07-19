@@ -53,6 +53,7 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
+import org.apache.doris.qe.InsertStreamTxnExecutor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Frontend;
@@ -60,6 +61,10 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
+import org.apache.doris.thrift.TAbortAutoBatchLoadRequest;
+import org.apache.doris.thrift.TAbortAutoBatchLoadResult;
+import org.apache.doris.thrift.TBeginAutoBatchLoadRequest;
+import org.apache.doris.thrift.TBeginAutoBatchLoadResult;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TDescribeTableParams;
@@ -67,6 +72,8 @@ import org.apache.doris.thrift.TDescribeTableResult;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
@@ -90,6 +97,7 @@ import org.apache.doris.thrift.TLoadTxnRollbackResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
+import org.apache.doris.thrift.TMergeType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -104,11 +112,14 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TTxnParams;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
@@ -125,6 +136,8 @@ import org.apache.thrift.TException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -1051,6 +1064,114 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         );
 
         LOG.info("refresh storage policy request: {}", result);
+        return result;
+    }
+
+    public TBeginAutoBatchLoadResult beginAutoBatchLoad(TBeginAutoBatchLoadRequest request) throws TException {
+        TBeginAutoBatchLoadResult result = new TBeginAutoBatchLoadResult();
+        result.setStatus(new TStatus());
+
+        long dbId = request.getDbId();
+        long tableId = request.getTableId();
+        String label = request.getLabel();
+
+        Database database = null;
+        Table table = null;
+        Optional<Database> databaseOpt = Catalog.getCurrentCatalog().getCurrentDataSource().getDb(dbId);
+        Optional<Table> tableOpt = databaseOpt.flatMap(db -> db.getTable(tableId));
+        if (tableOpt.isPresent()) {
+            database = databaseOpt.get();
+            table = tableOpt.get();
+        }
+        if (table == null) {
+            // Table is dropped or some other cases?
+            result.status.setStatusCode(TStatusCode.TABLE_NOT_FOUND);
+            result.status.addToErrorMsgs("Do not find table id: " + tableId);
+            return result;
+        }
+
+        long coordinatorBe = Catalog.getCurrentCatalog().getBackendIdsForAutoBatchLoadTable(tableId);
+        if (coordinatorBe == -1) {
+            result.status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            result.status.addToErrorMsgs("Do not find load be for table: " + table.getName());
+            return result;
+        }
+
+        TTxnParams txnParams = new TTxnParams();
+        txnParams.setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb(database.getFullName())
+                .setDbId(database.getId()).setTbl(table.getName()).setMaxFilterRatio(1.0);
+        TransactionEntry txnEntry = new TransactionEntry();
+        txnEntry.setTxnConf(txnParams);
+        txnEntry.setLabel(label);
+        txnEntry.setDb(database);
+        txnEntry.setTable(table);
+
+        try {
+            TUniqueId fragmentInstanceId = beginTxn(table, txnEntry, coordinatorBe);
+            result.setFragmentInstanceId(fragmentInstanceId);
+            result.setTxnId(txnParams.getTxnId());
+            result.status.setStatusCode(TStatusCode.OK);
+        } catch (TimeoutException | InterruptedException | ExecutionException e) {
+            result.status.setStatusCode(TStatusCode.INCOMPLETE);
+            result.status.addToErrorMsgs(e.getMessage());
+        } catch (LabelAlreadyUsedException e) {
+            result.status.setStatusCode(TStatusCode.LABEL_ALREADY_EXISTS);
+            result.status.addToErrorMsgs(e.getMessage());
+        } catch (UserException | TException e) {
+            result.status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            result.status.addToErrorMsgs(e.getMessage());
+        }
+        return result;
+    }
+
+    private TUniqueId beginTxn(Table tblObj, TransactionEntry txnEntry, long coordinatorBeId)
+            throws UserException, TException, InterruptedException, ExecutionException, TimeoutException {
+        TTxnParams txnConf = txnEntry.getTxnConf();
+        if (Catalog.getCurrentCatalog().isMaster()) {
+            long txnId = Catalog.getCurrentGlobalTransactionMgr()
+                    .beginTransaction(txnConf.getDbId(), Lists.newArrayList(tblObj.getId()), txnEntry.getLabel(),
+                            new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE,
+                                    FrontendOptions.getLocalHostAddress()),
+                            TransactionState.LoadJobSourceType.INSERT_STREAMING,
+                            Config.stream_load_default_timeout_second);
+            txnConf.setTxnId(txnId);
+            txnConf.setAuthCodeUuid(
+                    Catalog.getCurrentGlobalTransactionMgr().getTransactionState(txnConf.getDbId(), txnConf.getTxnId())
+                            .getAuthCode());
+        } else {
+            throw new TException("This is not master");
+        }
+
+        UUID uuid = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setTxnId(txnConf.getTxnId()).setDb(txnConf.getDb()).setTbl(txnConf.getTbl())
+                .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
+                .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId);
+
+        // execute begin txn
+        InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
+        return executor.beginTransaction(request, coordinatorBeId);
+    }
+
+    @Override
+    public TAbortAutoBatchLoadResult abortAutoBatchLoad(TAbortAutoBatchLoadRequest request) {
+        TAbortAutoBatchLoadResult result = new TAbortAutoBatchLoadResult();
+        result.setStatus(new TStatus());
+
+        long dbId = request.getDbId();
+        String label = request.getLabel();
+        try {
+            if (Catalog.getCurrentCatalog().isMaster()) {
+                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, label, request.getReason());
+                result.status.setStatusCode(TStatusCode.OK);
+            } else {
+                throw new TException("This is not master");
+            }
+        } catch (UserException | TException e) {
+            result.status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            result.status.addToErrorMsgs(e.getMessage());
+        }
         return result;
     }
 }

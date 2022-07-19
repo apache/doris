@@ -58,18 +58,26 @@ public class InsertStreamTxnExecutor {
         this.txnEntry = txnEntry;
     }
 
-    public void beginTransaction(TStreamLoadPutRequest request) throws UserException, TException, TimeoutException,
-            InterruptedException, ExecutionException {
+    public TUniqueId beginTransaction(TStreamLoadPutRequest request)
+            throws UserException, TException, TimeoutException, InterruptedException, ExecutionException {
+        return beginTransaction(request, -1);
+    }
+
+    public TUniqueId beginTransaction(TStreamLoadPutRequest request, long coordinatorBeId)
+            throws UserException, TException, TimeoutException, InterruptedException, ExecutionException {
         TTxnParams txnConf = txnEntry.getTxnConf();
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner(
                 txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(txnEntry.getDb().getClusterName())
-                .needLoadAvailable().needQueryAvailable().build();
-        List<Long> beIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
-        if (beIds.isEmpty()) {
-            throw new UserException("No available backend to match the policy: " + policy);
+        if (coordinatorBeId == -1) {
+            BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(txnEntry.getDb().getClusterName())
+                    .needLoadAvailable().needQueryAvailable().build();
+            List<Long> beIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+            if (beIds.isEmpty()) {
+                throw new UserException("No available backend to match the policy: " + policy);
+            }
+            coordinatorBeId = beIds.get(0);
         }
 
         tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
@@ -82,7 +90,7 @@ public class InsertStreamTxnExecutor {
         }
         txnConf.setFragmentInstanceId(tRequest.params.fragment_instance_id);
 
-        Backend backend = Catalog.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
+        Backend backend = Catalog.getCurrentSystemInfo().getIdToBackend().get(coordinatorBeId);
         txnConf.setUserIp(backend.getHost());
         txnEntry.setBackend(backend);
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
@@ -96,6 +104,7 @@ public class InsertStreamTxnExecutor {
             if (code != TStatusCode.OK) {
                 throw new TException("failed to execute plan fragment: " + result.getStatus().getErrorMsgsList());
             }
+            return tRequest.params.fragment_instance_id;
         } catch (RpcException e) {
             throw new TException(e);
         }

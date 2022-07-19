@@ -33,6 +33,7 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TTransactionStatus;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
@@ -622,6 +623,7 @@ public class GlobalTransactionMgr implements Writable {
             }
             if (txnStatus == TransactionStatus.UNKNOWN || txnStatus.isFinalStatus()) {
                 statusResult.setTxnStatusId(txnStatus.value());
+                statusResult.setTxnStatus(TTransactionStatus.findByValue(txnStatus.value()));
                 return statusResult;
             }
             try {
