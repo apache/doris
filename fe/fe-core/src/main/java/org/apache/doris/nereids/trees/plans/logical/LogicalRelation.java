@@ -67,11 +67,6 @@ public abstract class LogicalRelation extends LogicalLeaf {
     }
 
     @Override
-    public String toString() {
-        return "LogicalRelation (" + StringUtils.join(qualifier, ".") + ")";
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
