@@ -117,7 +117,9 @@ public class StoragePolicy extends Policy {
 
     private Map<String, String> props;
 
-    public StoragePolicy() {}
+    public StoragePolicy() {
+        super(PolicyTypeEnum.STORAGE);
+    }
 
     /**
      * Policy for Storage Migration.

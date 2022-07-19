@@ -57,7 +57,8 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     @SerializedName(value = "policyName")
     protected String policyName = null;
 
-    public Policy() {
+    public Policy(PolicyTypeEnum type) {
+        this.type = type;
     }
 
     /**

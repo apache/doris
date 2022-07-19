@@ -88,7 +88,9 @@ public class RowPolicy extends Policy {
 
     private Expr wherePredicate = null;
 
-    public RowPolicy() {}
+    public RowPolicy() {
+        super(PolicyTypeEnum.ROW);
+    }
 
     /**
      * Policy for Table. Policy of ROW or others.
