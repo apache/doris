@@ -134,7 +134,7 @@ Status OlapScanner::prepare(
 
 TabletStorageType OlapScanner::get_storage_type() {
     int local_reader = 0;
-    for(const auto& reader: _tablet_reader_params.rs_readers) {
+    for (const auto& reader : _tablet_reader_params.rs_readers) {
         if (reader->rowset()->rowset_meta()->resource_id().empty()) {
             local_reader++;
         }

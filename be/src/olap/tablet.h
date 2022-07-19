@@ -52,11 +52,7 @@ struct RowsetWriterContext;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
-enum TabletStorageType {
-    STORAGE_TYPE_LOCAL,
-    STORAGE_TYPE_S3,
-    STORAGE_TYPE_S3_AND_LOCAL
-};
+enum TabletStorageType { STORAGE_TYPE_LOCAL, STORAGE_TYPE_S3, STORAGE_TYPE_S3_AND_LOCAL };
 
 class Tablet : public BaseTablet {
 public:
