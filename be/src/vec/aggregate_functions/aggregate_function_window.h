@@ -326,9 +326,9 @@ struct WindowFunctionLagImpl : Data {
     static const char* name() { return "lag"; }
 };
 
-//TODO: first_value && last_value in some corner case will be core,
-//if need to simply change it, should set them to always nullable insert into null value
-//But it's may be another better way to handle it
+// TODO: first_value && last_value in some corner case will be core,
+// if need to simply change it, should set them to always nullable insert into null value, and register in cpp maybe be change
+// But it's may be another better way to handle it
 template <typename Data>
 struct WindowFunctionFirstImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,

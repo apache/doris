@@ -73,17 +73,17 @@ struct CopiedValue : public Value<ColVecType, arg_is_nullable> {
 public:
     StringRef get_value() const { return _copied_value; }
 
-    bool is_null() const { return Value<ColVecType, arg_is_nullable>::_ptr == nullptr; }
+    bool is_null() const { return this->_ptr == nullptr; }
 
     void set_value(const IColumn* column, size_t row) {
         // here _ptr, maybe null at row, so call reset to set nullptr
-        // because we will use is_null() check first, others have set _ptr column to a meaningless address
-        // the address have meaningless, only need it to check is nullptr
-        Value<ColVecType, arg_is_nullable>::_ptr = (IColumn*)0x00000001;
+        // But we will use is_null() check first, others have set _ptr column to a meaningless address
+        // because the address have meaningless, only need it to check is nullptr
+        this->_ptr = (IColumn*)0x00000001;
         if constexpr (arg_is_nullable) {
             auto* col = assert_cast<const ColumnNullable*>(column);
             if (col->is_null_at(row)) {
-                Value<ColVecType, arg_is_nullable>::reset();
+                this->reset();
                 return;
             } else {
                 _copied_value = assert_cast<const ColVecType&>(col->get_nested_column())
@@ -284,99 +284,4 @@ CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_first_non_nu
 CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last, ReaderFunctionLastData);
 CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last_non_null_value,
                                           ReaderFunctionLastNonNullData);
-
-/*
-template <bool is_copy>
-AggregateFunctionPtr create_aggregate_function_first(const std::string& name,
-                                                     const DataTypes& argument_types,
-                                                     const Array& parameters,
-                                                     bool result_is_nullable) {
-    const bool arg_is_nullable = argument_types[0]->is_nullable();
-    AggregateFunctionPtr res = nullptr;
-    std::visit(
-            [&](auto result_is_nullable, auto arg_is_nullable) {
-                res = AggregateFunctionPtr(
-                        create_function_single_value<ReaderFunctionData, ReaderFunctionFirstData,
-                                                     result_is_nullable, arg_is_nullable, is_copy>(
-                                name, argument_types, parameters));
-            },
-            make_bool_variant(result_is_nullable), make_bool_variant(arg_is_nullable));
-    if (!res) {
-        LOG(WARNING) << " failed in  create_aggregate_function_" << name
-                     << " and type is: " << argument_types[0]->get_name();
-    }
-    return res;
-}
-
-template <bool is_copy>
-AggregateFunctionPtr create_aggregate_function_first_non_null_value(const std::string& name,
-                                                                    const DataTypes& argument_types,
-                                                                    const Array& parameters,
-                                                                    bool result_is_nullable) {
-    const bool arg_is_nullable = argument_types[0]->is_nullable();
-    AggregateFunctionPtr res = nullptr;
-    std::visit(
-            [&](auto result_is_nullable, auto arg_is_nullable) {
-                res = AggregateFunctionPtr(
-                        create_function_single_value<ReaderFunctionData,
-                                                     ReaderFunctionFirstNonNullData,
-                                                     result_is_nullable, arg_is_nullable, is_copy>(
-                                name, argument_types, parameters));
-            },
-            make_bool_variant(result_is_nullable), make_bool_variant(arg_is_nullable));
-    if (!res) {
-        LOG(WARNING) << " failed in  create_aggregate_function_" << name
-                     << " and type is: " << argument_types[0]->get_name();
-    }
-    return res;
-}
-
-template <bool is_copy>
-AggregateFunctionPtr create_aggregate_function_last(const std::string& name,
-                                                    const DataTypes& argument_types,
-                                                    const Array& parameters,
-                                                    bool result_is_nullable) {
-    const bool arg_is_nullable = argument_types[0]->is_nullable();
-    AggregateFunctionPtr res = nullptr;
-
-    std::visit(
-            [&](auto result_is_nullable, auto arg_is_nullable) {
-                res = AggregateFunctionPtr(
-                        create_function_single_value<ReaderFunctionData, ReaderFunctionLastData,
-                                                     result_is_nullable, arg_is_nullable, is_copy>(
-                                name, argument_types, parameters));
-            },
-            make_bool_variant(result_is_nullable), make_bool_variant(arg_is_nullable));
-    if (!res) {
-        LOG(WARNING) << " failed in  create_aggregate_function_" << name
-                     << " and type is: " << argument_types[0]->get_name();
-    }
-    return res;
-}
-
-template <bool is_copy>
-AggregateFunctionPtr create_aggregate_function_last_non_null_value(const std::string& name,
-                                                                   const DataTypes& argument_types,
-                                                                   const Array& parameters,
-                                                                   bool result_is_nullable) {
-    const bool arg_is_nullable = argument_types[0]->is_nullable();
-    AggregateFunctionPtr res = nullptr;
-
-    std::visit(
-            [&](auto result_is_nullable, auto arg_is_nullable) {
-                res = AggregateFunctionPtr(
-                        create_function_single_value<ReaderFunctionData,
-                                                     ReaderFunctionLastNonNullData,
-                                                     result_is_nullable, arg_is_nullable, is_copy>(
-                                name, argument_types, parameters));
-            },
-            make_bool_variant(result_is_nullable), make_bool_variant(arg_is_nullable));
-    if (!res) {
-        LOG(WARNING) << " failed in  create_aggregate_function_" << name
-                     << " and type is: " << argument_types[0]->get_name();
-    }
-    return res;
-}
-*/
-
 } // namespace doris::vectorized
