@@ -148,6 +148,9 @@ public:
                            google::protobuf::Closure* done) override;
     void hand_shake(google::protobuf::RpcController* controller, const PHandShakeRequest* request,
                     PHandShakeResponse* response, google::protobuf::Closure* done) override;
+    void auto_batch_load(google::protobuf::RpcController* controller,
+                         const PAutoBatchLoadRequest* request, PAutoBatchLoadResponse* response,
+                         google::protobuf::Closure* done) override;
 
 private:
     Status _exec_plan_fragment(const std::string& s_request, PFragmentRequestVersion version,

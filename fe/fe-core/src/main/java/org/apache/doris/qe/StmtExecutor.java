@@ -96,23 +96,29 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PAutoBatchLoadResponse;
+import org.apache.doris.proto.InternalService.PDataRow;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TResultBatch;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
@@ -145,6 +151,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -718,6 +726,9 @@ public class StmtExecutor implements ProfileWriter {
 
     private void analyzeAndGenerateQueryPlan(TQueryOptions tQueryOptions) throws UserException {
         parsedStmt.analyze(analyzer);
+        if (parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).needAutoBatchLoad()) {
+            return;
+        }
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             ExprRewriter rewriter = analyzer.getExprRewriter();
             rewriter.reset();
@@ -1352,6 +1363,31 @@ public class StmtExecutor implements ProfileWriter {
             loadedRows = executeForTxn(insertStmt);
             label = context.getTxnEntry().getLabel();
             txnId = context.getTxnEntry().getTxnConf().getTxnId();
+        } else if (insertStmt.needAutoBatchLoad()) {
+            Table table = insertStmt.getTargetTable();
+            long dbId = insertStmt.getDbObj().getId();
+            long beId = Catalog.getCurrentCatalog().getOrSelectBackendIdsForAutoBatchLoadTable(table.getId());
+            Backend backend = Catalog.getCurrentSystemInfo().getBackend(beId);
+            TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+            List<PDataRow> rows = insertStmt.generateAutoBatchLoadRows();
+            Future<PAutoBatchLoadResponse> future = BackendServiceProxy.getInstance()
+                    .autoBatchLoad(address, dbId, table.getId(), rows);
+            InternalService.PAutoBatchLoadResponse result = future.get(Config.auto_batch_load_timeout_second,
+                    TimeUnit.SECONDS);
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                throw new DdlException("failed to auto batch load: " + result.getStatus().getErrorMsgsList());
+            }
+            // change the returned txn status because data is not visible now
+            txnStatus = TransactionStatus.PREPARE;
+            if (result.hasLabel()) {
+                label = result.getLabel();
+            }
+            if (result.hasTxnId()) {
+                txnId = result.getTxnId();
+            }
+            // NOTE: Only valid rows will be loaded
+            loadedRows = rows.size();
         } else {
             label = insertStmt.getLabel();
             LOG.info("Do insert [{}] with query id: {}", label, DebugUtil.printId(context.queryId()));

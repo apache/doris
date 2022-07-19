@@ -1696,4 +1696,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_tags = false;
+
+    /**
+     * The timeout of how long fe wait for be response after fe send one auto_batch_load request to be.
+     */
+    @ConfField
+    public static int auto_batch_load_timeout_second = 5;
 }

@@ -757,4 +757,20 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* cntl_base
     response->mutable_status()->set_status_code(0);
 }
 
+void PInternalServiceImpl::auto_batch_load(google::protobuf::RpcController* controller,
+                                           const PAutoBatchLoadRequest* request,
+                                           PAutoBatchLoadResponse* response,
+                                           google::protobuf::Closure* done) {
+    SCOPED_SWITCH_BTHREAD();
+    brpc::ClosureGuard closure_guard(done);
+    response->mutable_status()->set_status_code(0);
+    // TODO call real auto batch load
+    auto st = Status::OK();
+    // TODO set label and txn_id
+    if (!st.ok()) {
+        response->mutable_status()->set_status_code(1);
+        response->mutable_status()->add_error_msgs(st.get_error_msg());
+    }
+}
+
 } // namespace doris

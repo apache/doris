@@ -475,6 +475,18 @@ message PResetRPCChannelResponse {
 
 message PEmptyRequest {};
 
+message PAutoBatchLoadRequest {
+    required int64 db_id = 1;
+    required int64 table_id = 2;
+    repeated PDataRow data = 3;
+};
+
+message PAutoBatchLoadResponse {
+    required PStatus status = 1;
+    optional string label = 2;
+    optional int64 txn_id = 3;
+};
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -506,5 +518,6 @@ service PBackendService {
     rpc check_rpc_channel(PCheckRPCChannelRequest) returns (PCheckRPCChannelResponse);
     rpc reset_rpc_channel(PResetRPCChannelRequest) returns (PResetRPCChannelResponse);
     rpc hand_shake(PHandShakeRequest) returns (PHandShakeResponse);
+    rpc auto_batch_load(PAutoBatchLoadRequest) returns (PAutoBatchLoadResponse);
 };
 

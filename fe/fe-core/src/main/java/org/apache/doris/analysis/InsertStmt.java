@@ -44,7 +44,9 @@ import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
@@ -60,6 +62,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -129,6 +132,8 @@ public class InsertStmt extends DdlStmt {
     private boolean isTransactionBegin = false;
 
     private boolean isValuesOrConstantSelect = false;
+
+    private boolean autoBatchLoad = false;
 
     public boolean isValuesOrConstantSelect() {
         return isValuesOrConstantSelect;
@@ -298,10 +303,15 @@ public class InsertStmt extends DdlStmt {
             return;
         }
 
+        db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(tblName.getDb());
+
+        if (checkNeedAutoBatchLoad()) {
+            autoBatchLoad = true;
+            return;
+        }
+
         // create data sink
         createDataSink();
-
-        db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(tblName.getDb());
 
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
@@ -781,5 +791,56 @@ public class InsertStmt extends DdlStmt {
         } else {
             return RedirectStatus.FORWARD_WITH_SYNC;
         }
+    }
+
+    /**
+     * If meet the following requirements:
+     * 1. "auto_batch_load" is true;
+     * 2. query statement contain "values(...)" or select (1,2,3);
+     * 3. contains all columns;
+     * then redirect to load be for this table
+     * @return True if the insert statement can do auto batch load.
+     */
+    private boolean checkNeedAutoBatchLoad() {
+        if (targetTable instanceof OlapTable && ((OlapTable) targetTable).isAutoBatchLoad()
+                && isValuesOrConstantSelect()) {
+            SelectStmt selectStmt = (SelectStmt) queryStmt;
+            // the value columns are columns which are visible to user, so here we use
+            // getBaseSchema(), not getFullSchema()
+            int schemaSize = targetTable.getBaseSchema(false).size();
+            for (List<Expr> row : selectStmt.getValueList().getRows()) {
+                if (schemaSize != row.size()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    public boolean needAutoBatchLoad() {
+        return autoBatchLoad;
+    }
+
+    public List<InternalService.PDataRow> generateAutoBatchLoadRows() throws TException {
+        SelectStmt selectStmt = (SelectStmt) queryStmt;
+        // check again because schema may change
+        // the value columns are columns which are visible to user, so here we use
+        // getBaseSchema(), not getFullSchema()
+        int schemaSize = targetTable.getBaseSchema(false).size();
+        for (List<Expr> row : selectStmt.getValueList().getRows()) {
+            if (schemaSize != row.size()) {
+                throw new TException("Column count doesn't match value count");
+            }
+        }
+        List<InternalService.PDataRow> rows = new ArrayList<>();
+        for (List<Expr> row : selectStmt.getValueList().getRows()) {
+            InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
+            if (data == null) {
+                continue;
+            }
+            rows.add(data);
+        }
+        return rows;
     }
 }

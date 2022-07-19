@@ -275,4 +275,20 @@ public class BackendServiceProxy {
             throw new RpcException(address.hostname, e.getMessage());
         }
     }
+
+    public Future<InternalService.PAutoBatchLoadResponse> autoBatchLoad(TNetworkAddress address, long dbId,
+            long tableId, List<InternalService.PDataRow> rows) throws RpcException {
+        final InternalService.PAutoBatchLoadRequest.Builder pRequest
+                = InternalService.PAutoBatchLoadRequest.newBuilder();
+        pRequest.setDbId(dbId);
+        pRequest.setTableId(tableId);
+        pRequest.addAllData(rows);
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.autoBatchLoad(pRequest.build());
+        } catch (Throwable e) {
+            LOG.warn("failed to auto batch load, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
 }

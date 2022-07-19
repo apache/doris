@@ -164,4 +164,8 @@ public class BackendServiceClient {
             };
         }
     }
+
+    public Future<InternalService.PAutoBatchLoadResponse> autoBatchLoad(InternalService.PAutoBatchLoadRequest request) {
+        return stub.autoBatchLoad(request);
+    }
 }
