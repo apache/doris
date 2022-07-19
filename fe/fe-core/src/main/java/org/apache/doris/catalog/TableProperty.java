@@ -77,6 +77,9 @@ public class TableProperty implements Writable {
     // remote storage policy, for cold data
     private String remoteStoragePolicy;
 
+    // True if table enables "auto_load_batch"
+    private boolean isAutoBatchLoad = false;
+
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
     }
@@ -176,6 +179,12 @@ public class TableProperty implements Writable {
 
     public TableProperty buildRemoteStoragePolicy() {
         remoteStoragePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, "");
+        return this;
+    }
+
+    public TableProperty buildAutoBatchLoad() {
+        isAutoBatchLoad = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_BATCH_LOAD, "false"));
         return this;
     }
 
@@ -285,7 +294,8 @@ public class TableProperty implements Writable {
                 .buildStorageFormat()
                 .buildDataSortInfo()
                 .buildRemoteStoragePolicy()
-                .buildCompressionType();
+                .buildCompressionType()
+                .buildAutoBatchLoad();
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
@@ -313,5 +323,9 @@ public class TableProperty implements Writable {
                 && properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
         }
+    }
+
+    public boolean isAutoBatchLoad() {
+        return isAutoBatchLoad;
     }
 }

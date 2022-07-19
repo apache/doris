@@ -113,6 +113,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_STORAGE_POLICY = "storage_policy";
 
+    public static final String PROPERTIES_AUTO_BATCH_LOAD = "auto_batch_load";
+
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;

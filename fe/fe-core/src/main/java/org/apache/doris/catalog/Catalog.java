@@ -2884,6 +2884,12 @@ public class Catalog {
                 sb.append(olapTable.getSequenceType().toString()).append("\"");
             }
 
+            // auto batch load
+            if (olapTable.isAutoBatchLoad()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_AUTO_BATCH_LOAD).append("\" = \"");
+                sb.append(olapTable.isAutoBatchLoad()).append("\"");
+            }
+
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;

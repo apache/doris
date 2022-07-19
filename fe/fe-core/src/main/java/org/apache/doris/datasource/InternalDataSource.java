@@ -1801,6 +1801,11 @@ public class InternalDataSource implements DataSourceIf<Database> {
 
         olapTable.setStoragePolicy(storagePolicy);
 
+        // set auto batch load switch
+        boolean isAutoBatchLoadOn = PropertyAnalyzer.analyzeBooleanProp(properties,
+                PropertyAnalyzer.PROPERTIES_AUTO_BATCH_LOAD, false);
+        olapTable.setIsAutoBatchLoad(isAutoBatchLoadOn);
+
         TTabletType tabletType;
         try {
             tabletType = PropertyAnalyzer.analyzeTabletType(properties);
