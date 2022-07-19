@@ -138,6 +138,7 @@ import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.persist.AutoBatchLoadTableAndBeInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -859,6 +860,12 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 table.writeUnlock();
             }
             Catalog.getCurrentCatalog().getEditLog().logDropTable(info);
+            long beId = Catalog.getCurrentCatalog().getBackendIdsForAutoBatchLoadTable(table.getId());
+            if (beId != -1) {
+                Catalog.getCurrentCatalog().removeBackendIdForAutoBatchLoadTable(table.getId());
+                Catalog.getCurrentCatalog().getEditLog()
+                        .logDropAutoBatchLoadTableAndBeInfo(new AutoBatchLoadTableAndBeInfo(table.getId(), beId));
+            }
         } finally {
             db.writeUnlock();
         }

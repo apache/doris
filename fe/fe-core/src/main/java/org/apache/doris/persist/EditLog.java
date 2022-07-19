@@ -862,6 +862,11 @@ public class EditLog {
                     catalog.replayAutoBatchLoadTableAndBeInfo(log);
                     break;
                 }
+                case OperationType.OP_DROP_AUTO_BATCH_LOAD_TABLE_AND_BE: {
+                    AutoBatchLoadTableAndBeInfo log = (AutoBatchLoadTableAndBeInfo) journal.getData();
+                    catalog.replayDropAutoBatchLoadTableAndBeInfo(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1499,6 +1504,10 @@ public class EditLog {
 
     public void logAutoBatchLoadTableAndBeInfo(AutoBatchLoadTableAndBeInfo info) {
         logEdit(OperationType.OP_AUTO_BATCH_LOAD_TABLE_AND_BE, info);
+    }
+
+    public void logDropAutoBatchLoadTableAndBeInfo(AutoBatchLoadTableAndBeInfo info) {
+        logEdit(OperationType.OP_DROP_AUTO_BATCH_LOAD_TABLE_AND_BE, info);
     }
 
     public void logModifyAutoBatchLoad(ModifyTablePropertyOperationLog info) {

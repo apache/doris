@@ -3207,6 +3207,10 @@ public class Catalog {
         autoBatchLoadTableToBackend.put(info.getTableId(), info);
     }
 
+    public void replayDropAutoBatchLoadTableAndBeInfo(AutoBatchLoadTableAndBeInfo info) {
+        removeBackendIdForAutoBatchLoadTable(info.getTableId());
+    }
+
     public int getClusterId() {
         return this.clusterId;
     }
@@ -5041,5 +5045,9 @@ public class Catalog {
             }
         }
         return null;
+    }
+
+    public void removeBackendIdForAutoBatchLoadTable(long tableId) {
+        autoBatchLoadTableToBackend.remove(tableId);
     }
 }
