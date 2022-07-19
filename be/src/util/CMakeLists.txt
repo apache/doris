@@ -105,6 +105,7 @@ set(UTIL_FILES
   s3_util.cpp
   hdfs_storage_backend.cpp
   hdfs_util.cpp
+  time_lut.cpp
   topn_counter.cpp
   tuple_row_zorder_compare.cpp
   telemetry/telemetry.cpp

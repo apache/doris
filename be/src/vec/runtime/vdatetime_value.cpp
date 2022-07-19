@@ -44,14 +44,6 @@ uint8_t mysql_week_mode(uint32_t mode) {
     return mode;
 }
 
-bool is_leap(uint32_t year) {
-    return ((year % 4) == 0) && ((year % 100 != 0) || ((year % 400) == 0 && year));
-}
-
-uint32_t calc_days_in_year(uint32_t year) {
-    return is_leap(year) ? 366 : 365;
-}
-
 bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
                                    uint32_t minute, uint32_t second, uint16_t type) {
     bool time = hour > (type == TIME_TIME ? TIME_MAX_HOUR : 23) || minute > 59 || second > 59;
@@ -59,7 +51,7 @@ bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, 
 }
 
 bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
-    if (month == 2 && day == 29 && is_leap(year)) return false;
+    if (month == 2 && day == 29 && doris::is_leap(year)) return false;
     if (year > 9999 || month == 0 || month > 12 || day > s_days_in_month[month] || day == 0) {
         return true;
     }
@@ -439,12 +431,12 @@ bool VecDateTimeValue::get_date_from_daynr(uint64_t daynr) {
     auto [year, month, day] = std::tuple {0, 0, 0};
     year = daynr / 365;
     uint32_t days_befor_year = 0;
-    while (daynr < (days_befor_year = calc_daynr(year, 1, 1))) {
+    while (daynr < (days_befor_year = doris::calc_daynr(year, 1, 1))) {
         year--;
     }
     uint32_t days_of_year = daynr - days_befor_year + 1;
     int leap_day = 0;
-    if (is_leap(year)) {
+    if (doris::is_leap(year)) {
         if (days_of_year > 31 + 28) {
             days_of_year--;
             if (days_of_year == 31 + 28) {
@@ -675,7 +667,7 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
             break;
         case 'j':
             // Day of year (001..366)
-            pos = int_to_str(daynr() - calc_daynr(_year, 1, 1) + 1, buf);
+            pos = int_to_str(daynr() - doris::calc_daynr(_year, 1, 1) + 1, buf);
             to = append_with_prefix(buf, pos - buf, '0', 3, to);
             break;
         case 'k':
@@ -786,7 +778,7 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
             if (_type == TIME_TIME || (_month == 0 && _year == 0)) {
                 return false;
             }
-            pos = int_to_str(calc_weekday(daynr(), true), buf);
+            pos = int_to_str(doris::calc_weekday(daynr(), true), buf);
             to = append_with_prefix(buf, pos - buf, '0', 1, to);
             break;
         case 'W':
@@ -837,23 +829,24 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
 }
 
 uint8_t VecDateTimeValue::calc_week(const VecDateTimeValue& value, uint8_t mode, uint32_t* year) {
-    //mode=3 is used for week_of_year()
-    if (mode == 3 && value._year >= 1950 && value._year < 2030) {
-        DCHECK(value._month < 13 && value._day < 32);
-        return week_of_year_table[value._year - 1950][value._month][value._day];
+    // mode=3 is used for week_of_year()
+    if (config::enable_time_lut && mode == 3 && value._year >= 1950 && value._year < 2030) {
+        return doris::TimeLUT::GetImplement()
+                ->week_of_year_table[value._year - doris::LUT_START_YEAR][value._month - 1]
+                                    [value._day - 1];
     }
-    //mode=4 is used for week()
-    if (mode == 4 && value._year >= 1950 && value._year < 2030) {
-        DCHECK(value._month < 13 && value._day < 32);
-        return week_table[value._year - 1950][value._month][value._day];
+    // mode=4 is used for week()
+    if (config::enable_time_lut && mode == 4 && value._year >= 1950 && value._year < 2030) {
+        return doris::TimeLUT::GetImplement()
+                ->week_table[value._year - doris::LUT_START_YEAR][value._month - 1][value._day - 1];
     }
-    //not covered by pre calculated dates, calculate at runtime
+    // not covered by pre calculated dates, calculate at runtime
     bool monday_first = mode & WEEK_MONDAY_FIRST;
     bool week_year = mode & WEEK_YEAR;
     bool first_weekday = mode & WEEK_FIRST_WEEKDAY;
     uint64_t day_nr = value.daynr();
-    uint64_t daynr_first_day = calc_daynr(value._year, 1, 1);
-    uint8_t weekday_first_day = calc_weekday(daynr_first_day, !monday_first);
+    uint64_t daynr_first_day = doris::calc_daynr(value._year, 1, 1);
+    uint8_t weekday_first_day = doris::calc_weekday(daynr_first_day, !monday_first);
 
     int days = 0;
     *year = value._year;
@@ -866,7 +859,7 @@ uint8_t VecDateTimeValue::calc_week(const VecDateTimeValue& value, uint8_t mode,
         }
         (*year)--;
         week_year = true;
-        daynr_first_day -= (days = calc_days_in_year(*year));
+        daynr_first_day -= (days = doris::calc_days_in_year(*year));
         weekday_first_day = (weekday_first_day + 53 * 7 - days) % 7;
     }
 
@@ -880,7 +873,7 @@ uint8_t VecDateTimeValue::calc_week(const VecDateTimeValue& value, uint8_t mode,
     }
 
     if (week_year && days >= 52 * 7) {
-        weekday_first_day = (weekday_first_day + calc_days_in_year(*year)) % 7;
+        weekday_first_day = (weekday_first_day + doris::calc_days_in_year(*year)) % 7;
         if ((first_weekday && weekday_first_day == 0) ||
             (!first_weekday && weekday_first_day <= 3)) {
             // Belong to next year.
@@ -898,13 +891,12 @@ uint8_t VecDateTimeValue::week(uint8_t mode) const {
 }
 
 uint32_t VecDateTimeValue::year_week(uint8_t mode) const {
-    //mode=4 is used for yearweek()
-    if (mode == 4 && _year >= 1950 && _year < 2030) {
-        DCHECK(_month < 13 && _day < 32);
-        return year_week_table[_year - 1950][_month][_day];
+    // mode=4 is used for yearweek()
+    if (config::enable_time_lut && mode == 4 && _year >= 1950 && _year < 2030) {
+        return doris::TimeLUT::GetImplement()->year_week_table[_year - 1950][_month - 1][_day - 1];
     }
 
-    //not covered by year_week_table, calculate at runtime
+    // not covered by year_week_table, calculate at runtime
     uint32_t year = 0;
     // The range of the week in the year_week is 1-53, so the mode WEEK_YEAR is always true.
     uint8_t week = calc_week(*this, mode | 2, &year);
@@ -912,8 +904,8 @@ uint32_t VecDateTimeValue::year_week(uint8_t mode) const {
     // the week in which the last three days of the year fall may belong to the following year.
     if (week == 53 && day() >= 29 && !(mode & 4)) {
         uint8_t monday_first = mode & WEEK_MONDAY_FIRST;
-        uint64_t daynr_of_last_day = calc_daynr(_year, 12, 31);
-        uint8_t weekday_of_last_day = calc_weekday(daynr_of_last_day, !monday_first);
+        uint64_t daynr_of_last_day = doris::calc_daynr(_year, 12, 31);
+        uint8_t weekday_of_last_day = doris::calc_weekday(daynr_of_last_day, !monday_first);
 
         if (weekday_of_last_day - monday_first < 2) {
             ++year;
@@ -1418,7 +1410,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
 
     // Year day
     if (yearday > 0) {
-        uint64_t days = calc_daynr(year, 1, 1) + yearday - 1;
+        uint64_t days = doris::calc_daynr(year, 1, 1) + yearday - 1;
         if (!get_date_from_daynr(days)) {
             return false;
         }
@@ -1431,9 +1423,10 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
             (!strict_week_number && strict_week_number_year >= 0)) {
             return false;
         }
-        uint64_t days = calc_daynr(strict_week_number ? strict_week_number_year : year, 1, 1);
+        uint64_t days =
+                doris::calc_daynr(strict_week_number ? strict_week_number_year : year, 1, 1);
 
-        uint8_t weekday_b = calc_weekday(days, sunday_first);
+        uint8_t weekday_b = doris::calc_weekday(days, sunday_first);
 
         if (sunday_first) {
             days += ((weekday_b == 0) ? 0 : 7) - weekday_b + (week_num - 1) * 7 + weekday % 7;
@@ -1496,7 +1489,7 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit 
         _second = seconds % 60;
         _minute = (seconds / 60) % 60;
         _hour = seconds / 3600;
-        int64_t day_nr = calc_daynr(_year, _month, 1) + days;
+        int64_t day_nr = doris::calc_daynr(_year, _month, 1) + days;
         if (!get_date_from_daynr(day_nr)) {
             return false;
         }
@@ -1518,7 +1511,7 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit 
         if (_year > 9999) {
             return false;
         }
-        if (_month == 2 && _day == 29 && !is_leap(_year)) {
+        if (_month == 2 && _day == 29 && !doris::is_leap(_year)) {
             _day = 28;
         }
         break;
@@ -1535,7 +1528,7 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit 
         _month = (months % 12) + 1;
         if (_day > s_days_in_month[_month]) {
             _day = s_days_in_month[_month];
-            if (_month == 2 && is_leap(_year)) {
+            if (_month == 2 && doris::is_leap(_year)) {
                 _day++;
             }
         }
@@ -1675,7 +1668,7 @@ std::size_t hash_value(VecDateTimeValue const& value) {
 }
 
 bool DateV2Value::is_invalid(uint32_t year, uint32_t month, uint32_t day) {
-    if (month == 2 && day == 29 && is_leap(year)) return false;
+    if (month == 2 && day == 29 && doris::is_leap(year)) return false;
     if (year < MIN_YEAR || year > MAX_YEAR || month == 0 || month > 12 ||
         day > s_days_in_month[month] || day == 0) {
         return true;
@@ -2103,7 +2096,7 @@ bool DateV2Value::from_date_format_str(const char* format, int format_len, const
 
     // Year day
     if (yearday > 0) {
-        uint64_t days = calc_daynr(year, 1, 1) + yearday - 1;
+        uint64_t days = doris::calc_daynr(year, 1, 1) + yearday - 1;
         if (!get_date_from_daynr(days)) {
             return false;
         }
@@ -2116,9 +2109,10 @@ bool DateV2Value::from_date_format_str(const char* format, int format_len, const
             (!strict_week_number && strict_week_number_year >= 0)) {
             return false;
         }
-        uint64_t days = calc_daynr(strict_week_number ? strict_week_number_year : year, 1, 1);
+        uint64_t days =
+                doris::calc_daynr(strict_week_number ? strict_week_number_year : year, 1, 1);
 
-        uint8_t weekday_b = calc_weekday(days, sunday_first);
+        uint8_t weekday_b = doris::calc_weekday(days, sunday_first);
 
         if (sunday_first) {
             days += ((weekday_b == 0) ? 0 : 7) - weekday_b + (week_num - 1) * 7 + weekday % 7;
@@ -2191,8 +2185,8 @@ uint32_t DateV2Value::year_week(uint8_t mode) const {
     // the week in which the last three days of the year fall may belong to the following year.
     if (week == 53 && day() >= 29 && !(mode & 4)) {
         uint8_t monday_first = mode & WEEK_MONDAY_FIRST;
-        uint64_t daynr_of_last_day = calc_daynr(this->year(), 12, 31);
-        uint8_t weekday_of_last_day = calc_weekday(daynr_of_last_day, !monday_first);
+        uint64_t daynr_of_last_day = doris::calc_daynr(this->year(), 12, 31);
+        uint8_t weekday_of_last_day = doris::calc_weekday(daynr_of_last_day, !monday_first);
 
         if (weekday_of_last_day - monday_first < 2) {
             ++year;
@@ -2210,12 +2204,12 @@ bool DateV2Value::get_date_from_daynr(uint64_t daynr) {
     auto [year, month, day] = std::tuple {0, 0, 0};
     year = daynr / 365;
     uint32_t days_befor_year = 0;
-    while (daynr < (days_befor_year = calc_daynr(year, 1, 1))) {
+    while (daynr < (days_befor_year = doris::calc_daynr(year, 1, 1))) {
         year--;
     }
     uint32_t days_of_year = daynr - days_befor_year + 1;
     int leap_day = 0;
-    if (is_leap(year)) {
+    if (doris::is_leap(year)) {
         if (days_of_year > 31 + 28) {
             days_of_year--;
             if (days_of_year == 31 + 28) {
@@ -2270,7 +2264,7 @@ bool DateV2Value::date_add_interval(const TimeInterval& interval, TimeUnit unit)
             return false;
         }
         if (date_v2_value_.month_ == 2 && date_v2_value_.day_ == 29 &&
-            !is_leap(date_v2_value_.year_)) {
+            !doris::is_leap(date_v2_value_.year_)) {
             date_v2_value_.day_ = 28;
         }
         break;
@@ -2288,7 +2282,7 @@ bool DateV2Value::date_add_interval(const TimeInterval& interval, TimeUnit unit)
         date_v2_value_.month_ = (months % 12) + 1;
         if (date_v2_value_.day_ > s_days_in_month[date_v2_value_.month_]) {
             date_v2_value_.day_ = s_days_in_month[date_v2_value_.month_];
-            if (date_v2_value_.month_ == 2 && is_leap(date_v2_value_.year_)) {
+            if (date_v2_value_.month_ == 2 && doris::is_leap(date_v2_value_.year_)) {
                 date_v2_value_.day_++;
             }
         }
@@ -2464,7 +2458,7 @@ bool DateV2Value::to_format_string(const char* format, int len, char* to) const 
             break;
         case 'j':
             // Day of year (001..366)
-            pos = int_to_str(daynr() - calc_daynr(this->year(), 1, 1) + 1, buf);
+            pos = int_to_str(daynr() - doris::calc_daynr(this->year(), 1, 1) + 1, buf);
             to = append_with_prefix(buf, pos - buf, '0', 3, to);
             break;
         case 'k':
@@ -2542,7 +2536,7 @@ bool DateV2Value::to_format_string(const char* format, int len, char* to) const 
             if (this->month() == 0 && this->year() == 0) {
                 return false;
             }
-            pos = int_to_str(calc_weekday(daynr(), true), buf);
+            pos = int_to_str(doris::calc_weekday(daynr(), true), buf);
             to = append_with_prefix(buf, pos - buf, '0', 1, to);
             break;
         case 'W':
@@ -2675,8 +2669,8 @@ uint8_t DateV2Value::calc_week(const uint32_t& day_nr, const uint16_t& year, con
     bool monday_first = mode & WEEK_MONDAY_FIRST;
     bool week_year = mode & WEEK_YEAR;
     bool first_weekday = mode & WEEK_FIRST_WEEKDAY;
-    uint64_t daynr_first_day = calc_daynr(year, 1, 1);
-    uint8_t weekday_first_day = calc_weekday(daynr_first_day, !monday_first);
+    uint64_t daynr_first_day = doris::calc_daynr(year, 1, 1);
+    uint8_t weekday_first_day = doris::calc_weekday(daynr_first_day, !monday_first);
 
     int days = 0;
     *to_year = year;
@@ -2689,7 +2683,7 @@ uint8_t DateV2Value::calc_week(const uint32_t& day_nr, const uint16_t& year, con
         }
         (*to_year)--;
         week_year = true;
-        daynr_first_day -= (days = calc_days_in_year(*to_year));
+        daynr_first_day -= (days = doris::calc_days_in_year(*to_year));
         weekday_first_day = (weekday_first_day + 53 * 7 - days) % 7;
     }
 
@@ -2703,7 +2697,7 @@ uint8_t DateV2Value::calc_week(const uint32_t& day_nr, const uint16_t& year, con
     }
 
     if (week_year && days >= 52 * 7) {
-        weekday_first_day = (weekday_first_day + calc_days_in_year(*to_year)) % 7;
+        weekday_first_day = (weekday_first_day + doris::calc_days_in_year(*to_year)) % 7;
         if ((first_weekday && weekday_first_day == 0) ||
             (!first_weekday && weekday_first_day <= 3)) {
             // Belong to next year.

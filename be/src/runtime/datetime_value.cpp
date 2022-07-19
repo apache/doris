@@ -47,14 +47,6 @@ uint8_t mysql_week_mode(uint32_t mode) {
     return mode;
 }
 
-static bool is_leap(uint32_t year) {
-    return ((year % 4) == 0) && ((year % 100 != 0) || ((year % 400) == 0 && year));
-}
-
-static uint32_t calc_days_in_year(uint32_t year) {
-    return is_leap(year) ? 366 : 365;
-}
-
 RE2 DateTimeValue::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 
 bool DateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,

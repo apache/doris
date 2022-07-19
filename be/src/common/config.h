@@ -794,6 +794,8 @@ CONF_mInt64(cooldown_lag_time_sec, "10800"); // 3h
 
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
+CONF_Bool(enable_time_lut, "true");
+
 } // namespace config
 
 } // namespace doris
