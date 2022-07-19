@@ -111,7 +111,7 @@ public class ElasticsearchInput extends RichInputFormat<Row, InputSplit> impleme
         search();
     }
 
-    // 从 es 中获取数据
+    // get data from es
     protected void search() throws IOException{
         SearchResponse searchResponse;
         if(scrollId == null){
@@ -148,12 +148,12 @@ public class ElasticsearchInput extends RichInputFormat<Row, InputSplit> impleme
 
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
         searchSourceBuilder.query(QueryBuilders.matchAllQuery());
-        // 由于 测试数据比较少 所以这里的批次大小设置的比较小
+        //The test data is relatively small, so the commonly used ones here are relatively small
         searchSourceBuilder.size(50);
 
         searchSourceBuilder.fetchSource(rowTypeInfo.getFieldNames(), null);
 
-        // 使用 scroll api 获取数据
+        // Get data using scroll api
         Scroll scroll = new Scroll(TimeValue.timeValueMinutes(3l));
 
         searchRequest = new SearchRequest();
