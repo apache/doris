@@ -19,22 +19,17 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.SelectStmt;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
-
 import java.util.List;
-import java.util.Map;
 
-/*
-A statistics task that collects statistics by executing query.
-The results of the query will be returned as @StatisticsTaskResult.
+/**
+ * A statistics task that collects statistics by executing query.
+ * The results of the query will be returned as @StatisticsTaskResult.
  */
 public class SQLStatisticsTask extends StatisticsTask {
     private SelectStmt query;
 
-    public SQLStatisticsTask(long jobId, StatsGranularityDesc granularityDesc,
-                             StatsCategoryDesc categoryDesc, List<StatsType> statsTypeList) {
-        super(jobId, granularityDesc, categoryDesc, statsTypeList);
+    public SQLStatisticsTask(long jobId, List<StatisticsDesc> statsDescs) {
+        super(jobId, statsDescs);
     }
 
     @Override
@@ -62,12 +57,7 @@ public class SQLStatisticsTask extends StatisticsTask {
     }
 
     protected StatisticsTaskResult constructTaskResult(List<String> queryResultList) {
-        Preconditions.checkState(statsTypeList.size() == queryResultList.size());
-        Map<StatsType, String> statsTypeToValue = Maps.newHashMap();
-        for (int i = 0; i < statsTypeList.size(); i++) {
-            statsTypeToValue.put(statsTypeList.get(i), queryResultList.get(i));
-        }
-        StatisticsTaskResult result = new StatisticsTaskResult(granularityDesc, categoryDesc, statsTypeToValue);
-        return result;
+        // TODO
+        return null;
     }
 }

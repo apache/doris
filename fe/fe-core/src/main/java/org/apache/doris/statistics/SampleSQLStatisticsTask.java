@@ -29,9 +29,8 @@ The only difference from the SQLStatisticsTask is that the query is a sampling t
 public class SampleSQLStatisticsTask extends SQLStatisticsTask {
     private float samplePercentage = Config.cbo_default_sample_percentage;
 
-    public SampleSQLStatisticsTask(long jobId, StatsGranularityDesc granularityDesc,
-                                   StatsCategoryDesc categoryDesc, List<StatsType> statsTypeList) {
-        super(jobId, granularityDesc, categoryDesc, statsTypeList);
+    public SampleSQLStatisticsTask(long jobId, List<StatisticsDesc> statsDescs) {
+        super(jobId, statsDescs);
     }
 
     @Override

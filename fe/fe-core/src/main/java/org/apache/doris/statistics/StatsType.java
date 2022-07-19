@@ -25,9 +25,7 @@ public enum StatsType {
     MAX_SIZE("max_size"),
     NUM_NULLS("num_nulls"),
     MIN_VALUE("min_value"),
-    MAX_VALUE("max_value"),
-    MAX_COL_LENS("max_col_lens"),
-    AVG_COL_LENS("avg_col_lens");
+    MAX_VALUE("max_value");
     private final String value;
 
     StatsType(String value) {

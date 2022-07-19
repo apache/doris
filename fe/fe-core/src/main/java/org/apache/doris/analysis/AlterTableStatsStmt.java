@@ -29,8 +29,10 @@ import org.apache.doris.statistics.StatsType;
 import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -84,5 +86,10 @@ public class AlterTableStatsStmt extends DdlStmt {
 
     public Map<StatsType, String> getStatsTypeToValue() {
         return statsTypeToValue;
+    }
+
+    public List<String> getPartitionNames() {
+        // TODO(WZT): partition statistics
+        return Lists.newArrayList();
     }
 }
