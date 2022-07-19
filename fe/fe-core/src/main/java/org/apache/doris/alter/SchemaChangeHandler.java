@@ -2263,4 +2263,19 @@ public class SchemaChangeHandler extends AlterHandler {
             olapTable.writeUnlock();
         }
     }
+
+    public void updateTableAutoBatchLoadMeta(Database db, String tableName, Map<String, String> properties)
+            throws UserException {
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        boolean autoBatchLoad = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_AUTO_BATCH_LOAD));
+        if (autoBatchLoad == olapTable.isAutoBatchLoad()) {
+            return;
+        }
+        olapTable.writeLockOrDdlException();
+        try {
+            Catalog.getCurrentCatalog().modifyAutoBatchLoadMeta(db, olapTable, properties);
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
 }

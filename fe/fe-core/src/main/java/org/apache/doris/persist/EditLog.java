@@ -730,6 +730,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DYNAMIC_PARTITION:
                 case OperationType.OP_MODIFY_IN_MEMORY:
+                case OperationType.OP_MODIFY_AUTO_BATCH_LOAD:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
                     catalog.replayModifyTableProperty(opCode, log);
@@ -1498,5 +1499,9 @@ public class EditLog {
 
     public void logAutoBatchLoadTableAndBeInfo(AutoBatchLoadTableAndBeInfo info) {
         logEdit(OperationType.OP_AUTO_BATCH_LOAD_TABLE_AND_BE, info);
+    }
+
+    public void logModifyAutoBatchLoad(ModifyTablePropertyOperationLog info) {
+        logEdit(OperationType.OP_MODIFY_AUTO_BATCH_LOAD, info);
     }
 }

@@ -4092,8 +4092,23 @@ public class Catalog {
         editLog.logModifyInMemory(info);
     }
 
-    public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info)
-            throws MetaNotFoundException {
+    public void modifyAutoBatchLoadMeta(Database db, OlapTable table, Map<String, String> properties) {
+        Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
+        TableProperty tableProperty = table.getTableProperty();
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(properties);
+        } else {
+            tableProperty.modifyTableProperties(properties);
+        }
+        tableProperty.buildAutoBatchLoad();
+
+        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
+                properties);
+        editLog.logModifyAutoBatchLoad(info);
+    }
+
+    public void replayModifyTableProperty(short opCode,
+            ModifyTablePropertyOperationLog info) throws MetaNotFoundException {
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<String, String> properties = info.getProperties();
