@@ -58,7 +58,12 @@ import java.util.stream.Collectors;
 public class ReorderJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class)).then(filter -> {
+        return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class)).thenApply(ctx -> {
+            LogicalFilter<Plan> filter = ctx.root;
+            if (!ctx.plannerContext.getConnectContext().getSessionVariable()
+                    .isEnableNereidsReorderToEliminateCrossJoin()) {
+                return filter;
+            }
             PlanCollector collector = new PlanCollector();
             filter.accept(collector, null);
             List<Plan> joinInputs = collector.joinInputs;
