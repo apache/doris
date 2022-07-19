@@ -27,6 +27,7 @@
 #include "gutil/macros.h"
 #include "io/fs/file_system.h"
 #include "olap/iterators.h"
+#include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -145,6 +146,8 @@ private:
     PageHandle _sk_index_handle;
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
+    // primary key index reader
+    std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
 };
 
 } // namespace segment_v2
