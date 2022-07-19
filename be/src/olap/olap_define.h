@@ -88,6 +88,7 @@ static const std::string ERROR_LOG_PREFIX = "error_log";
 static const std::string PENDING_DELTA_PREFIX = "pending_delta";
 static const std::string INCREMENTAL_DELTA_PREFIX = "incremental_delta";
 static const std::string CLONE_PREFIX = "clone";
+static const std::string AUTO_BATCH_LOAD_PREFIX = "/auto_batch_load";
 
 static const std::string TABLET_UID = "tablet_uid";
 static const std::string STORAGE_NAME = "storage_name";

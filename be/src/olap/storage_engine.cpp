@@ -256,6 +256,13 @@ Status StorageEngine::_init_store_map() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_recorder(stream_load_record_path),
                                    "init StreamLoadRecorder failed");
 
+    std::string auto_batch_load_path;
+    if (!tmp_stores.empty()) {
+        auto_batch_load_path = tmp_stores[0]->path();
+    }
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_auto_batch_load_path(auto_batch_load_path),
+                                   "init auto batch load path failed");
+
     return Status::OK();
 }
 
@@ -274,6 +281,20 @@ Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_
                 Status::IOError("open StreamLoadRecorder rocksdb failed, path={}",
                                 stream_load_record_path),
                 "init StreamLoadRecorder failed");
+    }
+    return Status::OK();
+}
+
+// create auto batch load directory
+Status StorageEngine::_init_auto_batch_load_path(const std::string& store_dir_path) {
+    _auto_batch_load_dir = store_dir_path + AUTO_BATCH_LOAD_PREFIX;
+    Status exist_status = Env::Default()->path_exists(_auto_batch_load_dir);
+    if (!exist_status.ok() &&
+        (!exist_status.is_not_found() || !Env::Default()->create_dirs(_auto_batch_load_dir).ok())) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError(strings::Substitute("failed to create auto batch load root path $0",
+                                                    _auto_batch_load_dir)),
+                "create_dirs failed");
     }
     return Status::OK();
 }
