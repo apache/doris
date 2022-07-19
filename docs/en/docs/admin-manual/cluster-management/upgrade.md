@@ -92,6 +92,4 @@ Because the database is a stateful service, Doris cannot support version rollbac
 
 Therefore, it is recommended to upgrade some nodes and observe the business operation (gray upgrade) to reduce the upgrade risk.
 
-If there is a rollback requirement, please contact Doris developers for confirmation in advance.
-
 **Illegal rollback operation may cause data loss and damage.** 
