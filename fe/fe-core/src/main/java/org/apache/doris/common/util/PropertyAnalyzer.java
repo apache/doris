@@ -31,7 +31,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.policy.Policy;
-import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TCompressionType;
@@ -202,7 +201,7 @@ public class PropertyAnalyzer {
 
         if (hasRemoteStoragePolicy) {
             // check remote storage policy
-            StoragePolicy checkedPolicy = new StoragePolicy(PolicyTypeEnum.STORAGE, remoteStoragePolicy);
+            StoragePolicy checkedPolicy = StoragePolicy.ofCheck(remoteStoragePolicy);
             Policy policy = Catalog.getCurrentCatalog().getPolicyMgr().getPolicy(checkedPolicy);
             if (!(policy instanceof StoragePolicy)) {
                 throw new AnalysisException("No PolicyStorage: " + remoteStoragePolicy);
@@ -527,7 +526,7 @@ public class PropertyAnalyzer {
         if (properties != null && properties.containsKey(PROPERTIES_REMOTE_STORAGE_POLICY)) {
             remoteStoragePolicy = properties.get(PROPERTIES_REMOTE_STORAGE_POLICY);
             // check remote storage policy existence
-            StoragePolicy checkedStoragePolicy = new StoragePolicy(PolicyTypeEnum.STORAGE, remoteStoragePolicy);
+            StoragePolicy checkedStoragePolicy = StoragePolicy.ofCheck(remoteStoragePolicy);
             Policy policy = Catalog.getCurrentCatalog().getPolicyMgr().getPolicy(checkedStoragePolicy);
             if (!(policy instanceof StoragePolicy)) {
                 throw new AnalysisException("StoragePolicy: " + remoteStoragePolicy + " does not exist.");
