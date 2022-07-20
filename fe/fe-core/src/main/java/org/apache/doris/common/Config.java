@@ -1691,9 +1691,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean use_date_v2_by_default = false;
 
-    @ConfField
-    public static String default_storage_policy = "default_storage_policy";
-
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_tags = false;
 }

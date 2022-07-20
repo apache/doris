@@ -35,7 +35,7 @@ public class LessThan extends ComparisonPredicate {
      * @param right right child of Less Than
      */
     public LessThan(Expression left, Expression right) {
-        super(ExpressionType.LESS_THAN, left, right);
+        super(ExpressionType.LESS_THAN, left, right, "<");
     }
 
     @Override

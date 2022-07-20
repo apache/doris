@@ -151,15 +151,21 @@ Status Segment::_load_index() {
         opts.stats = &tmp_stats;
         opts.type = INDEX_PAGE;
 
-        Slice body;
-        PageFooterPB footer;
-        RETURN_IF_ERROR(PageIO::read_and_decompress_page(opts, &_sk_index_handle, &body, &footer));
-        DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
-        DCHECK(footer.has_short_key_page_footer());
+        if (_tablet_schema.keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta()) {
+            _pk_index_reader.reset(new PrimaryKeyIndexReader());
+            return _pk_index_reader->parse(_file_reader, _footer.primary_key_index_meta());
+        } else {
+            Slice body;
+            PageFooterPB footer;
+            RETURN_IF_ERROR(
+                    PageIO::read_and_decompress_page(opts, &_sk_index_handle, &body, &footer));
+            DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
+            DCHECK(footer.has_short_key_page_footer());
 
-        _mem_tracker->consume(body.get_size());
-        _sk_index_decoder.reset(new ShortKeyIndexDecoder);
-        return _sk_index_decoder->parse(body, footer.short_key_page_footer());
+            _mem_tracker->consume(body.get_size());
+            _sk_index_decoder.reset(new ShortKeyIndexDecoder);
+            return _sk_index_decoder->parse(body, footer.short_key_page_footer());
+        }
     });
 }
 
@@ -224,7 +230,20 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
-    //TODO(liaoxin01): implement it after index related code merged.
+    RETURN_IF_ERROR(_load_index());
+    DCHECK(_pk_index_reader != nullptr);
+    if (!_pk_index_reader->check_present(key)) {
+        return Status::NotFound("Can't find key in the segment");
+    }
+    bool exact_match = false;
+    std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
+    RETURN_IF_ERROR(_pk_index_reader->new_iterator(&index_iterator));
+    RETURN_IF_ERROR(index_iterator->seek_at_or_after(&key, &exact_match));
+    if (!exact_match) {
+        return Status::NotFound("Can't find key in the segment");
+    }
+    row_location->row_id = index_iterator->get_current_ordinal();
+    row_location->segment_id = _segment_id;
     return Status::OK();
 }
 
