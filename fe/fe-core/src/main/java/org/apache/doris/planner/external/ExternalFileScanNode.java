@@ -55,6 +55,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -63,7 +64,6 @@ import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.mortbay.log.Log;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -308,9 +308,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
             TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath);
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
-            Log.debug("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
-                    + " with table split: " +  fileSplit.getPath()
-                    + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")");
+            LOG.info("Assign to backend " + curLocations.getLocations().get(0).getBackendId() + " with table split: "
+                    + fileSplit.getPath() + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")"
+                    + " loaction: " + Joiner.on("|").join(split.getLocations()));
 
             fileSplitStrategy.update(fileSplit);
             // Add a new location when it's can be split
