@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -31,10 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.statistics.ColumnStats;
-import org.apache.doris.statistics.StatsDeriveResult;
-import org.apache.doris.statistics.TableStats;
 
 import static org.apache.doris.nereids.trees.expressions.ExpressionType.OR;
 
@@ -42,7 +37,7 @@ import java.util.Map;
 
 
 /**
- *
+ * Calculate selectivity of the filter.
  */
 public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double, Void> {
 
@@ -80,27 +75,29 @@ public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double
         return super.visitComparisonPredicate(cp, context);
     }
 
+    // TODO: If right value greater than the max value or less than min value in column stats, return 0.0 .
     @Override
     public Double visitEqualTo(EqualTo equalTo, Void context) {
         SlotReference left = (SlotReference) equalTo.left();
         ColumnStats columnStats = slotRefToStatsMap.get(left);
-        Literal right = (Literal) equalTo.right();
-        DataType dataType = right.getDataType();
+        long ndv = columnStats.getNdv();
+        return ndv < 0 ? Expression.DEFAULT_SELECTIVITY : ndv == 0 ? 0 : 1.0 / columnStats.getNdv();
     }
 
+    // TODO: Should consider the distribution of data.
     @Override
     public Double visitGreaterThan(GreaterThan greaterThan, Void context) {
-        return super.visitGreaterThan(greaterThan, context);
+        return Expression.DEFAULT_SELECTIVITY;
     }
 
     @Override
     public Double visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, Void context) {
-        return super.visitGreaterThanEqual(greaterThanEqual, context);
+        return Expression.DEFAULT_SELECTIVITY;
     }
 
     @Override
     public Double visitLessThan(LessThan lessThan, Void context) {
-        return super.visitLessThan(lessThan, context);
+        return Expression.DEFAULT_SELECTIVITY;
     }
 
 }

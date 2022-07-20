@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.common.Id;
+import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.Maps;
 
@@ -38,6 +39,8 @@ public class StatsDeriveResult {
     // The actual key is slotId
     private final Map<Id, Long> columnToNdv = Maps.newHashMap();
 
+    private Map<Slot, ColumnStats> slotRefToColumnStatsMap;
+
     public StatsDeriveResult(long rowCount, Map<Id, Float> columnToDataSize, Map<Id, Long> columnToNdv) {
         this.rowCount = rowCount;
         this.columnToDataSize.putAll(columnToDataSize);
@@ -48,6 +51,10 @@ public class StatsDeriveResult {
         this.rowCount = another.rowCount;
         this.columnToDataSize.putAll(another.columnToDataSize);
         this.columnToNdv.putAll(another.columnToNdv);
+        slotRefToColumnStatsMap = new HashMap<>();
+        for (Entry<Slot, ColumnStats> entry : another.slotRefToColumnStatsMap.entrySet()) {
+            slotRefToColumnStatsMap.put(entry.getKey(), entry.getValue().copy());
+        }
     }
 
     public float computeSize() {
@@ -90,5 +97,28 @@ public class StatsDeriveResult {
 
     public Map<Id, Float> getColumnToDataSize() {
         return columnToDataSize;
+    }
+
+    public Map<Slot, ColumnStats> getSlotRefToColumnStatsMap() {
+        return slotRefToColumnStatsMap;
+    }
+
+    public void setSlotRefToColumnStatsMap(Map<Slot, ColumnStats> slotRefToColumnStatsMap) {
+        this.slotRefToColumnStatsMap = slotRefToColumnStatsMap;
+    }
+
+    public StatsDeriveResult multiplyDouble(double selectivity) {
+        for (Entry<Slot, ColumnStats> entry : slotRefToColumnStatsMap.entrySet()) {
+            entry.getValue().multiplyDouble(selectivity);
+            rowCount *= selectivity;
+        }
+        return this;
+    }
+
+    public StatsDeriveResult merge(StatsDeriveResult other) {
+        for (Entry<Slot, ColumnStats> entry : other.getSlotRefToColumnStatsMap().entrySet()) {
+            this.slotRefToColumnStatsMap.put(entry.getKey(), entry.getValue().copy());
+        }
+        return this;
     }
 }

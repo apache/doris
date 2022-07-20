@@ -18,11 +18,15 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.ScanOperator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -36,15 +40,18 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
 
-import com.google.common.base.Preconditions;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Used to calculate the stats for each operator
@@ -78,7 +85,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitLogicalOlapScan(LogicalOlapScan olapScan, Void context) {
-        return super.visitLogicalOlapScan(olapScan, context);
+        olapScan.getExpressions();
+        return computeOlapScan(olapScan);
     }
 
     @Override
@@ -93,7 +101,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitLogicalJoin(LogicalJoin<Plan, Plan> join, Void context) {
-        return super.visitLogicalJoin(join, context);
+        return HashJoinEstimation.estimate(groupExpression.getChildStats(0), groupExpression.getChildStats(1),
+                join.getCondition().get(), join.getJoinType());
     }
 
     @Override
@@ -107,13 +116,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
-    public StatsDeriveResult visitPhysicalScan(PhysicalRelation scan, Void context) {
-        return super.visitPhysicalScan(scan, context);
-    }
-
-    @Override
     public StatsDeriveResult visitPhysicalOlapScan(PhysicalOlapScan olapScan, Void context) {
-        return super.visitPhysicalOlapScan(olapScan, context);
+        return computeOlapScan(olapScan);
     }
 
     @Override
@@ -123,46 +127,64 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, Void context) {
-        return super.visitPhysicalHashJoin(hashJoin, context);
+        return HashJoinEstimation.estimate(groupExpression.getChildStats(0), groupExpression.getChildStats(1),
+                hashJoin.getCondition().get(), hashJoin.getJoinType());
     }
 
+    // TODO: We should subtract those pruned column, and consider the expression transformations in the node.
     @Override
     public StatsDeriveResult visitPhysicalProject(PhysicalProject<Plan> project, Void context) {
-        return super.visitPhysicalProject(project, context);
+        return groupExpression.getChildStats(0);
     }
 
     @Override
     public StatsDeriveResult visitPhysicalFilter(PhysicalFilter<Plan> filter, Void context) {
         StatsDeriveResult childStats = groupExpression.getChildStats(0);
         StatsDeriveResult stats = new StatsDeriveResult(childStats);
-        stats.setRowCount((long)(childStats.getRowCount() * filter.getPredicates().getSelectivity()));
+        FilterSelectivityCalculator selectivityCalculator =
+                new FilterSelectivityCalculator(childStats.getSlotRefToColumnStatsMap());
+        double selectivity = selectivityCalculator.estimate(filter.getPredicates());
+        stats.multiplyDouble(selectivity);
+        // TODO: It's very likely to write wrong code in this way, we need to find a graceful way to pass the
+        //  slotRefToColStatsMap between stats of each operator.
+        stats.setSlotRefToColumnStatsMap(childStats.getSlotRefToColumnStatsMap());
         return stats;
     }
 
     @Override
     public StatsDeriveResult visitPhysicalDistribution(PhysicalDistribution<Plan> distribution,
             Void context) {
-        return super.visitPhysicalDistribution(distribution, context);
+        return groupExpression.getChildStats(0);
     }
 
     // TODO: 1. Subtract the pruned partition
     //       2. Consider the influence of runtime filter
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
-    private StatsDeriveResult computeOlapScan(Table table, List<Expression> predicateList) {
-        TableStats tableStats= Catalog.getCurrentCatalog().getStatisticsManager().getStatistics().getTableStats(table.getId());
+    private StatsDeriveResult computeOlapScan(ScanOperator scanOperator) {
+        Table table = scanOperator.getTable();
+        TableStats tableStats = Utils.execWithReturnVal(() ->
+                Catalog.getCurrentCatalog().getStatisticsManager().getStatistics().getTableStats(table.getId())
+        );
+        Map<Slot, ColumnStats> slotToColumnStats = new HashMap<>();
+        Set<SlotReference> slotSet = scanOperator.getOutput().stream().filter(SlotReference.class::isInstance)
+                .map(s -> (SlotReference) s).collect(Collectors.toSet());
+        for (SlotReference slotReference : slotSet) {
+            Column column = slotReference.getColumn();
+            if (column == null) {
+                // TODO: should we throw an exception here?
+                continue;
+            }
+            String columnName = column.getName();
+            ColumnStats columnStats = tableStats.getColumnStats(columnName).copy();
+            slotToColumnStats.put(slotReference, columnStats);
+        }
         long rowCount = tableStats.getRowCount();
-        double selectivity = computeSelectivityForConjunct(predicateList);
-        return new StatsDeriveResult((long)(rowCount * selectivity), new HashMap<>(), new HashMap<>());
+        StatsDeriveResult stats = new StatsDeriveResult((long)(rowCount),
+                new HashMap<>(), new HashMap<>());
+        stats.setSlotRefToColumnStatsMap(slotToColumnStats);
+        return stats;
     }
 
-    private static final double DEFAULT_SELECTIVITY = 0.1;
-
-    private double computeSelectivityForConjunct(List<Expression> expressionList) {
-        double selectivity = expressionList.stream().map(Expression::getSelectivity).reduce((l, r) -> {
-            return l *= r;
-        }).get();
-        Preconditions.checkState(selectivity < 1);
-        return selectivity < 0 ? DEFAULT_SELECTIVITY : selectivity;
-    }
+    private StatsDeriveResult computeAggregate()
 
 }

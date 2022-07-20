@@ -35,6 +35,8 @@ import java.util.Objects;
  */
 public abstract class Expression extends AbstractTreeNode<Expression> {
 
+    public static final double DEFAULT_SELECTIVITY = 0.1;
+
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
     public Expression(Expression... children) {

@@ -76,6 +76,15 @@ public class ColumnStats {
     private LiteralExpr minValue;
     private LiteralExpr maxValue;
 
+    public ColumnStats(ColumnStats other) {
+        this.ndv = other.ndv;
+        this.avgSize = other.avgSize;
+        this.maxSize = other.maxSize;
+        this.numNulls = other.numNulls;
+        this.minValue = (LiteralExpr) other.minValue.clone();
+        this.maxValue = (LiteralExpr) other.maxValue.clone();
+    }
+
     public long getNdv() {
         return ndv;
     }
@@ -225,7 +234,14 @@ public class ColumnStats {
         }
     }
 
-    public long getNdv() {
-        return ndv;
+    public ColumnStats copy() {
+        return new ColumnStats(this);
+    }
+
+    public ColumnStats multiplyDouble(double selectivity) {
+        ndv *= selectivity;
+        avgSize *= selectivity;
+        numNulls *= selectivity;
+        return this;
     }
 }

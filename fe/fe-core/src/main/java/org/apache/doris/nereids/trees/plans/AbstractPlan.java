@@ -119,4 +119,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public int hashCode() {
         return Objects.hash(statsDeriveResult, limit, logicalProperties);
     }
+
+    public long getLimit() {
+        return limit;
+    }
 }

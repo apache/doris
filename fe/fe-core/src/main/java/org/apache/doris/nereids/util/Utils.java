@@ -51,4 +51,39 @@ public class Utils {
     public static String qualifiedName(List<String> qualifier, String name) {
         return StringUtils.join(qualifiedNameParts(qualifier, name), ".");
     }
+
+    /**
+     * Helper function to eliminate unnecessary checked exception caught requirement from the main logic of translator.
+     *
+     * @param f function which would invoke the logic of
+     *        stale code from old optimizer that could throw
+     *        a checked exception
+     */
+    public static void exec(FuncWrapper f) {
+        try {
+            f.exec();
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <R> R execWithReturnVal(Supplier<R> f) {
+        final Object[] ans = new Object[]{null};
+        try {
+            ans[0] = f.get();
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+        return (R) ans[0];
+    }
+
+    public interface FuncWrapper {
+        void exec() throws Exception;
+    }
+
+    public interface Supplier<R> {
+        R get() throws Exception;
+    }
+
 }
