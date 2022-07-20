@@ -29,6 +29,9 @@ import java.util.Objects;
  * Such as: "=", "<", "<=", ">", ">=", "<=>"
  */
 public abstract class ComparisonPredicate extends Expression implements BinaryExpression {
+
+    protected final String symbol;
+
     /**
      * Constructor of ComparisonPredicate.
      *
@@ -36,8 +39,9 @@ public abstract class ComparisonPredicate extends Expression implements BinaryEx
      * @param left     left child of comparison predicate
      * @param right    right child of comparison predicate
      */
-    public ComparisonPredicate(ExpressionType nodeType, Expression left, Expression right) {
+    public ComparisonPredicate(ExpressionType nodeType, Expression left, Expression right, String symbol) {
         super(nodeType, left, right);
+        this.symbol = symbol;
     }
 
     @Override
@@ -52,8 +56,7 @@ public abstract class ComparisonPredicate extends Expression implements BinaryEx
 
     @Override
     public String toSql() {
-        String nodeType = getType().toString();
-        return left().toSql() + ' ' + nodeType + ' ' + right().toSql();
+        return "(" + left().toSql() + ' ' + symbol + ' ' + right().toSql() + ")";
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

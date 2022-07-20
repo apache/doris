@@ -54,7 +54,7 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public String toString() {
-        return "Filter (" + predicates + ")";
+        return "PhysicalFilter (" + predicates + ")";
     }
 
     @Override

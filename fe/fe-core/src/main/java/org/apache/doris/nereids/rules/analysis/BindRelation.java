@@ -25,7 +25,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -40,14 +40,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
             List<String> nameParts = ctx.root.getNameParts();
             switch (nameParts.size()) {
                 case 1: {
-                    List<String> qualifier = Lists.newArrayList(connectContext.getDatabase(), nameParts.get(0));
-                    Table table = getTable(qualifier, connectContext.getCatalog());
+                    // Use current database name from catalog.
+                    String dbName = connectContext.getDatabase();
+                    Table table = getTable(dbName, nameParts.get(0), connectContext.getCatalog());
                     // TODO: should generate different Scan sub class according to table's type
-                    return new LogicalOlapScan(table, qualifier);
+                    return new LogicalOlapScan(table, ImmutableList.of(dbName));
                 }
                 case 2: {
-                    Table table = getTable(nameParts, connectContext.getCatalog());
-                    return new LogicalOlapScan(table, nameParts);
+                    // Use database name from table name parts.
+                    String dbName = connectContext.getClusterName() + ":" + nameParts.get(0);
+                    Table table = getTable(dbName, nameParts.get(1), connectContext.getCatalog());
+                    return new LogicalOlapScan(table, ImmutableList.of(dbName));
                 }
                 default:
                     throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
@@ -55,13 +58,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }).toRule(RuleType.BINDING_RELATION);
     }
 
-    private Table getTable(List<String> qualifier, Catalog catalog) {
-        String dbName = qualifier.get(0);
+    private Table getTable(String dbName, String tableName, Catalog catalog) {
         Database db = catalog.getInternalDataSource().getDb(dbName)
                 .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
         db.readLock();
         try {
-            String tableName = qualifier.get(1);
             return db.getTable(tableName).orElseThrow(() -> new RuntimeException(
                     "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
         } finally {
