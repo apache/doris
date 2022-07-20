@@ -37,7 +37,8 @@ public:
 
     Status init_filter_groups(const TupleDescriptor* tuple_desc,
                               const std::map<std::string, int>& map_column,
-                              const std::vector<int>& include_column_ids);
+                              const std::vector<int>& include_column_ids, int start_rowgroup,
+                              int end_rowgroup);
 
     std::unordered_set<int> filter_groups() { return _filter_group; };
 

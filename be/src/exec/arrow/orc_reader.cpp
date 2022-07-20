@@ -28,8 +28,11 @@
 namespace doris {
 
 ORCReaderWrap::ORCReaderWrap(FileReader* file_reader, int64_t batch_size,
-                             int32_t num_of_columns_from_file)
-        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file) {
+                             int32_t num_of_columns_from_file, int64_t range_start_offset,
+                             int64_t range_size)
+        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file),
+          _range_start_offset(range_start_offset),
+          _range_size(range_size) {
     _reader = nullptr;
     _cur_file_eof = false;
 }
@@ -52,6 +55,31 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         return Status::EndOfFile("Empty Orc File");
     }
 
+    int64_t row_number = 0;
+    int end_group = _total_groups;
+    for (int i = 0; i < _total_groups; i++) {
+        int64_t _offset = _reader->GetRawORCReader()->getStripe(i)->getOffset();
+        int64_t row = _reader->GetRawORCReader()->getStripe(i)->getNumberOfRows();
+        if (_offset < _range_start_offset) {
+            row_number += row;
+        } else if (_offset == _range_start_offset) {
+            _current_group = i;
+        }
+        if (_range_start_offset + _range_size <= _offset) {
+            end_group = i;
+            break;
+        }
+    }
+    LOG(INFO) << "This reader read orc file from offset: " << _range_start_offset
+              << " with size: " << _range_size << ". Also mean that read from strip id from "
+              << _current_group << " to " << end_group;
+    _total_groups = end_group;
+
+    if (!_reader->Seek(row_number).ok()) {
+        LOG(WARNING) << "Failed to seek to the line number: " << row_number;
+        return Status::InternalError("Failed to seek to the line number");
+    }
+
     // map
     arrow::Result<std::shared_ptr<arrow::Schema>> maybe_schema = _reader->ReadSchema();
     if (!maybe_schema.ok()) {
@@ -61,13 +89,14 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
     }
     std::shared_ptr<arrow::Schema> schema = maybe_schema.ValueOrDie();
     for (size_t i = 0; i < schema->num_fields(); ++i) {
-        _map_column.emplace(schema->field(i)->name(), i);
+        // orc index started from 1.
+        _map_column.emplace(schema->field(i)->name(), i + 1);
     }
 
     RETURN_IF_ERROR(column_indices(tuple_slot_descs));
     if (config::orc_predicate_push_down) {
         _strip_reader.reset(new StripeReader(conjunct_ctxs, this));
-        _strip_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids);
+        _strip_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids, _current_group, _total_groups);
     }
 
     bool eof = false;

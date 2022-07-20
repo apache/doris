@@ -39,7 +39,8 @@ StripeReader::~StripeReader() {
 
 Status StripeReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                                         const std::map<std::string, int>& map_column,
-                                        const std::vector<int>& include_column_ids) {
+                                        const std::vector<int>& include_column_ids,
+                                        int start_rowgroup, int end_rowgroup) {
     std::unordered_set<int> column_ids(include_column_ids.begin(), include_column_ids.end());
     _init_conjuncts(tuple_desc, map_column, column_ids);
     auto* raw_reader = _parent->getReader()->GetRawORCReader();
@@ -53,7 +54,7 @@ Status StripeReader::init_filter_groups(const TupleDescriptor* tuple_desc,
     int64_t filtered_num_rows = 0;
     int64_t filtered_total_byte_size = 0;
     bool update_statistics = false;
-    for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
+    for (int row_group_id = start_rowgroup; row_group_id < end_rowgroup; row_group_id++) {
         auto stripe_stats = raw_reader->getStripeStatistics(row_group_id);
         const orc::Statistics* statistics = stripe_stats.get();
         if (!statistics) {
@@ -75,7 +76,7 @@ Status StripeReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                 continue;
             }
             const orc::ColumnStatistics* col_stats =
-                    statistics->getColumnStatistics(parquet_col_id + 1);
+                    statistics->getColumnStatistics(parquet_col_id);
             if (!col_stats || col_stats->hasNull()) {
                 continue;
             }

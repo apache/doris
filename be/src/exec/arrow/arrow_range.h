@@ -24,6 +24,8 @@
 #include <runtime/datetime_value.h>
 
 #include <cstdint>
+#include <iostream>
+#include <string>
 #include <unordered_set>
 
 #include "common/status.h"
@@ -46,6 +48,9 @@ public:
             } else if (TExprNodeType::IN_PRED == conjunct->node_type()) {
                 _eval_in_predicate(conjuncts[i], need_filter);
             }
+            if (need_filter) {
+                return true;
+            }
         }
         return need_filter;
     }
@@ -67,14 +72,14 @@ private:
         case TExprOpcode::EQ:
             //  _min      value   _max
             //  --|---------^-------|----
-            if (largeEqual(value, _min) && largeEqual(_max, value)) {
+            if (largeEqual(_max, value) && largeEqual(value, _min)) {
                 is_match = true;
             }
             break;
         case TExprOpcode::NE:
             //   value _min         _max  value(or)
             //  ---^-----|------------|-----^------
-            if (large(_min, value) || large(value, _max)) {
+            if (large(value, _max) || large(_min, value)) {
                 is_match = true;
             }
             break;
@@ -106,7 +111,7 @@ private:
             //   value _min  value  _max  value
             //  ---^-----|-----^------|-----^----
             //     N           Y            Y
-            if (large(value, _min)) {
+            if (largeEqual(value, _min)) {
                 is_match = true;
             }
             break;
@@ -124,6 +129,7 @@ private:
         const InPredicate* pred = static_cast<const InPredicate*>(conjunct);
         std::vector<Expr*> exprs;
         HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
+
         auto conjunct_type = conjunct->get_child(1)->type().type;
         while (iter->has_next()) {
             if (nullptr == iter->get_value()) {
@@ -175,19 +181,19 @@ public:
         TExprNode node;
         switch (conjunct_type) {
         case TYPE_TINYINT: {
-            create_texpr_literal_node<int8_t>(data, &node);
+            create_texpr_literal_node<TYPE_TINYINT>(data, &node);
             break;
         }
         case TYPE_SMALLINT: {
-            create_texpr_literal_node<int16_t>(data, &node);
+            create_texpr_literal_node<TYPE_SMALLINT>(data, &node);
             break;
         }
         case TYPE_INT: {
-            create_texpr_literal_node<int32_t>(data, &node);
+            create_texpr_literal_node<TYPE_INT>(data, &node);
             break;
         }
         case TYPE_BIGINT: {
-            create_texpr_literal_node<int128_t>(data, &node);
+            create_texpr_literal_node<TYPE_BIGINT>(data, &node);
             break;
         }
         default:
@@ -215,11 +221,11 @@ public:
         TExprNode node;
         switch (conjunct_type) {
         case TYPE_FLOAT: {
-            create_texpr_literal_node<float>(data, &node);
+            create_texpr_literal_node<TYPE_FLOAT>(data, &node);
             break;
         }
         case TYPE_DOUBLE: {
-            create_texpr_literal_node<double>(data, &node);
+            create_texpr_literal_node<TYPE_DOUBLE>(data, &node);
             break;
         }
 
@@ -249,7 +255,7 @@ public:
         switch (conjunct_type) {
         case TYPE_VARCHAR:
         case TYPE_STRING: {
-            create_texpr_literal_node<StringValue>(data, &node);
+            create_texpr_literal_node<TYPE_STRING>(data, &node);
             break;
         }
         default:

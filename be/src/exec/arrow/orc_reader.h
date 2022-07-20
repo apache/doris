@@ -35,7 +35,8 @@ class StripeReader;
 // Reader of ORC file
 class ORCReaderWrap final : public ArrowReaderWrap {
 public:
-    ORCReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file);
+    ORCReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file,
+                  int64_t range_start_offset, int64_t range_size);
     ~ORCReaderWrap() override = default;
 
     Status init_reader(const TupleDescriptor* tuple_desc,
@@ -54,6 +55,8 @@ private:
     std::shared_ptr<arrow::adapters::orc::ORCFileReader> _reader;
     bool _cur_file_eof; // is read over?
     std::unique_ptr<doris::StripeReader> _strip_reader;
+    int64_t _range_start_offset;
+    int64_t _range_size;
 };
 
 } // namespace doris
