@@ -18,6 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
@@ -36,13 +39,15 @@ import java.util.List;
 public class CancelLoadStmtTest extends TestWithFeService {
 
     private Analyzer analyzer;
+    private String dbName = "testDb";
+    private String tblName = "table1";
 
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
-        createDatabase("testDb");
-        useDatabase("testDb");
-        createTable("create table table1\n" + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
+        createDatabase(dbName);
+        useDatabase(dbName);
+        createTable("create table " + tblName + "\n" + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
         analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
     }
@@ -55,36 +60,36 @@ public class CancelLoadStmtTest extends TestWithFeService {
         SlotRef stateSlotRef = new SlotRef(null, "state");
         StringLiteral stateStringLiteral = new StringLiteral("FINISHED");
 
-        BinaryPredicate labelBinaryPredicate =
-                new BinaryPredicate(BinaryPredicate.Operator.EQ, labelSlotRef, labelStringLiteral);
+        BinaryPredicate labelBinaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, labelSlotRef,
+                labelStringLiteral);
         CancelLoadStmt stmt = new CancelLoadStmt(null, labelBinaryPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label'",
                 stmt.toString());
 
-        BinaryPredicate stateBinaryPredicate =
-                new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
+        BinaryPredicate stateBinaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef,
+                stateStringLiteral);
         stmt = new CancelLoadStmt(null, stateBinaryPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `state` = 'FINISHED'", stmt.toString());
 
-        LikePredicate labelLikePredicate =
-                new LikePredicate(LikePredicate.Operator.LIKE, labelSlotRef, labelStringLiteral);
+        LikePredicate labelLikePredicate = new LikePredicate(LikePredicate.Operator.LIKE, labelSlotRef,
+                labelStringLiteral);
         stmt = new CancelLoadStmt(null, labelLikePredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `label` LIKE 'doris_test_label'",
                 stmt.toString());
 
-        CompoundPredicate compoundAndPredicate =
-                new CompoundPredicate(Operator.AND, labelBinaryPredicate, stateBinaryPredicate);
+        CompoundPredicate compoundAndPredicate = new CompoundPredicate(Operator.AND, labelBinaryPredicate,
+                stateBinaryPredicate);
         stmt = new CancelLoadStmt(null, compoundAndPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
                 "CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label' AND `state` = 'FINISHED'",
                 stmt.toString());
 
-        CompoundPredicate compoundOrPredicate =
-                new CompoundPredicate(Operator.OR, labelBinaryPredicate, stateBinaryPredicate);
+        CompoundPredicate compoundOrPredicate = new CompoundPredicate(Operator.OR, labelBinaryPredicate,
+                stateBinaryPredicate);
         stmt = new CancelLoadStmt(null, compoundOrPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
@@ -93,11 +98,15 @@ public class CancelLoadStmtTest extends TestWithFeService {
 
         // test match
         List<LoadJob> loadJobs = new ArrayList<>();
-        InsertLoadJob insertLoadJob1 = new InsertLoadJob("doris_test_label", 1L, 10003L, 10005L, 0, "", "");
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:testDb");
+        long dbId = db.getId();
+        Table tbl = db.getTableNullable(tblName);
+        long tblId = tbl.getId();
+        InsertLoadJob insertLoadJob1 = new InsertLoadJob("doris_test_label", 1L, dbId, tblId, 0, "", "");
         loadJobs.add(insertLoadJob1);
-        InsertLoadJob insertLoadJob2 = new InsertLoadJob("doris_test_label_1", 2L, 10003L, 10005L, 0, "", "");
+        InsertLoadJob insertLoadJob2 = new InsertLoadJob("doris_test_label_1", 2L, dbId, tblId, 0, "", "");
         loadJobs.add(insertLoadJob2);
-        InsertLoadJob insertLoadJob3 = new InsertLoadJob("doris_test_label_2", 3L, 10003L, 10005L, 0, "", "");
+        InsertLoadJob insertLoadJob3 = new InsertLoadJob("doris_test_label_2", 3L, dbId, tblId, 0, "", "");
         loadJobs.add(insertLoadJob3);
         // label
         stmt = new CancelLoadStmt(null, labelBinaryPredicate);

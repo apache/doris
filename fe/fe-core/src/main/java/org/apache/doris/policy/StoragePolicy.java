@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -57,16 +56,18 @@ import java.util.Optional;
  **/
 @Data
 public class StoragePolicy extends Policy {
-    public static boolean checkDefaultStoragePolicyValid(final String storagePolicyName,
-                                                         Optional<Policy> defaultPolicy) throws DdlException {
+    public static final String DEFAULT_STORAGE_POLICY_NAME = "default_storage_policy";
+
+    public static boolean checkDefaultStoragePolicyValid(final String storagePolicyName, Optional<Policy> defaultPolicy)
+            throws DdlException {
         if (!defaultPolicy.isPresent()) {
             return false;
         }
 
-        if (storagePolicyName.equalsIgnoreCase(Config.default_storage_policy)
-                && (((StoragePolicy) defaultPolicy.get()).getStorageResource() == null)) {
+        if (storagePolicyName.equalsIgnoreCase(DEFAULT_STORAGE_POLICY_NAME) && (
+                ((StoragePolicy) defaultPolicy.get()).getStorageResource() == null)) {
             throw new DdlException("Use default storage policy, but not give s3 info,"
-                + " please use alter resource to add default storage policy S3 info.");
+                    + " please use alter resource to add default storage policy S3 info.");
         }
         return true;
     }
@@ -116,21 +117,23 @@ public class StoragePolicy extends Policy {
 
     private Map<String, String> props;
 
-    public StoragePolicy() {}
+    public StoragePolicy() {
+        super(PolicyTypeEnum.STORAGE);
+    }
 
     /**
      * Policy for Storage Migration.
      *
-     * @param type PolicyType
+     * @param policyId policy id
      * @param policyName policy name
      * @param storageResource resource name for storage
      * @param cooldownDatetime cool down time
      * @param cooldownTtl cool down time cost after partition is created
      * @param cooldownTtlMs seconds for cooldownTtl
      */
-    public StoragePolicy(final PolicyTypeEnum type, final String policyName, final String storageResource,
-                         final Date cooldownDatetime, final String cooldownTtl, long cooldownTtlMs) {
-        super(type, policyName);
+    public StoragePolicy(long policyId, final String policyName, final String storageResource,
+            final Date cooldownDatetime, final String cooldownTtl, long cooldownTtlMs) {
+        super(policyId, PolicyTypeEnum.STORAGE, policyName);
         this.storageResource = storageResource;
         this.cooldownDatetime = cooldownDatetime;
         this.cooldownTtl = cooldownTtl;
@@ -140,11 +143,17 @@ public class StoragePolicy extends Policy {
     /**
      * Policy for Storage Migration.
      *
-     * @param type PolicyType
+     * @param policyId policy id
      * @param policyName policy name
      */
-    public StoragePolicy(final PolicyTypeEnum type, final String policyName) {
-        super(type, policyName);
+    public StoragePolicy(long policyId, final String policyName) {
+        super(policyId, PolicyTypeEnum.STORAGE, policyName);
+    }
+
+    public static StoragePolicy ofCheck(String policyName) {
+        StoragePolicy storagePolicy = new StoragePolicy();
+        storagePolicy.policyName = policyName;
+        return storagePolicy;
     }
 
     /**
@@ -240,8 +249,8 @@ public class StoragePolicy extends Policy {
 
     @Override
     public StoragePolicy clone() {
-        return new StoragePolicy(this.type, this.policyName, this.storageResource,
-                                 this.cooldownDatetime, this.cooldownTtl, this.cooldownTtlMs);
+        return new StoragePolicy(this.policyId, this.policyName, this.storageResource, this.cooldownDatetime,
+                this.cooldownTtl, this.cooldownTtlMs);
     }
 
     @Override
@@ -356,11 +365,10 @@ public class StoragePolicy extends Policy {
             }
         });
 
-        if (policyName.equalsIgnoreCase(Config.default_storage_policy) && storageResource == null) {
+        if (policyName.equalsIgnoreCase(DEFAULT_STORAGE_POLICY_NAME) && storageResource == null) {
             // here first time set S3 resource to default storage policy.
-            String alterStorageResource = Optional.ofNullable(properties.get(STORAGE_RESOURCE))
-                    .orElseThrow(() ->
-                        new DdlException("first time set default storage policy, but not give storageResource"));
+            String alterStorageResource = Optional.ofNullable(properties.get(STORAGE_RESOURCE)).orElseThrow(
+                    () -> new DdlException("first time set default storage policy, but not give storageResource"));
             // check alterStorageResource resource exist.
             checkIsS3ResourceAndExist(alterStorageResource);
             storageResource = alterStorageResource;

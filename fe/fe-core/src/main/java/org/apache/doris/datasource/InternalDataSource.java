@@ -150,9 +150,6 @@ import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.TruncateTableInfo;
-import org.apache.doris.policy.Policy;
-import org.apache.doris.policy.PolicyTypeEnum;
-import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -191,7 +188,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -1797,7 +1793,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
         // set storage policy
         String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
 
-        checkStoragePolicyExist(storagePolicy);
+        Catalog.getCurrentCatalog().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
 
         olapTable.setStoragePolicy(storagePolicy);
 
@@ -1992,7 +1988,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                     if (!partionStoragePolicy.equals("")) {
                         storagePolicy = partionStoragePolicy;
                     }
-                    checkStoragePolicyExist(storagePolicy);
+                    Catalog.getCurrentCatalog().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
                             olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(), olapTable.getIndexIdToMeta(),
                             partitionDistributionInfo, dataProperty.getStorageMedium(),
@@ -2048,24 +2044,6 @@ public class InternalDataSource implements DataSourceIf<Database> {
             }
 
             throw e;
-        }
-    }
-
-    public static void checkStoragePolicyExist(String storagePolicy) throws DdlException {
-        if (!storagePolicy.equals("")) {
-            // when create table use storage policy
-            // if not exist default storage policy, create it
-            // if exist, just return.
-            Catalog.getCurrentCatalog().getPolicyMgr().createDefaultStoragePolicy();
-
-            List<Policy> policiesByType = Catalog.getCurrentCatalog()
-                    .getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
-            policiesByType.stream().filter(policy -> policy.getPolicyName().equals(storagePolicy)).findAny()
-                    .orElseThrow(() -> new DdlException("Storage policy does not exist. name: " + storagePolicy));
-            Optional<Policy> hasDefaultPolicy = policiesByType.stream()
-                    .filter(policy -> policy.getPolicyName().equals(Config.default_storage_policy)).findAny();
-
-            StoragePolicy.checkDefaultStoragePolicyValid(storagePolicy, hasDefaultPolicy);
         }
     }
 

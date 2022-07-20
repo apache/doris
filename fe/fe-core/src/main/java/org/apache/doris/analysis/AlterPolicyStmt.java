@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -77,10 +76,10 @@ public class AlterPolicyStmt extends DdlStmt {
         StoragePolicy storagePolicy = (StoragePolicy) hasPolicy.get();
 
         // default storage policy use alter storage policy to add s3 resource.
-        if (!policyName.equalsIgnoreCase(Config.default_storage_policy)
-                && properties.containsKey(StoragePolicy.STORAGE_RESOURCE)) {
+        if (!policyName.equalsIgnoreCase(StoragePolicy.DEFAULT_STORAGE_POLICY_NAME) && properties.containsKey(
+                StoragePolicy.STORAGE_RESOURCE)) {
             throw new AnalysisException("not support change storage policy's storage resource"
-                + ", you can change s3 properties by alter resource");
+                    + ", you can change s3 properties by alter resource");
         }
 
         boolean hasCooldownDatetime = false;
@@ -114,7 +113,7 @@ public class AlterPolicyStmt extends DdlStmt {
         }
 
         do {
-            if (policyName.equalsIgnoreCase(Config.default_storage_policy)) {
+            if (policyName.equalsIgnoreCase(StoragePolicy.DEFAULT_STORAGE_POLICY_NAME)) {
                 // default storage policy
                 if (storagePolicy.getStorageResource() != null && hasCooldownDatetime) {
                     // alter cooldown datetime, can do
