@@ -36,7 +36,7 @@ import java.util.Objects;
  * Representation for group expression in cascades optimizer.
  */
 public class GroupExpression {
-    private Group parent;
+    private Group ownerGroup;
     private List<Group> children;
     private final Plan plan;
     private final BitSet ruleMasks;
@@ -81,12 +81,12 @@ public class GroupExpression {
         children.add(child);
     }
 
-    public Group getParent() {
-        return parent;
+    public Group getOwnerGroup() {
+        return ownerGroup;
     }
 
-    public void setParent(Group parent) {
-        this.parent = parent;
+    public void setOwnerGroup(Group ownerGroup) {
+        this.ownerGroup = ownerGroup;
     }
 
     public Plan getPlan() {

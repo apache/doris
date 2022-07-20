@@ -77,7 +77,7 @@ public class EnforceMissingPropertiesHelper {
                 oldOutputProperty.getOrderSpec());
         newOutputProperty.setOrderSpec(context.getRequiredProperties().getOrderSpec());
         GroupExpression enforcer =
-                context.getRequiredProperties().getOrderSpec().addEnforcer(groupExpression.getParent());
+                context.getRequiredProperties().getOrderSpec().addEnforcer(groupExpression.getOwnerGroup());
 
         updateCostWithEnforcer(enforcer, oldOutputProperty, newOutputProperty);
 
@@ -89,7 +89,7 @@ public class EnforceMissingPropertiesHelper {
                 oldOutputProperty.getOrderSpec());
         newOutputProperty.setDistributionSpec(context.getRequiredProperties().getDistributionSpec());
         GroupExpression enforcer =
-                context.getRequiredProperties().getDistributionSpec().addEnforcer(groupExpression.getParent());
+                context.getRequiredProperties().getDistributionSpec().addEnforcer(groupExpression.getOwnerGroup());
 
         updateCostWithEnforcer(enforcer, oldOutputProperty, newOutputProperty);
 
@@ -99,13 +99,13 @@ public class EnforceMissingPropertiesHelper {
     private void updateCostWithEnforcer(GroupExpression enforcer,
             PhysicalProperties oldOutputProperty,
             PhysicalProperties newOutputProperty) {
-        context.getPlannerContext().getMemo().addEnforcerPlan(enforcer, groupExpression.getParent());
+        context.getPlannerContext().getMemo().addEnforcerPlan(enforcer, groupExpression.getOwnerGroup());
         curTotalCost += CostCalculator.calculateCost(enforcer);
 
         if (enforcer.updateLowestCostTable(newOutputProperty, Lists.newArrayList(oldOutputProperty), curTotalCost)) {
             enforcer.putOutputPropertiesMap(newOutputProperty, newOutputProperty);
         }
-        groupExpression.getParent().setBestPlan(enforcer, curTotalCost, newOutputProperty);
+        groupExpression.getOwnerGroup().setBestPlan(enforcer, curTotalCost, newOutputProperty);
     }
 
     private PhysicalProperties enforceSortAndDistribution(PhysicalProperties outputProperty,

@@ -47,7 +47,7 @@ public class Memo {
     private Group root;
 
     public Memo(Plan plan) {
-        root = copyIn(plan, null, false).getParent();
+        root = copyIn(plan, null, false).getOwnerGroup();
     }
 
     public Group getRoot() {
@@ -82,9 +82,9 @@ public class Memo {
             if (child instanceof GroupPlan) {
                 childrenGroups.add(((GroupPlan) child).getGroup());
             } else if (child.getGroupExpression().isPresent()) {
-                childrenGroups.add(child.getGroupExpression().get().getParent());
+                childrenGroups.add(child.getGroupExpression().get().getOwnerGroup());
             } else {
-                childrenGroups.add(copyIn(child, null, rewrite).getParent());
+                childrenGroups.add(copyIn(child, null, rewrite).getOwnerGroup());
             }
         }
         node = replaceChildrenToGroupPlan(node, childrenGroups);
@@ -133,9 +133,9 @@ public class Memo {
             boolean rewrite, LogicalProperties logicalProperties) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null
-                && existedGroupExpression.getParent().getLogicalProperties().equals(logicalProperties)) {
-            if (target != null && !target.getGroupId().equals(existedGroupExpression.getParent().getGroupId())) {
-                mergeGroup(target, existedGroupExpression.getParent());
+                && existedGroupExpression.getOwnerGroup().getLogicalProperties().equals(logicalProperties)) {
+            if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
+                mergeGroup(target, existedGroupExpression.getOwnerGroup());
             }
             return existedGroupExpression;
         }
@@ -172,7 +172,7 @@ public class Memo {
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
         groupExpressions.values().forEach(groupExpression -> {
             if (groupExpression.children().contains(source)) {
-                if (groupExpression.getParent().equals(destination)) {
+                if (groupExpression.getOwnerGroup().equals(destination)) {
                     // cycle, we should not merge
                     return;
                 }
@@ -190,7 +190,7 @@ public class Memo {
             }
             if (groupExpressions.containsKey(groupExpression)) {
                 // TODO: need to merge group recursively
-                groupExpression.getParent().removeGroupExpression(groupExpression);
+                groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
             } else {
                 groupExpressions.put(groupExpression, groupExpression);
             }
@@ -210,7 +210,7 @@ public class Memo {
      * Add enforcer expression into the target group.
      */
     public void addEnforcerPlan(GroupExpression groupExpression, Group group) {
-        groupExpression.setParent(group);
+        groupExpression.setOwnerGroup(group);
     }
 
     private Plan replaceChildrenToGroupPlan(Plan plan, List<Group> childrenGroups) {

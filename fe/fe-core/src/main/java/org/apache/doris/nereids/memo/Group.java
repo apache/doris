@@ -66,7 +66,7 @@ public class Group {
             this.physicalExpressions.add(groupExpression);
         }
         this.logicalProperties = logicalProperties;
-        groupExpression.setParent(this);
+        groupExpression.setOwnerGroup(this);
     }
 
     public GroupId getGroupId() {
@@ -93,7 +93,7 @@ public class Group {
         } else {
             physicalExpressions.add(groupExpression);
         }
-        groupExpression.setParent(this);
+        groupExpression.setOwnerGroup(this);
         return groupExpression;
     }
 
@@ -109,7 +109,7 @@ public class Group {
         } else {
             physicalExpressions.remove(groupExpression);
         }
-        groupExpression.setParent(null);
+        groupExpression.setOwnerGroup(null);
         return groupExpression;
     }
 
@@ -121,7 +121,7 @@ public class Group {
      */
     public GroupExpression rewriteLogicalExpression(GroupExpression newExpression,
             LogicalProperties logicalProperties) {
-        newExpression.setParent(this);
+        newExpression.setOwnerGroup(this);
         this.logicalProperties = logicalProperties;
         GroupExpression oldExpression = getLogicalExpression();
         logicalExpressions.clear();
