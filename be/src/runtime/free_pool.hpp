@@ -84,8 +84,8 @@ public:
 
     // Allocates a buffer of size.
     uint8_t* aligned_allocate(int alignment, int64_t size) {
+        // The alignment should be a power of 2.
         DCHECK(alignment > 0 && ((alignment - 1) & alignment) == 0);
-        DCHECK(size % alignment == 0);
 
         // This is the typical malloc behavior. NULL is reserved for failures.
         if (size == 0) {
