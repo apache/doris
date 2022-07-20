@@ -431,7 +431,7 @@ Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bo
     std::lock_guard wrlock(shard.lock);
     if (shard.tablets_under_clone.count(tablet_id) > 0) {
         LOG(INFO) << "tablet " << tablet_id << " is under clone, skip drop task";
-        return Status::OK();
+        return Status::Aborted("aborted");
     }
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     return _drop_tablet_unlocked(tablet_id, replica_id, keep_files);
@@ -456,7 +456,7 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
         LOG(WARNING) << "fail to drop tablet because replica id not match. "
                      << "tablet_id=" << tablet_id << ", replica_id=" << to_drop_tablet->replica_id()
                      << ", request replica_id=" << replica_id;
-        return Status::OK();
+        return Status::Aborted("aborted");
     }
 
     _remove_tablet_from_partition(to_drop_tablet);
