@@ -1,0 +1,14 @@
+diff -r cmake/build_wrapper.sh cmake/build_wrapper.sh
+20c20
+< nm -f p -g -D ${LIBC_SO} | sed -s 's/\([^ @]*\).*/^\1$/' >> ${KEEPSYMS}
+---
+> nm -f posix -g -D ${LIBC_SO} | sed -s 's/\([^ @]*\).*/^\1$/' >> ${KEEPSYMS}
+24c24
+< nm -f p -g ${OUT} | cut -f1 -d' ' | grep -v -f ${KEEPSYMS} | sed -e "s/\(.*\)/\1\ ${PREFIX}_\1/" >> ${SYMSFILE}
+---
+> nm -f posix -g ${OUT} | cut -f1 -d' ' | grep -v -f ${KEEPSYMS} | sed -e "s/\(.*\)/\1\ ${PREFIX}_\1/" >> ${SYMSFILE}
+diff -r CMakeLists.txt CMakeLists.txt
+173c173
+<     set (EXEC_ARGS ${CC_ARG1} -c -Q --help=target -${ARCH_FLAG}=native -mtune=native)
+---
+>     set (EXEC_ARGS ${CC_ARG1} -c -Q --help=target -mtune=native)

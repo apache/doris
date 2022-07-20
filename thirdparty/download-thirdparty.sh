@@ -339,6 +339,13 @@ if [ $HYPERSCAN_SOURCE = "hyperscan-5.4.0" ]; then
         touch $PATCHED_MARK
     fi
     cd -
+elif [ $HYPERSCAN_SOURCE = "vectorscan-vectorscan-5.4.7" ]; then
+    cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
+    if [ ! -f $PATCHED_MARK ]; then
+        patch -p0 < $TP_PATCH_DIR/vectorscan-5.4.7.patch
+        touch $PATCHED_MARK
+    fi
+    cd -
 fi
 echo "Finished patching $HYPERSCAN_SOURCE"
 
