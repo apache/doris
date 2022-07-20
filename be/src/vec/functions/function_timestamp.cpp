@@ -206,7 +206,9 @@ struct UnixTimeStampImpl {
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
         auto col_result = ColumnVector<Int32>::create();
-        col_result->insert(context->impl()->state()->timestamp_ms() / 1000);
+        for (int i = 0; i < input_rows_count; i++) {
+            col_result->insert(context->impl()->state()->timestamp_ms() / 1000);
+        }
         block.replace_by_position(result, std::move(col_result));
         return Status::OK();
     }
