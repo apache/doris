@@ -36,10 +36,6 @@ import java.util.Optional;
  */
 public class ExpressionUtils {
 
-    public static boolean isConstant(Expression expr) {
-        return expr.isConstant();
-    }
-
     public static List<Expression> extractConjunct(Expression expr) {
         return extract(ExpressionType.AND, expr);
     }
