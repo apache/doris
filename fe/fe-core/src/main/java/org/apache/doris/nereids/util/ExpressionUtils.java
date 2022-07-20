@@ -100,13 +100,8 @@ public class ExpressionUtils {
             }
         }
 
-        Optional<Expression> result = distinctExpressions.stream().reduce((left, right) -> {
-            if (op == ExpressionType.AND) {
-                return new And(left, right);
-            } else {
-                return new Or(left, right);
-            }
-        });
+        Optional<Expression> result = distinctExpressions.stream()
+                .reduce(op == ExpressionType.AND ? And::new : Or::new);
         return result.orElse(new BooleanLiteral(op == ExpressionType.AND));
     }
 }
