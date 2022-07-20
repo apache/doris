@@ -324,6 +324,8 @@ Status RowBlockV2::_copy_data_to_column(int cid,
         auto column_decimal =
                 assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
         insert_data_directly(cid, column_decimal);
+        break;
+    }
     case OLAP_FIELD_TYPE_JSON: {
         auto json_string = assert_cast<vectorized::ColumnJson*>(column);
         size_t limit = config::json_type_length_soft_limit_bytes;

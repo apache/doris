@@ -452,6 +452,7 @@ public enum PrimitiveType {
         builder.put(DECIMAL32, DECIMAL64);
         builder.put(DECIMAL32, DECIMAL128);
         builder.put(DECIMAL32, VARCHAR);
+        builder.put(DECIMAL32, JSON);
         builder.put(DECIMAL32, STRING);
 
         builder.put(DECIMAL64, BOOLEAN);
@@ -467,6 +468,7 @@ public enum PrimitiveType {
         builder.put(DECIMAL64, DECIMAL64);
         builder.put(DECIMAL64, DECIMAL128);
         builder.put(DECIMAL64, VARCHAR);
+        builder.put(DECIMAL64, JSON);
         builder.put(DECIMAL64, STRING);
 
         builder.put(DECIMAL128, BOOLEAN);
@@ -482,6 +484,7 @@ public enum PrimitiveType {
         builder.put(DECIMAL128, DECIMAL64);
         builder.put(DECIMAL128, DECIMAL128);
         builder.put(DECIMAL128, VARCHAR);
+        builder.put(DECIMAL128, JSON);
         builder.put(DECIMAL128, STRING);
         // JSON
         builder.put(JSON, VARCHAR);
@@ -641,7 +644,7 @@ public enum PrimitiveType {
         compatibilityMatrix[BOOLEAN.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BOOLEAN.ordinal()][JSON.ordinal()] = INVALID_TYPE;  
+        compatibilityMatrix[BOOLEAN.ordinal()][JSON.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[BOOLEAN.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -663,7 +666,7 @@ public enum PrimitiveType {
         compatibilityMatrix[TINYINT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][JSON.ordinal()] = INVALID_TYPE;  
+        compatibilityMatrix[TINYINT.ordinal()][JSON.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[TINYINT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -684,7 +687,7 @@ public enum PrimitiveType {
         compatibilityMatrix[SMALLINT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][JSON.ordinal()] = INVALID_TYPE;  
+        compatibilityMatrix[SMALLINT.ordinal()][JSON.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[SMALLINT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -704,7 +707,7 @@ public enum PrimitiveType {
         compatibilityMatrix[INT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][JSON.ordinal()] = INVALID_TYPE; 
+        compatibilityMatrix[INT.ordinal()][JSON.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[INT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -723,7 +726,7 @@ public enum PrimitiveType {
         compatibilityMatrix[BIGINT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][JSON.ordinal()] = INVALID_TYPE; 
+        compatibilityMatrix[BIGINT.ordinal()][JSON.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[BIGINT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -741,7 +744,7 @@ public enum PrimitiveType {
         compatibilityMatrix[LARGEINT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][JSON.ordinal()] = INVALID_TYPE; 
+        compatibilityMatrix[LARGEINT.ordinal()][JSON.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[LARGEINT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -758,7 +761,7 @@ public enum PrimitiveType {
         compatibilityMatrix[FLOAT.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][JSON.ordinal()] = INVALID_TYPE;  
+        compatibilityMatrix[FLOAT.ordinal()][JSON.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[FLOAT.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -774,7 +777,7 @@ public enum PrimitiveType {
         compatibilityMatrix[DOUBLE.ordinal()][DATETIMEV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][JSON.ordinal()] = INVALID_TYPE;  
+        compatibilityMatrix[DOUBLE.ordinal()][JSON.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[DOUBLE.ordinal()][DECIMAL32.ordinal()] = DECIMAL32;
@@ -790,7 +793,7 @@ public enum PrimitiveType {
         compatibilityMatrix[DATE.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][STRING.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][JSON.ordinal()] = INVALID_TYPE;  
+        compatibilityMatrix[DATE.ordinal()][JSON.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
@@ -816,7 +819,7 @@ public enum PrimitiveType {
         compatibilityMatrix[DATETIME.ordinal()][DATETIMEV2.ordinal()] = DATETIMEV2;
         compatibilityMatrix[DATETIME.ordinal()][CHAR.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][VARCHAR.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][JSON.ordinal()] = INVALID_TYPE;  
+        compatibilityMatrix[DATETIME.ordinal()][JSON.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][STRING.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
@@ -839,7 +842,7 @@ public enum PrimitiveType {
 
         compatibilityMatrix[CHAR.ordinal()][CHAR.ordinal()] = CHAR;
         compatibilityMatrix[CHAR.ordinal()][VARCHAR.ordinal()] = VARCHAR;
-        compatibilityMatrix[CHAR.ordinal()][JSON.ordinal()] = CHAR;  
+        compatibilityMatrix[CHAR.ordinal()][JSON.ordinal()] = CHAR;
         compatibilityMatrix[CHAR.ordinal()][STRING.ordinal()] = STRING;
         compatibilityMatrix[CHAR.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
@@ -850,7 +853,7 @@ public enum PrimitiveType {
 
         compatibilityMatrix[VARCHAR.ordinal()][VARCHAR.ordinal()] = VARCHAR;
         compatibilityMatrix[VARCHAR.ordinal()][STRING.ordinal()] = STRING;
-        compatibilityMatrix[VARCHAR.ordinal()][JSON.ordinal()] = VARCHAR;  
+        compatibilityMatrix[VARCHAR.ordinal()][JSON.ordinal()] = VARCHAR;
         compatibilityMatrix[VARCHAR.ordinal()][DECIMALV2.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
@@ -863,7 +866,7 @@ public enum PrimitiveType {
         compatibilityMatrix[STRING.ordinal()][DECIMAL32.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][DECIMAL64.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][DECIMAL128.ordinal()] = INVALID_TYPE;
-        compatibilityMatrix[STRING.ordinal()][JSON.ordinal()] = STRING; 
+        compatibilityMatrix[STRING.ordinal()][JSON.ordinal()] = STRING;
         compatibilityMatrix[STRING.ordinal()][TIME.ordinal()] = INVALID_TYPE;
         compatibilityMatrix[STRING.ordinal()][TIMEV2.ordinal()] = INVALID_TYPE;
 

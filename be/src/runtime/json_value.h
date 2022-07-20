@@ -40,24 +40,9 @@ struct JsonValue {
     JsonbParser parser;
 
     JsonValue() : ptr(nullptr), len(0) {}
-
-    JsonValue(char* ptr, int len) {
-        DCHECK_LE(len, MAX_LENGTH);
-        DCHECK(parser.parse(const_cast<const char*>(ptr), len));
-        this->ptr = parser.getWriter().getOutput()->getBuffer();
-        this->len = (unsigned)parser.getWriter().getOutput()->getSize();
-    }
-
-    JsonValue(const char* ptr, int len) {
-        DCHECK_LE(len, MAX_LENGTH);
-        DCHECK(parser.parse(ptr, len));
-        this->ptr = parser.getWriter().getOutput()->getBuffer();
-        this->len = (unsigned)parser.getWriter().getOutput()->getSize();
-    }
-
-    /// Construct a JsonValue from 's'.
-    // also check if 's' is valid json
-    explicit JsonValue(const std::string& s) { from_json_str(s); }
+    JsonValue(char* ptr, int len) { from_json_str(const_cast<const char*>(ptr), len); }
+    JsonValue(const std::string& s) { from_json_str(s.c_str(), s.length()); }
+    JsonValue(const char* ptr, int len) { from_json_str(ptr, len); }
 
     const char* value() { return ptr; }
 
@@ -112,7 +97,7 @@ struct JsonValue {
         LOG(FATAL) << "comparing between JsonValue is not supported";
     }
 
-    JsonbErrType from_json_str(std::string s);
+    JsonbErrType from_json_str(const char* s, int len);
 
     std::string to_string() const;
 

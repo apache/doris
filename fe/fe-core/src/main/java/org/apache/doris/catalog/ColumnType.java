@@ -98,6 +98,9 @@ public abstract class ColumnType {
 
         schemaChangeMatrix[PrimitiveType.STRING.ordinal()][PrimitiveType.JSON.ordinal()] = true;
 
+        schemaChangeMatrix[PrimitiveType.JSON.ordinal()][PrimitiveType.STRING.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.JSON.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.TINYINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.SMALLINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.INT.ordinal()] = true;

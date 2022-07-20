@@ -1572,7 +1572,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_JSON> : public FieldTypeTraits<OLAP_FIELD
         return -1; // always update ?
     }
 
-    static Status from_string(void* buf, const std::string& scan_key) {
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
         auto jdoc = JsonbDocument::createDocument(scan_key.c_str(), scan_key.size());
         size_t value_len = jdoc->numPackedBytes();
         if (value_len > config::json_type_length_soft_limit_bytes) {

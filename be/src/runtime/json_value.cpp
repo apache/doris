@@ -23,9 +23,9 @@
 
 namespace doris {
 
-JsonbErrType JsonValue::from_json_str(std::string s) {
+JsonbErrType JsonValue::from_json_str(const char* s, int length) {
     JsonbErrType error = JsonbErrType::E_NONE;
-    if (!parser.parse(s)) {
+    if (!parser.parse(s, length)) {
         error = parser.getErrorCode();
         // TODO(wzy): document must be an object or an array,
         // rune, pure-string, numeirc are valid JSON but get parse error here
@@ -46,9 +46,4 @@ std::string JsonValue::to_string() const {
 std::ostream& operator<<(std::ostream& os, const JsonValue& json_value) {
     return os << json_value.to_string();
 }
-
-std::size_t operator-(const JsonValue& v1, const JsonValue& v2) {
-    return 0;
-}
-
 } // namespace doris

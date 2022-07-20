@@ -16,30 +16,22 @@
 
 package org.apache.doris.analysis;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.util.Objects;
-
-import com.google.common.base.Preconditions;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonSyntaxException;
-
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TJsonLiteral;
+
+import com.google.gson.JsonParser;
+import com.google.gson.JsonSyntaxException;
 import org.apache.logging.log4j.LogManager;
-import org.apache.doris.catalog.Type;
 import org.apache.logging.log4j.Logger;
 
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.qe.VariableVarConverters;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Objects;
 
 public class JsonLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(JsonLiteral.class);
@@ -80,46 +72,7 @@ public class JsonLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        if (expr instanceof NullLiteral) {
-            return 1;
-        }
-        if (expr == MaxLiteral.MAX_VALUE) {
-            return -1;
-        }
-        // compare string with utf-8 byte array, same with DM,BE,StorageEngine
-        byte[] thisBytes = null;
-        byte[] otherBytes = null;
-        try {
-            thisBytes = value.getBytes("UTF-8");
-            otherBytes = expr.getStringValue().getBytes("UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            Preconditions.checkState(false);
-        }
-
-        int minLength = Math.min(thisBytes.length, otherBytes.length);
-        int i = 0;
-        for (i = 0; i < minLength; i++) {
-            if (thisBytes[i] < otherBytes[i]) {
-                return -1;
-            } else if (thisBytes[i] > otherBytes[i]) {
-                return 1;
-            }
-        }
-        if (thisBytes.length > otherBytes.length) {
-            if (thisBytes[i] == 0x00) {
-                return 0;
-            } else {
-                return 1;
-            }
-        } else if (thisBytes.length < otherBytes.length) {
-            if (otherBytes[i] == 0x00) {
-                return 0;
-            } else {
-                return -1;
-            }
-        } else {
-            return 0;
-        }
+        throw new RuntimeException("Not support comparison between JSON literals");
     }
 
     public String getValue() {
@@ -154,12 +107,12 @@ public class JsonLiteral extends LiteralExpr {
 
     @Override
     public long getLongValue() {
-        return 0;
+        throw new RuntimeException("JSON value cannot be parsed as Long value");
     }
 
     @Override
     public double getDoubleValue() {
-        return 0.0;
+        throw new RuntimeException("JSON value cannot be parsed as Double value");
     }
 
     @Override
@@ -170,7 +123,7 @@ public class JsonLiteral extends LiteralExpr {
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         // code should not be readched, since JSON is analyzed as StringLiteral
-        throw new AnalysisException("Unknown check type: " + targetType);     
+        throw new AnalysisException("Unknown check type: " + targetType);
     }
 
     @Override
@@ -183,7 +136,7 @@ public class JsonLiteral extends LiteralExpr {
         super.readFields(in);
         value = Text.readString(in);
     }
-    
+
     public static JsonLiteral read(DataInput in) throws IOException {
         JsonLiteral literal = new JsonLiteral();
         literal.readFields(in);

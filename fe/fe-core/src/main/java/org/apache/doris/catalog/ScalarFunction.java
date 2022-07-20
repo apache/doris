@@ -177,6 +177,9 @@ public class ScalarFunction extends Function {
                     beFn += "_decimalv2_val";
                     usesDecimalV2 = true;
                     break;
+                case JSON:
+                    beFn += "_json_val";
+                    break;
                 default:
                     Preconditions.checkState(false, "Argument type not supported: " + argTypes.get(i));
             }

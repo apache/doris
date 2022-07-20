@@ -1343,8 +1343,12 @@ public abstract class Type {
         compatibilityMatrix[STRING.ordinal()][JSON.ordinal()] = PrimitiveType.STRING;
 
         //JSON
+        compatibilityMatrix[JSON.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSON.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSON.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[JSON.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[JSON.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[JSON.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;       
+        compatibilityMatrix[JSON.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[JSON.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[JSON.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[JSON.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1553,12 +1557,12 @@ public abstract class Type {
         if (t1ResultType == PrimitiveType.JSON && t2ResultType == PrimitiveType.JSON) {
             return Type.JSON;
         }
-        if ((t1ResultType == PrimitiveType.JSON && t2ResultType == PrimitiveType.VARCHAR) 
-                || (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.JSON)){
+        if ((t1ResultType == PrimitiveType.JSON && t2ResultType == PrimitiveType.VARCHAR)
+                || (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.JSON)) {
             return Type.VARCHAR;
         }
-        if ((t1ResultType == PrimitiveType.JSON && t2ResultType == PrimitiveType.STRING) 
-                || (t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.JSON)){
+        if ((t1ResultType == PrimitiveType.JSON && t2ResultType == PrimitiveType.STRING)
+                || (t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.JSON)) {
             return Type.STRING;
         }
 
