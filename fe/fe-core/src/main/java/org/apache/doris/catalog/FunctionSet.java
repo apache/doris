@@ -2339,10 +2339,7 @@ public class FunctionSet<T> {
                 false, true, false, true));
 
         // collect_list
-        Type[] arraySubTypes = {Type.BOOLEAN, Type.SMALLINT, Type.TINYINT, Type.INT, Type.BIGINT, Type.LARGEINT,
-                Type.FLOAT, Type.DOUBLE, Type.DATE, Type.DATETIME, Type.DECIMALV2, Type.DECIMAL32, Type.DECIMAL64,
-                Type.DECIMAL128, Type.VARCHAR, Type.STRING, Type.DATEV2};
-        for (Type t : arraySubTypes) {
+        for (Type t : Type.getArraySubTypes()) {
             addBuiltin(AggregateFunction.createBuiltin(COLLECT_LIST, Lists.newArrayList(t), new ArrayType(t), t,
                     "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(COLLECT_SET, Lists.newArrayList(t), new ArrayType(t), t,
