@@ -102,8 +102,14 @@ public class ExpressionRewriteTest {
         assertRewrite("(a and b) or (a and c)", "a and (b or c)");
 
 
-        assertRewrite("(a and b) or (a and c) or (a and d) ", "a and (b or c or d)");
-        assertRewrite("(a or b) and (a or c) and (a or d) ", "a or (b and c and d)");
+        assertRewrite("(a or b) and (a or c) and (a or d)", "a or (b and c and d)");
+        assertRewrite("(a and b) or (a and c) or (a and d)", "a and (b or c or d)");
+        assertRewrite("(a and b) or (a or c) or (a and d)", "((((a and b) or a) or c) or (a and d))");
+        assertRewrite("(a and b) or (a and c) or (a or d)", "(((a and b) or (a and c) or a) or d))");
+        assertRewrite("(a or b) or (a and c) or (a and d)", "(a or b) or (a and c) or (a and d)");
+        assertRewrite("(a or b) or (a and c) or (a or d)", "(((a or b) or (a and c)) or d)");
+        assertRewrite("(a or b) or (a or c) or (a and d)", "((a or b) or c) or (a and d)");
+        assertRewrite("(a or b) or (a or c) or (a or d)", "(((a or b) or c) or d)");
 
         assertRewrite("(a and b) or (d and c) or (d and e)", "(a and b) or (d and c) or (d and e)");
         assertRewrite("(a or b) and (d or c) and (d or e)", "(a or b) and (d or c) and (d or e)");

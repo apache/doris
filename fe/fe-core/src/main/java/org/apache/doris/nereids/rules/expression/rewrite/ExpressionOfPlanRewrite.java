@@ -23,7 +23,6 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -47,7 +46,7 @@ public class ExpressionOfPlanRewrite implements RewriteRuleFactory {
     }
 
     @Override
-    public List<Rule<Plan>> buildRules() {
+    public List<Rule> buildRules() {
         return ImmutableList.of(
                 new ProjectExpressionRewrite().build(),
                 new AggExpressionRewrite().build(),
@@ -58,7 +57,7 @@ public class ExpressionOfPlanRewrite implements RewriteRuleFactory {
 
     private class ProjectExpressionRewrite extends OneRewriteRuleFactory {
         @Override
-        public Rule<Plan> build() {
+        public Rule build() {
             return logicalProject().then(project -> {
                 List<NamedExpression> projects = project.getProjects();
                 List<NamedExpression> newProjects = projects.stream()
@@ -73,7 +72,7 @@ public class ExpressionOfPlanRewrite implements RewriteRuleFactory {
 
     private class FilterExpressionRewrite extends OneRewriteRuleFactory {
         @Override
-        public Rule<Plan> build() {
+        public Rule build() {
             return logicalFilter().then(filter -> {
                 Expression newExpr = rewriter.rewrite(filter.getPredicates());
                 if (newExpr.equals(filter.getPredicates())) {
@@ -86,7 +85,7 @@ public class ExpressionOfPlanRewrite implements RewriteRuleFactory {
 
     private class AggExpressionRewrite extends OneRewriteRuleFactory {
         @Override
-        public Rule<Plan> build() {
+        public Rule build() {
             return logicalAggregate().then(agg -> {
                 List<Expression> groupByExprs = agg.getGroupByExpressionList();
                 List<Expression> newGroupByExprs = rewriter.rewrite(groupByExprs);
@@ -105,7 +104,7 @@ public class ExpressionOfPlanRewrite implements RewriteRuleFactory {
 
     private class JoinExpressionRewrite extends OneRewriteRuleFactory {
         @Override
-        public Rule<Plan> build() {
+        public Rule build() {
             return logicalJoin().then(join -> {
                 Optional<Expression> condition = join.getCondition();
                 if (!condition.isPresent()) {
