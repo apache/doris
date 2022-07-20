@@ -207,6 +207,7 @@ struct UnixTimeStampImpl {
                                size_t input_rows_count) {
         auto col_result = ColumnVector<Int32>::create();
         col_result->resize(input_rows_count);
+        // TODO: use a const column to store this value
         auto& col_result_data = col_result->get_data();
         auto res_value = context->impl()->state()->timestamp_ms() / 1000;
         for (int i = 0; i < input_rows_count; i++) {
