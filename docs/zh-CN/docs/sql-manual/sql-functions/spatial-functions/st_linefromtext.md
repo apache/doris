@@ -1,6 +1,6 @@
 ---
 {
-    "title": "`ST_LineFromText`,`ST_LineStringFromText`",
+    "title": "ST_LineFromText,ST_LineStringFromText",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `ST_LineFromText`,`ST_LineStringFromText`
+## ST_LineFromText,ST_LineStringFromText
 ### description
 #### Syntax
 
