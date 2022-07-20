@@ -191,7 +191,7 @@ public class Config extends ConfigBase {
      * LOCAL: deprecated.
      */
     @ConfField
-    public static String edit_log_type = "BDB";
+    public static String edit_log_type = "local";
 
     /**
      * bdbje port

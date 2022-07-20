@@ -57,7 +57,7 @@ import java.util.Map;
  * There will be 3 directories under running dir/:
  *      running dir/conf/
  *      running dir/log/
- *      running dir/palo-meta/
+ *      running dir/doris-meta/
  *
  *  All these 3 directories will be cleared first.
  *
@@ -66,7 +66,7 @@ public class MockedFrontend {
     public static final String FE_PROCESS = "fe";
 
     // the running dir of this mocked frontend.
-    // log/ palo-meta/ and conf/ dirs will be created under this dir.
+    // log/ doris-meta/ and conf/ dirs will be created under this dir.
     private String runningDir;
     // the min set of fe.conf.
     private static final Map<String, String> MIN_FE_CONF;
@@ -100,7 +100,7 @@ public class MockedFrontend {
 
     // init the fe process. This must be called before starting the frontend process.
     // 1. check if all necessary environment variables are set.
-    // 2. clear and create 3 dirs: runningDir/log/, runningDir/palo-meta/, runningDir/conf/
+    // 2. clear and create 3 dirs: runningDir/log/, runningDir/doris-meta/, runningDir/conf/
     // 3. init fe.conf
     //      The content of "fe.conf" is a merge set of input `feConf` and MIN_FE_CONF
     public void init(String runningDir, Map<String, String> feConf) throws EnvVarNotSetException, IOException {
@@ -121,7 +121,7 @@ public class MockedFrontend {
         // clear and create log dir
         createAndClearDir(runningDir + "/log/");
         // clear and create meta dir
-        createAndClearDir(runningDir + "/palo-meta/");
+        createAndClearDir(runningDir + "/doris-meta/");
         // clear and create conf dir
         createAndClearDir(runningDir + "/conf/");
         // init fe.conf
@@ -134,7 +134,7 @@ public class MockedFrontend {
         finalFeConf = Maps.newHashMap(MIN_FE_CONF);
         // these 2 configs depends on running dir, so set them here.
         finalFeConf.put("LOG_DIR", this.runningDir + "/log");
-        finalFeConf.put("meta_dir", this.runningDir + "/palo-meta");
+        finalFeConf.put("meta_dir", this.runningDir + "/doris-meta");
         finalFeConf.put("sys_log_dir", this.runningDir + "/log");
         finalFeConf.put("audit_log_dir", this.runningDir + "/log");
         finalFeConf.put("tmp_dir", this.runningDir + "/temp_dir");
@@ -183,7 +183,10 @@ public class MockedFrontend {
 
         @Override
         public void run() {
+            long start = System.currentTimeMillis();
             PaloFe.start(frontend.getRunningDir(), frontend.getRunningDir(), args);
+            long end = System.currentTimeMillis();
+            System.out.println("fe start cost: " + (end - start));
         }
     }
 
@@ -192,11 +195,14 @@ public class MockedFrontend {
         if (!isInit) {
             throw new NotInitException("fe process is not initialized");
         }
+        long start = System.currentTimeMillis();
         Thread feThread = new Thread(new FERunnable(this, args), FE_PROCESS);
         feThread.start();
         // wait the catalog to be ready until timeout (30 seconds)
+        long start2 = System.currentTimeMillis();
         waitForCatalogReady(120 * 1000);
-        System.out.println("Fe process is started");
+        long end = System.currentTimeMillis();
+        System.out.println("Fe process is started: " + (end - start));
     }
 
     private void waitForCatalogReady(long timeoutMs) throws FeStartException {
@@ -204,7 +210,7 @@ public class MockedFrontend {
         while (!Catalog.getCurrentCatalog().isReady() && left > 0) {
             System.out.println("catalog is not ready");
             try {
-                Thread.sleep(5000);
+                Thread.sleep(100);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }

@@ -270,7 +270,7 @@ public class Catalog {
     private static final int STATE_CHANGE_CHECK_INTERVAL_MS = 100;
     private static final int REPLAY_INTERVAL_MS = 1;
     private static final String BDB_DIR = "/bdb";
-    private static final String IMAGE_DIR = "/image";
+    public static final String IMAGE_DIR = "/image";
 
     private String metaDir;
     private String bdbDir;
@@ -802,13 +802,10 @@ public class Catalog {
             if (!bdbDir.exists()) {
                 bdbDir.mkdirs();
             }
-
-            File imageDir = new File(this.imageDir);
-            if (!imageDir.exists()) {
-                imageDir.mkdirs();
-            }
-        } else {
-            throw new Exception("Invalid edit log type: " + Config.edit_log_type);
+        }
+        File imageDir = new File(this.imageDir);
+        if (!imageDir.exists()) {
+            imageDir.mkdirs();
         }
 
         // init plugin manager
@@ -834,6 +831,9 @@ public class Catalog {
         // 6. start state listener thread
         createStateListener();
         listener.start();
+        if (Config.edit_log_type.equalsIgnoreCase("local")) {
+            notifyNewFETypeTransfer(FrontendNodeType.MASTER);
+        }
     }
 
     // wait until FE is ready.
@@ -844,7 +844,7 @@ public class Catalog {
                 break;
             }
 
-            Thread.sleep(2000);
+            Thread.sleep(1000);
             LOG.info("wait catalog to be ready. FE type: {}. is ready: {}", feType, isReady.get());
         }
     }
@@ -1224,9 +1224,11 @@ public class Catalog {
 
         editLog.open();
 
-        if (!haProtocol.fencing()) {
-            LOG.error("fencing failed. will exit.");
-            System.exit(-1);
+        if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
+            if (!haProtocol.fencing()) {
+                LOG.error("fencing failed. will exit.");
+                System.exit(-1);
+            }
         }
 
         long replayStartTime = System.currentTimeMillis();
@@ -1283,7 +1285,7 @@ public class Catalog {
 
         canRead.set(true);
         isReady.set(true);
-
+        System.out.println("catalog is ready");
         checkLowerCaseTableNames();
 
         String msg = "master finished to replay journal, can write now.";

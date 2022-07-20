@@ -135,24 +135,27 @@ public class PaloFe {
             // 1. HttpServer for HTTP Server
             // 2. FeServer for Thrift Server
             // 3. QeService for MySQL Server
-            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled,
-                    ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
-
             feServer.start();
 
-            HttpServer httpServer = new HttpServer();
-            httpServer.setPort(Config.http_port);
-            httpServer.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
-            httpServer.setAcceptors(Config.jetty_server_acceptors);
-            httpServer.setSelectors(Config.jetty_server_selectors);
-            httpServer.setWorkers(Config.jetty_server_workers);
-            httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
-            httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
-            httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);
-            httpServer.start();
+            if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
+                HttpServer httpServer = new HttpServer();
+                httpServer.setPort(Config.http_port);
+                httpServer.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
+                httpServer.setAcceptors(Config.jetty_server_acceptors);
+                httpServer.setSelectors(Config.jetty_server_selectors);
+                httpServer.setWorkers(Config.jetty_server_workers);
+                httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
+                httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
+                httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);
+                httpServer.start();
+            }
 
-            qeService.start();
+            if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
+                QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled,
+                        ExecuteEnv.getInstance().getScheduler());
+                qeService.start();
+            }
 
             ThreadPoolManager.registerAllThreadPoolMetric();
 
