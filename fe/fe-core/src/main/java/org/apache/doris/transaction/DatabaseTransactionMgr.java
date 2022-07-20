@@ -934,7 +934,11 @@ public class DatabaseTransactionMgr {
                 LOG.debug("after set transaction {} to visible", transactionState);
             } finally {
                 writeUnlock();
-                transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
+                try {
+                    transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
+                } catch (UserException e) {
+                    LOG.warn("afterStateTransform txn {} failed. msg: {}", transactionId, e.getMessage());
+                }
             }
             updateCatalogAfterVisible(transactionState, db);
         } finally {
