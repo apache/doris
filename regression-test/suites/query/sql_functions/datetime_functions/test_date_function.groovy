@@ -250,5 +250,7 @@ suite("test_date_function", "query") {
     qt_sql """ select yearweek('2021-1-1') """
     qt_sql """ select yearweek('2020-7-1') """
 
+    qt_sql """ select count(*) from (select * from numbers("200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
+
     sql """ drop table ${tableName} """
 }
