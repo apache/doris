@@ -189,8 +189,8 @@ public class Memo {
                 }
             }
             if (groupExpressions.containsKey(groupExpression)) {
-                // TODO: need to merge group recursively
-                groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
+                GroupExpression that = groupExpressions.get(groupExpression);
+                mergeGroup(groupExpression.getOwnerGroup(), that.getOwnerGroup());
             } else {
                 groupExpressions.put(groupExpression, groupExpression);
             }
