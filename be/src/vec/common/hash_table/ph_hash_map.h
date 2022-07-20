@@ -131,9 +131,7 @@ public:
 
     size_t hash(const Key& x) const { return _hash_map.hash(x); }
 
-    void ALWAYS_INLINE prefetch_by_key(const Key& x) { 
-        _hash_map.prefetch(x);
-    }
+    void ALWAYS_INLINE prefetch_by_key(const Key& x) { _hash_map.prefetch(x); }
 
     /// Call func(const Key &, Mapped &) for each hash map element.
     template <typename Func>
