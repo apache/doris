@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/segment.h"
 
+#include <gtest/gtest-param-test.h>
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -42,7 +43,9 @@
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "testutil/test_util.h"
+#include "util/debug_util.h"
 #include "util/file_utils.h"
+#include "util/key_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -73,7 +76,7 @@ static bool column_contains_index(ColumnMetaPB column_meta, ColumnIndexTypePB ty
 
 static StorageEngine* k_engine = nullptr;
 
-class SegmentReaderWriterTest : public ::testing::Test {
+class SegmentReaderWriterTest : public ::testing::TestWithParam<std::tuple<KeysType, bool>> {
 protected:
     void SetUp() override {
         if (FileUtils::check_exist(kSegmentDir)) {
@@ -98,7 +101,7 @@ protected:
     }
 
     TabletSchema create_schema(const std::vector<TabletColumn>& columns,
-                               int num_short_key_columns = -1) {
+                               KeysType keys_type = DUP_KEYS, int num_custom_key_columns = -1) {
         TabletSchema res;
         int num_key_columns = 0;
         for (auto& col : columns) {
@@ -110,7 +113,8 @@ protected:
         res._num_columns = columns.size();
         res._num_key_columns = num_key_columns;
         res._num_short_key_columns =
-                num_short_key_columns != -1 ? num_short_key_columns : num_key_columns;
+                num_custom_key_columns != -1 ? num_custom_key_columns : num_key_columns;
+        res._keys_type = keys_type;
         res.init_field_index_for_test();
         return res;
     }
@@ -151,6 +155,30 @@ protected:
         st = writer.finalize(&file_size, &index_size);
         EXPECT_TRUE(st.ok());
         EXPECT_TRUE(file_writer->close().ok());
+        // Check min/max key generation
+        if (build_schema.keys_type() == UNIQUE_KEYS && opts.enable_unique_key_merge_on_write) {
+            // Create min row
+            for (int cid = 0; cid < build_schema.num_key_columns(); ++cid) {
+                RowCursorCell cell = row.cell(cid);
+                generator(0, cid, 0 / opts.num_rows_per_block, cell);
+            }
+            std::string min_encoded_key;
+            encode_key<RowCursor, true, true>(&min_encoded_key, row,
+                                              build_schema.num_key_columns());
+            EXPECT_EQ(min_encoded_key, writer.min_encoded_key().to_string());
+            // Create max row
+            for (int cid = 0; cid < build_schema.num_key_columns(); ++cid) {
+                RowCursorCell cell = row.cell(cid);
+                generator(nrows - 1, cid, (nrows - 1) / opts.num_rows_per_block, cell);
+            }
+            std::string max_encoded_key;
+            encode_key<RowCursor, true, true>(&max_encoded_key, row,
+                                              build_schema.num_key_columns());
+            EXPECT_EQ(max_encoded_key, writer.max_encoded_key().to_string());
+        } else {
+            EXPECT_EQ("", writer.min_encoded_key().to_string());
+            EXPECT_EQ("", writer.max_encoded_key().to_string());
+        }
 
         st = Segment::open(fs, path, 0, &query_schema, res);
         EXPECT_TRUE(st.ok());
@@ -161,11 +189,14 @@ public:
     const std::string kSegmentDir = "./ut_dir/segment_test";
 };
 
-TEST_F(SegmentReaderWriterTest, normal) {
+TEST_P(SegmentReaderWriterTest, normal) {
+    KeysType keysType = std::get<0>(GetParam());
     TabletSchema tablet_schema = create_schema(
-            {create_int_key(1), create_int_key(2), create_int_value(3), create_int_value(4)});
+            {create_int_key(1), create_int_key(2), create_int_value(3), create_int_value(4)},
+            keysType);
 
     SegmentWriterOptions opts;
+    opts.enable_unique_key_merge_on_write = std::get<1>(GetParam());
     opts.num_rows_per_block = 10;
 
     shared_ptr<Segment> segment;
@@ -208,7 +239,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
                 rowid += rows_read;
             }
         }
-        // test seek, key
+        // test seek, key, not exits
         {
             // lower bound
             std::unique_ptr<RowCursor> lower_bound(new RowCursor());
@@ -248,6 +279,66 @@ TEST_F(SegmentReaderWriterTest, normal) {
             for (int i = 0; i < 11; ++i) {
                 EXPECT_EQ(100 + i * 10, *(int*)column_block.cell_ptr(i));
             }
+        }
+        // test seek, existing key
+        {
+            // lower bound
+            std::unique_ptr<RowCursor> lower_bound(new RowCursor());
+            lower_bound->init(tablet_schema, 2);
+            {
+                auto cell = lower_bound->cell(0);
+                cell.set_not_null();
+                *(int*)cell.mutable_cell_ptr() = 100;
+            }
+            {
+                auto cell = lower_bound->cell(1);
+                cell.set_not_null();
+                *(int*)cell.mutable_cell_ptr() = 101;
+            }
+
+            // upper bound
+            std::unique_ptr<RowCursor> upper_bound(new RowCursor());
+            upper_bound->init(tablet_schema, 2);
+            {
+                auto cell = upper_bound->cell(0);
+                cell.set_not_null();
+                *(int*)cell.mutable_cell_ptr() = 200;
+            }
+            {
+                auto cell = upper_bound->cell(1);
+                cell.set_not_null();
+                *(int*)cell.mutable_cell_ptr() = 201;
+            }
+
+            // include upper key
+            StorageReadOptions read_opts;
+            read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
+            read_opts.key_ranges.emplace_back(lower_bound.get(), true, upper_bound.get(), true);
+            std::unique_ptr<RowwiseIterator> iter;
+            segment->new_iterator(schema, read_opts, &iter);
+
+            RowBlockV2 block(schema, 100);
+            EXPECT_TRUE(iter->next_batch(&block).ok());
+            EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+            EXPECT_EQ(11, block.num_rows());
+            auto column_block = block.column_block(0);
+            for (int i = 0; i < 11; ++i) {
+                EXPECT_EQ(100 + i * 10, *(int*)column_block.cell_ptr(i));
+            }
+
+            // not include upper key
+            StorageReadOptions read_opts1;
+            read_opts1.stats = &stats;
+            read_opts1.tablet_schema = &tablet_schema;
+            read_opts1.key_ranges.emplace_back(lower_bound.get(), true, upper_bound.get(), false);
+            std::unique_ptr<RowwiseIterator> iter1;
+            segment->new_iterator(schema, read_opts1, &iter1);
+
+            RowBlockV2 block1(schema, 100);
+            EXPECT_TRUE(iter1->next_batch(&block1).ok());
+            EXPECT_EQ(DEL_NOT_SATISFIED, block1.delete_state());
+            EXPECT_EQ(10, block1.num_rows());
         }
         // test seek, key
         {
@@ -618,10 +709,11 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
     }
 }
 
-TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
+TEST_P(SegmentReaderWriterTest, estimate_segment_size) {
     size_t num_rows_per_block = 10;
 
     std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
+    tablet_schema->_keys_type = std::get<0>(GetParam());
     tablet_schema->_num_columns = 4;
     tablet_schema->_num_key_columns = 3;
     tablet_schema->_num_short_key_columns = 2;
@@ -632,6 +724,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     tablet_schema->_cols.push_back(create_int_value(4));
 
     SegmentWriterOptions opts;
+    opts.enable_unique_key_merge_on_write = std::get<1>(GetParam());
     opts.num_rows_per_block = num_rows_per_block;
 
     std::string fname = kSegmentDir + "/int_case";
@@ -1188,5 +1281,11 @@ TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
     EXPECT_TRUE(column_contains_index(seg2->footer().columns(3), BLOOM_FILTER_INDEX));
 }
 
+INSTANTIATE_TEST_SUITE_P(IndexTypes, SegmentReaderWriterTest,
+                         testing::Combine(
+                                 // keysType
+                                 ::testing::Values(UNIQUE_KEYS, DUP_KEYS, AGG_KEYS),
+                                 // enable_unique_key_merge_on_write
+                                 ::testing::Values(false, true)));
 } // namespace segment_v2
 } // namespace doris
