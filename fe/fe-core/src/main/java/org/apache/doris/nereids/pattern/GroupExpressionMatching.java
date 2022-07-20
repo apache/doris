@@ -159,7 +159,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                     children.add(childrenPlans.get(i).get(childrenPlanIndex[i]));
                 }
 
-                LogicalProperties logicalProperties = groupExpression.getParent().getLogicalProperties();
+                LogicalProperties logicalProperties = groupExpression.getOwnerGroup().getLogicalProperties();
                 // assemble children: replace GroupPlan to real plan,
                 // withChildren will erase groupExpression, so we must
                 // withGroupExpression too.
