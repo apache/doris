@@ -41,7 +41,7 @@ under the License.
 * 关注 Doris [Github 代码库](https://github.com/apache/incubator-doris)
 * 订阅我们的 [邮件列表](../subscribe-mail-list.md)； 
 * 加入 Doris 微信群(加微信号：morningman-cmy, 备注：加入Doris群) 随时提问；
-* 加入 [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg);
+* 加入 [Slack](https://the-asf.slack.com/archives/C02P2JBD72A);
 
 通过以上方式及时了解 Doris 项目的开发动态并为您关注的话题发表意见。
 
