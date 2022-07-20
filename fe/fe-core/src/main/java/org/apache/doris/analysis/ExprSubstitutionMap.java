@@ -213,7 +213,6 @@ public final class ExprSubstitutionMap {
                     Expr newRhs = fRhs.trySubstitute(g, analyzer, false);
                     result.put(f.getLhs().get(j), newRhs);
                     findGMatch = true;
-                    break;
                 }
             }
             if (!findGMatch) {
