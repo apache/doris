@@ -809,8 +809,8 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                         auto emplace_result = [&]() {
                             if constexpr (IsPhmapTraits<HashTableType>::value) {
                                 if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
-                                    agg_method.data.prefetch_by_hash(
-                                            hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                                    agg_method.data.prefetch_by_key(
+                                            agg_method.keys[i + HASH_MAP_PREFETCH_DIST]);
                                 }
 
                                 return state.emplace_key(agg_method.data, hash_values[i], i,
@@ -894,8 +894,8 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
                     auto emplace_result = [&]() {
                         if constexpr (IsPhmapTraits<HashTableType>::value) {
                             if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
-                                agg_method.data.prefetch_by_hash(
-                                        hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                                agg_method.data.prefetch_by_key(
+                                        agg_method.keys[i + HASH_MAP_PREFETCH_DIST]);
                             }
 
                             return state.emplace_key(agg_method.data, hash_values[i], i,
@@ -1138,8 +1138,8 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
                     auto emplace_result = [&]() {
                         if constexpr (IsPhmapTraits<HashTableType>::value) {
                             if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
-                                agg_method.data.prefetch_by_hash(
-                                        hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                                agg_method.data.prefetch_by_key(
+                                        agg_method.keys[i + HASH_MAP_PREFETCH_DIST]);
                             }
 
                             return state.emplace_key(agg_method.data, hash_values[i], i,

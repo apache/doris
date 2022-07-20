@@ -32,7 +32,7 @@ template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
 class PHHashMap : private boost::noncopyable {
 public:
     using Self = PHHashMap;
-    using HashMapImpl = phmap::flat_hash_map<Key, Mapped, Hash>;
+    using HashMapImpl = phmap::parallel_flat_hash_map<Key, Mapped, Hash>;
 
     using key_type = Key;
     using mapped_type = Mapped;
@@ -121,7 +121,7 @@ public:
                                bool& inserted) {
         const auto& key = key_holder_get_key(key_holder);
         inserted = false;
-        auto it_ = _hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
+        auto it_ = _hash_map.lazy_emplace_with_hash(hash_value, key, [&](const auto& ctor) {
             inserted = true;
             key_holder_persist_key(key_holder);
             ctor(key, nullptr);
@@ -131,7 +131,9 @@ public:
 
     size_t hash(const Key& x) const { return _hash_map.hash(x); }
 
-    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) { _hash_map.prefetch_hash(hash_value); }
+    void ALWAYS_INLINE prefetch_by_key(const Key& x) { 
+        _hash_map.prefetch(x);
+    }
 
     /// Call func(const Key &, Mapped &) for each hash map element.
     template <typename Func>
