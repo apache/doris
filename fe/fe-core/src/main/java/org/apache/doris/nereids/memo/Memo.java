@@ -48,7 +48,7 @@ public class Memo {
     private Group root;
 
     public Memo(Plan plan) {
-        root = copyIn(plan, null, false).getOwnerGroup();
+        root = copyIn(plan, null, false).second.getOwnerGroup();
     }
 
     public Group getRoot() {
