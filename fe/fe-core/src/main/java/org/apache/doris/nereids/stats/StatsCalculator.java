@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -37,9 +39,16 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.TableStats;
 
+import com.google.common.base.Preconditions;
+
+import java.util.HashMap;
 import java.util.List;
 
+/**
+ * Used to calculate the stats for each operator
+ */
 public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
 
     private final GroupExpression groupExpression;
@@ -124,12 +133,36 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitPhysicalFilter(PhysicalFilter<Plan> filter, Void context) {
-        return super.visitPhysicalFilter(filter, context);
+        StatsDeriveResult childStats = groupExpression.getChildStats(0);
+        StatsDeriveResult stats = new StatsDeriveResult(childStats);
+        stats.setRowCount((long)(childStats.getRowCount() * filter.getPredicates().getSelectivity()));
+        return stats;
     }
 
     @Override
-    public StatsDeriveResult visitPhysicalDistribution(PhysicalDistribution<Plan> distribution, Void context) {
+    public StatsDeriveResult visitPhysicalDistribution(PhysicalDistribution<Plan> distribution,
+            Void context) {
         return super.visitPhysicalDistribution(distribution, context);
+    }
+
+    // TODO: 1. Subtract the pruned partition
+    //       2. Consider the influence of runtime filter
+    //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
+    private StatsDeriveResult computeOlapScan(Table table, List<Expression> predicateList) {
+        TableStats tableStats= Catalog.getCurrentCatalog().getStatisticsManager().getStatistics().getTableStats(table.getId());
+        long rowCount = tableStats.getRowCount();
+        double selectivity = computeSelectivityForConjunct(predicateList);
+        return new StatsDeriveResult((long)(rowCount * selectivity), new HashMap<>(), new HashMap<>());
+    }
+
+    private static final double DEFAULT_SELECTIVITY = 0.1;
+
+    private double computeSelectivityForConjunct(List<Expression> expressionList) {
+        double selectivity = expressionList.stream().map(Expression::getSelectivity).reduce((l, r) -> {
+            return l *= r;
+        }).get();
+        Preconditions.checkState(selectivity < 1);
+        return selectivity < 0 ? DEFAULT_SELECTIVITY : selectivity;
     }
 
 }

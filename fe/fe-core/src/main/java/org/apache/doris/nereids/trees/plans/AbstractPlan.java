@@ -102,36 +102,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
-    public List<StatsDeriveResult> getChildrenStats() {
-        return Collections.emptyList();
-    }
-
-    @Override
-    public StatsDeriveResult getStatsDeriveResult() {
-        return statsDeriveResult;
-    }
-
-    @Override
-    public StatisticalType getStatisticalType() {
-        return null;
-    }
-
-    @Override
-    public void setStatsDeriveResult(StatsDeriveResult result) {
-        this.statsDeriveResult = result;
-    }
-
-    @Override
-    public long getLimit() {
-        return limit;
-    }
-
-    @Override
-    public List<? extends ExprStats> getConjuncts() {
-        return Collections.emptyList();
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

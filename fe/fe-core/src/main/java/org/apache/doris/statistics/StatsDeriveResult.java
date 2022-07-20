@@ -21,6 +21,7 @@ import org.apache.doris.common.Id;
 
 import com.google.common.collect.Maps;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -41,6 +42,12 @@ public class StatsDeriveResult {
         this.rowCount = rowCount;
         this.columnToDataSize.putAll(columnToDataSize);
         this.columnToNdv.putAll(columnToNdv);
+    }
+
+    public StatsDeriveResult(StatsDeriveResult another) {
+        this.rowCount = another.rowCount;
+        this.columnToDataSize.putAll(another.columnToDataSize);
+        this.columnToNdv.putAll(another.columnToNdv);
     }
 
     public float computeSize() {

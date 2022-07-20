@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -173,5 +174,11 @@ public class GroupExpression {
     @Override
     public int hashCode() {
         return Objects.hash(children, plan);
+    }
+
+    public StatsDeriveResult getChildStats(int idx) {
+        // TODO: is this preconditions check really necessary?
+        Preconditions.checkState(idx > 0 && idx < children.size());
+        return child(idx).getStatistics();
     }
 }

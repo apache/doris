@@ -31,7 +31,7 @@ import java.util.Optional;
 /**
  * Abstract class for all plan node.
  */
-public interface Plan extends TreeNode<Plan>, PlanStats {
+public interface Plan extends TreeNode<Plan> {
 
     PlanType getType();
 
