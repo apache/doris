@@ -51,7 +51,7 @@ import java.util.stream.Stream;
 public class BindSlotReference implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
-        return ImmutableList.of(
+         return ImmutableList.of(
             RuleType.BINDING_PROJECT_SLOT.build(
                 logicalProject().then(project -> {
                     List<NamedExpression> boundSlots =
@@ -90,7 +90,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
                     return new LogicalSort<>(sortItemList, sort.child());
                 })
-            )
+            ),
+
         );
     }
 

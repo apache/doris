@@ -95,6 +95,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -163,12 +164,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // TODO: support on row relation
             LogicalPlan relation = withRelation(Optional.ofNullable(ctx.fromClause()));
             return withSelectQuerySpecification(
-                ctx, relation,
-                ctx.selectClause(),
-                Optional.ofNullable(ctx.whereClause()),
-                Optional.ofNullable(ctx.aggClause())
+                    ctx, relation,
+                    ctx.selectClause(),
+                    Optional.ofNullable(ctx.whereClause()),
+                    Optional.ofNullable(ctx.aggClause())
             );
         });
+    }
+
+    private LogicalPlan applyAlias(TableAliasContext ctx, LogicalPlan plan) {
+        if (null != ctx.strictIdentifier()) {
+            String alias = ctx.strictIdentifier().getText();
+            if (null != ctx.identifierList()) {
+                List<String> colName = visitIdentifierSeq(ctx.identifierList().identifierSeq());
+                // TODO: impl multi-colName alias like t(col1, col2, ..., coln)
+            } else {
+                return new LogicalSubQueryAlias<>(alias, plan);
+            }
+        }
+        return plan;
     }
 
     /**
@@ -177,31 +191,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
-        // TODO: sample and time travel, alias, sub query
-        return new UnboundRelation(tableId);
-    }
-
-    private LogicalPlan mayApplyAlias(TableAliasContext ctx, LogicalPlan plan) {
-        if (null != ctx.strictIdentifier()) {
-            String alias = ctx.strictIdentifier().getText();
-            if (null != ctx.identifierList()) {
-                List<String> colName = visitIdentifierSeq(ctx.identifierList().identifierSeq());
-
-            }
-        }
-        return plan;
+        return applyAlias(ctx.tableAlias(), new UnboundRelation(tableId));
     }
 
     @Override
     public LogicalPlan visitAliasedQuery(AliasedQueryContext ctx) {
-        LogicalPlan plan = visitQuery(ctx.query());
-        return plan;
+        String alias = ctx.tableAlias().strictIdentifier().getText();
+        if (null == alias) {
+            alias = "__auto_generated_name__";
+        }
+        return new LogicalSubQueryAlias<>(alias, visitQuery(ctx.query()));
     }
 
 
     @Override
     public LogicalPlan visitAliasedRelation(AliasedRelationContext ctx) {
-        return plan(ctx.relation());
+        return applyAlias(ctx.tableAlias(), plan(ctx.relation()));
     }
 
     /**
@@ -275,7 +280,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     return new NullSafeEqual(left, right);
                 default:
                     throw new IllegalStateException("Unsupported comparison expression: "
-                        + operator.getSymbol().getText());
+                            + operator.getSymbol().getText());
             }
         });
     }
@@ -360,7 +365,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         return new Subtract(left, right);
                     default:
                         throw new IllegalStateException("Unsupported arithmetic binary type: "
-                            + ctx.operator.getText());
+                                + ctx.operator.getText());
                 }
             });
         });
@@ -483,8 +488,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public List<String> visitMultipartIdentifier(MultipartIdentifierContext ctx) {
         return ctx.parts.stream()
-            .map(RuleContext::getText)
-            .collect(ImmutableList.toImmutableList());
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
     }
 
     /**
@@ -501,8 +506,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public List<String> visitIdentifierSeq(IdentifierSeqContext ctx) {
         return ctx.ident.stream()
-            .map(RuleContext::getText)
-            .collect(ImmutableList.toImmutableList());
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
     }
 
     /**
@@ -524,9 +529,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private <T> List<T> visit(List<? extends ParserRuleContext> contexts, Class<T> clazz) {
         return contexts.stream()
-            .map(this::visit)
-            .map(clazz::cast)
-            .collect(ImmutableList.toImmutableList());
+                .map(this::visit)
+                .map(clazz::cast)
+                .collect(ImmutableList.toImmutableList());
     }
 
     private LogicalPlan plan(ParserRuleContext tree) {
@@ -624,7 +629,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withProjection(LogicalPlan input, SelectClauseContext selectCtx,
-                                       Optional<AggClauseContext> aggCtx) {
+            Optional<AggClauseContext> aggCtx) {
         return ParserUtils.withOrigin(selectCtx, () -> {
             // TODO: skip if havingClause exists
             if (aggCtx.isPresent()) {
@@ -638,12 +643,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private LogicalPlan withFilter(LogicalPlan input, Optional<WhereClauseContext> whereCtx) {
         return input.optionalMap(whereCtx, () ->
-            new LogicalFilter(getExpression((whereCtx.get().booleanExpression())), input)
+                new LogicalFilter(getExpression((whereCtx.get().booleanExpression())), input)
         );
     }
 
     private LogicalPlan withAggregate(LogicalPlan input, SelectClauseContext selectCtx,
-                                      Optional<AggClauseContext> aggCtx) {
+            Optional<AggClauseContext> aggCtx) {
         return input.optionalMap(aggCtx, () -> {
             List<Expression> groupByExpressions = visit(aggCtx.get().groupByItem().expression(), Expression.class);
             List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
@@ -671,14 +676,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     break;
                 case DorisParser.LIKE:
                     outExpression = new Like(
-                        valueExpression,
-                        getExpression(ctx.pattern)
+                            valueExpression,
+                            getExpression(ctx.pattern)
                     );
                     break;
                 case DorisParser.REGEXP:
                     outExpression = new Regexp(
-                        valueExpression,
-                        getExpression(ctx.pattern)
+                            valueExpression,
+                            getExpression(ctx.pattern)
                     );
                     break;
                 default:
