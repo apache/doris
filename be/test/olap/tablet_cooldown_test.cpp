@@ -62,21 +62,20 @@ public:
         ASSERT_TRUE(s3_fs->connect().ok());
         io::FileSystemMap::instance()->insert(kResourceId, s3_fs);
 
-        config::storage_root_path = kTestDir;
+        constexpr uint32_t MAX_PATH_LEN = 1024;
+        char buffer[MAX_PATH_LEN];
+        EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
+        config::storage_root_path = std::string(buffer) + "/" + kTestDir;
         config::min_file_descriptor_number = 1000;
 
-        FileUtils::remove_all(kTestDir);
-        FileUtils::create_dir(kTestDir);
+        FileUtils::remove_all(config::storage_root_path);
+        FileUtils::create_dir(config::storage_root_path);
 
-        std::vector<StorePath> paths {{kTestDir, -1}};
+        std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
         EngineOptions options;
         options.store_paths = paths;
-
-        ExecEnv::GetInstance()->_storage_policy_mgr = new StoragePolicyMgr();
-
         doris::StorageEngine::open(options, &k_engine);
-        k_engine->start_bg_threads();
     }
 
     static void TearDownTestSuite() {
