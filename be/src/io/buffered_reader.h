@@ -68,6 +68,7 @@ private:
 
     int64_t _read_count = 0;
     int64_t _remote_read_count = 0;
+    int64_t _remote_bytes = 0;
 
     // total time cost in this reader
     RuntimeProfile::Counter* _read_timer = nullptr;
@@ -77,6 +78,8 @@ private:
     RuntimeProfile::Counter* _read_counter = nullptr;
     // counter of calling "remote read()"
     RuntimeProfile::Counter* _remote_read_counter = nullptr;
+    RuntimeProfile::Counter* _remote_read_bytes = nullptr;
+    RuntimeProfile::Counter* _remote_read_rate = nullptr;
 };
 
 } // namespace doris
