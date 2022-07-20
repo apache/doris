@@ -66,22 +66,16 @@ public class MemoTest {
                 ImmutableList.of(new SlotReference(new ExprId(1),"name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 rel1
         );
-
-
         memo.copyIn(proj1, null, false);
 
         UnboundRelation rel2 = new UnboundRelation(Lists.newArrayList("test2"));
-
         LogicalProject proj2 = new LogicalProject(
                 ImmutableList.of(new SlotReference(new ExprId(1),"name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 rel2
         );
-
         memo.copyIn(proj2, null, false);
-
 
         memo.copyIn(rel1, memo.getGroups().get(2), true);
         Assert.assertEquals(2, memo.getGroups().size());
-
     }
 }
