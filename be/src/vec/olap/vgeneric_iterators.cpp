@@ -277,8 +277,12 @@ Status VMergeIteratorContext::_load_next_block() {
 class VMergeIterator : public RowwiseIterator {
 public:
     // VMergeIterator takes the ownership of input iterators
-    VMergeIterator(std::vector<RowwiseIterator*>& iters, int sequence_id_idx, bool is_unique)
-            : _origin_iters(iters), _sequence_id_idx(sequence_id_idx), _is_unique(is_unique) {}
+    VMergeIterator(std::vector<RowwiseIterator*>& iters, int sequence_id_idx, bool is_unique,
+                   uint64_t* merged_rows)
+            : _origin_iters(iters),
+              _sequence_id_idx(sequence_id_idx),
+              _is_unique(is_unique),
+              _merged_rows(merged_rows) {}
 
     ~VMergeIterator() override {
         while (!_merge_heap.empty()) {
@@ -315,6 +319,7 @@ private:
     int block_row_max = 0;
     int _sequence_id_idx = -1;
     bool _is_unique = false;
+    uint64_t* _merged_rows = nullptr;
 };
 
 Status VMergeIterator::init(const StorageReadOptions& opts) {
@@ -349,6 +354,8 @@ Status VMergeIterator::next_batch(vectorized::Block* block) {
         if (!ctx->need_skip()) {
             // copy current row to block
             ctx->copy_row(block);
+        } else if (_merged_rows != nullptr) {
+            (*_merged_rows)++;
         }
 
         RETURN_IF_ERROR(ctx->advance());
@@ -423,11 +430,11 @@ Status VUnionIterator::next_batch(vectorized::Block* block) {
 }
 
 RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*>& inputs, int sequence_id_idx,
-                                    bool is_unique) {
+                                    bool is_unique, uint64_t* merged_rows) {
     if (inputs.size() == 1) {
         return *(inputs.begin());
     }
-    return new VMergeIterator(inputs, sequence_id_idx, is_unique);
+    return new VMergeIterator(inputs, sequence_id_idx, is_unique, merged_rows);
 }
 
 RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs) {

@@ -224,6 +224,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.sequence_id_idx = _sequence_col_idx;
     _reader_context.batch_size = _batch_size;
     _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
+    _reader_context.merged_rows = &_merged_rows;
 
     *valid_rs_readers = *rs_readers;
 

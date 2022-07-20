@@ -114,7 +114,8 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         if (read_context->need_ordered_result &&
             _rowset->rowset_meta()->is_segments_overlapping()) {
             final_iterator = vectorized::new_merge_iterator(
-                    iterators, read_context->sequence_id_idx, read_context->is_unique);
+                    iterators, read_context->sequence_id_idx, read_context->is_unique,
+                    read_context->merged_rows);
         } else {
             final_iterator = vectorized::new_union_iterator(iterators);
         }
@@ -122,7 +123,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         if (read_context->need_ordered_result &&
             _rowset->rowset_meta()->is_segments_overlapping()) {
             final_iterator = new_merge_iterator(iterators, read_context->sequence_id_idx,
-                                                read_context->is_unique);
+                                                read_context->is_unique, read_context->merged_rows);
         } else {
             final_iterator = new_union_iterator(iterators);
         }
