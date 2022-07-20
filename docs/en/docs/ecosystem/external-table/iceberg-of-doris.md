@@ -62,7 +62,7 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
     );
 
 
-    -- Example: Mount iceberg_table under iceberg_db in Iceberg 
+    -- Example 1: Mount iceberg_table under iceberg_db in Iceberg
     CREATE TABLE `t_iceberg` 
     ENGINE = ICEBERG
     PROPERTIES (
@@ -70,6 +70,21 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
     "iceberg.table" = "iceberg_table",
     "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
     "iceberg.catalog.type" = "HIVE_CATALOG"
+
+
+    -- Example 2: Mount iceberg_table under iceberg_db in Iceberg, with HDFS HA enabled.
+    CREATE TABLE `t_iceberg`
+    ENGINE = ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_db",
+    "iceberg.table" = "iceberg_table"
+    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type" = "HIVE_CATALOG",
+    "dfs.nameservices"="HDFS8000463",
+    "dfs.ha.namenodes.HDFS8000463"="nn2,nn1",
+    "dfs.namenode.rpc-address.HDFS8000463.nn2"="172.21.16.5:4007",
+    "dfs.namenode.rpc-address.HDFS8000463.nn1"="172.21.16.26:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000463"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
     );
     ```
 
@@ -115,7 +130,7 @@ You can also create an Iceberg table by explicitly specifying the column definit
     "iceberg.catalog.type" = "HIVE_CATALOG"
     );
 
-    -- Example: Mount iceberg_table under iceberg_db in Iceberg 
+    -- Example 1: Mount iceberg_table under iceberg_db in Iceberg
     CREATE TABLE `t_iceberg` (
         `id` int NOT NULL COMMENT "id number",
         `name` varchar(10) NOT NULL COMMENT "user name"
@@ -126,6 +141,24 @@ You can also create an Iceberg table by explicitly specifying the column definit
     "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
     "iceberg.catalog.type" = "HIVE_CATALOG"
     );
+
+    -- Example 2: Mount iceberg_table under iceberg_db in Iceberg, with HDFS HA enabled.
+    CREATE TABLE `t_iceberg` (
+        `id` int NOT NULL COMMENT "id number",
+        `name` varchar(10) NOT NULL COMMENT "user name"
+    ) ENGINE = ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_db",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type" = "HIVE_CATALOG",
+    "dfs.nameservices"="HDFS8000463",
+    "dfs.ha.namenodes.HDFS8000463"="nn2,nn1",
+    "dfs.namenode.rpc-address.HDFS8000463.nn2"="172.21.16.5:4007",
+    "dfs.namenode.rpc-address.HDFS8000463.nn1"="172.21.16.26:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000463"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+    );
+
     ```
 
 #### Parameter Description
