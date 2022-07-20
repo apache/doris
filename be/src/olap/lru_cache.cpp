@@ -462,14 +462,14 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
 }
 
 ShardedLRUCache::~ShardedLRUCache() {
+    _entity->deregister_hook(_name);
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
     if (_shards) {
         for (int s = 0; s < _num_shards; s++) {
             delete _shards[s];
         }
         delete[] _shards;
     }
-    _entity->deregister_hook(_name);
-    DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
 
 Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
