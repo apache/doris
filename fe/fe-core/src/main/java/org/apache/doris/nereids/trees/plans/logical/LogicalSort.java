@@ -81,7 +81,7 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     @Override
     public String toString() {
-        return "Sort (" + StringUtils.join(orderKeys, ", ") + ")";
+        return "LogicalSort (" + StringUtils.join(orderKeys, ", ") + ")";
     }
 
     @Override

@@ -86,7 +86,6 @@ private:
 private:
     int64_t _range_start_offset;
     int64_t _range_size;
-    int64_t _file_size;
     std::map<int, std::vector<ExprContext*>> _slot_conjuncts;
     std::unordered_set<int> _filter_group;
 

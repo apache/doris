@@ -48,15 +48,15 @@ public class TestPlanOutput {
             new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
             new Column("name", Type.STRING, true, AggregateType.NONE, "", "")
         ));
-        LogicalRelation relationPlan = new LogicalOlapScan(table, ImmutableList.of("a"));
+        LogicalRelation relationPlan = new LogicalOlapScan(table, ImmutableList.of("db"));
         List<Slot> output = relationPlan.getOutput();
         Assertions.assertEquals(2, output.size());
         Assertions.assertEquals(output.get(0).getName(), "id");
-        Assertions.assertEquals(output.get(0).getQualifiedName(), "a.id");
+        Assertions.assertEquals(output.get(0).getQualifiedName(), "db.a.id");
         Assertions.assertEquals(output.get(0).getDataType(), IntegerType.INSTANCE);
 
         Assertions.assertEquals(output.get(1).getName(), "name");
-        Assertions.assertEquals(output.get(1).getQualifiedName(), "a.name");
+        Assertions.assertEquals(output.get(1).getQualifiedName(), "db.a.name");
         Assertions.assertEquals(output.get(1).getDataType(), StringType.INSTANCE);
     }
 
@@ -80,7 +80,7 @@ public class TestPlanOutput {
             new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
             new Column("name", Type.STRING, true, AggregateType.NONE, "", "")
         ));
-        LogicalRelation relationPlan = new LogicalOlapScan(table, ImmutableList.of("a"));
+        LogicalRelation relationPlan = new LogicalOlapScan(table, ImmutableList.of("db"));
 
         List<Slot> output = relationPlan.getOutput();
         // column prune
@@ -88,7 +88,7 @@ public class TestPlanOutput {
         output = newPlan.getOutput();
         Assertions.assertEquals(1, output.size());
         Assertions.assertEquals(output.get(0).getName(), "id");
-        Assertions.assertEquals(output.get(0).getQualifiedName(), "a.id");
+        Assertions.assertEquals(output.get(0).getQualifiedName(), "db.a.id");
         Assertions.assertEquals(output.get(0).getDataType(), IntegerType.INSTANCE);
     }
 
