@@ -695,7 +695,7 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException("topn requires second parameter must be a constant Integer Type: "
                         + this.toSql());
             }
-            if (getChild(1).getType() != ScalarType.INT) {
+            if (!getChild(1).getType().equals(ScalarType.INT)) {
                 Expr e = getChild(1).castTo(ScalarType.INT);
                 setChild(1, e);
             }
@@ -704,7 +704,7 @@ public class FunctionCallExpr extends Expr {
                     throw new AnalysisException("topn requires the third parameter must be a constant Integer Type: "
                             + this.toSql());
                 }
-                if (getChild(2).getType() != ScalarType.INT) {
+                if (!getChild(2).getType().equals(ScalarType.INT)) {
                     Expr e = getChild(2).castTo(ScalarType.INT);
                     setChild(2, e);
                 }
