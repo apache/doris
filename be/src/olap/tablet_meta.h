@@ -240,7 +240,10 @@ private:
     // FIXME(cyx): Currently `cooldown_resource` is equivalent to `storage_policy`.
     io::ResourceId _cooldown_resource;
 
-    // may be true iff unique keys model.
+    // For unique key data model, the feature Merge-on-Write will leverage a primary
+    // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
+    // which can avoid the merging cost in read stage, and accelerate the aggregation
+    // query performance significantly.
     bool _enable_unique_key_merge_on_write = false;
     std::unique_ptr<DeleteBitmap> _delete_bitmap;
 
@@ -249,7 +252,8 @@ private:
 
 /**
  * Wraps multiple bitmaps for recording rows (row id) that are deleted or
- * overwritten.
+ * overwritten. For now, it's only used when unique key merge-on-write property
+ * enabled.
  *
  * RowsetId and SegmentId are for locating segment, Version here is a single
  * uint32_t means that at which "version" of the load causes the delete or
