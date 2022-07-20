@@ -213,7 +213,7 @@ public class MockedFrontend {
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-            left -= 5000;
+            left -= 100;
         }
 
         if (left <= 0 && !Catalog.getCurrentCatalog().isReady()) {
