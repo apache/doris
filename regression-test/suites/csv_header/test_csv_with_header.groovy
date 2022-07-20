@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_csv_with_header", "csv_with_header") {
+suite("test_csv_with_header", "csv_header") {
      //define format
     def format_csv = "csv"
     def format_csv_with_names = "csv_with_names"
