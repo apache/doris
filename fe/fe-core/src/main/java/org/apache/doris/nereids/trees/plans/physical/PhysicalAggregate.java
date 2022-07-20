@@ -110,7 +110,7 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
 
     @Override
     public String toString() {
-        return "PhysicalAggregate([key=" + groupByExprList
+        return "PhysicalAggregate ([key=" + groupByExprList
                 + "], [output=" + outputExpressionList + "])";
     }
 

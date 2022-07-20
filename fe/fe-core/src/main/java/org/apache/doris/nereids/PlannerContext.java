@@ -19,13 +19,22 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
+import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.jobs.scheduler.JobPool;
 import org.apache.doris.nereids.jobs.scheduler.JobScheduler;
 import org.apache.doris.nereids.jobs.scheduler.JobStack;
 import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * Context used in memo.
@@ -89,5 +98,45 @@ public class PlannerContext {
 
     public void setCurrentJobContext(JobContext currentJobContext) {
         this.currentJobContext = currentJobContext;
+    }
+
+    public PlannerContext setDefaultJobContext() {
+        this.currentJobContext = new JobContext(this, new PhysicalProperties(), Double.MAX_VALUE);
+        return this;
+    }
+
+    public PlannerContext setJobContext(PhysicalProperties physicalProperties) {
+        this.currentJobContext = new JobContext(this, physicalProperties, Double.MAX_VALUE);
+        return this;
+    }
+
+    public PlannerContext bottomUpRewrite(RuleFactory... rules) {
+        return execute(new RewriteBottomUpJob(memo.getRoot(), currentJobContext, ImmutableList.copyOf(rules)));
+    }
+
+    public PlannerContext bottomUpRewrite(Rule... rules) {
+        return bottomUpRewrite(ImmutableList.copyOf(rules));
+    }
+
+    public PlannerContext bottomUpRewrite(List<Rule> rules) {
+        return execute(new RewriteBottomUpJob(memo.getRoot(), rules, currentJobContext));
+    }
+
+    public PlannerContext topDownRewrite(RuleFactory... rules) {
+        return execute(new RewriteTopDownJob(memo.getRoot(), currentJobContext, ImmutableList.copyOf(rules)));
+    }
+
+    public PlannerContext topDownRewrite(Rule... rules) {
+        return topDownRewrite(ImmutableList.copyOf(rules));
+    }
+
+    public PlannerContext topDownRewrite(List<Rule> rules) {
+        return execute(new RewriteTopDownJob(memo.getRoot(), rules, currentJobContext));
+    }
+
+    private PlannerContext execute(Job job) {
+        pushJob(job);
+        jobScheduler.executeJobPool(this);
+        return this;
     }
 }

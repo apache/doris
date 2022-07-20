@@ -18,8 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 
@@ -60,10 +59,6 @@ public abstract class NamedExpression extends Expression {
      * @throws UnboundException throw this exception if this expression is unbound
      */
     public String getQualifiedName() throws UnboundException {
-        String qualifiedName = "";
-        if (CollectionUtils.isNotEmpty(getQualifier())) {
-            qualifiedName = String.join(".", getQualifier()) + ".";
-        }
-        return qualifiedName + getName();
+        return Utils.qualifiedName(getQualifier(), getName());
     }
 }

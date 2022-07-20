@@ -30,7 +30,7 @@ import java.util.List;
 public class EqualTo extends ComparisonPredicate {
 
     public EqualTo(Expression left, Expression right) {
-        super(ExpressionType.EQUAL_TO, left, right);
+        super(ExpressionType.EQUAL_TO, left, right, "=");
     }
 
     @Override

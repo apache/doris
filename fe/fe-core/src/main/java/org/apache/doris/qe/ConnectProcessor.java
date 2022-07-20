@@ -198,7 +198,7 @@ public class ConnectProcessor {
         boolean alreadyAddedToAuditInfoList = false;
         try {
             List<StatementBase> stmts = null;
-            if (ctx.getSessionVariable().isEnableNereids()) {
+            if (ctx.getSessionVariable().isEnableNereidsPlanner()) {
                 NereidsParser nereidsParser = new NereidsParser();
                 try {
                     stmts = nereidsParser.parseSQL(originStmt);

@@ -30,7 +30,7 @@ import org.junit.Test;
 
 public class MemoTest {
     @Test
-    public void testInitialize() {
+    public void testCopyIn() {
         UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
         LogicalProject insideProject = new LogicalProject(
                 ImmutableList.of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
@@ -42,8 +42,7 @@ public class MemoTest {
         );
 
         // Project -> Project -> Relation
-        Memo memo = new Memo();
-        memo.initialize(rootProject);
+        Memo memo = new Memo(rootProject);
 
         Group rootGroup = memo.getRoot();
 

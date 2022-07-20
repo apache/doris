@@ -18,13 +18,18 @@
 package org.apache.doris.nereids.pattern;
 
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.RulePromise;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -39,8 +44,7 @@ public class GroupExpressionMatchingTest {
     public void testLeafNode() {
         Pattern pattern = new Pattern<>(PlanType.LOGICAL_UNBOUND_RELATION);
 
-        Memo memo = new Memo();
-        memo.initialize(new UnboundRelation(Lists.newArrayList("test")));
+        Memo memo = new Memo(new UnboundRelation(Lists.newArrayList("test")));
 
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
@@ -59,8 +63,7 @@ public class GroupExpressionMatchingTest {
 
         Plan leaf = new UnboundRelation(Lists.newArrayList("test"));
         LogicalProject root = new LogicalProject(Lists.newArrayList(), leaf);
-        Memo memo = new Memo();
-        memo.initialize(root);
+        Memo memo = new Memo(root);
 
         Plan anotherLeaf = new UnboundRelation(Lists.newArrayList("test2"));
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
@@ -89,8 +92,7 @@ public class GroupExpressionMatchingTest {
 
         Plan leaf = new UnboundRelation(Lists.newArrayList("test"));
         LogicalProject root = new LogicalProject(Lists.newArrayList(), leaf);
-        Memo memo = new Memo();
-        memo.initialize(root);
+        Memo memo = new Memo(root);
 
         Plan anotherLeaf = new UnboundRelation(Lists.newArrayList("test2"));
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
@@ -112,8 +114,7 @@ public class GroupExpressionMatchingTest {
     public void testLeafAny() {
         Pattern pattern = Pattern.ANY;
 
-        Memo memo = new Memo();
-        memo.initialize(new UnboundRelation(Lists.newArrayList("test")));
+        Memo memo = new Memo(new UnboundRelation(Lists.newArrayList("test")));
 
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
@@ -129,8 +130,7 @@ public class GroupExpressionMatchingTest {
     public void testAnyWithChild() {
         Plan root = new LogicalProject(Lists.newArrayList(),
                 new UnboundRelation(Lists.newArrayList("test")));
-        Memo memo = new Memo();
-        memo.initialize(root);
+        Memo memo = new Memo(root);
 
         Plan anotherLeaf = new UnboundRelation(ImmutableList.of("test2"));
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
@@ -155,11 +155,11 @@ public class GroupExpressionMatchingTest {
                 new UnboundRelation(ImmutableList.of("b"))
         );
 
-        Memo memo = new Memo();
-        memo.initialize(root);
+        Memo memo = new Memo(root);
 
         GroupExpressionMatching groupExpressionMatching
-                = new GroupExpressionMatching(patterns().innerLogicalJoin().pattern, memo.getRoot().getLogicalExpression());
+                = new GroupExpressionMatching(patterns().innerLogicalJoin().pattern,
+                memo.getRoot().getLogicalExpression());
         Iterator<Plan> iterator = groupExpressionMatching.iterator();
 
         Assertions.assertTrue(iterator.hasNext());
@@ -177,11 +177,11 @@ public class GroupExpressionMatchingTest {
                 new UnboundRelation(ImmutableList.of("b"))
         );
 
-        Memo memo = new Memo();
-        memo.initialize(root);
+        Memo memo = new Memo(root);
 
         GroupExpressionMatching groupExpressionMatching
-                = new GroupExpressionMatching(patterns().innerLogicalJoin().pattern, memo.getRoot().getLogicalExpression());
+                = new GroupExpressionMatching(patterns().innerLogicalJoin().pattern,
+                memo.getRoot().getLogicalExpression());
         Iterator<Plan> iterator = groupExpressionMatching.iterator();
 
         Assertions.assertFalse(iterator.hasNext());
@@ -194,9 +194,7 @@ public class GroupExpressionMatchingTest {
                 new UnboundRelation(ImmutableList.of("b"))
         );
 
-
-        Memo memo = new Memo();
-        memo.initialize(root);
+        Memo memo = new Memo(root);
 
         Pattern pattern = patterns()
                 .innerLogicalJoin(patterns().logicalFilter(), patterns().any()).pattern;
@@ -207,7 +205,126 @@ public class GroupExpressionMatchingTest {
         Assertions.assertFalse(iterator.hasNext());
     }
 
+    @Test
+    public void testSubTreeMatch() {
+        Plan root =
+                new LogicalFilter(new EqualTo(new UnboundSlot(Lists.newArrayList("a", "id")),
+                        new UnboundSlot(Lists.newArrayList("b", "id"))),
+                        new LogicalJoin(JoinType.INNER_JOIN,
+                                new LogicalJoin(JoinType.LEFT_OUTER_JOIN,
+                                        new UnboundRelation(ImmutableList.of("a")),
+                                        new UnboundRelation(ImmutableList.of("b"))),
+                                new UnboundRelation(ImmutableList.of("c")))
+                );
+        Pattern p1 = patterns().logicalFilter(patterns().subTree(LogicalFilter.class, LogicalJoin.class)).pattern;
+        Iterator<Plan> matchResult1 = match(root, p1);
+        assertSubTreeMatch(matchResult1);
+
+        Pattern p2 = patterns().subTree(LogicalFilter.class, LogicalJoin.class).pattern;
+        Iterator<Plan> matchResult2 = match(root, p2);
+        assertSubTreeMatch(matchResult2);
+
+        Pattern p3 = patterns().subTree(LogicalProject.class).pattern;
+        Iterator<Plan> matchResult3 = match(root, p3);
+        Assertions.assertFalse(matchResult3.hasNext());
+    }
+
+    private void assertSubTreeMatch(Iterator<Plan> matchResult) {
+        Assertions.assertTrue(matchResult.hasNext());
+        Plan plan = matchResult.next();
+        System.out.println(plan.treeString());
+        new SubTreeMatchChecker().check(plan);
+    }
+
+    // TODO: add an effective approach to compare actual and expected plan tree. Maybe a DSL to generate expected plan
+    // and leverage a comparing framework to check result. We could reuse pattern match to check shape and properties.
+    private class SubTreeMatchChecker extends PlanVisitor<Void, Context> {
+        public void check(Plan plan) {
+            plan.accept(this, new Context(null));
+        }
+
+        @Override
+        public Void visit(Plan plan, Context context) {
+            notExpectedPlan(plan, context);
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalFilter(LogicalFilter<Plan> filter, Context context) {
+            Assertions.assertTrue(context.parent == null);
+            filter.child().accept(this, new Context(filter));
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalJoin(LogicalJoin<Plan, Plan> join, Context context) {
+            switch (join.getJoinType()) {
+                case INNER_JOIN:
+                    Assertions.assertTrue(context.parent instanceof LogicalFilter);
+                    break;
+                case LEFT_OUTER_JOIN:
+                    Assertions.assertTrue(context.parent instanceof LogicalJoin);
+                    LogicalJoin parent = (LogicalJoin) context.parent;
+                    Assertions.assertEquals(parent.getJoinType(), JoinType.INNER_JOIN);
+                    break;
+                default:
+                    notExpectedPlan(join, context);
+            }
+
+            join.left().accept(this, new Context(join));
+            join.right().accept(this, new Context(join));
+            return null;
+        }
+
+        @Override
+        public Void visitGroupPlan(GroupPlan groupPlan, Context context) {
+            Plan plan = groupPlan.getGroup().logicalExpressionsAt(0).getPlan();
+            Assertions.assertTrue(plan instanceof UnboundRelation);
+            UnboundRelation relation = (UnboundRelation) plan;
+            String relationName = relation.getNameParts().get(0);
+            switch (relationName) {
+                case "a":
+                case "b": {
+                    Assertions.assertTrue(context.parent instanceof LogicalJoin);
+                    LogicalJoin parent = (LogicalJoin) context.parent;
+                    Assertions.assertEquals(parent.getJoinType(), JoinType.LEFT_OUTER_JOIN);
+                    break;
+                }
+                case "c": {
+                    Assertions.assertTrue(context.parent instanceof LogicalJoin);
+                    LogicalJoin parent = (LogicalJoin) context.parent;
+                    Assertions.assertEquals(parent.getJoinType(), JoinType.INNER_JOIN);
+                    break;
+                }
+                default:
+                    notExpectedPlan(groupPlan, context);
+            }
+            return null;
+        }
+
+        private void notExpectedPlan(Plan plan, Context context) {
+            throw new RuntimeException("Not expected plan node in match result:\n"
+                    + "PlanNode:\n" + plan.toString()
+                    + "\nparent:\n" + context.parent);
+        }
+    }
+
+    private class Context {
+        final Plan parent;
+
+        public Context(Plan parent) {
+            this.parent = parent;
+        }
+    }
+
     private org.apache.doris.nereids.pattern.GeneratedPatterns patterns() {
         return () -> RulePromise.REWRITE;
+    }
+
+    private Iterator<Plan> match(Plan root, Pattern pattern) {
+        Memo memo = new Memo(root);
+        GroupExpressionMatching groupExpressionMatching
+                = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
+        return groupExpressionMatching.iterator();
     }
 }

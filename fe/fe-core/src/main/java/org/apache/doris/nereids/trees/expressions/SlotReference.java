@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -96,12 +96,7 @@ public class SlotReference extends Slot {
 
     @Override
     public String toString() {
-        String uniqueName = name + "#" + exprId;
-        if (qualifier.isEmpty()) {
-            return uniqueName;
-        } else {
-            return StringUtils.join(qualifier, ".") + "." + uniqueName;
-        }
+        return Utils.qualifiedName(qualifier, name + "#" + exprId);
     }
 
     @Override

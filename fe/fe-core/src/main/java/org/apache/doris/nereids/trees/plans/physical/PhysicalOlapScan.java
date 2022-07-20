@@ -24,9 +24,9 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -46,7 +46,7 @@ public class PhysicalOlapScan extends PhysicalRelation {
      * Constructor for PhysicalOlapScan.
      *
      * @param olapTable OlapTable in Doris
-     * @param qualifier table's name
+     * @param qualifier qualifier of table name
      */
     public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
@@ -78,8 +78,9 @@ public class PhysicalOlapScan extends PhysicalRelation {
 
     @Override
     public String toString() {
-        return "PhysicalOlapScan([" + StringUtils.join(qualifier, ".") + "." + olapTable.getName()
-                + "], [index id=" + selectedIndexId + "])";
+        return "PhysicalOlapScan (["
+                + Utils.qualifiedName(qualifier, olapTable.getName())
+                + "], [index id=" + selectedIndexId + "] )";
     }
 
     @Override

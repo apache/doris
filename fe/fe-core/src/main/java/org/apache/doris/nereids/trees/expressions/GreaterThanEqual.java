@@ -35,7 +35,7 @@ public class GreaterThanEqual extends ComparisonPredicate {
      * @param right right child of Greater Than And Equal
      */
     public GreaterThanEqual(Expression left, Expression right) {
-        super(ExpressionType.GREATER_THAN_EQUAL, left, right);
+        super(ExpressionType.GREATER_THAN_EQUAL, left, right, ">=");
     }
 
     @Override

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -115,5 +116,12 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalHeapSort<>(orderKeys, limit, offset, Optional.empty(), logicalProperties.get(), child());
+    }
+
+    @Override
+    public String toString() {
+        return "PhysicalHeapSort ("
+                + StringUtils.join(orderKeys, ", ") + ", LIMIT " + limit + ", OFFSET " + offset
+                + ")";
     }
 }

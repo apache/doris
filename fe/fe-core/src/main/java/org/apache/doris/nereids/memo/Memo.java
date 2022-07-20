@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -44,8 +46,8 @@ public class Memo {
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
     private Group root;
 
-    public void initialize(Plan node) {
-        root = copyIn(node, null, false).getParent();
+    public Memo(Plan plan) {
+        root = copyIn(plan, null, false).getParent();
     }
 
     public Group getRoot() {
@@ -94,6 +96,13 @@ public class Memo {
 
     public Plan copyOut() {
         return groupToTreeNode(root);
+    }
+
+    /**
+     * Utility function to create a new {@link PlannerContext} with this Memo.
+     */
+    public PlannerContext newPlannerContext(ConnectContext connectContext) {
+        return new PlannerContext(this, connectContext);
     }
 
     private Plan groupToTreeNode(Group group) {

@@ -59,7 +59,11 @@ public interface Patterns {
         return new PatternDescriptor<>(Pattern.MULTI_GROUP, defaultPromise());
     }
 
-    /* abstract plan patterns */
+    default <T extends Plan> PatternDescriptor<T> subTree(Class<? extends Plan>... subTreeNodeTypes) {
+        return new PatternDescriptor<>(new SubTreePattern(subTreeNodeTypes), defaultPromise());
+    }
+
+    /* abstract plan operator patterns */
 
     /**
      * create a leafPlan pattern.

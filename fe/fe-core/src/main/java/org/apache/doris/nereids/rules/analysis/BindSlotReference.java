@@ -229,18 +229,22 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     case 2:
                         // Unbound slot name is `table`.`column`
                         List<String> qualifier = boundSlot.getQualifier();
+                        String name = boundSlot.getName();
                         switch (qualifier.size()) {
                             case 2:
                                 // qualifier is `db`.`table`
                                 return nameParts.get(0).equalsIgnoreCase(qualifier.get(1))
-                                    && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
+                                        && nameParts.get(1).equalsIgnoreCase(name);
                             case 1:
                                 // qualifier is `table`
                                 return nameParts.get(0).equalsIgnoreCase(qualifier.get(0))
-                                    && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
+                                        && nameParts.get(1).equalsIgnoreCase(name);
+                            case 0:
+                                // has no qualifiers
+                                return nameParts.get(1).equalsIgnoreCase(name);
                             default:
                                 throw new AnalysisException("Not supported qualifier: "
-                                    + StringUtils.join(qualifier, "."));
+                                        + StringUtils.join(qualifier, "."));
                         }
                     default:
                         throw new AnalysisException("Not supported name: "
