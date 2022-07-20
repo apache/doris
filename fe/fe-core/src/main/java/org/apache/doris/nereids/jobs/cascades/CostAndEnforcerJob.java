@@ -162,7 +162,7 @@ public class CostAndEnforcerJob extends Job {
                 }
                 PlanContext planContext = new PlanContext(groupExpression);
                 // TODO: calculate stats.
-                groupExpression.getParent().setStatistics(planContext.getStatistics());
+                groupExpression.getOwnerGroup().setStatistics(planContext.getStatistics());
 
                 enforce(outputProperty, childrenInputProperties);
             }
@@ -193,7 +193,7 @@ public class CostAndEnforcerJob extends Job {
 
             // enforcedProperty is superset of requiredProperty
             if (!addEnforcedProperty.equals(requiredProperties)) {
-                putProperty(groupExpression.getParent().getBestExpression(addEnforcedProperty),
+                putProperty(groupExpression.getOwnerGroup().getBestExpression(addEnforcedProperty),
                         requiredProperties, requiredProperties, Lists.newArrayList(outputProperty));
             }
         } else {
@@ -217,7 +217,7 @@ public class CostAndEnforcerJob extends Job {
             // and shuffle join two types outputProperty.
             groupExpression.putOutputPropertiesMap(outputProperty, requiredProperty);
         }
-        this.groupExpression.getParent().setBestPlan(groupExpression,
+        this.groupExpression.getOwnerGroup().setBestPlan(groupExpression,
                 curTotalCost, requiredProperty);
     }
 
