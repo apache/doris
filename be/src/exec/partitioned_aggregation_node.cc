@@ -745,9 +745,12 @@ Status PartitionedAggregationNode::Partition::InitStreams() {
     RETURN_IF_ERROR(aggregated_row_stream->Init(parent->id(), true));
     bool got_buffer;
     RETURN_IF_ERROR(aggregated_row_stream->PrepareForWrite(&got_buffer));
-    DCHECK(got_buffer) << "Buffer included in reservation " << parent->_id << "\n"
-                       << parent->_buffer_pool_client.DebugString() << "\n"
-                       << parent->DebugString(2);
+    if (!got_buffer) {
+        LOG(WARNING) << "Buffer included in reservation " << parent->_id << "\n"
+                     << parent->_buffer_pool_client.DebugString() << "\n"
+                     << parent->DebugString(2);
+        return Status::BufferAllocFailed("PartitionedAggregationNode buffer prepare failed");
+    }
 
     if (!parent->is_streaming_preagg_) {
         unaggregated_row_stream.reset(new BufferedTupleStream3(
