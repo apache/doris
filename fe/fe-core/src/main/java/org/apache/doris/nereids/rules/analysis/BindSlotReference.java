@@ -173,7 +173,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return bounded.get(0);
                 default:
                     throw new AnalysisException(unboundSlot + " is ambiguous： "
-                            + bounded.stream()
+                        + bounded.stream()
                             .map(Slot::toString)
                             .collect(Collectors.joining(", ")));
             }
@@ -249,6 +249,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     case 2:
                         // Unbound slot name is `table`.`column`
                         List<String> qualifier = boundSlot.getQualifier();
+                        String name = boundSlot.getName();
                         switch (qualifier.size()) {
                             case 2:
                                 // qualifier is `db`.`table`
