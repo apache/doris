@@ -88,10 +88,9 @@ public class IcebergTable extends Table {
         this.icebergDb = icebergProperty.getDatabase();
         this.icebergTbl = icebergProperty.getTable();
 
-        icebergProperties.put(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS,
-                icebergProperty.getHiveMetastoreUris());
-        icebergProperties.put(IcebergProperty.ICEBERG_CATALOG_TYPE,
-                icebergProperty.getCatalogType());
+        icebergProperties.put(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS, icebergProperty.getHiveMetastoreUris());
+        icebergProperties.put(IcebergProperty.ICEBERG_CATALOG_TYPE, icebergProperty.getCatalogType());
+        icebergProperties.putAll(icebergProperty.getDfsProperties());
         this.icebergTable = icebergTable;
     }
 
