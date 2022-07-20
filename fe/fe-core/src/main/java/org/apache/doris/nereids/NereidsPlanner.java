@@ -24,9 +24,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
+import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.batch.PredicatePushDownRulesJob;
 import org.apache.doris.nereids.memo.Group;
@@ -99,13 +99,9 @@ public class NereidsPlanner extends Planner {
     // TODO: refactor, just demo code here
     public PhysicalPlan plan(LogicalPlan plan, PhysicalProperties outputProperties, ConnectContext connectContext)
             throws AnalysisException {
-        Memo memo = new Memo();
-        memo.initialize(plan);
-
-        plannerContext = new PlannerContext(memo, connectContext);
-        JobContext jobContext = new JobContext(plannerContext, outputProperties, Double.MAX_VALUE);
-        plannerContext.setCurrentJobContext(jobContext);
-
+        plannerContext = new Memo(plan)
+                .newPlannerContext(connectContext)
+                .setJobContext(outputProperties);
         // Get plan directly. Just for SSB.
         return doPlan();
     }
@@ -115,19 +111,34 @@ public class NereidsPlanner extends Planner {
      * @return PhysicalPlan.
      */
     private PhysicalPlan doPlan() {
-        AnalyzeRulesJob analyzeRulesJob = new AnalyzeRulesJob(plannerContext);
-        analyzeRulesJob.execute();
-
-        PredicatePushDownRulesJob predicatePushDownRulesJob = new PredicatePushDownRulesJob(plannerContext);
-        predicatePushDownRulesJob.execute();
-
-        DisassembleRulesJob disassembleRulesJob = new DisassembleRulesJob(plannerContext);
-        disassembleRulesJob.execute();
-
-        OptimizeRulesJob optimizeRulesJob = new OptimizeRulesJob(plannerContext);
-        optimizeRulesJob.execute();
-
+        analyze();
+        rewrite();
+        optimize();
         return getRoot().extractPlan();
+    }
+
+    /**
+     * Analyze: bind references according to metadata in the catalog, perform semantic analysis, etc.
+     */
+    private void analyze() {
+        new AnalyzeRulesJob(plannerContext).execute();
+    }
+
+    /**
+     * Logical plan rewrite based on a series of heuristic rules.
+     */
+    private void rewrite() {
+        new JoinReorderRulesJob(plannerContext).execute();
+        new PredicatePushDownRulesJob(plannerContext).execute();
+        new DisassembleRulesJob(plannerContext).execute();
+    }
+
+    /**
+     * Cascades style optimize: perform equivalent logical plan exploration and physical implementation enumeration,
+     * try to find best plan under the guidance of statistic information and cost model.
+     */
+    private void optimize() {
+        new OptimizeRulesJob(plannerContext).execute();
     }
 
     @Override

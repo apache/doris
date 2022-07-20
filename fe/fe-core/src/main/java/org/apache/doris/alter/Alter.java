@@ -59,7 +59,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
@@ -161,7 +160,7 @@ public class Alter {
             }
             String currentStoragePolicy = currentAlterOps.getTableStoragePolicy(alterClauses);
             // check currentStoragePolicy resource exist.
-            InternalDataSource.checkStoragePolicyExist(currentStoragePolicy);
+            Catalog.getCurrentCatalog().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
 
             olapTable.setStoragePolicy(currentStoragePolicy);
             needProcessOutsideTableLock = true;
@@ -713,7 +712,7 @@ public class Alter {
             String currentStoragePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
             if (!currentStoragePolicy.equals("")) {
                 // check currentStoragePolicy resource exist.
-                InternalDataSource.checkStoragePolicyExist(currentStoragePolicy);
+                Catalog.getCurrentCatalog().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
                 partitionInfo.setStoragePolicy(partition.getId(), currentStoragePolicy);
             }
 

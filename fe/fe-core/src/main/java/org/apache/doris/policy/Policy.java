@@ -57,10 +57,8 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     @SerializedName(value = "policyName")
     protected String policyName = null;
 
-    public Policy() {
-        if (Catalog.getCurrentCatalog().isMaster()) {
-            policyId = Catalog.getCurrentCatalog().getNextId();
-        }
+    public Policy(PolicyTypeEnum type) {
+        this.type = type;
     }
 
     /**
@@ -69,8 +67,8 @@ public abstract class Policy implements Writable, GsonPostProcessable {
      * @param type policy type
      * @param policyName policy name
      */
-    public Policy(final PolicyTypeEnum type, final String policyName) {
-        policyId = Catalog.getCurrentCatalog().getNextId();
+    public Policy(long policyId, final PolicyTypeEnum type, final String policyName) {
+        this.policyId = policyId;
         this.type = type;
         this.policyName = policyName;
     }
@@ -79,13 +77,13 @@ public abstract class Policy implements Writable, GsonPostProcessable {
      * Trans stmt to Policy.
      **/
     public static Policy fromCreateStmt(CreatePolicyStmt stmt) throws AnalysisException {
+        long policyId = Catalog.getCurrentCatalog().getNextId();
         switch (stmt.getType()) {
             case STORAGE:
-                StoragePolicy storagePolicy = new StoragePolicy(stmt.getType(), stmt.getPolicyName());
+                StoragePolicy storagePolicy = new StoragePolicy(policyId, stmt.getPolicyName());
                 storagePolicy.init(stmt.getProperties(), stmt.isIfNotExists());
                 return storagePolicy;
             case ROW:
-            default:
                 // stmt must be analyzed.
                 DatabaseIf db = Catalog.getCurrentCatalog().getDataSourceMgr()
                         .getCatalogOrAnalysisException(stmt.getTableName().getCtl())
@@ -93,9 +91,10 @@ public abstract class Policy implements Writable, GsonPostProcessable {
                 UserIdentity userIdent = stmt.getUser();
                 userIdent.analyze(ConnectContext.get().getClusterName());
                 TableIf table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
-                return new RowPolicy(stmt.getType(), stmt.getPolicyName(), db.getId(), userIdent,
-                    stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(),
-                    stmt.getWherePredicate());
+                return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), userIdent,
+                        stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(), stmt.getWherePredicate());
+            default:
+                throw new AnalysisException("Unknown policy type: " + stmt.getType());
         }
     }
 

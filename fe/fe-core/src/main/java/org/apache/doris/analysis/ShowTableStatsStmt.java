@@ -27,8 +27,11 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.parquet.Preconditions;
 import org.apache.parquet.Strings;
+
+import java.util.List;
 
 public class ShowTableStatsStmt extends ShowStmt {
 
@@ -88,5 +91,10 @@ public class ShowTableStatsStmt extends ShowStmt {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
+    }
+
+    public List<String> getPartitionNames() {
+        // TODO(WZT): partition statistics
+        return Lists.newArrayList();
     }
 }
