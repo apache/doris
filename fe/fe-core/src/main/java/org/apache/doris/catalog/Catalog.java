@@ -840,14 +840,18 @@ public class Catalog {
 
     // wait until FE is ready.
     public void waitForReady() throws InterruptedException {
+        long counter = 0;
         while (true) {
             if (isReady()) {
                 LOG.info("catalog is ready. FE type: {}", feType);
                 break;
             }
 
-            Thread.sleep(1000);
-            LOG.info("wait catalog to be ready. FE type: {}. is ready: {}", feType, isReady.get());
+            Thread.sleep(100);
+            if (counter++ % 20 == 0) {
+                LOG.info("wait catalog to be ready. FE type: {}. is ready: {}, counter: {}", feType, isReady.get(),
+                        counter);
+            }
         }
     }
 
@@ -1287,7 +1291,6 @@ public class Catalog {
 
         canRead.set(true);
         isReady.set(true);
-        System.out.println("catalog is ready");
         checkLowerCaseTableNames();
 
         String msg = "master finished to replay journal, can write now.";

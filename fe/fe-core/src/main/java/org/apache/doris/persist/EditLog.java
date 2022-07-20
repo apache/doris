@@ -101,6 +101,8 @@ public class EditLog {
             journal = new BDBJEJournal(nodeName);
         } else if (journalType.equalsIgnoreCase("local")) {
             journal = new LocalJournal(Catalog.getCurrentCatalog().getImageDir());
+        } else {
+            throw new IllegalArgumentException("Unknown edit log type: " + journalType);
         }
     }
 

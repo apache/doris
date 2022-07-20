@@ -102,11 +102,6 @@ public final class LocalJournalCursor implements JournalCursor {
                 new EditLogFileInputStream(new File(imageDir, "edits." + fileName))));
 
         while (scannedKey < fromKey) {
-            // short opCode = currentStream.readShort();
-            // if (opCode == OperationType.OP_INVALID) {
-            //     System.out.println("Can not find the key:" + fromKey);
-            //     throw new IOException();
-            // }
             getJournalEntity(currentStream);
             scannedKey++;
         }
