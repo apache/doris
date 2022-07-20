@@ -27,6 +27,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.util.BitUtil;
+import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterMode;
@@ -321,7 +322,7 @@ public final class RuntimeFilterGenerator {
      * 2. Only olap scan nodes are supported:
      */
     private void assignRuntimeFilters(ScanNode scanNode) {
-        if (!(scanNode instanceof OlapScanNode)) {
+        if (!(scanNode instanceof OlapScanNode) && !(scanNode instanceof ExternalFileScanNode)) {
             return;
         }
         TupleId tid = scanNode.getTupleIds().get(0);

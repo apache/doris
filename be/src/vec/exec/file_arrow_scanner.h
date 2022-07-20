@@ -95,6 +95,7 @@ private:
     RuntimeProfile::Counter* _filtered_bytes_counter;
     RuntimeProfile::Counter* _total_rows_counter;
     RuntimeProfile::Counter* _total_groups_counter;
+    RuntimeProfile::Counter* _total_bytes_counter;
 };
 
 class VFileORCScanner final : public FileArrowScanner {

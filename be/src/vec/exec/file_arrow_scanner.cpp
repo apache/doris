@@ -198,6 +198,7 @@ void VFileParquetScanner::_update_profile(std::shared_ptr<Statistics>& statistic
     COUNTER_UPDATE(_filtered_bytes_counter, statistics->filtered_total_bytes);
     COUNTER_UPDATE(_total_rows_counter, statistics->total_rows);
     COUNTER_UPDATE(_total_groups_counter, statistics->total_groups);
+    COUNTER_UPDATE(_total_bytes_counter, statistics->total_bytes);
 }
 
 void FileArrowScanner::close() {
@@ -226,11 +227,12 @@ ArrowReaderWrap* VFileParquetScanner::_new_arrow_reader(FileReader* file_reader,
 }
 
 void VFileParquetScanner::_init_profiles(RuntimeProfile* profile) {
-    _filtered_row_groups_counter = ADD_COUNTER(_profile, "ParquetFilteredRowGroups", TUnit::UNIT);
-    _filtered_rows_counter = ADD_COUNTER(_profile, "FileFilteredRows", TUnit::UNIT);
-    _filtered_bytes_counter = ADD_COUNTER(_profile, "FileFilteredBytes", TUnit::BYTES);
-    _total_rows_counter = ADD_COUNTER(_profile, "FileTotalRows", TUnit::UNIT);
-    _total_groups_counter = ADD_COUNTER(_profile, "ParquetTotalRowGroups", TUnit::UNIT);
+    _filtered_row_groups_counter = ADD_COUNTER(_profile, "ParquetRowGroupsFiltered", TUnit::UNIT);
+    _filtered_rows_counter = ADD_COUNTER(_profile, "ParquetRowsFiltered", TUnit::UNIT);
+    _filtered_bytes_counter = ADD_COUNTER(_profile, "ParquetBytesFiltered", TUnit::BYTES);
+    _total_rows_counter = ADD_COUNTER(_profile, "ParquetRowsTotal", TUnit::UNIT);
+    _total_groups_counter = ADD_COUNTER(_profile, "ParquetRowGroupsTotal", TUnit::UNIT);
+    _total_bytes_counter = ADD_COUNTER(_profile, "ParquetBytesTotal", TUnit::BYTES);
 }
 
 VFileORCScanner::VFileORCScanner(RuntimeState* state, RuntimeProfile* profile,

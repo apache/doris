@@ -132,7 +132,7 @@ Status VExprContext::filter_block(const std::unique_ptr<VExprContext*>& vexpr_ct
     }
     DCHECK((*vexpr_ctx_ptr) != nullptr);
     int result_column_id = -1;
-    (*vexpr_ctx_ptr)->execute(block, &result_column_id);
+    RETURN_IF_ERROR((*vexpr_ctx_ptr)->execute(block, &result_column_id));
     return Block::filter_block(block, result_column_id, column_to_keep);
 }
 
