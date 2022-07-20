@@ -210,7 +210,7 @@ private:
             break;
         }
         case TYPE_DECIMALV2: {
-            *val = reinterpret_cast<AnyVal*>(context->allocate(sizeof(DecimalV2Val)));
+            *val = reinterpret_cast<AnyVal*>(context->aligned_allocate(16, sizeof(DecimalV2Val)));
             new (*val) DecimalV2Val();
 
             if (iterator->IsNumber()) {

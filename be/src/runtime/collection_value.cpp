@@ -480,13 +480,15 @@ Status CollectionValue::init_collection(CollectionValue* value, const AllocateMe
 Status CollectionValue::init_collection(MemPool* pool, uint64_t size, PrimitiveType child_type,
                                         CollectionValue* value) {
     return init_collection(
-            value, [pool](size_t size) { return pool->allocate(size); }, size, child_type);
+            value, [pool](size_t size) { return pool->allocate_aligned(size, 16); }, size,
+            child_type);
 }
 
 Status CollectionValue::init_collection(FunctionContext* context, uint64_t size,
                                         PrimitiveType child_type, CollectionValue* value) {
     return init_collection(
-            value, [context](size_t size) { return context->allocate(size); }, size, child_type);
+            value, [context](size_t size) { return context->aligned_allocate(16, size); }, size,
+            child_type);
 }
 
 CollectionValue CollectionValue::from_collection_val(const CollectionVal& val) {

@@ -82,6 +82,42 @@ public:
         return reinterpret_cast<uint8_t*>(allocation) + sizeof(FreeListNode);
     }
 
+    // Allocates a buffer of size.
+    uint8_t* aligned_allocate(int alignment, int64_t size) {
+        // The alignment should be a power of 2.
+        DCHECK(alignment > 0 && ((alignment - 1) & alignment) == 0);
+
+        // This is the typical malloc behavior. NULL is reserved for failures.
+        if (size == 0) {
+            return reinterpret_cast<uint8_t*>(alignment);
+        }
+
+        int padding = sizeof(FreeListNode) >= alignment ? 0 : (alignment - sizeof(FreeListNode));
+        size += padding;
+
+        // Do ceil(log_2(size))
+        int free_list_idx = BitUtil::log2(size);
+        DCHECK_LT(free_list_idx, NUM_LISTS);
+
+        FreeListNode* allocation = _lists[free_list_idx].next;
+
+        if (allocation == nullptr) {
+            // There wasn't an existing allocation of the right size, allocate a new one.
+            size = 1L << free_list_idx;
+            allocation = reinterpret_cast<FreeListNode*>(
+                    _mem_pool->allocate_aligned(size + sizeof(FreeListNode), alignment));
+        } else {
+            // Remove this allocation from the list.
+            _lists[free_list_idx].next = allocation->next;
+        }
+
+        DCHECK(allocation != nullptr);
+        // Set the back node to point back to the list it came from so know where
+        // to add it on free().
+        allocation->list = &_lists[free_list_idx];
+        return reinterpret_cast<uint8_t*>(allocation) + sizeof(FreeListNode) + padding;
+    }
+
     void free(uint8_t* ptr) {
         if (ptr == NULL || reinterpret_cast<int64_t>(ptr) == 0x1) {
             return;
