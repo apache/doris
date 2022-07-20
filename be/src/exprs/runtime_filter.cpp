@@ -1013,9 +1013,8 @@ Status IRuntimeFilter::publish() {
     if (_has_local_target) {
         IRuntimeFilter* consumer_filter = nullptr;
         // TODO: log if err
-        Status status =
-                _state->runtime_filter_mgr()->get_consume_filter(_filter_id, &consumer_filter);
-        DCHECK(status.ok());
+        RETURN_IF_ERROR(
+                _state->runtime_filter_mgr()->get_consume_filter(_filter_id, &consumer_filter));
         // push down
         std::swap(this->_wrapper, consumer_filter->_wrapper);
         consumer_filter->update_runtime_filter_type_to_profile();
