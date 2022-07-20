@@ -191,7 +191,10 @@ public class SessionVariable implements Serializable, Writable {
 
     static final String ENABLE_ARRAY_TYPE = "enable_array_type";
 
-    public static final String ENABLE_NEREIDS = "enable_nereids";
+    public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
+
+    public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
+            "enable_nereids_reorder_to_eliminate_cross_join";
 
     static final String SESSION_CONTEXT = "session_context";
 
@@ -483,8 +486,11 @@ public class SessionVariable implements Serializable, Writable {
      * the new optimizer is fully developed. I hope that day
      * would be coming soon.
      */
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS)
-    private boolean enableNereids = false;
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER)
+    private boolean enableNereidsPlanner = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN)
+    private boolean enableNereidsReorderToEliminateCrossJoin = true;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -1001,12 +1007,20 @@ public class SessionVariable implements Serializable, Writable {
      *
      * @return true if both nereids and vectorized engine are enabled
      */
-    public boolean isEnableNereids() {
-        return enableNereids && enableVectorizedEngine;
+    public boolean isEnableNereidsPlanner() {
+        return enableNereidsPlanner && enableVectorizedEngine;
     }
 
-    public void setEnableNereids(boolean enableNereids) {
-        this.enableNereids = enableNereids;
+    public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
+        this.enableNereidsPlanner = enableNereidsPlanner;
+    }
+
+    public boolean isEnableNereidsReorderToEliminateCrossJoin() {
+        return enableNereidsReorderToEliminateCrossJoin;
+    }
+
+    public void setEnableNereidsReorderToEliminateCrossJoin(boolean value) {
+        enableNereidsReorderToEliminateCrossJoin = value;
     }
 
     /**

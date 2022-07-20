@@ -23,12 +23,10 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
@@ -72,19 +70,14 @@ public class RewriteTopDownJobTest {
                 new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 leaf
         );
-        Memo memo = new Memo();
-        memo.initialize(project);
+        PlannerContext plannerContext = new Memo(project)
+                .newPlannerContext(new ConnectContext())
+                .setDefaultJobContext();
 
-        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
-        plannerContext.setCurrentJobContext(jobContext);
         List<Rule> fakeRules = Lists.newArrayList(new FakeRule().build());
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), fakeRules,
-                plannerContext.getCurrentJobContext());
-        plannerContext.pushJob(rewriteTopDownJob);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
+        plannerContext.topDownRewrite(fakeRules);
 
-        Group rootGroup = memo.getRoot();
+        Group rootGroup = plannerContext.getMemo().getRoot();
         Assertions.assertEquals(1, rootGroup.getLogicalExpressions().size());
         GroupExpression rootGroupExpression = rootGroup.getLogicalExpression();
         List<Slot> output = rootGroup.getLogicalProperties().getOutput();

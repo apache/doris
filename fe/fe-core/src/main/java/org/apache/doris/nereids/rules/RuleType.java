@@ -47,6 +47,8 @@ public enum RuleType {
     COLUMN_PRUNE_SORT_CHILD(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_JOIN_CHILD(RuleTypeClass.REWRITE),
 
+    REORDER_JOIN(RuleTypeClass.REWRITE),
+
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // exploration rules
