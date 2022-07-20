@@ -104,7 +104,6 @@ public:
     /// of the current chunk. Creates a new chunk if there aren't any chunks
     /// with enough capacity.
     uint8_t* allocate(int64_t size, Status* rst = nullptr) {
-        // TODO: rethink if DEFAULT_ALIGNMENT should be changed, malloc is aligned by 16.
         return allocate<false>(size, DEFAULT_ALIGNMENT, rst);
     }
 
@@ -170,7 +169,10 @@ public:
 
     MemTracker* mem_tracker() { return _mem_tracker; }
 
-    static constexpr int DEFAULT_ALIGNMENT = 8;
+    // The memory for __int128 should be aligned to 16 bytes.
+    // By the way, in 64-bit system, the address of a block returned by malloc or realloc in GNU systems
+    // is always a multiple of sixteen. (https://www.gnu.org/software/libc/manual/html_node/Aligned-Memory-Blocks.html)
+    static constexpr int DEFAULT_ALIGNMENT = 16;
 
 #if (defined(__SANITIZE_ADDRESS__) || defined(ADDRESS_SANITIZER)) && !defined(BE_TEST)
     static constexpr int DEFAULT_PADDING_SIZE = 0x10;

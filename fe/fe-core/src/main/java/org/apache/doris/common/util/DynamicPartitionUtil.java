@@ -38,7 +38,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
 
 import com.google.common.base.Preconditions;
@@ -343,23 +342,24 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkRemoteStoragePolicy(String val) throws DdlException {
-        if (Strings.isNullOrEmpty(val)) {
+    private static void checkRemoteStoragePolicy(String policyName) throws DdlException {
+        if (Strings.isNullOrEmpty(policyName)) {
             LOG.info(DynamicPartitionProperty.REMOTE_STORAGE_POLICY + " is null, remove this key");
             return;
         }
-        if (val.isEmpty()) {
+        if (policyName.isEmpty()) {
             throw new DdlException(DynamicPartitionProperty.REMOTE_STORAGE_POLICY + " is empty.");
         }
-        StoragePolicy checkedPolicyCondition = new StoragePolicy(PolicyTypeEnum.STORAGE, val);
+        StoragePolicy checkedPolicyCondition = StoragePolicy.ofCheck(policyName);
         if (!Catalog.getCurrentCatalog().getPolicyMgr().existPolicy(checkedPolicyCondition)) {
-            throw new DdlException(DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + val + " doesn't exist.");
+            throw new DdlException(
+                    DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + policyName + " doesn't exist.");
         }
         StoragePolicy storagePolicy = (StoragePolicy) Catalog.getCurrentCatalog()
                 .getPolicyMgr().getPolicy(checkedPolicyCondition);
         if (Strings.isNullOrEmpty(storagePolicy.getCooldownTtl())) {
             throw new DdlException("Storage policy cooldown type need to be cooldownTtl for properties "
-                    + DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + val);
+                    + DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + policyName);
         }
     }
 

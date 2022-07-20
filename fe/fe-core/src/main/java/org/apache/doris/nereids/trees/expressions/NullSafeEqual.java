@@ -36,7 +36,7 @@ public class NullSafeEqual extends ComparisonPredicate {
      * @param right right child of Null Safe Equal
      */
     public NullSafeEqual(Expression left, Expression right) {
-        super(ExpressionType.NULL_SAFE_EQUAL, left, right);
+        super(ExpressionType.NULL_SAFE_EQUAL, left, right, "<=>");
     }
 
     @Override

@@ -101,8 +101,6 @@ Status FileTextScanner::get_next(Block* block, bool* eof) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
         RETURN_IF_ERROR(_cur_line_reader->read_line(&ptr, &size, &_cur_line_reader_eof));
-        std::unique_ptr<const uint8_t> u_ptr;
-        u_ptr.reset(ptr);
         if (_skip_lines > 0) {
             _skip_lines--;
             continue;

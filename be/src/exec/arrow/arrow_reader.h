@@ -55,6 +55,7 @@ struct Statistics {
     int64_t filtered_rows = 0;
     int64_t total_rows = 0;
     int64_t filtered_total_bytes = 0;
+    int64_t total_bytes = 0;
 };
 
 class ArrowFile : public arrow::io::RandomAccessFile {

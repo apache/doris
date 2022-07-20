@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "exec/base_scanner.h"
 #include "exec/scan_node.h"
+#include "exprs/runtime_filter.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/descriptors.h"
 #include "vec/exec/file_scanner.h"
@@ -88,6 +89,8 @@ private:
     // Scan one range
     Status scanner_scan(const TFileScanRange& scan_range, ScannerCounter* counter);
 
+    Status _acquire_and_build_runtime_filter(RuntimeState* state);
+
     TupleId _tuple_id;
     RuntimeState* _runtime_state;
     TupleDescriptor* _tuple_desc;
@@ -117,9 +120,29 @@ private:
     std::vector<TExpr> _pre_filter_texprs;
 
     RuntimeProfile::Counter* _wait_scanner_timer;
+    RuntimeProfile::Counter* _num_rows_filtered;
+    RuntimeProfile::Counter* _filter_timer;
+    RuntimeProfile::Counter* _num_scanners;
 
     std::deque<std::shared_ptr<vectorized::Block>> _block_queue;
     std::unique_ptr<MutableBlock> _mutable_block;
+
+protected:
+    struct RuntimeFilterContext {
+        RuntimeFilterContext() : apply_mark(false), runtimefilter(nullptr) {}
+        bool apply_mark;
+        IRuntimeFilter* runtimefilter;
+    };
+
+    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const {
+        return _runtime_filter_descs;
+    }
+    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+    std::vector<RuntimeFilterContext> _runtime_filter_ctxs;
+    std::vector<bool> _runtime_filter_ready_flag;
+    std::vector<std::unique_ptr<std::mutex>> _rf_locks;
+    std::map<int, RuntimeFilterContext*> _conjunctid_to_runtime_filter_ctxs;
+    std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
 };
 } // namespace vectorized
 } // namespace doris
