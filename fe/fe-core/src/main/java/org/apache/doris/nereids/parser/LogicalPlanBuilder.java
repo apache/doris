@@ -196,9 +196,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitAliasedQuery(AliasedQueryContext ctx) {
-        String alias = ctx.tableAlias().strictIdentifier().getText();
-        if (null == alias) {
+        TableAliasContext aliasCtx = ctx.tableAlias();
+        String alias;
+        if (null == aliasCtx.strictIdentifier()) {
             alias = "__auto_generated_name__";
+        } else {
+            alias = aliasCtx.strictIdentifier().getText();
         }
         return new LogicalSubQueryAlias<>(alias, visitQuery(ctx.query()));
     }

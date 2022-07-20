@@ -28,8 +28,8 @@ import java.util.List;
 public class AnalyzeSubQueryTest extends TestWithFeService {
     private final NereidsParser parser = new NereidsParser();
 
-//    private final String testSql = "SELECT T.id FROM (SELECT id FROM T1)";
-    private final String testSql = "SELECT X.ID FROM (SELECT * FROM (T1) A JOIN T1 AS B ON T1.ID = T2.ID) X WHERE X.SCORE < 20";
+    private final String testSql = "SELECT * FROM (SELECT * FROM T1) T";
+//    private final String testSql = "SELECT X.ID FROM (SELECT * FROM (T1) A JOIN T1 AS B ON T1.ID = T2.ID) X WHERE X.SCORE < 20";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -38,10 +38,9 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
         createTables("CREATE TABLE IF NOT EXISTS T1 (\n"
                 + "    id bigint,\n"
-                + "    name char(16),\n"
                 + "    score bigint\n"
                 + ")\n"
-                + "DUPLICATE KEY(id, name)\n"
+                + "DUPLICATE KEY(id)\n"
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
