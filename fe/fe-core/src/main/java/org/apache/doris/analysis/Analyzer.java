@@ -1897,7 +1897,7 @@ public class Analyzer {
         }
         // Add implicit casts if necessary.
         for (int i = 0; i < exprs.size(); ++i) {
-            if (exprs.get(i).getType() != compatibleType) {
+            if (!exprs.get(i).getType().equals(compatibleType)) {
                 Expr castExpr = exprs.get(i).castTo(compatibleType);
                 exprs.set(i, castExpr);
             }
