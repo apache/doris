@@ -295,28 +295,28 @@ protected:
                 break;
             }
             case 1: {
-                iterator1.template operator++();
+                ++iterator1;
                 if (iterator1 == container->m1.end()) {
                     need_switch_to_next = true;
                 }
                 break;
             }
             case 2: {
-                iterator2.template operator++();
+                ++iterator2;
                 if (iterator2 == container->m2.end()) {
                     need_switch_to_next = true;
                 }
                 break;
             }
             case 3: {
-                iterator3.template operator++();
+                ++iterator3;
                 if (iterator3 == container->m3.end()) {
                     need_switch_to_next = true;
                 }
                 break;
             }
             case 4: {
-                iterator4.template operator++();
+                ++iterator4;
                 break;
             }
             }
