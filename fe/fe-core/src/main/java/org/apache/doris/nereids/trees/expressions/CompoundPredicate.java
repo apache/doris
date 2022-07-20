@@ -58,7 +58,7 @@ public abstract class CompoundPredicate extends Expression implements BinaryExpr
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        throw  new RuntimeException("Do not implement this method");
+        throw  new RuntimeException("The withChildren() method is not implemented");
     }
 
     @Override
