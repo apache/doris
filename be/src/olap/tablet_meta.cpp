@@ -208,7 +208,6 @@ TabletMeta::TabletMeta(const TabletMeta& b)
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
     column->set_unique_id(unique_id);
-    column->set_col_unique_id(tcolumn.col_unique_id);
     column->set_name(tcolumn.column_name);
     column->set_has_bitmap_index(tcolumn.has_bitmap_index);
     string data_type;

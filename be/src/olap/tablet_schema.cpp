@@ -338,15 +338,13 @@ TabletColumn::TabletColumn(const TColumn& column) {
 }
 
 void TabletColumn::init_from_thrift(const TColumn& tcolumn) {
-    _unique_id = tcolumn.col_unique_id;
     ColumnPB column_pb;
-    TabletMeta::init_column_from_tcolumn(_unique_id, tcolumn, &column_pb);
+    TabletMeta::init_column_from_tcolumn(tcolumn.col_unique_id, tcolumn, &column_pb);
     init_from_pb(column_pb);
 }
 
 void TabletColumn::init_from_pb(const ColumnPB& column) {
     _unique_id = column.unique_id();
-    _col_unique_id = column.col_unique_id();
     _col_name = column.name();
     _type = TabletColumn::get_field_type_by_string(column.type());
     _is_key = column.is_key();
@@ -399,7 +397,6 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
 void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_unique_id(_unique_id);
     column->set_name(_col_name);
-    column->set_col_unique_id(_col_unique_id);
     column->set_type(get_string_by_field_type(_type));
     column->set_is_key(_is_key);
     column->set_is_nullable(_is_nullable);
@@ -470,7 +467,7 @@ void TabletSchema::append_column(TabletColumn column) {
         _num_null_columns++;
     }
     _field_name_to_index[column.name()] = _num_columns;
-    _field_id_to_index[column.col_unique_id()] = _num_columns;
+    _field_id_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::move(column));
     _num_columns++;
 }
@@ -501,9 +498,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
             _num_null_columns++;
         }
         _field_name_to_index[column.name()] = _num_columns;
-        if (column.col_unique_id() >= 0) {
-            _field_id_to_index[column.col_unique_id()] = _num_columns;
-        }
+        _field_id_to_index[column.unique_id()] = _num_columns;
         _cols.emplace_back(std::move(column));
         _num_columns++;
     }
@@ -568,7 +563,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id,
                     has_bf_columns = true;
                 }
                 _field_name_to_index[column.name()] = _num_columns;
-                _field_id_to_index[column.col_unique_id()] = _num_columns;
+                _field_id_to_index[column.unique_id()] = _num_columns;
                 _cols.emplace_back(std::move(column));
                 _num_columns++;
             }
