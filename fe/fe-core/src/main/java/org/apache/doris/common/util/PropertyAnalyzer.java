@@ -118,6 +118,12 @@ public class PropertyAnalyzer {
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
 
+    // For unique key data model, the feature Merge-on-Write will leverage a primary
+    // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
+    // which can avoid the merging cost in read stage, and accelerate the aggregation
+    // query performance significantly.
+    // For the detail design, see the [DISP-018](https://cwiki.apache.org/confluence/
+    // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
 
     /**

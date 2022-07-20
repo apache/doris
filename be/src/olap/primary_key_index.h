@@ -34,6 +34,8 @@ namespace doris {
 // The primary key index is designed in a similar way like RocksDB
 // Partitioned Index, which is created in the segment file when MemTable flushes.
 // Index is stored in multiple pages to leverage the IndexedColumnWriter.
+//
+// NOTE: for now, it's only used when unique key merge-on-write property enabled.
 class PrimaryKeyIndexBuilder {
 public:
     PrimaryKeyIndexBuilder(io::FileWriter* file_writer)
