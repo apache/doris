@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -55,5 +56,32 @@ public class MemoTest {
         Assert.assertEquals(PlanType.LOGICAL_UNBOUND_RELATION,
                 rootGroup.logicalExpressionsAt(0).child(0).logicalExpressionsAt(0).child(0).logicalExpressionsAt(0)
                         .getPlan().getType());
+    }
+
+    @Test
+    public void testMergeGroup() {
+        Memo memo = new Memo();
+        UnboundRelation rel1 = new UnboundRelation(Lists.newArrayList("test"));
+        LogicalProject proj1 = new LogicalProject(
+                ImmutableList.of(new SlotReference(new ExprId(1),"name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                rel1
+        );
+
+
+        memo.copyIn(proj1, null, false);
+
+        UnboundRelation rel2 = new UnboundRelation(Lists.newArrayList("test2"));
+
+        LogicalProject proj2 = new LogicalProject(
+                ImmutableList.of(new SlotReference(new ExprId(1),"name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                rel2
+        );
+
+        memo.copyIn(proj2, null, false);
+
+
+        memo.copyIn(rel1, memo.getGroups().get(2), true);
+        Assert.assertEquals(2, memo.getGroups().size());
+
     }
 }

@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -188,21 +189,24 @@ public class Memo {
                     children.set(i, destination);
                 }
             }
-            if (groupExpressions.containsKey(groupExpression)) {
-                GroupExpression that = groupExpressions.get(groupExpression);
+            GroupExpression that = groupExpressions.get(groupExpression);
+            if (that != null) {
+                // TODO: need to merge group recursively
+                //groupExpression.getParent().removeGroupExpression(groupExpression);
+
                 mergeGroup(groupExpression.getOwnerGroup(), that.getOwnerGroup());
             } else {
                 groupExpressions.put(groupExpression, groupExpression);
             }
         }
         for (GroupExpression groupExpression : source.getLogicalExpressions()) {
-            source.removeGroupExpression(groupExpression);
             destination.addGroupExpression(groupExpression);
         }
+
         for (GroupExpression groupExpression : source.getPhysicalExpressions()) {
-            source.removeGroupExpression(groupExpression);
             destination.addGroupExpression(groupExpression);
         }
+        source.removeAllExpressions();
         groups.remove(source);
     }
 

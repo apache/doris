@@ -30,10 +30,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 
 /**
  * Representation for group in cascades optimizer.
@@ -113,6 +110,18 @@ public class Group {
         return groupExpression;
     }
 
+    public void removeAllExpressions() {
+        Iterator<GroupExpression> iter = logicalExpressions.iterator();
+        while( iter.hasNext() ) {
+            iter.next().setParent(null);
+            iter.remove();
+        }
+        iter = physicalExpressions.iterator();
+        while( iter.hasNext() ) {
+            iter.next().setParent(null);
+            iter.remove();
+        }
+    }
     /**
      * Rewrite the logical group expression to the new logical group expression.
      *
