@@ -22,7 +22,7 @@
 #include "common/object_pool.h"
 #include "olap/olap_define.h"
 #include "olap/skiplist.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "util/tuple_row_zorder_compare.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
@@ -42,13 +42,12 @@ class MemTable {
 public:
     MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             KeysType keys_type, RowsetWriter* rowset_writer,
-             const std::shared_ptr<MemTracker>& parent_tracker, bool support_vec = false);
+             KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* writer_mem_tracker,
+             bool support_vec = false);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
-    std::shared_ptr<MemTracker>& mem_tracker() { return _mem_tracker; }
 
     inline void insert(const Tuple* tuple) { (this->*_insert_fn)(tuple); }
     // insert tuple from (row_pos) to (row_pos+num_rows)
@@ -153,7 +152,8 @@ private:
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
+    MemTracker* _writer_mem_tracker;
     // This is a buffer, to hold the memory referenced by the rows that have not
     // been inserted into the SkipList
     std::unique_ptr<MemPool> _buffer_mem_pool;

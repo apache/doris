@@ -26,7 +26,6 @@
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/query_statistics.h"
 #include "util/telemetry/telemetry.h"
 
@@ -71,7 +70,6 @@ public:
     // It must be okay to call this multiple times. Subsequent calls should
     // be ignored.
     virtual Status close(RuntimeState* state, Status exec_status) {
-        _expr_mem_tracker.reset();
         _closed = true;
         return Status::OK();
     }
@@ -101,7 +99,6 @@ protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed;
-    std::shared_ptr<MemTracker> _expr_mem_tracker;
     std::string _name;
 
     // Maybe this will be transferred to BufferControlBlock.

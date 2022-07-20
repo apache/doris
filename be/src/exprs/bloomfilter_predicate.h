@@ -28,7 +28,7 @@
 #include "olap/decimal12.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/uint24.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 
 namespace doris {
 namespace detail {
@@ -95,7 +95,7 @@ template <class BloomFilterAdaptor>
 class BloomFilterFuncBase : public IBloomFilterFuncBase {
 public:
     BloomFilterFuncBase() : _inited(false) {
-        _tracker = MemTracker::create_virtual_tracker(-1, "BloomFilterFunc");
+        _tracker = std::make_unique<MemTracker>("BloomFilterFunc");
     }
 
     virtual ~BloomFilterFuncBase() {
@@ -158,7 +158,7 @@ public:
     }
 
 protected:
-    std::shared_ptr<MemTracker> _tracker;
+    std::unique_ptr<MemTracker> _tracker;
     // bloom filter size
     int32_t _bloom_filter_alloced;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;

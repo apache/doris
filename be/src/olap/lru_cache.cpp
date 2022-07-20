@@ -283,7 +283,7 @@ void LRUCache::_evict_one_entry(LRUHandle* e) {
 
 Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                                 void (*deleter)(const CacheKey& key, void* value),
-                                CachePriority priority, MemTracker* tracker) {
+                                MemTrackerLimiter* tracker, CachePriority priority) {
     size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
     LRUHandle* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
     e->value = value;
@@ -300,8 +300,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     memcpy(e->key_data, key.data(), key.size());
     // The memory of the parameter value should be recorded in the tls mem tracker,
     // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
-    if (tracker)
-        tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(tracker, e->total_size);
+    THREAD_MEM_TRACKER_TRANSFER_TO(e->total_size, tracker);
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard<std::mutex> l(_mutex);
@@ -436,8 +435,8 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
           _num_shard_bits(Bits::FindLSBSetNonZero(num_shards)),
           _num_shards(num_shards),
           _shards(nullptr),
-          _last_id(1),
-          _mem_tracker(MemTracker::create_tracker(-1, name, nullptr, MemTrackerLevel::OVERVIEW)) {
+          _last_id(1) {
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(-1, name);
     CHECK(num_shards > 0) << "num_shards cannot be 0";
     CHECK_EQ((num_shards & (num_shards - 1)), 0)
             << "num_shards should be power of two, but got " << num_shards;
@@ -476,8 +475,8 @@ Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t 
                                        void (*deleter)(const CacheKey& key, void* value),
                                        CachePriority priority) {
     const uint32_t hash = _hash_slice(key);
-    return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, priority,
-                                         _mem_tracker.get());
+    return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, _mem_tracker.get(),
+                                         priority);
 }
 
 Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {

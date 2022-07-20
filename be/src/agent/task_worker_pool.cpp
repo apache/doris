@@ -1657,8 +1657,8 @@ void TaskWorkerPool::_random_sleep(int second) {
 }
 
 void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
-    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::COMPACTION,
-                              StorageEngine::instance()->compaction_mem_tracker());
+    SCOPED_ATTACH_TASK(StorageEngine::instance()->compaction_mem_tracker(),
+                       ThreadContext::TaskType::COMPACTION);
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
         TCompactionReq compaction_req;

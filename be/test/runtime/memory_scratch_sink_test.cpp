@@ -33,7 +33,6 @@
 #include "gen_cpp/Types_types.h"
 #include "olap/options.h"
 #include "olap/row.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/primitive_type.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -96,7 +95,6 @@ private:
     TPlanNode _tnode;
     RowDescriptor* _row_desc = nullptr;
     TMemoryScratchSink _tsink;
-    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
     DescriptorTbl* _desc_tbl = nullptr;
     std::vector<TExpr> _exprs;
 };
@@ -113,9 +111,6 @@ void MemoryScratchSinkTest::init_runtime_state() {
     query_id.lo = 10;
     query_id.hi = 100;
     _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _env->exec_env());
-    _state->init_instance_mem_tracker();
-    _mem_tracker =
-            MemTracker::create_tracker(-1, "MemoryScratchSinkTest", _state->instance_mem_tracker());
     _state->set_desc_tbl(_desc_tbl);
     _state->_load_dir = "./test_run/output/";
     _state->init_mem_trackers(TUniqueId());

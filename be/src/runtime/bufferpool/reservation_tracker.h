@@ -100,8 +100,7 @@ public:
     /// children will be counted as consumption against 'mem_tracker'.
     /// 'reservation_limit' is the maximum reservation for this tracker in bytes.
     /// if 'profile' is not nullptr, the counters in 'counters_' are added to 'profile'.
-    void InitChildTracker(RuntimeProfile* profile, ReservationTracker* parent,
-                          MemTracker* mem_tracker, int64_t reservation_limit);
+    void InitChildTracker(RuntimeProfile* profile, ReservationTracker* parent, int64_t reservation_limit);
 
     /// If the tracker is initialized, deregister the ReservationTracker from its parent,
     /// relinquishing all this tracker's reservation. All of the reservation must be unused

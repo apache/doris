@@ -1683,7 +1683,7 @@ Status Tablet::create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* r
     return RowsetFactory::create_rowset(&tablet_schema(), tablet_path(), rowset_meta, rowset);
 }
 
-std::shared_ptr<MemTracker>& Tablet::get_compaction_mem_tracker(CompactionType compaction_type) {
+MemTrackerLimiter* Tablet::get_compaction_mem_tracker(CompactionType compaction_type) {
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         return _cumulative_compaction->get_mem_tracker();
     } else {
