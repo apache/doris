@@ -1,6 +1,6 @@
 ---
 {
-    "title": "`ST_Circle`",
+    "title": "ST_Circle",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `ST_Circle`
+## ST_Circle
 ### Description
 #### Syntax
 

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "`ST_Distance_Sphere`",
+    "title": "ST_Distance_Sphere",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `ST_Distance_Sphere`
+## ST_Distance_Sphere
 ### description
 #### Syntax
 
