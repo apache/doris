@@ -15,54 +15,57 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/odbc_table_sink.h"
+#include "vec/sink/vodbc_table_sink.h"
 
 #include <sstream>
 
-#include "exprs/expr.h"
+#include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "vec/core/materialize_block.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
+namespace vectorized {
 
-OdbcTableSink::OdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                             const std::vector<TExpr>& t_exprs)
-        : _pool(pool), _row_desc(row_desc), _t_output_expr(t_exprs) {
-    _name = "OOBC_TABLE_SINK";
+VOdbcTableSink::VOdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
+                               const std::vector<TExpr>& t_exprs)
+        : _pool(pool),
+          _row_desc(row_desc),
+          _t_output_expr(t_exprs),
+          _mem_tracker(MemTracker::create_tracker(-1, "VOdbcTableSink")) {
+    _name = "VOdbcTableSink";
 }
 
-OdbcTableSink::~OdbcTableSink() = default;
-
-Status OdbcTableSink::init(const TDataSink& t_sink) {
+Status VOdbcTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(DataSink::init(t_sink));
-    // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(Expr::create_expr_trees(_pool, _t_output_expr, &_output_expr_ctxs));
-
     const TOdbcTableSink& t_odbc_sink = t_sink.odbc_table_sink;
 
     _odbc_param.connect_string = t_odbc_sink.connect_string;
-    _odbc_param.output_expr_ctxs = _output_expr_ctxs;
     _odbc_tbl = t_odbc_sink.table;
     _use_transaction = t_odbc_sink.use_transaction;
 
+    // From the thrift expressions create the real exprs.
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, _t_output_expr, &_output_expr_ctxs));
     return Status::OK();
 }
 
-Status OdbcTableSink::prepare(RuntimeState* state) {
+Status VOdbcTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _expr_mem_tracker));
+    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
     std::stringstream title;
-    title << _name << " (frag_id=" << state->fragment_instance_id() << ")";
+    title << "VOdbcTableSink (frag_id=" << state->fragment_instance_id() << ")";
     // create profile
     _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
     return Status::OK();
 }
 
-Status OdbcTableSink::open(RuntimeState* state) {
+Status VOdbcTableSink::open(RuntimeState* state) {
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::open(_output_expr_ctxs, state));
+    RETURN_IF_ERROR(VExpr::open(_output_expr_ctxs, state));
+
     // create writer
     _writer.reset(new ODBCConnector(_odbc_param));
     RETURN_IF_ERROR(_writer->open());
@@ -73,30 +76,37 @@ Status OdbcTableSink::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status OdbcTableSink::send(RuntimeState* state, RowBatch* batch) {
-    if (batch == nullptr || batch->num_rows() == 0) {
-        return Status::OK();
+Status VOdbcTableSink::send(RuntimeState* state, RowBatch* batch) {
+    return Status::NotSupported(
+            "Not Implemented VOdbcTableSink::send(RuntimeState* state, RowBatch* batch)");
+}
+
+Status VOdbcTableSink::send(RuntimeState* state, Block* block) {
+    Status status = Status::OK();
+    if (block == nullptr || block->rows() == 0) {
+        return status;
     }
+
+    auto output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
+            _output_expr_ctxs, *block, status);
+    materialize_block_inplace(output_block);
+
     uint32_t start_send_row = 0;
     uint32_t num_row_sent = 0;
-    while (start_send_row < batch->num_rows()) {
-        auto status = _writer->append(_odbc_tbl, batch, start_send_row, &num_row_sent);
+    while (start_send_row < output_block.rows()) {
+        status = _writer->append(_odbc_tbl, &output_block, _output_expr_ctxs, start_send_row,
+                                 &num_row_sent);
         if (UNLIKELY(!status.ok())) return status;
         start_send_row += num_row_sent;
         num_row_sent = 0;
     }
+
     return Status::OK();
 }
 
-Status OdbcTableSink::close(RuntimeState* state, Status exec_status) {
-    if (_closed) {
-        return Status::OK();
-    }
-    Expr::close(_output_expr_ctxs, state);
-    if (exec_status.ok() && _use_transaction) {
-        RETURN_IF_ERROR(_writer->finish_trans());
-    }
-    return DataSink::close(state, exec_status);
+Status VOdbcTableSink::close(RuntimeState* state, Status exec_status) {
+    VExpr::close(_output_expr_ctxs, state);
+    return Status::OK();
 }
-
+} // namespace vectorized
 } // namespace doris
