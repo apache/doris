@@ -29,7 +29,6 @@ import org.apache.doris.nereids.properties.ChildrenOutputPropertyDeriver;
 import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
 import org.apache.doris.nereids.properties.ParentRequiredPropertyDeriver;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Lists;
 
@@ -39,7 +38,7 @@ import java.util.Optional;
 /**
  * Job to compute cost and add enforcer.
  */
-public class CostAndEnforcerJob extends Job<Plan> {
+public class CostAndEnforcerJob extends Job {
     // GroupExpression to optimize
     private final GroupExpression groupExpression;
     // Current total cost
@@ -163,7 +162,7 @@ public class CostAndEnforcerJob extends Job<Plan> {
                 }
                 PlanContext planContext = new PlanContext(groupExpression);
                 // TODO: calculate stats.
-                groupExpression.getParent().setStatistics(planContext.getStatistics());
+                groupExpression.getOwnerGroup().setStatistics(planContext.getStatistics());
 
                 enforce(outputProperty, childrenInputProperties);
             }
@@ -194,7 +193,7 @@ public class CostAndEnforcerJob extends Job<Plan> {
 
             // enforcedProperty is superset of requiredProperty
             if (!addEnforcedProperty.equals(requiredProperties)) {
-                putProperty(groupExpression.getParent().getBestExpression(addEnforcedProperty),
+                putProperty(groupExpression.getOwnerGroup().getBestExpression(addEnforcedProperty),
                         requiredProperties, requiredProperties, Lists.newArrayList(outputProperty));
             }
         } else {
@@ -218,7 +217,7 @@ public class CostAndEnforcerJob extends Job<Plan> {
             // and shuffle join two types outputProperty.
             groupExpression.putOutputPropertiesMap(outputProperty, requiredProperty);
         }
-        this.groupExpression.getParent().setBestPlan(groupExpression,
+        this.groupExpression.getOwnerGroup().setBestPlan(groupExpression,
                 curTotalCost, requiredProperty);
     }
 

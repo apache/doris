@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.pattern;
 
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 
@@ -26,8 +25,8 @@ import java.util.Objects;
 import java.util.function.Predicate;
 
 /** pattern that used to match class type. */
-public class TypePattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYPE>>
-        extends Pattern<TYPE, NODE_TYPE> {
+public class TypePattern<TYPE extends Plan>
+        extends Pattern<TYPE> {
     protected final Class<TYPE> type;
 
     public TypePattern(Class clazz, Pattern... children) {
@@ -41,8 +40,8 @@ public class TypePattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE
     }
 
     @Override
-    public TypePattern<TYPE, NODE_TYPE> withPredicates(List<Predicate<TYPE>> predicates) {
-        return new TypePattern(type, predicates, children.toArray(new Pattern[0]));
+    public TypePattern<TYPE> withPredicates(List<Predicate<TYPE>> predicates) {
+        return new TypePattern<>(type, predicates, children.toArray(new Pattern[0]));
     }
 
     @Override

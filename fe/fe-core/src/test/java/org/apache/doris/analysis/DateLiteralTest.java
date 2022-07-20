@@ -23,9 +23,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
-import org.joda.time.LocalDateTime;
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.time.LocalDateTime;
 
 public class DateLiteralTest {
 
@@ -106,6 +107,24 @@ public class DateLiteralTest {
         s = "2020-12-13 12";
         literal = new DateLiteral(s, type);
         Assert.assertTrue(literal.toSql().contains("2020-12-13 12:00:00"));
+    }
+
+    @Test
+    public void testParseDateTimeV2ToHourORMinute() throws Exception {
+        String s = "2020-12-13 12:13:14.123";
+        Type type = ScalarType.createDatetimeV2Type(6);
+        DateLiteral literal = new DateLiteral(s, type);
+        Assert.assertTrue(literal.toSql().contains("2020-12-13 12:13:14.123"));
+        s = "2020-12-13 12:13";
+        literal = new DateLiteral(s, type);
+        Assert.assertTrue(literal.toSql().contains("2020-12-13 12:13:00"));
+        s = "2020-12-13 12";
+        literal = new DateLiteral(s, type);
+        Assert.assertTrue(literal.toSql().contains("2020-12-13 12:00:00"));
+
+        String s2 = "2020-12-13 12:13:14.123456";
+        DateLiteral literal2 = new DateLiteral(s2, type);
+        Assert.assertTrue(literal2.toSql().contains("2020-12-13 12:13:14.123456"));
     }
 
     @Test
@@ -232,6 +251,30 @@ public class DateLiteralTest {
     }
 
     @Test
+    public void testDateFormatForDatetimeV2() {
+        boolean hasException = false;
+        try {
+            DateLiteral literal = new DateLiteral("1997-10-7 00:00:00.123456", Type.DATETIMEV2);
+            Assert.assertEquals(1997, literal.getYear());
+            Assert.assertEquals(123456, literal.getMicrosecond());
+
+            literal = new DateLiteral("2021-06-1 00:00:00.123456", Type.DATETIMEV2);
+            Assert.assertEquals(2021, literal.getYear());
+            Assert.assertEquals(6, literal.getMonth());
+            Assert.assertEquals(1, literal.getDay());
+
+            literal = new DateLiteral("2022-6-01 00:00:00.123456", Type.DATETIMEV2);
+            Assert.assertEquals(2022, literal.getYear());
+            Assert.assertEquals(6, literal.getMonth());
+            Assert.assertEquals(1, literal.getDay());
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertFalse(hasException);
+    }
+
+    @Test
     public void testParseDateTimeToHourORMinuteForDateV2() throws Exception {
         String s = "2020-12-13 12:13:14";
         Type type = Type.DATETIMEV2;
@@ -308,7 +351,7 @@ public class DateLiteralTest {
     }
 
     @Test
-    public void testCheckDateForDateV2() throws AnalysisException {
+    public void testCheckDateForDateV2() {
         boolean hasException = false;
         try {
             DateLiteral dateLiteral = new DateLiteral();
@@ -347,7 +390,7 @@ public class DateLiteralTest {
     }
 
     @Test
-    public void testDateTimeV2Decimal() throws AnalysisException {
+    public void testDateTimeV2Decimal() {
         DateLiteral dateLiteral1 = new DateLiteral(LocalDateTime.now(),
                 DateLiteral.getDefaultDateType(ScalarType.createDatetimeV2Type(3)));
         Assert.assertTrue((dateLiteral1.getDecimalNumber() >= 100 && dateLiteral1.getDecimalNumber() < 1000)

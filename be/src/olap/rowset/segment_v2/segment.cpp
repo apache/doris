@@ -48,9 +48,10 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segme
 Segment::Segment(uint32_t segment_id, const TabletSchema* tablet_schema)
         : _segment_id(segment_id), _tablet_schema(*tablet_schema) {
 #ifndef BE_TEST
-    _mem_tracker = StorageEngine::instance()->tablet_mem_tracker();
+    _mem_tracker = MemTracker::create_virtual_tracker(
+            -1, "Segment", StorageEngine::instance()->tablet_mem_tracker());
 #else
-    _mem_tracker = MemTracker::get_process_tracker();
+    _mem_tracker = MemTracker::create_virtual_tracker(-1, "Segment");
 #endif
 }
 
@@ -70,12 +71,12 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     // trying to prune the current segment by segment-level zone map
     if (read_options.conditions != nullptr) {
         for (auto& column_condition : read_options.conditions->columns()) {
-            int32_t column_id = column_condition.first;
-            if (_column_readers[column_id] == nullptr ||
-                !_column_readers[column_id]->has_zone_map()) {
+            int32_t column_unique_id = _tablet_schema.column(column_condition.first).unique_id();
+            if (_column_readers.count(column_unique_id) < 1 ||
+                !_column_readers.at(column_unique_id)->has_zone_map()) {
                 continue;
             }
-            if (!_column_readers[column_id]->match_condition(column_condition.second)) {
+            if (!_column_readers.at(column_unique_id)->match_condition(column_condition.second)) {
                 // any condition not satisfied, return.
                 iter->reset(new EmptySegmentIterator(schema));
                 read_options.stats->filtered_segment_number++;
@@ -150,15 +151,21 @@ Status Segment::_load_index() {
         opts.stats = &tmp_stats;
         opts.type = INDEX_PAGE;
 
-        Slice body;
-        PageFooterPB footer;
-        RETURN_IF_ERROR(PageIO::read_and_decompress_page(opts, &_sk_index_handle, &body, &footer));
-        DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
-        DCHECK(footer.has_short_key_page_footer());
+        if (_tablet_schema.keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta()) {
+            _pk_index_reader.reset(new PrimaryKeyIndexReader());
+            return _pk_index_reader->parse(_file_reader, _footer.primary_key_index_meta());
+        } else {
+            Slice body;
+            PageFooterPB footer;
+            RETURN_IF_ERROR(
+                    PageIO::read_and_decompress_page(opts, &_sk_index_handle, &body, &footer));
+            DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
+            DCHECK(footer.has_short_key_page_footer());
 
-        _mem_tracker->consume(body.get_size());
-        _sk_index_decoder.reset(new ShortKeyIndexDecoder);
-        return _sk_index_decoder->parse(body, footer.short_key_page_footer());
+            _mem_tracker->consume(body.get_size());
+            _sk_index_decoder.reset(new ShortKeyIndexDecoder);
+            return _sk_index_decoder->parse(body, footer.short_key_page_footer());
+        }
     });
 }
 
@@ -168,9 +175,8 @@ Status Segment::_create_column_readers() {
         _column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
     }
 
-    _column_readers.resize(_tablet_schema.columns().size());
     for (uint32_t ordinal = 0; ordinal < _tablet_schema.num_columns(); ++ordinal) {
-        auto& column = _tablet_schema.columns()[ordinal];
+        auto& column = _tablet_schema.column(ordinal);
         auto iter = _column_id_to_footer_ordinal.find(column.unique_id());
         if (iter == _column_id_to_footer_ordinal.end()) {
             continue;
@@ -181,14 +187,20 @@ Status Segment::_create_column_readers() {
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, _footer.columns(iter->second),
                                              _footer.num_rows(), _file_reader, &reader));
-        _column_readers[ordinal] = std::move(reader);
+        _column_readers.emplace(column.unique_id(), std::move(reader));
     }
     return Status::OK();
 }
 
-Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
-    if (_column_readers[cid] == nullptr) {
-        const TabletColumn& tablet_column = _tablet_schema.column(cid);
+// Not use cid anymore, for example original table schema is colA int, then user do following actions
+// 1.add column b
+// 2. drop column b
+// 3. add column c
+// in the new schema column c's cid == 2
+// but in the old schema column b's cid == 2
+// but they are not the same column
+Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter) {
+    if (_column_readers.count(tablet_column.unique_id()) < 1) {
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
         }
@@ -204,18 +216,34 @@ Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
         *iter = default_value_iter.release();
         return Status::OK();
     }
-    return _column_readers[cid]->new_iterator(iter);
+    return _column_readers.at(tablet_column.unique_id())->new_iterator(iter);
 }
 
-Status Segment::new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter) {
-    if (_column_readers[cid] != nullptr && _column_readers[cid]->has_bitmap_index()) {
-        return _column_readers[cid]->new_bitmap_index_iterator(iter);
+Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
+                                          BitmapIndexIterator** iter) {
+    auto col_unique_id = tablet_column.unique_id();
+    if (_column_readers.count(col_unique_id) > 0 &&
+        _column_readers.at(col_unique_id)->has_bitmap_index()) {
+        return _column_readers.at(col_unique_id)->new_bitmap_index_iterator(iter);
     }
     return Status::OK();
 }
 
 Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
-    //TODO(liaoxin01): implement it after index related code merged.
+    RETURN_IF_ERROR(_load_index());
+    DCHECK(_pk_index_reader != nullptr);
+    if (!_pk_index_reader->check_present(key)) {
+        return Status::NotFound("Can't find key in the segment");
+    }
+    bool exact_match = false;
+    std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
+    RETURN_IF_ERROR(_pk_index_reader->new_iterator(&index_iterator));
+    RETURN_IF_ERROR(index_iterator->seek_at_or_after(&key, &exact_match));
+    if (!exact_match) {
+        return Status::NotFound("Can't find key in the segment");
+    }
+    row_location->row_id = index_iterator->get_current_ordinal();
+    row_location->segment_id = _segment_id;
     return Status::OK();
 }
 

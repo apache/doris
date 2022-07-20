@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.resource.Tag;
 
@@ -33,7 +34,7 @@ public class AddBackendClause extends BackendClause {
     // cluster that backend will be added to
     protected String destCluster;
     protected Map<String, String> properties = Maps.newHashMap();
-    private Tag tag;
+    private Map<String, String> tagMap;
 
     public AddBackendClause(List<String> hostPorts) {
         super(hostPorts);
@@ -57,14 +58,20 @@ public class AddBackendClause extends BackendClause {
         this.destCluster = destCluster;
     }
 
-    public Tag getTag() {
-        return tag;
+    public Map<String, String> getTagMap() {
+        return tagMap;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         super.analyze(analyzer);
-        tag = PropertyAnalyzer.analyzeBackendTagProperties(properties, Tag.DEFAULT_BACKEND_TAG);
+        tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, Tag.DEFAULT_BACKEND_TAG);
+        if (!tagMap.containsKey(Tag.TYPE_LOCATION)) {
+            throw new AnalysisException(NEED_LOCATION_TAG_MSG);
+        }
+        if (!Config.enable_multi_tags && tagMap.size() > 1) {
+            throw new AnalysisException(MUTLI_TAG_DISABLED_MSG);
+        }
     }
 
     @Override

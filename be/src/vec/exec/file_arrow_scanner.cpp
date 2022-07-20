@@ -55,7 +55,7 @@ Status FileArrowScanner::_open_next_reader() {
         const TFileRangeDesc& range = _ranges[_next_range++];
         std::unique_ptr<FileReader> file_reader;
         FileReader* hdfs_reader = nullptr;
-        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path,
+        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(_params.hdfs_params, range.path,
                                                         range.start_offset, &hdfs_reader));
         file_reader.reset(new BufferedReader(_profile, hdfs_reader));
         RETURN_IF_ERROR(file_reader->open());
@@ -66,8 +66,9 @@ Status FileArrowScanner::_open_next_reader() {
 
         int32_t num_of_columns_from_file = _file_slot_descs.size();
 
-        _cur_file_reader = _new_arrow_reader(file_reader.release(), _state->batch_size(),
-                                             num_of_columns_from_file);
+        _cur_file_reader =
+                _new_arrow_reader(file_reader.release(), _state->batch_size(),
+                                  num_of_columns_from_file, range.start_offset, range.size);
 
         auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
         Status status = _cur_file_reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs,
@@ -197,6 +198,7 @@ void VFileParquetScanner::_update_profile(std::shared_ptr<Statistics>& statistic
     COUNTER_UPDATE(_filtered_bytes_counter, statistics->filtered_total_bytes);
     COUNTER_UPDATE(_total_rows_counter, statistics->total_rows);
     COUNTER_UPDATE(_total_groups_counter, statistics->total_groups);
+    COUNTER_UPDATE(_total_bytes_counter, statistics->total_bytes);
 }
 
 void FileArrowScanner::close() {
@@ -217,16 +219,20 @@ VFileParquetScanner::VFileParquetScanner(RuntimeState* state, RuntimeProfile* pr
 }
 
 ArrowReaderWrap* VFileParquetScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                                        int32_t num_of_columns_from_file) {
-    return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file);
+                                                        int32_t num_of_columns_from_file,
+                                                        int64_t range_start_offset,
+                                                        int64_t range_size) {
+    return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file,
+                                 range_start_offset, range_size);
 }
 
 void VFileParquetScanner::_init_profiles(RuntimeProfile* profile) {
-    _filtered_row_groups_counter = ADD_COUNTER(_profile, "ParquetFilteredRowGroups", TUnit::UNIT);
-    _filtered_rows_counter = ADD_COUNTER(_profile, "FileFilteredRows", TUnit::UNIT);
-    _filtered_bytes_counter = ADD_COUNTER(_profile, "FileFilteredBytes", TUnit::BYTES);
-    _total_rows_counter = ADD_COUNTER(_profile, "FileTotalRows", TUnit::UNIT);
-    _total_groups_counter = ADD_COUNTER(_profile, "ParquetTotalRowGroups", TUnit::UNIT);
+    _filtered_row_groups_counter = ADD_COUNTER(_profile, "ParquetRowGroupsFiltered", TUnit::UNIT);
+    _filtered_rows_counter = ADD_COUNTER(_profile, "ParquetRowsFiltered", TUnit::UNIT);
+    _filtered_bytes_counter = ADD_COUNTER(_profile, "ParquetBytesFiltered", TUnit::BYTES);
+    _total_rows_counter = ADD_COUNTER(_profile, "ParquetRowsTotal", TUnit::UNIT);
+    _total_groups_counter = ADD_COUNTER(_profile, "ParquetRowGroupsTotal", TUnit::UNIT);
+    _total_bytes_counter = ADD_COUNTER(_profile, "ParquetBytesTotal", TUnit::BYTES);
 }
 
 VFileORCScanner::VFileORCScanner(RuntimeState* state, RuntimeProfile* profile,
@@ -237,7 +243,9 @@ VFileORCScanner::VFileORCScanner(RuntimeState* state, RuntimeProfile* profile,
         : FileArrowScanner(state, profile, params, ranges, pre_filter_texprs, counter) {}
 
 ArrowReaderWrap* VFileORCScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                                    int32_t num_of_columns_from_file) {
+                                                    int32_t num_of_columns_from_file,
+                                                    int64_t range_start_offset,
+                                                    int64_t range_size) {
     return new ORCReaderWrap(file_reader, batch_size, num_of_columns_from_file);
 }
 
