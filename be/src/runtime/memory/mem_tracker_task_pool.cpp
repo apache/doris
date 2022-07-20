@@ -43,14 +43,13 @@ MemTrackerLimiter* MemTrackerTaskPool::register_task_mem_tracker_impl(const std:
             });
     if (new_emplace) {
         LOG(INFO) << "Register task memory tracker, task id: " << task_id
-              << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
+                  << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
     }
     return _task_mem_trackers[task_id];
 }
 
 MemTrackerLimiter* MemTrackerTaskPool::register_query_mem_tracker(const std::string& query_id,
                                                                   int64_t mem_limit) {
-    
     return register_task_mem_tracker_impl(query_id, mem_limit,
                                           fmt::format("Query#queryId={}", query_id),
                                           ExecEnv::GetInstance()->query_pool_mem_tracker());

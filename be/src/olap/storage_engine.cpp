@@ -114,8 +114,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _file_cache(nullptr),
           _compaction_mem_tracker(
                   std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::AutoCompaction")),
-          _segment_meta_mem_tracker(
-                  std::make_unique<MemTracker>("StorageEngine::SegmentMeta")),
+          _segment_meta_mem_tracker(std::make_unique<MemTracker>("StorageEngine::SegmentMeta")),
           _schema_change_mem_tracker(
                   std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::SchemaChange")),
           _clone_mem_tracker(std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::Clone")),

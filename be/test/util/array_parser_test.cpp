@@ -173,8 +173,7 @@ TEST(ArrayParserTest, TestDecimalArray) {
 
 TEST(ArrayParserTest, TestFreePool) {
     auto column_pb = create_column_pb("ARRAY", "DECIMAL");
-    MemTracker tracker(1024 * 1024, "ArrayParserTest");
-    MemPool mem_pool(&tracker);
+    MemPool mem_pool;
     FunctionContext context;
     ArrayUtils::prepare_context(context, mem_pool, column_pb);
     int alignment = 1;

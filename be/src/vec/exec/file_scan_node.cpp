@@ -147,7 +147,7 @@ Status FileScanNode::_acquire_and_build_runtime_filter(RuntimeState* state) {
             // std::list<ExprContext*> expr_context;
             // RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(&expr_context));
             // for (auto ctx : expr_context) {
-            //     ctx->prepare(state, row_desc(), _expr_mem_tracker);
+            //     ctx->prepare(state, row_desc());
             //     ctx->open(state);
             //     int index = _conjunct_ctxs.size();
             //     _conjunct_ctxs.push_back(ctx);
@@ -164,7 +164,7 @@ Status FileScanNode::_acquire_and_build_runtime_filter(RuntimeState* state) {
         }
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtimefilter;
         std::vector<VExpr*> vexprs;
-        runtime_filter->get_prepared_vexprs(&vexprs, row_desc(), _expr_mem_tracker);
+        runtime_filter->get_prepared_vexprs(&vexprs, row_desc());
         if (vexprs.empty()) {
             continue;
         }
@@ -180,7 +180,7 @@ Status FileScanNode::_acquire_and_build_runtime_filter(RuntimeState* state) {
             last_expr = new_node;
         }
         auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
-        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc(), expr_mem_tracker());
+        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc());
         if (UNLIKELY(!expr_status.OK())) {
             LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
             vexprs.clear();

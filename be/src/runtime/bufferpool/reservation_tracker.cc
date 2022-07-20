@@ -53,7 +53,8 @@ void ReservationTracker::InitRootTracker(RuntimeProfile* profile, int64_t reserv
     CheckConsistency();
 }
 
-void ReservationTracker::InitChildTracker(RuntimeProfile* profile, ReservationTracker* parent, int64_t reservation_limit) {
+void ReservationTracker::InitChildTracker(RuntimeProfile* profile, ReservationTracker* parent,
+                                          int64_t reservation_limit) {
     DCHECK(parent != nullptr);
     DCHECK_GE(reservation_limit, 0);
 

@@ -346,7 +346,8 @@ bool BufferPool::ClientHandle::has_unpinned_pages() const {
 
 BufferPool::SubReservation::SubReservation(ClientHandle* client) {
     tracker_.reset(new ReservationTracker);
-    tracker_->InitChildTracker(nullptr, client->impl_->reservation(), numeric_limits<int64_t>::max());
+    tracker_->InitChildTracker(nullptr, client->impl_->reservation(),
+                               numeric_limits<int64_t>::max());
 }
 
 BufferPool::SubReservation::~SubReservation() {}

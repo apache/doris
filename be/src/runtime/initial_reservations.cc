@@ -37,7 +37,8 @@ InitialReservations::InitialReservations(ObjectPool* obj_pool,
                                          ReservationTracker* query_reservation,
                                          int64_t initial_reservation_total_claims)
         : remaining_initial_reservation_claims_(initial_reservation_total_claims) {
-    initial_reservations_.InitChildTracker(nullptr, query_reservation, numeric_limits<int64_t>::max());
+    initial_reservations_.InitChildTracker(nullptr, query_reservation,
+                                           numeric_limits<int64_t>::max());
 }
 
 Status InitialReservations::Init(const TUniqueId& query_id, int64_t query_min_reservation) {

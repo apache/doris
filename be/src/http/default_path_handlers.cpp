@@ -160,9 +160,11 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
         string current_consumption_normalize = AccurateItoaKMGT(item.cur_consumption);
         string peak_consumption_normalize = AccurateItoaKMGT(item.peak_consumption);
         (*output) << strings::Substitute(
-                "<tr><td>$0</td><td>$1</td><td>$2</td><td>$3</td><td>$4</td><td>$5</td><td>$6</td><td>$7</td><td>$8</td></tr>\n",
-                item.level, item.label, item.parent, limit_str, item.cur_consumption, current_consumption_normalize,
-                item.peak_consumption, peak_consumption_normalize, item.child_count);
+                "<tr><td>$0</td><td>$1</td><td>$2</td><td>$3</td><td>$4</td><td>$5</td><td>$6</"
+                "td><td>$7</td><td>$8</td></tr>\n",
+                item.level, item.label, item.parent, limit_str, item.cur_consumption,
+                current_consumption_normalize, item.peak_consumption, peak_consumption_normalize,
+                item.child_count);
     }
     (*output) << "</tbody></table>\n";
 }

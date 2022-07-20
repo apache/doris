@@ -255,7 +255,8 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     DCHECK_EQ(0, _initial_reservation_refcnt.load());
 
     if (_instance_buffer_reservation != nullptr) {
-        _instance_buffer_reservation->InitChildTracker(&_profile, _buffer_reservation, std::numeric_limits<int64_t>::max());
+        _instance_buffer_reservation->InitChildTracker(&_profile, _buffer_reservation,
+                                                       std::numeric_limits<int64_t>::max());
     }
 
     // filter manager depends _instance_mem_tracker
