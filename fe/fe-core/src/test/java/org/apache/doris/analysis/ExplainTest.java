@@ -97,7 +97,7 @@ public class ExplainTest {
         String queryStr = "explain verbose select * from test_explain.explain_t1 where dt = '1001';";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, queryStr, true);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("CAST"));
+        Assert.assertFalse(explainString.contains("CAST"));
     }
 
     public void testExplainConcatSelect() throws Exception {
