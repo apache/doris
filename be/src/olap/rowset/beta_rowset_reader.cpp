@@ -88,7 +88,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
             _rowset, &_segment_cache_handle,
-            read_context->reader_type == ReaderType::READER_QUERY));
+            read_context->reader_type == ReaderType::READER_QUERY && read_options.use_page_cache));
 
     // create iterator for each segment
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;

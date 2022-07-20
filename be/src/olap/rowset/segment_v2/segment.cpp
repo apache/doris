@@ -35,8 +35,9 @@ namespace doris {
 namespace segment_v2 {
 
 Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
-                     const TabletSchema* tablet_schema, std::shared_ptr<Segment>* output) {
-    std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
+                     const TabletSchema* tablet_schema, std::shared_ptr<Segment>* output,
+                     bool use_page_cache) {
+    std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema, use_page_cache));
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader));
     segment->_file_reader = std::move(file_reader);
@@ -45,8 +46,8 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segme
     return Status::OK();
 }
 
-Segment::Segment(uint32_t segment_id, const TabletSchema* tablet_schema)
-        : _segment_id(segment_id), _tablet_schema(*tablet_schema) {
+Segment::Segment(uint32_t segment_id, const TabletSchema* tablet_schema, bool use_page_cache)
+        : _segment_id(segment_id), _tablet_schema(*tablet_schema), _use_page_cache(use_page_cache) {
 #ifndef BE_TEST
     _mem_tracker = MemTracker::create_virtual_tracker(
             -1, "Segment", StorageEngine::instance()->tablet_mem_tracker());
@@ -150,6 +151,7 @@ Status Segment::_load_index() {
         OlapReaderStatistics tmp_stats;
         opts.stats = &tmp_stats;
         opts.type = INDEX_PAGE;
+        opts.use_page_cache = _use_page_cache;
 
         if (_tablet_schema.keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta()) {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());
@@ -183,6 +185,7 @@ Status Segment::_create_column_readers() {
         }
 
         ColumnReaderOptions opts;
+        opts.use_page_cache = _use_page_cache;
         opts.kept_in_memory = _tablet_schema.is_in_memory();
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, _footer.columns(iter->second),

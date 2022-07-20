@@ -41,8 +41,9 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.reader_type = reader_type;
     reader_params.rs_readers = src_rowset_readers;
     reader_params.version = dst_rowset_writer->version();
-
     reader_params.tablet_schema = cur_tablet_schema;
+    reader_params.use_page_cache = false; // shouldn't use page cache
+
     RETURN_NOT_OK(reader.init(reader_params));
 
     RowCursor row_cursor;
@@ -103,6 +104,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.rs_readers = src_rowset_readers;
     reader_params.version = dst_rowset_writer->version();
     reader_params.tablet_schema = cur_tablet_schema;
+    reader_params.use_page_cache = false; // shouldn't use page cache
 
     const auto& schema = *cur_tablet_schema;
     reader_params.return_columns.resize(schema.num_columns());

@@ -62,7 +62,8 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
     static Status open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
-                       const TabletSchema* tablet_schema, std::shared_ptr<Segment>* output);
+                       const TabletSchema* tablet_schema, std::shared_ptr<Segment>* output,
+                       bool use_page_cache);
 
     ~Segment();
 
@@ -108,7 +109,7 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
-    Segment(uint32_t segment_id, const TabletSchema* tablet_schema);
+    Segment(uint32_t segment_id, const TabletSchema* tablet_schema, bool use_page_cache);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer();
@@ -123,7 +124,7 @@ private:
 
     uint32_t _segment_id;
     TabletSchema _tablet_schema;
-
+    bool _use_page_cache;
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
     // The memory consumed by querying is tracked in segment iterator.
     std::shared_ptr<MemTracker> _mem_tracker;
