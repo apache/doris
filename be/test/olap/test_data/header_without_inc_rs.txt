@@ -19,8 +19,7 @@
                 "is_nullable": false,
                 "length": 8,
                 "index_length": 8,
-                "visible": true,
-                "col_unique_id": -1
+                "visible": true
             },
             {
                 "unique_id": 1,
@@ -32,8 +31,7 @@
                 "default_value": "MA==",
                 "length": 16387,
                 "index_length": 16,
-                "visible": true,
-                "col_unique_id": -1
+                "visible": true
             },
             {
                 "unique_id": 2,
@@ -44,8 +42,7 @@
                 "is_nullable": false,
                 "length": 4,
                 "index_length": 4,
-                "visible": true,
-                "col_unique_id": -1
+                "visible": true
             }
         ],
         "num_short_key_columns": 1,
