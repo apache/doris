@@ -139,9 +139,10 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
     std::unordered_set<int> parquet_column_ids(include_column_ids.begin(),
                                                include_column_ids.end());
     _init_conjuncts(tuple_desc, map_column, parquet_column_ids);
-    _parent->statistics()->total_groups = total_group;
-    _parent->statistics()->total_rows = _file_metadata->num_rows();
 
+    int64_t total_groups = 0;
+    int64_t total_rows = 0;
+    int64_t total_bytes = 0;
     bool update_statistics = false;
     for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
         auto row_group_meta = _file_metadata->RowGroup(row_group_id);
@@ -156,6 +157,10 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                 continue;
             }
         }
+        // only include row groups in range
+        ++total_groups;
+        total_rows += row_group_meta->num_rows();
+        total_bytes += row_group_meta->total_byte_size();
         // if head_read_offset <= start_offset < end_offset <= tail_read_offset
         for (SlotId slot_id = 0; slot_id < tuple_desc->slots().size(); slot_id++) {
             const std::string& col_name = tuple_desc->slots()[slot_id]->col_name();
@@ -189,6 +194,9 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
             }
         }
     }
+    _parent->statistics()->total_groups = total_groups;
+    _parent->statistics()->total_rows = total_rows;
+    _parent->statistics()->total_bytes = total_bytes;
 
     if (update_statistics) {
         _parent->statistics()->filtered_row_groups = _filtered_num_row_groups;

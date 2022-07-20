@@ -24,8 +24,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
-import org.apache.commons.lang.StringUtils;
-
 import java.util.List;
 import java.util.Objects;
 
@@ -42,12 +40,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
 
     @Override
     public String toSql() {
-        String qualified = qualifier.stream().map(Utils::quoteIfNeeded).reduce((t1, t2) -> t1 + "." + t2).orElse("");
-        if (StringUtils.isNotEmpty(qualified)) {
-            return qualified + ".*";
-        } else {
-            return "*";
-        }
+        return Utils.qualifiedName(qualifier, "*");
     }
 
     @Override

@@ -81,8 +81,7 @@ public class CompoundPredicate extends Expression implements BinaryExpression {
 
     @Override
     public String toString() {
-        String nodeType = getType().toString();
-        return nodeType + "(" + left() + ", " + right() + ")";
+        return "(" + left().toString() + " " + getType().toString() + " " + right().toString() + ")";
     }
 
     public ExpressionType flip() {
