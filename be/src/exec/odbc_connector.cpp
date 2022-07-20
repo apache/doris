@@ -26,6 +26,9 @@
 #include "runtime/primitive_type.h"
 #include "util/mysql_global.h"
 #include "util/types.h"
+#include "vec/core/block.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 #define ODBC_DISPOSE(h, ht, x, op)                                                        \
     {                                                                                     \
@@ -393,6 +396,115 @@ std::string ODBCConnector::handle_diagnostic_record(SQLHANDLE hHandle, SQLSMALLI
     }
 
     return diagnostic_msg;
+}
+
+Status ODBCConnector::append(const std::string& table_name, vectorized::Block* block,
+                             const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs,
+                             uint32_t start_send_row, uint32_t* num_rows_sent) {
+    _insert_stmt_buffer.clear();
+    std::u16string insert_stmt;
+    {
+        SCOPED_TIMER(_convert_tuple_timer);
+        fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", table_name);
+
+        int num_rows = block->rows();
+        int num_columns = block->columns();
+        for (int i = start_send_row; i < num_rows; ++i) {
+            (*num_rows_sent)++;
+
+            // Construct insert statement of odbc table
+            for (int j = 0; j < num_columns; ++j) {
+                if (j != 0) {
+                    fmt::format_to(_insert_stmt_buffer, "{}", ", ");
+                }
+                auto [item, size] = block->get_by_position(j).column->get_data_at(i);
+                if (item == nullptr) {
+                    fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
+                    continue;
+                }
+                switch (_output_vexpr_ctxs[j]->root()->type().type) {
+                case TYPE_BOOLEAN:
+                case TYPE_TINYINT:
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const int8_t*>(item));
+                    break;
+                case TYPE_SMALLINT:
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const int16_t*>(item));
+                    break;
+                case TYPE_INT:
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const int32_t*>(item));
+                    break;
+                case TYPE_BIGINT:
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const int64_t*>(item));
+                    break;
+                case TYPE_FLOAT:
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const float*>(item));
+                    break;
+                case TYPE_DOUBLE:
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const double*>(item));
+                    break;
+                case TYPE_DATE:
+                case TYPE_DATETIME: {
+                    vectorized::VecDateTimeValue value =
+                            binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(
+                                    *(int64_t*)item);
+
+                    char buf[64];
+                    char* pos = value.to_string(buf);
+                    std::string_view str(buf, pos - buf - 1);
+                    fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+                    break;
+                }
+                case TYPE_VARCHAR:
+                case TYPE_CHAR:
+                case TYPE_STRING: {
+                    fmt::format_to(_insert_stmt_buffer, "'{}'", fmt::basic_string_view(item, size));
+                    break;
+                }
+                case TYPE_DECIMALV2: {
+                    DecimalV2Value value = *(DecimalV2Value*)(item);
+                    fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
+                    break;
+                }
+                case TYPE_LARGEINT: {
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                                   *reinterpret_cast<const __int128*>(item));
+                    break;
+                }
+                default: {
+                    return Status::InternalError("can't convert this type to mysql type. type = {}",
+                                                 _output_expr_ctxs[j]->root()->type().type);
+                }
+                }
+            }
+
+            if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
+                fmt::format_to(_insert_stmt_buffer, "{}", "),(");
+            } else {
+                // batch exhausted or _insert_stmt_buffer is full, need to do real insert stmt
+                fmt::format_to(_insert_stmt_buffer, "{}", ")");
+                break;
+            }
+        }
+        // Translate utf8 string to utf16 to use unicode encodeing
+        insert_stmt = utf8_to_wstring(
+                std::string(_insert_stmt_buffer.data(),
+                            _insert_stmt_buffer.data() + _insert_stmt_buffer.size()));
+    }
+
+    {
+        SCOPED_TIMER(_result_send_timer);
+        ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT,
+                     SQLExecDirectW(_stmt, (SQLWCHAR*)(insert_stmt.c_str()), SQL_NTS),
+                     _insert_stmt_buffer.data());
+    }
+    COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
+    return Status::OK();
 }
 
 } // namespace doris

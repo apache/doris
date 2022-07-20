@@ -36,6 +36,7 @@
 #include "runtime/runtime_state.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vmysql_table_sink.h"
+#include "vec/sink/vodbc_table_sink.h"
 #include "vec/sink/vresult_file_sink.h"
 #include "vec/sink/vresult_sink.h"
 #include "vec/sink/vtablet_sink.h"
@@ -156,8 +157,11 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.odbc_table_sink) {
             return Status::InternalError("Missing data odbc sink.");
         }
-        OdbcTableSink* odbc_tbl_sink = new OdbcTableSink(pool, row_desc, output_exprs);
-        sink->reset(odbc_tbl_sink);
+        if (is_vec) {
+            sink->reset(new vectorized::VOdbcTableSink(pool, row_desc, output_exprs));
+        } else {
+            sink->reset(new OdbcTableSink(pool, row_desc, output_exprs));
+        }
         break;
     }
 
