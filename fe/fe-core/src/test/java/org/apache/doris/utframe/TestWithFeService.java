@@ -203,6 +203,7 @@ public abstract class TestWithFeService {
         }
         Config.plugin_dir = dorisHome + "/plugins";
         Config.custom_config_dir = dorisHome + "/conf";
+        Config.edit_log_type = "local";
         File file = new File(Config.custom_config_dir);
         if (!file.exists()) {
             file.mkdir();

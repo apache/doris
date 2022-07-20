@@ -18,6 +18,7 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.PaloFe;
+import org.apache.doris.PaloFe.StartupOptions;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.util.PrintableMap;
 
@@ -183,10 +184,12 @@ public class MockedFrontend {
 
         @Override
         public void run() {
-            long start = System.currentTimeMillis();
-            PaloFe.start(frontend.getRunningDir(), frontend.getRunningDir(), args);
-            long end = System.currentTimeMillis();
-            System.out.println("fe start cost: " + (end - start));
+            StartupOptions options = new StartupOptions();
+            // For FE unit tests, we don't need these 2 servers.
+            // And it also cost time to start up.
+            options.enableHttpServer = false;
+            options.enableQeService = false;
+            PaloFe.start(frontend.getRunningDir(), frontend.getRunningDir(), args, options);
         }
     }
 
@@ -195,14 +198,10 @@ public class MockedFrontend {
         if (!isInit) {
             throw new NotInitException("fe process is not initialized");
         }
-        long start = System.currentTimeMillis();
         Thread feThread = new Thread(new FERunnable(this, args), FE_PROCESS);
         feThread.start();
         // wait the catalog to be ready until timeout (30 seconds)
-        long start2 = System.currentTimeMillis();
-        waitForCatalogReady(120 * 1000);
-        long end = System.currentTimeMillis();
-        System.out.println("Fe process is started: " + (end - start));
+        waitForCatalogReady(30 * 1000);
     }
 
     private void waitForCatalogReady(long timeoutMs) throws FeStartException {

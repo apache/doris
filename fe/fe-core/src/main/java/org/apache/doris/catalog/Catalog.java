@@ -831,7 +831,9 @@ public class Catalog {
         // 6. start state listener thread
         createStateListener();
         listener.start();
-        if (Config.edit_log_type.equalsIgnoreCase("local")) {
+
+        if (!Config.edit_log_type.equalsIgnoreCase("bdb")) {
+            // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
         }
     }
@@ -1404,7 +1406,7 @@ public class Catalog {
         // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
 
         // add helper sockets
-        if (Config.edit_log_type.equalsIgnoreCase("BDB")) {
+        if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
             for (Frontend fe : frontends.values()) {
                 if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                     ((BDBHA) getHaProtocol()).addHelperSocket(fe.getHost(), fe.getEditLogPort());
