@@ -97,7 +97,7 @@ public:
     }
 
     void push_free_chunk(uint8_t* ptr, size_t size) {
-        int idx = BitUtil::Log2Ceiling64(size);
+        int idx = BitUtil::Log2Floor64(size);
         // Poison this chunk to make asan can detect invalid access
         ASAN_POISON_MEMORY_REGION(ptr, size);
         std::lock_guard<SpinLock> l(_lock);
