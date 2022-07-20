@@ -95,6 +95,8 @@ public abstract class TestWithFeService {
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
 
+    protected static final String DEFAULT_CLUSTER_PREFIX = "default_cluster:";
+
     @BeforeAll
     public final void beforeAll() throws Exception {
         connectContext = createDefaultCtx();
