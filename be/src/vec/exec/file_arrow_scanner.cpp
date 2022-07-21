@@ -108,55 +108,17 @@ Status FileArrowScanner::_next_arrow_batch() {
         RETURN_IF_ERROR(_open_next_reader());
         _cur_file_eof = false;
     }
-    // second, loop until find available arrow batch or EOF
-    while (!_scanner_eof) {
-        RETURN_IF_ERROR(_cur_file_reader->next_batch(&_batch, &_cur_file_eof));
-        if (_cur_file_eof) {
-            RETURN_IF_ERROR(_open_next_reader());
-            _cur_file_eof = false;
-            continue;
-        }
-        if (_batch->num_rows() == 0) {
-            continue;
-        }
-        return Status::OK();
+    if (!_scanner_eof) {
+        return _cur_file_reader->next_batch(&_batch, &_cur_file_eof);
     }
     return Status::EndOfFile("EOF");
 }
 
-Status FileArrowScanner::_init_arrow_batch_if_necessary() {
-    // 1. init batch if first time
-    // 2. reset reader if end of file
-    Status status;
-    if (_scanner_eof) {
-        return Status::EndOfFile("EOF");
-    }
-    if (_batch == nullptr || _arrow_batch_cur_idx >= _batch->num_rows()) {
-        return _next_arrow_batch();
-    }
-    return status;
-}
-
 Status FileArrowScanner::get_next(vectorized::Block* block, bool* eof) {
     SCOPED_TIMER(_read_timer);
-    // init arrow batch
-    {
-        Status st = _init_arrow_batch_if_necessary();
-        if (!st.ok()) {
-            if (!st.is_end_of_file()) {
-                return st;
-            }
-            *eof = true;
-            return Status::OK();
-        }
-    }
-
     RETURN_IF_ERROR(init_block(block));
     // convert arrow batch to block until reach the batch_size
     while (!_scanner_eof) {
-        // cast arrow type to PT0 and append it to block
-        // for example: arrow::Type::INT16 => TYPE_SMALLINT
-        RETURN_IF_ERROR(_append_batch_to_block(block));
         // finalize the block if full
         if (_rows >= _state->batch_size()) {
             break;
@@ -164,13 +126,19 @@ Status FileArrowScanner::get_next(vectorized::Block* block, bool* eof) {
         auto status = _next_arrow_batch();
         // if ok, append the batch to the columns
         if (status.ok()) {
+            // cast arrow type to PT0 and append it to block
+            // for example: arrow::Type::INT16 => TYPE_SMALLINT
+            RETURN_IF_ERROR(_append_batch_to_block(block));
+            if (_cur_file_eof) {
+                // should append path columns to current range.
+                break;
+            }
             continue;
         }
         // return error if not EOF
         if (!status.is_end_of_file()) {
             return status;
         }
-        _cur_file_eof = true;
         break;
     }
 
@@ -178,6 +146,9 @@ Status FileArrowScanner::get_next(vectorized::Block* block, bool* eof) {
 }
 
 Status FileArrowScanner::_append_batch_to_block(Block* block) {
+    if (_batch == nullptr) {
+        return Status::OK();
+    }
     SCOPED_TIMER(_convert_arrow_block_timer);
     size_t num_elements = std::min<size_t>((_state->batch_size() - block->rows()),
                                            (_batch->num_rows() - _arrow_batch_cur_idx));

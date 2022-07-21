@@ -87,6 +87,7 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         if (_total_groups == 0) {
             return Status::EndOfFile("Empty Parquet File");
         }
+        _batch_eof = false;
         _rows_of_group = _file_metadata->RowGroup(0)->num_rows();
 
         // map
@@ -189,8 +190,8 @@ Status ParquetReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
     while (!_closed && _queue.empty()) {
         if (_batch_eof) {
             _include_column_ids.clear();
+            *batch = nullptr;
             *eof = true;
-            _batch_eof = false;
             return Status::OK();
         }
         _queue_reader_cond.wait_for(lock, std::chrono::seconds(1));
@@ -201,6 +202,7 @@ Status ParquetReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
     *batch = _queue.front();
     _queue.pop_front();
     _queue_writer_cond.notify_one();
+    *eof = _batch_eof && _queue.empty();
     return Status::OK();
 }
 

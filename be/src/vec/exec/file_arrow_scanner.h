@@ -61,7 +61,6 @@ private:
     // Read next buffer from reader
     Status _open_next_reader();
     Status _next_arrow_batch();
-    Status _init_arrow_batch_if_necessary();
     Status _append_batch_to_block(Block* block);
 
 private:
