@@ -260,7 +260,7 @@ public class SortNode extends PlanNode {
     }
 
     @Override
-    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(resolvedTupleExprs, null, result);
         return new HashSet<>(result);

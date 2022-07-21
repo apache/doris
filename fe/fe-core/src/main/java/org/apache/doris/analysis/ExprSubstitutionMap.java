@@ -20,6 +20,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.AnalysisException;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -89,12 +91,37 @@ public final class ExprSubstitutionMap {
     }
 
     /**
+     * Returns lhs if the smap contains a mapping for rhsExpr.
+     */
+    public Expr mappingForRhsExpr(Expr rhsExpr) {
+        for (int i = 0; i < rhs.size(); ++i) {
+            if (rhs.get(i).equals(rhsExpr)) {
+                return lhs.get(i);
+            }
+        }
+        return null;
+    }
+
+    public void removeByRhsExpr(Expr rhsExpr) {
+        for (int i = 0; i < rhs.size(); ++i) {
+            if (rhs.get(i).equals(rhsExpr)) {
+                lhs.remove(i);
+                rhs.remove(i);
+                break;
+            }
+        }
+    }
+
+    public void updateLhsExprs(List<Expr> lhsExprList) {
+        lhs = lhsExprList;
+    }
+
+    /**
      * Return a map  which is equivalent to applying f followed by g,
      * i.e., g(f()).
      * Always returns a non-null map.
      */
-    public static ExprSubstitutionMap compose(ExprSubstitutionMap f, ExprSubstitutionMap g,
-                                              Analyzer analyzer) {
+    public static ExprSubstitutionMap compose(ExprSubstitutionMap f, ExprSubstitutionMap g, Analyzer analyzer) {
         if (f == null && g == null) {
             return new ExprSubstitutionMap();
         }
@@ -131,10 +158,78 @@ public final class ExprSubstitutionMap {
     }
 
     /**
+     * Returns the subtraction of two substitution maps.
+     * f [A.id, B.id] g [A.id, C.id]
+     * return: g-f [B,id, C,id]
+     */
+    public static ExprSubstitutionMap subtraction(ExprSubstitutionMap f, ExprSubstitutionMap g) {
+        if (f == null && g == null) {
+            return new ExprSubstitutionMap();
+        }
+        if (f == null) {
+            return g;
+        }
+        if (g == null) {
+            return f;
+        }
+        ExprSubstitutionMap result = new ExprSubstitutionMap();
+        for (int i = 0; i < g.size(); i++) {
+            if (f.containsMappingFor(g.lhs.get(i))) {
+                result.put(f.get(g.lhs.get(i)), g.rhs.get(i));
+            } else {
+                result.put(g.lhs.get(i), g.rhs.get(i));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Returns the replace of two substitution maps.
+     * f [A.id, B.id] [A.age, B.age] [A.name, B.name] g [A.id, C.id] [B.age, C.age] [A.address, C.address]
+     * return: [A.id, C,id] [A.age, C.age] [A.name, B.name] [A.address, C.address]
+     */
+    public static ExprSubstitutionMap composeAndReplace(ExprSubstitutionMap f, ExprSubstitutionMap g, Analyzer analyzer)
+            throws AnalysisException {
+        if (f == null && g == null) {
+            return new ExprSubstitutionMap();
+        }
+        if (f == null) {
+            return g;
+        }
+        if (g == null) {
+            return f;
+        }
+        ExprSubstitutionMap result = new ExprSubstitutionMap();
+        // compose f and g
+        for (int i = 0; i < g.size(); i++) {
+            boolean findGMatch = false;
+            Expr gLhs = g.getLhs().get(i);
+            for (int j = 0; j < f.size(); j++) {
+                // case a->fn(b), b->c => a->fn(c)
+                Expr fRhs = f.getRhs().get(j);
+                if (fRhs.contains(gLhs)) {
+                    Expr newRhs = fRhs.trySubstitute(g, analyzer, false);
+                    result.put(f.getLhs().get(j), newRhs);
+                    findGMatch = true;
+                }
+            }
+            if (!findGMatch) {
+                result.put(g.getLhs().get(i), g.getRhs().get(i));
+            }
+        }
+        // add remaining f
+        for (int i = 0; i < f.size(); i++) {
+            if (!result.containsMappingFor(f.lhs.get(i))) {
+                result.put(f.lhs.get(i), f.rhs.get(i));
+            }
+        }
+        return result;
+    }
+
+    /**
      * Returns the union of two substitution maps. Always returns a non-null map.
      */
-    public static ExprSubstitutionMap combine(ExprSubstitutionMap f,
-                                              ExprSubstitutionMap g) {
+    public static ExprSubstitutionMap combine(ExprSubstitutionMap f, ExprSubstitutionMap g) {
         if (f == null && g == null) {
             return new ExprSubstitutionMap();
         }

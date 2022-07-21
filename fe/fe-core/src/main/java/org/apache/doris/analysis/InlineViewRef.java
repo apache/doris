@@ -295,6 +295,7 @@ public class InlineViewRef extends TableRef {
         TupleDescriptor result = analyzer.getDescTbl().createTupleDescriptor();
         result.setIsMaterialized(false);
         result.setTable(inlineView);
+        analyzer.registerInlineViewTupleId(result.getId());
         return result;
     }
 

@@ -63,6 +63,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.external.ExternalFileScanNode;
 
 import com.google.common.base.Preconditions;
@@ -1356,9 +1357,14 @@ public class SingleNodePlanner {
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
-                //set outputSmap to substitute literal in outputExpr
-                unionNode.setOutputSmap(inlineViewRef.getSmap());
                 unionNode.init(analyzer);
+                //set outputSmap to substitute literal in outputExpr
+                unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
+                if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+                    List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
+                            inlineViewRef.getSmap().getRhs(), unionNode.getTupleIds(), analyzer);
+                    unionNode.setOutputSmap(new ExprSubstitutionMap(inlineViewRef.getSmap().getLhs(), nullableRhs));
+                }
                 return unionNode;
             }
         }
@@ -1376,7 +1382,7 @@ public class SingleNodePlanner {
         ExprSubstitutionMap outputSmap = ExprSubstitutionMap.compose(
                 inlineViewRef.getSmap(), rootNode.getOutputSmap(), analyzer);
 
-        if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+        if (analyzer.isOuterJoined(inlineViewRef.getId()) && !VectorizedUtil.isVectorized()) {
             rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
             // Exprs against non-matched rows of an outer join should always return NULL.
             // Make the rhs exprs of the output smap nullable, if necessary. This expr wrapping
@@ -1386,15 +1392,6 @@ public class SingleNodePlanner {
             List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
                     outputSmap.getRhs(), rootNode.getTupleIds(), analyzer);
             outputSmap = new ExprSubstitutionMap(outputSmap.getLhs(), nullableRhs);
-            // When we process outer join with inline views, we set slot descriptor of inline view to nullable firstly.
-            // When we generate plan, we remove inline view, so the upper node's input is inline view's child.
-            // So we need to set slot descriptor of inline view's child to nullable to ensure consistent behavior
-            // with BaseTable.
-            for (TupleId tupleId : rootNode.getTupleIds()) {
-                for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getMaterializedSlots()) {
-                    slotDescriptor.setIsNullable(true);
-                }
-            }
         }
         // Set output smap of rootNode *before* creating a SelectNode for proper resolution.
         rootNode.setOutputSmap(outputSmap);

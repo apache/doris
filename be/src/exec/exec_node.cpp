@@ -211,9 +211,9 @@ Status ExecNode::prepare(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, row_desc()));
+        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, _row_descriptor));
     }
-    RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, row_desc()));
+    RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
 
     // TODO(zc):
     // AddExprCtxsToFree(_conjunct_ctxs);
