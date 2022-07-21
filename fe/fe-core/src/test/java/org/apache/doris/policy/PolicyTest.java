@@ -66,7 +66,7 @@ public class PolicyTest extends TestWithFeService {
         CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(user));
         Catalog.getCurrentCatalog().getAuth().createUser(createUserStmt);
         List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ADMIN_PRIV);
-        TablePattern tablePattern = new TablePattern("*", "*");
+        TablePattern tablePattern = new TablePattern("*", "*", "*");
         tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
         Catalog.getCurrentCatalog().getAuth().grant(grantStmt);
@@ -183,25 +183,13 @@ public class PolicyTest extends TestWithFeService {
         createPolicy("CREATE ROW POLICY test_row_policy2 ON test.table1 AS RESTRICTIVE TO test_policy USING (k2 = 1)");
         String joinSql = "select * from table1 join table2 on table1.k1=table2.k1";
         System.out.println(getSQLPlanOrErrorMsg(joinSql));
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(joinSql).contains(
-                        "     TABLE: table1\n"
-                                + "     PREAGGREGATION: ON\n"
-                                + "     PREDICATES: `k1` = 1, `k2` = 1"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(joinSql).contains("PREDICATES: `k1` = 1, `k2` = 1"));
         String unionSql = "select * from table1 union select * from table2";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(unionSql).contains(
-                "     TABLE: table1\n"
-                        + "     PREAGGREGATION: ON\n"
-                        + "     PREDICATES: `k1` = 1, `k2` = 1"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(unionSql).contains("PREDICATES: `k1` = 1, `k2` = 1"));
         String subQuerySql = "select * from table2 where k1 in (select k1 from table1)";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(subQuerySql).contains(
-                "     TABLE: table1\n"
-                        + "     PREAGGREGATION: ON\n"
-                        + "     PREDICATES: `k1` = 1, `k2` = 1"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(subQuerySql).contains("PREDICATES: `k1` = 1, `k2` = 1"));
         String aliasSql = "select * from table1 t1 join table2 t2 on t1.k1=t2.k1";
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(aliasSql).contains(
-                "     TABLE: table1\n"
-                        + "     PREAGGREGATION: ON\n"
-                        + "     PREDICATES: `k1` = 1, `k2` = 1"));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(aliasSql).contains("PREDICATES: `k1` = 1, `k2` = 1"));
         dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
         dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
     }
@@ -213,24 +201,24 @@ public class PolicyTest extends TestWithFeService {
         long dbId = 10;
         UserIdentity user = new UserIdentity("test_policy", "%");
         String originStmt = "CREATE ROW POLICY test_row_policy ON test.table1"
-                            + " AS PERMISSIVE TO test_policy USING (k1 = 1)";
+                + " AS PERMISSIVE TO test_policy USING (k1 = 1)";
         long tableId = 100;
         FilterType filterType = FilterType.PERMISSIVE;
         Expr wherePredicate = null;
 
-        Policy rowPolicy = new RowPolicy(type, policyName, dbId, user,
-                                         originStmt, tableId, filterType, wherePredicate);
+        Policy rowPolicy = new RowPolicy(10000, policyName, dbId, user, originStmt, tableId, filterType,
+                wherePredicate);
 
         ByteArrayOutputStream emptyOutputStream = new ByteArrayOutputStream();
         DataOutputStream output = new DataOutputStream(emptyOutputStream);
         rowPolicy.write(output);
         byte[] bytes = emptyOutputStream.toByteArray();
-        System.out.println(emptyOutputStream.toString());
         DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes));
 
         Policy newPolicy = Policy.read(input);
         Assertions.assertTrue(newPolicy instanceof RowPolicy);
         RowPolicy newRowPolicy = (RowPolicy) newPolicy;
+        Assertions.assertEquals(rowPolicy.getPolicyId(), newRowPolicy.getPolicyId());
         Assertions.assertEquals(type, newRowPolicy.getType());
         Assertions.assertEquals(policyName, newRowPolicy.getPolicyName());
         Assertions.assertEquals(dbId, newRowPolicy.getDbId());

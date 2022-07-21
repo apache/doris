@@ -20,20 +20,20 @@
 #include "fmt/format.h"
 #include "fmt/ranges.h"
 #include "runtime/descriptors.h"
+#include "vec/aggregate_functions/aggregate_function_java_udaf.h"
+#include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/materialize_block.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
-
 namespace doris::vectorized {
 
 AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
         : _fn(desc.fn),
           _is_merge(desc.agg_expr.is_merge_agg),
           _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)),
-          _intermediate_type(TypeDescriptor::from_thrift(desc.fn.aggregate_fn.intermediate_type)),
           _intermediate_slot_desc(nullptr),
           _output_slot_desc(nullptr),
           _exec_timer(nullptr),
@@ -44,6 +44,11 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
         nullable = desc.is_nullable;
     }
     _data_type = DataTypeFactory::instance().create_data_type(_return_type, nullable);
+
+    auto& param_types = desc.agg_expr.param_types;
+    for (auto raw_type : param_types) {
+        _argument_types.push_back(DataTypeFactory::instance().create_data_type(raw_type));
+    }
 }
 
 Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluator** result) {
@@ -55,7 +60,7 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluato
         VExpr* expr = nullptr;
         VExprContext* ctx = nullptr;
         RETURN_IF_ERROR(
-                VExpr::create_tree_from_thrift(pool, desc.nodes, NULL, &node_idx, &expr, &ctx));
+                VExpr::create_tree_from_thrift(pool, desc.nodes, nullptr, &node_idx, &expr, &ctx));
         agg_fn_evaluator->_input_exprs_ctxs.push_back(ctx);
     }
     return Status::OK();
@@ -65,33 +70,36 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
                                const SlotDescriptor* intermediate_slot_desc,
                                const SlotDescriptor* output_slot_desc,
                                const std::shared_ptr<MemTracker>& mem_tracker) {
-    DCHECK(pool != NULL);
-    DCHECK(intermediate_slot_desc != NULL);
-    DCHECK(_intermediate_slot_desc == NULL);
+    DCHECK(pool != nullptr);
+    DCHECK(intermediate_slot_desc != nullptr);
+    DCHECK(_intermediate_slot_desc == nullptr);
     _output_slot_desc = output_slot_desc;
     _intermediate_slot_desc = intermediate_slot_desc;
 
     Status status = VExpr::prepare(_input_exprs_ctxs, state, desc, mem_tracker);
     RETURN_IF_ERROR(status);
 
-    DataTypes argument_types;
-    argument_types.reserve(_input_exprs_ctxs.size());
-
     std::vector<std::string_view> child_expr_name;
 
-    doris::vectorized::Array params;
     // prepare for argument
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        auto data_type = _input_exprs_ctxs[i]->root()->data_type();
-        argument_types.emplace_back(data_type);
         child_expr_name.emplace_back(_input_exprs_ctxs[i]->root()->expr_name());
     }
 
-    _function = AggregateFunctionSimpleFactory::instance().get(
-            _fn.name.function_name, argument_types, params, _data_type->is_nullable());
+    if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
+#ifdef LIBJVM
+        _function = AggregateJavaUdaf::create(_fn, _argument_types, {}, _data_type);
+#else
+        return Status::InternalError("Java UDAF is disabled since no libjvm is found!");
+#endif
+    } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
+        _function = AggregateRpcUdaf::create(_fn, _argument_types, {}, _data_type);
+    } else {
+        _function = AggregateFunctionSimpleFactory::instance().get(
+                _fn.name.function_name, _argument_types, {}, _data_type->is_nullable());
+    }
     if (_function == nullptr) {
-        return Status::InternalError(
-                fmt::format("Agg Function {} is not implemented", _fn.name.function_name));
+        return Status::InternalError("Agg Function {} is not implemented", _fn.name.function_name);
     }
 
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);

@@ -18,21 +18,24 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
 
 /**
  * Greater than expression: a > b.
  */
-public class GreaterThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class GreaterThan extends ComparisonPredicate {
     /**
      * Constructor of Greater Than ComparisonPredicate.
      *
      * @param left  left child of greater than
      * @param right right child of greater than
      */
-    public GreaterThan(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.GREATER_THAN, left, right);
+    public GreaterThan(Expression left, Expression right) {
+        super(ExpressionType.GREATER_THAN, left, right, ">");
     }
 
     @Override
@@ -43,5 +46,16 @@ public class GreaterThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE ex
     @Override
     public String toString() {
         return "(" + left() + " > " + right() + ")";
+    }
+
+    @Override
+    public GreaterThan withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new GreaterThan(children.get(0), children.get(1));
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitGreaterThan(this, context);
     }
 }

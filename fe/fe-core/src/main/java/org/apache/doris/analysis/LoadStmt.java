@@ -124,7 +124,7 @@ public class LoadStmt extends DdlStmt {
 
     private EtlJobType etlJobType = EtlJobType.UNKNOWN;
 
-    public final static ImmutableMap<String, Function> PROPERTIES_MAP = new ImmutableMap.Builder<String, Function>()
+    public static final ImmutableMap<String, Function> PROPERTIES_MAP = new ImmutableMap.Builder<String, Function>()
             .put(TIMEOUT_PROPERTY, new Function<String, Long>() {
                 @Override
                 public @Nullable Long apply(@Nullable String s) {
@@ -335,9 +335,10 @@ public class LoadStmt extends DdlStmt {
             if (dataDescription.isLoadFromTable()) {
                 isLoadFromTable = true;
             }
-            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(label.getDbName());
+            Database db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(label.getDbName());
             OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
-            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && table.getKeysType() != KeysType.UNIQUE_KEYS) {
+            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND
+                    && table.getKeysType() != KeysType.UNIQUE_KEYS) {
                 throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
             }
             if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && !table.hasDeleteSign()) {

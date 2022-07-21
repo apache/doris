@@ -63,6 +63,7 @@ public class URI {
     public String getLocation() {
         return location;
     }
+
     public String getScheme() {
         return scheme;
     }

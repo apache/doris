@@ -151,8 +151,8 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
                 + " \"global\"=\"false\", \"enable\"=\"true\");";
         createSqlBlockRule(sqlRule);
 
-        String alterSqlRule =
-                "ALTER SQL_BLOCK_RULE test_rule PROPERTIES(\"sqlHash\"=\"" + sqlHash + "\",\"enable\"=\"true\")";
+        String alterSqlRule = "ALTER SQL_BLOCK_RULE test_rule PROPERTIES(\"sqlHash\"=\"" + sqlHash
+                + "\",\"enable\"=\"true\")";
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Only sql or sqlHash can be configured",
                 () -> alterSqlBlockRule(alterSqlRule));
@@ -173,8 +173,8 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         String limitRule1 = "CREATE SQL_BLOCK_RULE test_rule1 PROPERTIES(\"cardinality\"=\"10\", \"global\"=\"true\","
                 + " \"enable\"=\"true\");";
         createSqlBlockRule(limitRule1);
-        String alterSqlRule1 =
-                "ALTER SQL_BLOCK_RULE test_rule1 PROPERTIES(\"sqlHash\"=\"" + sqlHash + "\",\"enable\"=\"true\")";
+        String alterSqlRule1 = "ALTER SQL_BLOCK_RULE test_rule1 PROPERTIES(\"sqlHash\"=\"" + sqlHash
+                + "\",\"enable\"=\"true\")";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
                 () -> alterSqlBlockRule(alterSqlRule1));
@@ -204,8 +204,8 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         // sql block rules
         String ruleName = "test_rule_name";
         String setPropertyStr = String.format("set property for \"root\" \"sql_block_rules\" = \"%s\"", ruleName);
-        SetUserPropertyStmt setUserPropertyStmt =
-                (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(setPropertyStr, connectContext);
+        SetUserPropertyStmt setUserPropertyStmt = (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(setPropertyStr,
+                connectContext);
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 String.format("the sql block rule %s not exist", ruleName),
@@ -280,5 +280,27 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         Assertions.assertEquals(sqlBlockRule.getGlobal(), read.getGlobal());
         Assertions.assertEquals(sqlBlockRule.getSqlPattern().toString(), read.getSqlPattern().toString());
         file.delete();
+    }
+
+    @Test
+    public void testIfExists() throws Exception {
+        String sqlRule1 = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"sql\"=\"select \\\\* from test_table1\","
+                + " \"global\"=\"true\", \"enable\"=\"true\");";
+        createSqlBlockRule(sqlRule1);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                String.format("the sql block rule %s already create", "test_rule"), () -> createSqlBlockRule(sqlRule1));
+        String sqlRule2 =
+                "CREATE SQL_BLOCK_RULE if not exists test_rule PROPERTIES(\"sql\"=\"select \\\\* from test_table1\","
+                        + " \"global\"=\"true\", \"enable\"=\"true\");";
+        createSqlBlockRule(sqlRule2);
+        dropSqlBlockRule("DROP SQL_BLOCK_RULE test_rule");
+    }
+
+    @Test
+    public void testIfNotExists() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                String.format("the sql block rule %s not exist", "test_rule"),
+                () -> dropSqlBlockRule("DROP SQL_BLOCK_RULE test_rule"));
+        dropSqlBlockRule("DROP SQL_BLOCK_RULE if exists test_rule");
     }
 }

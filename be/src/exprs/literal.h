@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "binary_predicate.h"
 #include "common/object_pool.h"
 #include "exprs/expr.h"
 
@@ -30,6 +29,7 @@ class TExprNode;
 
 class Literal final : public Expr {
 public:
+    Literal(const TExprNode& node);
     virtual ~Literal();
 
     virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new Literal(*this)); }
@@ -44,16 +44,15 @@ public:
     virtual DoubleVal get_double_val(ExprContext* context, TupleRow*) override;
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow*) override;
+    virtual DateV2Val get_datev2_val(ExprContext* context, TupleRow*) override;
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row) override;
     virtual CollectionVal get_array_val(ExprContext* context, TupleRow*) override;
+    virtual Decimal32Val get_decimal32_val(ExprContext* context, TupleRow*) override;
+    virtual Decimal64Val get_decimal64_val(ExprContext* context, TupleRow*) override;
+    virtual Decimal128Val get_decimal128_val(ExprContext* context, TupleRow*) override;
     // init val before use
     virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                            ExprContext* context) override;
-
-protected:
-    friend class Expr;
-    friend Expr* create_literal(ObjectPool* pool, PrimitiveType type, const void* data);
-    Literal(const TExprNode& node);
 
 private:
     ExprValue _value;

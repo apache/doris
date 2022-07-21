@@ -48,7 +48,8 @@ public class MysqlProto {
     // scramble: data receive from server.
     // randomString: data send by server in plug-in data field
     // user_name#HIGH@cluster_name
-    private static boolean authenticate(ConnectContext context, byte[] scramble, byte[] randomString, String qualifiedUser) {
+    private static boolean authenticate(ConnectContext context, byte[] scramble,
+            byte[] randomString, String qualifiedUser) {
         String usePasswd = scramble.length == 0 ? "NO" : "YES";
         String remoteIp = context.getMysqlChannel().getRemoteIp();
 
@@ -242,8 +243,8 @@ public class MysqlProto {
             // with password.
             // So Doris support the Protocol::AuthSwitchRequest to tell client to keep the default password plugin
             // which Doris is using now.
-            // Note: Check the authPacket whether support plugin auth firstly, before we check AuthPlugin between doris and client
-            // to compatible with older version: like mysql 5.1
+            // Note: Check the authPacket whether support plugin auth firstly,
+            // before we check AuthPlugin between doris and client to compatible with older version: like mysql 5.1
             if (authPacket.getCapability().isPluginAuth()
                     && !handshakePacket.checkAuthPluginSameAsDoris(authPacket.getPluginName())) {
                 // 1. clear the serializer

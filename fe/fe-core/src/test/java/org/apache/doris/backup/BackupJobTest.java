@@ -30,6 +30,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -84,6 +85,8 @@ public class BackupJobTest {
 
     @Mocked
     private Catalog catalog;
+    @Mocked
+    private InternalDataSource ds;
 
     private MockBackupHandler backupHandler;
 
@@ -94,6 +97,7 @@ public class BackupJobTest {
         public MockBackupHandler(Catalog catalog) {
             super(catalog);
         }
+
         @Override
         public RepositoryMgr getRepoMgr() {
             return repoMgr;
@@ -105,6 +109,7 @@ public class BackupJobTest {
         public MockRepositoryMgr() {
             super();
         }
+
         @Override
         public Repository getRepo(long repoId) {
             return repo;
@@ -144,10 +149,14 @@ public class BackupJobTest {
         Deencapsulation.setField(catalog, "backupHandler", backupHandler);
 
         db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version);
-
+        ds = Deencapsulation.newInstance(InternalDataSource.class);
         new Expectations(catalog) {
             {
-                catalog.getDbNullable(anyLong);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 
@@ -198,7 +207,7 @@ public class BackupJobTest {
         };
 
         List<TableRef> tableRefs = Lists.newArrayList();
-        tableRefs.add(new TableRef(new TableName(UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME), null));
+        tableRefs.add(new TableRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME), null));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
                 catalog, repo.getId());
     }
@@ -258,7 +267,6 @@ public class BackupJobTest {
         Assert.assertEquals(job.getJobId(), upTask.getJobId());
         Map<String, String> srcToDest = upTask.getSrcToDestPath();
         Assert.assertEquals(1, srcToDest.size());
-        System.out.println(srcToDest);
         String dest = srcToDest.get(snapshotPath + "/" + tabletId + "/" + 0);
         Assert.assertNotNull(dest);
 
@@ -333,7 +341,7 @@ public class BackupJobTest {
         AgentTaskQueue.clearAllTasks();
 
         List<TableRef> tableRefs = Lists.newArrayList();
-        tableRefs.add(new TableRef(new TableName(UnitTestUtil.DB_NAME, "unknown_tbl"), null));
+        tableRefs.add(new TableRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"), null));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
                 catalog, repo.getId());
         job.run();

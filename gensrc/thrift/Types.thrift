@@ -25,6 +25,7 @@ typedef i32 TTupleId
 typedef i32 TSlotId
 typedef i64 TTableId
 typedef i64 TTabletId
+typedef i64 TReplicaId
 typedef i64 TVersion
 typedef i64 TVersionHash
 typedef i32 TSchemaHash
@@ -83,6 +84,12 @@ enum TPrimitiveType {
   STRING,
   ALL,
   QUANTILE_STATE,
+  DATEV2,
+  DATETIMEV2,
+  TIMEV2,
+  DECIMAL32,
+  DECIMAL64,
+  DECIMAL128,
 }
 
 enum TTypeNodeType {
@@ -141,6 +148,7 @@ struct TTypeNode {
 // to TTypeDesc. In future, we merge these two to one
 struct TTypeDesc {
     1: list<TTypeNode> types
+    2: optional bool is_nullable
 }
 
 enum TAggregationType {
@@ -191,7 +199,8 @@ enum TTaskType {
     INSTALL_PLUGIN,
     UNINSTALL_PLUGIN,
     COMPACTION,
-    STORAGE_MEDIUM_MIGRATE_V2
+    STORAGE_MEDIUM_MIGRATE_V2,
+    NOTIFY_UPDATE_STORAGE_POLICY
 }
 
 enum TStmtType {
@@ -308,6 +317,8 @@ struct TAggregateFunction {
   8: optional string get_value_fn_symbol
   9: optional string remove_fn_symbol
   10: optional bool is_analytic_only_fn = false
+  // used for java-udaf to point user defined class
+  11: optional string symbol
 }
 
 // Represents a function in the Catalog.
@@ -374,6 +385,10 @@ struct TJavaUdfExecutorCtorParams {
   9: optional i64 output_intermediate_state_ptr
 
   10: optional i64 batch_size_ptr
+  
+  // this is used to pass place or places to FE, which could help us call jni
+  // only once and can process a batch size data in JAVA-Udaf
+  11: optional i64 input_places_ptr
 }
 
 // Contains all interesting statistics from a single 'memory pool' in the JVM.

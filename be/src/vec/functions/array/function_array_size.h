@@ -50,16 +50,15 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto array_column = check_and_get_column<ColumnArray>(*left_column);
         if (!array_column) {
-            return Status::RuntimeError(
-                    fmt::format("unsupported types for function {}({})", get_name(),
-                                block.get_by_position(arguments[0]).type->get_name()));
+            return Status::RuntimeError("unsupported types for function {}({})", get_name(),
+                                        block.get_by_position(arguments[0]).type->get_name());
         }
         const auto& offsets = array_column->get_offsets();
 
         auto dst_column = ColumnInt64::create(input_rows_count);
         auto& dst_data = dst_column->get_data();
 
-        for (size_t i = 0; i < offsets.size(); ++i) {
+        for (ssize_t i = 0; i < offsets.size(); ++i) {
             dst_data[i] = offsets[i] - offsets[i - 1];
         }
 

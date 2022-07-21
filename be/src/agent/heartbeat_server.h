@@ -21,10 +21,8 @@
 
 #include "common/status.h"
 #include "gen_cpp/HeartbeatService.h"
-#include "gen_cpp/Status_types.h"
 #include "olap/olap_define.h"
 #include "runtime/exec_env.h"
-#include "thrift/transport/TTransportUtils.h"
 
 namespace doris {
 

@@ -21,7 +21,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
 public class OperationType {
-    public static final short OP_INVALID = -1;
+    // OP_LOCAL_EOF is only for local edit log, to indicate the end of a edit log run.
+    public static final short OP_LOCAL_EOF = -1;
     public static final short OP_SAVE_NEXTID = 0;
     public static final short OP_CREATE_DB = 1;
     public static final short OP_DROP_DB = 2;
@@ -68,6 +69,9 @@ public class OperationType {
     public static final short OP_REMOVE_ALTER_JOB_V2 = 125;
     public static final short OP_MODIFY_COMMENT = 126;
     public static final short OP_MODIFY_TABLE_ENGINE = 127;
+
+    //schema change for add and drop columns
+    public static final short OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 128;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
@@ -222,6 +226,13 @@ public class OperationType {
     // policy 310-320
     public static final short OP_CREATE_POLICY = 310;
     public static final short OP_DROP_POLICY = 311;
+
+    // datasource 312-315
+    public static final short OP_CREATE_DS = 312;
+    public static final short OP_DROP_DS = 313;
+    public static final short OP_ALTER_DS_NAME = 314;
+    public static final short OP_ALTER_DS_PROPS = 315;
+    public static final short OP_ALTER_STORAGE_POLICY = 316;
 
     // get opcode name by op codeStri
     public static String getOpName(short opCode) {

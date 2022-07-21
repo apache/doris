@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.ldap.LdapAuthenticate;
 import org.apache.doris.ldap.LdapClient;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -53,6 +54,8 @@ public class MysqlProtoTest {
     @Mocked
     private Catalog catalog;
     @Mocked
+    private InternalDataSource ds;
+    @Mocked
     private PaloAuth auth;
     @Mocked
     private LdapClient ldapClient;
@@ -74,15 +77,19 @@ public class MysqlProtoTest {
                 auth.checkPassword(anyString, anyString, (byte[]) any, (byte[]) any, (List<UserIdentity>) any);
                 minTimes = 0;
                 result = new Delegate() {
-                    boolean fakeCheckPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-                                              List<UserIdentity> currentUser) {
+                    boolean fakeCheckPassword(String remoteUser, String remoteHost, byte[] remotePasswd,
+                            byte[] randomString, List<UserIdentity> currentUser) {
                         UserIdentity userIdentity = new UserIdentity("default_cluster:user", "192.168.1.1");
                         currentUser.add(userIdentity);
                         return true;
                     }
                 };
 
-                catalog.getDbNullable(anyString);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbNullable(anyString);
                 minTimes = 0;
                 result = new Database();
 

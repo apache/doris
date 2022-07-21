@@ -55,6 +55,8 @@ public class PartitionInfo implements Writable {
     protected Map<Long, PartitionItem> idToTempItem = Maps.newHashMap();
     // partition id -> data property
     protected Map<Long, DataProperty> idToDataProperty;
+    // partition id -> storage policy
+    protected Map<Long, String> idToStoragePolicy;
     // partition id -> replication allocation
     protected Map<Long, ReplicaAllocation> idToReplicaAllocation;
     // true if the partition has multi partition columns
@@ -72,6 +74,7 @@ public class PartitionInfo implements Writable {
         this.idToReplicaAllocation = new HashMap<>();
         this.idToInMemory = new HashMap<>();
         this.idToTabletType = new HashMap<>();
+        this.idToStoragePolicy = new HashMap<>();
     }
 
     public PartitionInfo(PartitionType type) {
@@ -80,6 +83,7 @@ public class PartitionInfo implements Writable {
         this.idToReplicaAllocation = new HashMap<>();
         this.idToInMemory = new HashMap<>();
         this.idToTabletType = new HashMap<>();
+        this.idToStoragePolicy = new HashMap<>();
     }
 
     public PartitionInfo(PartitionType type, List<Column> partitionColumns) {
@@ -125,7 +129,7 @@ public class PartitionInfo implements Writable {
     }
 
     public PartitionItem handleNewSinglePartitionDesc(SinglePartitionDesc desc,
-                                              long partitionId, boolean isTemp) throws DdlException {
+                                                      long partitionId, boolean isTemp) throws DdlException {
         Preconditions.checkArgument(desc.isAnalyzed());
         PartitionItem partitionItem = createAndCheckPartitionItem(desc, isTemp);
         setItemInternal(partitionId, isTemp, partitionItem);
@@ -133,6 +137,7 @@ public class PartitionInfo implements Writable {
         idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
         idToReplicaAllocation.put(partitionId, desc.getReplicaAlloc());
         idToInMemory.put(partitionId, desc.isInMemory());
+        idToStoragePolicy.put(partitionId, desc.getStoragePolicy());
 
         return partitionItem;
     }
@@ -148,6 +153,7 @@ public class PartitionInfo implements Writable {
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicaAllocation.put(partitionId, replicaAlloc);
         idToInMemory.put(partitionId, isInMemory);
+        idToStoragePolicy.put(partitionId, "");
     }
 
     public List<Map.Entry<Long, PartitionItem>> getPartitionItemEntryList(boolean isTemp, boolean isSorted) {
@@ -197,7 +203,8 @@ public class PartitionInfo implements Writable {
     public void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
     }
 
-    public void checkPartitionItemListsConflict(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
+    public void checkPartitionItemListsConflict(List<PartitionItem> list1,
+            List<PartitionItem> list2) throws DdlException {
     }
 
     public DataProperty getDataProperty(long partitionId) {
@@ -206,6 +213,14 @@ public class PartitionInfo implements Writable {
 
     public void setDataProperty(long partitionId, DataProperty newDataProperty) {
         idToDataProperty.put(partitionId, newDataProperty);
+    }
+
+    public String getStoragePolicy(long partitionId) {
+        return idToStoragePolicy.getOrDefault(partitionId, "");
+    }
+
+    public void setStoragePolicy(long partitionId, String storagePolicy) {
+        idToStoragePolicy.put(partitionId, storagePolicy);
     }
 
     public ReplicaAllocation getReplicaAllocation(long partitionId) {
@@ -282,8 +297,8 @@ public class PartitionInfo implements Writable {
         }
     }
 
-    public void resetPartitionIdForRestore(long newPartitionId, long oldPartitionId, ReplicaAllocation restoreReplicaAlloc,
-                                           boolean isSinglePartitioned) {
+    public void resetPartitionIdForRestore(long newPartitionId, long oldPartitionId,
+            ReplicaAllocation restoreReplicaAlloc, boolean isSinglePartitioned) {
         idToDataProperty.put(newPartitionId, idToDataProperty.remove(oldPartitionId));
         idToReplicaAllocation.remove(oldPartitionId);
         idToReplicaAllocation.put(newPartitionId, restoreReplicaAlloc);

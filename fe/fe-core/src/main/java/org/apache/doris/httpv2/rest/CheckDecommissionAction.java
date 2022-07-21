@@ -83,7 +83,8 @@ public class CheckDecommissionAction extends RestBaseController {
 
         try {
             List<Backend> backends = SystemHandler.checkDecommission(hostPortPairs);
-            List<String> backendsList = backends.stream().map(b -> b.getHost() + ":" + b.getHeartbeatPort()).collect(Collectors.toList());
+            List<String> backendsList = backends.stream().map(b -> b.getHost() + ":"
+                    + b.getHeartbeatPort()).collect(Collectors.toList());
             return ResponseEntityBuilder.ok(backendsList);
         } catch (DdlException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());

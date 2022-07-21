@@ -244,9 +244,8 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
                 // LOG(INFO) << "after read file: _file_eof: " << _file_eof << " read_len: " << read_len;
                 if (_file_eof || read_len == 0) {
                     if (!_stream_end) {
-                        std::stringstream ss;
-                        ss << "Compressed file has been truncated, which is not allowed";
-                        return Status::InternalError(ss.str());
+                        return Status::InternalError(
+                                "Compressed file has been truncated, which is not allowed");
                     } else {
                         // last loop we meet stream end,
                         // and now we finished reading file, so we are finished

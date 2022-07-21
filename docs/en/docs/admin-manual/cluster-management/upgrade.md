@@ -29,9 +29,11 @@ under the License.
 
 Doris can upgrade smoothly by rolling upgrades. The following steps are recommended for security upgrade.
 
+**The name of the BE binary that appears in this doc is `doris_be`, which was `palo_be` in previous versions.**
+
 > **Note:**
 > 1. Doris does not support upgrading across two-digit version numbers, for example: you cannot upgrade directly from 0.13 to 0.15, only through 0.13.x -> 0.14.x -> 0.15.x, and the three-digit version number can be upgraded across versions, such as from 0.13 .15 can be directly upgraded to 0.14.13.1, it is not necessary to upgrade 0.14.7 or 0.14.12.1
-> 1. The following approaches are based on highly available deployments. That is, data 3 replicas, FE high availability.
+> 2. The following approaches are based on highly available deployments. That is, data 3 replicas, FE high availability.
 
 ## Preparen
 
@@ -56,9 +58,9 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 
 ## Test the correctness of BE upgrade
 
-1. Arbitrarily select a BE node and deploy the latest palo_be binary file.
+1. Arbitrarily select a BE node and deploy the latest doris_be binary file.
 2. Restart the BE node and check the BE log be.INFO to see if the boot was successful.
-3. If the startup fails, you can check the reason first. If the error is not recoverable, you can delete the BE directly through DROP BACKEND, clean up the data, and restart the BE using the previous version of palo_be. Then re-ADD BACKEND. (**This method will result in the loss of a copy of the data, please make sure that three copies are complete, and perform this operation!!!**
+3. If the startup fails, you can check the reason first. If the error is not recoverable, you can delete the BE directly through DROP BACKEND, clean up the data, and restart the BE using the previous version of doris_be. Then re-ADD BACKEND. (**This method will result in the loss of a copy of the data, please make sure that three copies are complete, and perform this operation!!!**
 
 ## Testing FE Metadata Compatibility
 
@@ -77,7 +79,7 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 ## Upgrade preparation
 
 1. After data validation, the new version of BE and FE binary files are distributed to their respective directories.
-2. Usually small version upgrade, BE only needs to upgrade palo_be; FE only needs to upgrade palo-fe.jar. If it is a large version upgrade, you may need to upgrade other files (including but not limited to bin / lib / etc.) If you are not sure whether you need to replace other files, it is recommended to replace all of them.
+2. Usually small version upgrade, BE only needs to upgrade doris_be; FE only needs to upgrade palo-fe.jar. If it is a large version upgrade, you may need to upgrade other files (including but not limited to bin / lib / etc.) If you are not sure whether you need to replace other files, it is recommended to replace all of them.
 
 ## rolling upgrade
 

@@ -191,7 +191,7 @@ public class ResourceTagQueryTest {
                 + ")\n"
                 + "distributed by hash(k2) buckets 10;";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
-        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
+        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
         Set<Tag> userTags = Catalog.getCurrentCatalog().getAuth().getResourceTags(PaloAuth.ROOT_USER);
@@ -208,7 +208,7 @@ public class ResourceTagQueryTest {
         String queryStr = "explain select * from test.tbl1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("tabletRatio=30/30"));
+        Assert.assertTrue(explainString.contains("tablets=30/30"));
 
         // set zone1 tag for root
         String setPropStr2 = "set property for 'root' 'resource_tags.location' = 'zone1';";
@@ -239,19 +239,20 @@ public class ResourceTagQueryTest {
             AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
             DdlExecutor.execute(Catalog.getCurrentCatalog(), stmt);
         }
-        Assert.assertEquals(tag1, backends.get(0).getTag());
-        Assert.assertEquals(tag1, backends.get(1).getTag());
-        Assert.assertEquals(tag1, backends.get(2).getTag());
+        Assert.assertEquals(tag1, backends.get(0).getLocationTag());
+        Assert.assertEquals(tag1, backends.get(1).getLocationTag());
+        Assert.assertEquals(tag1, backends.get(2).getLocationTag());
 
         queryStr = "explain select * from test.tbl1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("tabletRatio=30/30"));
+        Assert.assertTrue(explainString.contains("tablets=30/30"));
 
         // for now, 3 backends with tag zone1, 2 with tag default, so table is not stable.
         ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
         // alter table's replication allocation to zone1:2 and default:1
-        String alterStr = "alter table test.tbl1 modify partition (p1, p2, p3) set ('replication_allocation' = 'tag.location.zone1:2, tag.location.default:1')";
+        String alterStr
+                = "alter table test.tbl1 modify partition (p1, p2, p3) set ('replication_allocation' = 'tag.location.zone1:2, tag.location.default:1')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr));
         Map<Tag, Short> expectedAllocMap = Maps.newHashMap();
         expectedAllocMap.put(Tag.DEFAULT_BACKEND_TAG, (short) 1);
@@ -269,7 +270,7 @@ public class ResourceTagQueryTest {
         queryStr = "explain select * from test.tbl1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("tabletRatio=30/30"));
+        Assert.assertTrue(explainString.contains("tablets=30/30"));
 
         // set user exec mem limit
         String setExecMemLimitStr = "set property for 'root' 'exec_mem_limit' = '1000000';";

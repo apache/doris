@@ -332,7 +332,7 @@ public abstract class PropertySchema<T> {
         }
     }
 
-    private static abstract class ComparableProperty<T extends Comparable> extends PropertySchema<T> {
+    private abstract static class ComparableProperty<T extends Comparable> extends PropertySchema<T> {
         protected ComparableProperty(String name) {
             super(name);
         }

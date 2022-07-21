@@ -18,14 +18,14 @@
 package org.apache.doris.nereids.pattern;
 
 import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
  * Define a context when match a pattern pass through a MatchedAction.
  */
-public class MatchingContext<T extends TreeNode> {
-    public final T root;
-    public final Pattern<T> pattern;
+public class MatchingContext<TYPE extends Plan> {
+    public final TYPE root;
+    public final Pattern<TYPE> pattern;
     public final PlannerContext plannerContext;
 
     /**
@@ -35,7 +35,7 @@ public class MatchingContext<T extends TreeNode> {
      * @param pattern the defined pattern
      * @param plannerContext the planner context
      */
-    public MatchingContext(T root, Pattern<T> pattern, PlannerContext plannerContext) {
+    public MatchingContext(TYPE root, Pattern<TYPE> pattern, PlannerContext plannerContext) {
         this.root = root;
         this.pattern = pattern;
         this.plannerContext = plannerContext;

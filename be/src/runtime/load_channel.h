@@ -39,8 +39,9 @@ class Cache;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                bool is_high_priority, const std::string& sender_ip, bool is_vec);
+    LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTracker>& mem_tracker,
+                int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
+                bool is_vec);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -128,7 +129,6 @@ private:
 template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
 Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
                               TabletWriterAddResult* response) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;

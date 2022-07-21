@@ -40,7 +40,7 @@ import java.util.Objects;
  * &&, ||, ! predicates.
  */
 public class CompoundPredicate extends Predicate {
-    private final static Logger LOG = LogManager.getLogger(CompoundPredicate.class);
+    private static final Logger LOG = LogManager.getLogger(CompoundPredicate.class);
     private final Operator op;
 
     public static void initBuiltins(FunctionSet functionSet) {
@@ -255,5 +255,10 @@ public class CompoundPredicate extends Predicate {
     @Override
     public boolean isNullable() {
         return hasNullableChild();
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+
     }
 }

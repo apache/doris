@@ -21,8 +21,6 @@
 #pragma once
 
 #include "exec/partitioned_hash_table.h"
-#include "exprs/expr.h"
-#include "exprs/expr_context.h"
 
 namespace doris {
 

@@ -51,8 +51,7 @@ import java.util.Map;
  * Utility class with methods intended for JNI clients
  */
 public class JniUtil {
-    private final static TBinaryProtocol.Factory protocolFactory_ =
-            new TBinaryProtocol.Factory();
+    private static final TBinaryProtocol.Factory protocolFactory_ = new TBinaryProtocol.Factory();
 
     /**
      * Initializes the JvmPauseMonitor instance.

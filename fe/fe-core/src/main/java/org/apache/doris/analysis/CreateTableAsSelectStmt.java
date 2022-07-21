@@ -67,12 +67,6 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         tmpStmt.analyze(dummyRootAnalyzer);
         this.queryStmt = tmpStmt;
         ArrayList<Expr> resultExprs = getQueryStmt().getResultExprs();
-        // TODO: support decimal
-        for (Expr expr : resultExprs) {
-            if (expr.getType().isDecimalV2()) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_UNSUPPORTED_TYPE_IN_CTAS, expr.getType());
-            }
-        }
         if (columnNames != null && columnNames.size() != resultExprs.size()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
         }

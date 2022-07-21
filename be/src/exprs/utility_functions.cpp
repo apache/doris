@@ -23,9 +23,6 @@
 #include <thread>
 
 #include "exprs/anyval_util.h"
-#include "exprs/expr.h"
-#include "runtime/tuple_row.h"
-#include "util/debug_util.h"
 
 namespace doris {
 

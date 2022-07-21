@@ -24,18 +24,20 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "olap/decimal12.h"
 #include "olap/field.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet_schema.h"
 #include "olap/uint24.h"
 #include "olap_scan_node.h"
 #include "olap_utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/mem_util.hpp"
-#include "util/network_util.h"
 
 namespace doris {
 
@@ -61,8 +63,8 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
 Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                bloom_filters) {
+        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<FunctionFilter>& function_filters) {
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     set_tablet_reader();
     // set limit to reduce end of rowset and segment mem use
@@ -85,6 +87,14 @@ Status OlapScanner::prepare(
                << ", with schema_hash=" << schema_hash << ", reason=" << err;
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
+        }
+        _tablet_schema = _tablet->tablet_schema();
+        if (!_parent->_olap_scan_node.columns_desc.empty() &&
+            _parent->_olap_scan_node.columns_desc[0].col_unique_id >= 0) {
+            _tablet_schema.clear_columns();
+            for (const auto& column_desc : _parent->_olap_scan_node.columns_desc) {
+                _tablet_schema.append_column(TabletColumn(column_desc));
+            }
         }
         {
             std::shared_lock rdlock(_tablet->get_header_lock());
@@ -114,14 +124,17 @@ Status OlapScanner::prepare(
     }
 
     {
-        // Initialize tablet_reader_params
-        RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, bloom_filters));
+        // Initialize _params
+        RETURN_IF_ERROR(
+                _init_tablet_reader_params(key_ranges, filters, bloom_filters, function_filters));
     }
 
     return Status::OK();
 }
 
 Status OlapScanner::open() {
+    auto span = _runtime_state->get_tracer()->StartSpan("OlapScanner::open");
+    auto scope = opentelemetry::trace::Scope {span};
     SCOPED_TIMER(_parent->_reader_init_timer);
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
@@ -145,11 +158,30 @@ Status OlapScanner::open() {
 // it will be called under tablet read lock because capture rs readers need
 Status OlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                bloom_filters) {
-    RETURN_IF_ERROR(_init_return_columns());
+        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<FunctionFilter>& function_filters) {
+    // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
+    bool single_version =
+            (_tablet_reader_params.rs_readers.size() == 1 &&
+             _tablet_reader_params.rs_readers[0]->rowset()->start_version() == 0 &&
+             !_tablet_reader_params.rs_readers[0]
+                      ->rowset()
+                      ->rowset_meta()
+                      ->is_segments_overlapping()) ||
+            (_tablet_reader_params.rs_readers.size() == 2 &&
+             _tablet_reader_params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
+             _tablet_reader_params.rs_readers[1]->rowset()->start_version() == 2 &&
+             !_tablet_reader_params.rs_readers[1]
+                      ->rowset()
+                      ->rowset_meta()
+                      ->is_segments_overlapping());
+
+    _tablet_reader_params.direct_mode = single_version || _aggregation;
+
+    RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
 
     _tablet_reader_params.tablet = _tablet;
+    _tablet_reader_params.tablet_schema = &_tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
     _tablet_reader_params.version = Version(0, _version);
@@ -161,6 +193,10 @@ Status OlapScanner::_init_tablet_reader_params(
     std::copy(bloom_filters.cbegin(), bloom_filters.cend(),
               std::inserter(_tablet_reader_params.bloom_filters,
                             _tablet_reader_params.bloom_filters.begin()));
+
+    std::copy(function_filters.cbegin(), function_filters.cend(),
+              std::inserter(_tablet_reader_params.function_filters,
+                            _tablet_reader_params.function_filters.begin()));
 
     // Range
     for (auto key_range : key_ranges) {
@@ -179,35 +215,18 @@ Status OlapScanner::_init_tablet_reader_params(
     // TODO(zc)
     _tablet_reader_params.profile = _parent->runtime_profile();
     _tablet_reader_params.runtime_state = _runtime_state;
-    // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
-    bool single_version =
-            (_tablet_reader_params.rs_readers.size() == 1 &&
-             _tablet_reader_params.rs_readers[0]->rowset()->start_version() == 0 &&
-             !_tablet_reader_params.rs_readers[0]
-                      ->rowset()
-                      ->rowset_meta()
-                      ->is_segments_overlapping()) ||
-            (_tablet_reader_params.rs_readers.size() == 2 &&
-             _tablet_reader_params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
-             _tablet_reader_params.rs_readers[1]->rowset()->start_version() == 2 &&
-             !_tablet_reader_params.rs_readers[1]
-                      ->rowset()
-                      ->rowset_meta()
-                      ->is_segments_overlapping());
-
     _tablet_reader_params.origin_return_columns = &_return_columns;
     _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;
 
-    if (_aggregation || single_version) {
+    if (_tablet_reader_params.direct_mode) {
         _tablet_reader_params.return_columns = _return_columns;
-        _tablet_reader_params.direct_mode = true;
     } else {
         // we need to fetch all key columns to do the right aggregation on storage engine side.
         for (size_t i = 0; i < _tablet->num_key_columns(); ++i) {
             _tablet_reader_params.return_columns.push_back(i);
         }
         for (auto index : _return_columns) {
-            if (_tablet->tablet_schema().column(index).is_key()) {
+            if (_tablet_schema.column(index).is_key()) {
                 continue;
             } else {
                 _tablet_reader_params.return_columns.push_back(index);
@@ -216,13 +235,12 @@ Status OlapScanner::_init_tablet_reader_params(
     }
 
     // use _tablet_reader_params.return_columns, because reader use this to merge sort
-    Status res =
-            _read_row_cursor.init(_tablet->tablet_schema(), _tablet_reader_params.return_columns);
+    Status res = _read_row_cursor.init(_tablet_schema, _tablet_reader_params.return_columns);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init row cursor.res = " << res;
         return Status::InternalError("failed to initialize storage read row cursor");
     }
-    _read_row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
+    _read_row_cursor.allocate_memory_for_string_type(_tablet_schema);
 
     // If a agg node is this scan node direct parent
     // we will not call agg object finalize method in scan node,
@@ -236,12 +254,14 @@ Status OlapScanner::_init_tablet_reader_params(
     return Status::OK();
 }
 
-Status OlapScanner::_init_return_columns() {
+Status OlapScanner::_init_return_columns(bool need_seq_col) {
     for (auto slot : _tuple_desc->slots()) {
         if (!slot->is_materialized()) {
             continue;
         }
-        int32_t index = _tablet->field_index(slot->col_name());
+        int32_t index = slot->col_unique_id() >= 0
+                                ? _tablet_schema.field_index(slot->col_unique_id())
+                                : _tablet_schema.field_index(slot->col_name());
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalid. field=" << slot->col_name();
@@ -249,22 +269,22 @@ Status OlapScanner::_init_return_columns() {
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
-        if (slot->is_nullable() && !_tablet->tablet_schema().column(index).is_nullable())
+        if (slot->is_nullable() && !_tablet_schema.column(index).is_nullable())
             _tablet_columns_convert_to_null_set.emplace(index);
         _query_slots.push_back(slot);
     }
 
     // expand the sequence column
-    if (_tablet->tablet_schema().has_sequence_col()) {
+    if (_tablet->tablet_schema().has_sequence_col() && need_seq_col) {
         bool has_replace_col = false;
         for (auto col : _return_columns) {
-            if (_tablet->tablet_schema().column(col).aggregation() ==
+            if (_tablet_schema.column(col).aggregation() ==
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
                 has_replace_col = true;
                 break;
             }
         }
-        if (auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
+        if (auto sequence_col_idx = _tablet_schema.sequence_col_idx();
             has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
                                          sequence_col_idx) == _return_columns.end()) {
             _return_columns.push_back(sequence_col_idx);
@@ -316,11 +336,9 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             auto res = _tablet_reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(),
                                                                  &tmp_object_pool, eof);
             if (!res.ok()) {
-                std::stringstream ss;
-                ss << "Internal Error: read storage fail. res=" << res
-                   << ", tablet=" << _tablet->full_name()
-                   << ", backend=" << BackendOptions::get_localhost();
-                return Status::InternalError(ss.str());
+                return Status::InternalError(
+                        "Internal Error: read storage fail. res={}, tablet={}, backend={}", res,
+                        _tablet->full_name(), BackendOptions::get_localhost());
             }
             // If we reach end of this scanner, break
             if (UNLIKELY(*eof)) {
@@ -395,7 +413,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                     auto pool = batch->tuple_data_pool();
                     CollectionValue::deep_copy_collection(
                             slot, item_type,
-                            [pool](int size) -> MemFootprint {
+                            [pool](int64_t size) -> MemFootprint {
                                 int64_t offset = pool->total_allocated_bytes();
                                 uint8_t* data = pool->allocate(size);
                                 return {offset, data};

@@ -46,6 +46,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     private Set<Pair<Long, Integer>> tableIdWithSchemaHash;
     private boolean isInMemory;
     private TTabletMetaType metaType;
+    private String storagePolicy;
 
     // <tablet id, tablet schema hash, tablet in memory>
     private List<Triple<Long, Integer, Boolean>> tabletToInMemory;
@@ -60,9 +61,10 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
 
     public UpdateTabletMetaInfoTask(long backendId,
                                     Set<Pair<Long, Integer>> tableIdWithSchemaHash,
-                                    boolean isInMemory,
+                                    boolean isInMemory, String storagePolicy,
                                     MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> latch) {
         this(backendId, tableIdWithSchemaHash, TTabletMetaType.INMEMORY);
+        this.storagePolicy = storagePolicy;
         this.isInMemory = isInMemory;
         this.latch = latch;
     }
@@ -110,7 +112,8 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                     TTabletMetaInfo metaInfo = new TTabletMetaInfo();
                     metaInfo.setTabletId(pair.first);
                     metaInfo.setSchemaHash(pair.second);
-                    TabletMeta tabletMeta = Catalog.getCurrentCatalog().getTabletInvertedIndex().getTabletMeta(pair.first);
+                    TabletMeta tabletMeta = Catalog.getCurrentCatalog()
+                            .getTabletInvertedIndex().getTabletMeta(pair.first);
                     if (tabletMeta == null) {
                         LOG.warn("could not find tablet [{}] in meta ignore it", pair.second);
                         continue;
@@ -130,6 +133,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                         metaInfo.setTabletId(pair.first);
                         metaInfo.setSchemaHash(pair.second);
                         metaInfo.setIsInMemory(isInMemory);
+                        metaInfo.setStoragePolicy(storagePolicy);
                         metaInfo.setMetaType(metaType);
                         metaInfos.add(metaInfo);
                     }

@@ -225,7 +225,8 @@ public class UserPropertyMgr implements Writable {
 
     public void addUserPrivEntriesByResolvedIPs(Map<String, Set<String>> resolvedIPsMap) {
         for (UserProperty userProperty : propertyMap.values()) {
-            userProperty.getWhiteList().addUserPrivEntriesByResolvedIPs(userProperty.getQualifiedUser(), resolvedIPsMap);
+            userProperty.getWhiteList()
+                    .addUserPrivEntriesByResolvedIPs(userProperty.getQualifiedUser(), resolvedIPsMap);
         }
     }
 

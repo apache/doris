@@ -24,31 +24,29 @@
 
 namespace doris {
 
-typedef void (*ERRCALLBACK)();
-
+using ERRCALLBACK = void (*)();
 struct ConsumeErrCallBackInfo {
     std::string cancel_msg;
-    bool cancel_task; // Whether to cancel the task when the current tracker exceeds the limit
+    bool cancel_task; // Whether to cancel the task when the current tracker exceeds the limit.
     ERRCALLBACK cb_func;
+    bool log_limit_exceeded; // Whether to print log_usage of mem tracker when mem limit exceeded.
 
     ConsumeErrCallBackInfo() { init(); }
 
-    ConsumeErrCallBackInfo(const std::string& cancel_msg, bool cancel_task, ERRCALLBACK cb_func)
-            : cancel_msg(cancel_msg), cancel_task(cancel_task), cb_func(cb_func) {}
+    ConsumeErrCallBackInfo(const std::string& cancel_msg, bool cancel_task, ERRCALLBACK cb_func,
+                           bool log_limit_exceeded)
+            : cancel_msg(cancel_msg),
+              cancel_task(cancel_task),
+              cb_func(cb_func),
+              log_limit_exceeded(log_limit_exceeded) {}
 
     void init() {
         cancel_msg = "";
-        cancel_task = false;
+        cancel_task = true;
         cb_func = nullptr;
+        log_limit_exceeded = true;
     }
 };
-
-// If there is a memory new/delete operation in the consume method, it may enter infinite recursion.
-// Note: After the tracker is stopped, the memory alloc in the consume method should be released in time,
-// otherwise the MemTracker statistics will be inaccurate.
-// In some cases, we want to turn off thread automatic memory statistics, manually call consume.
-// In addition, when ~RootTracker, TCMalloc delete hook release RootTracker will crash.
-inline thread_local bool start_thread_mem_tracker = false;
 
 // TCMalloc new/delete Hook is counted in the memory_tracker of the current thread.
 //
@@ -56,7 +54,7 @@ inline thread_local bool start_thread_mem_tracker = false;
 // If the consume succeeds, the memory is actually allocated, otherwise an exception is thrown.
 // But the statistics of memory through TCMalloc new/delete Hook are after the memory is actually allocated,
 // which is different from the previous behavior. Therefore, when alloc for some large memory,
-// need to manually call cosume after stop_mem_tracker, and then start_mem_tracker.
+// need to manually call consume after stop_mem_tracker, and then start_mem_tracker.
 class ThreadMemTrackerMgr {
 public:
     ThreadMemTrackerMgr() {}
@@ -67,7 +65,6 @@ public:
         _mem_trackers.clear();
         _untracked_mems.clear();
         _mem_tracker_labels.clear();
-        start_thread_mem_tracker = false;
     }
 
     // After thread initialization, calling `init` again must call `clear_untracked_mems` first
@@ -94,11 +91,12 @@ public:
     void add_tracker(const std::shared_ptr<MemTracker>& mem_tracker);
 
     ConsumeErrCallBackInfo update_consume_err_cb(const std::string& cancel_msg, bool cancel_task,
-                                                 ERRCALLBACK cb_func) {
+                                                 ERRCALLBACK cb_func, bool log_limit_exceeded) {
         _temp_consume_err_cb = _consume_err_cb;
         _consume_err_cb.cancel_msg = cancel_msg;
         _consume_err_cb.cancel_task = cancel_task;
         _consume_err_cb.cb_func = cb_func;
+        _consume_err_cb.log_limit_exceeded = log_limit_exceeded;
         return _temp_consume_err_cb;
     }
 
@@ -171,6 +169,8 @@ private:
     phmap::flat_hash_map<int64_t, std::string> _mem_tracker_labels;
     // If true, call memtracker try_consume, otherwise call consume.
     bool _check_limit;
+    // If there is a memory new/delete operation in the consume method, it may enter infinite recursion.
+    bool _stop_consume = false;
 
     int64_t _tracker_id;
     // Avoid memory allocation in functions.
@@ -250,25 +250,27 @@ inline void ThreadMemTrackerMgr::cache_consume(int64_t size) {
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
     // and some threads `_untracked_mem <= -config::mem_tracker_consume_min_size_bytes` trigger consumption(),
     // it will cause tracker->consumption to be temporarily less than 0.
-    if (_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
-        _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) {
+    //
+    // Temporary memory may be allocated during the consumption of the mem tracker (in the processing logic of
+    // the exceeded limit), which will lead to entering the TCMalloc Hook again, so suspend consumption to avoid
+    // falling into an infinite loop.
+    if ((_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
+         _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) &&
+        !_stop_consume) {
+        _stop_consume = true;
         DCHECK(_untracked_mems.find(_tracker_id) != _untracked_mems.end()) << print_debug_string();
         // When switching to the current tracker last time, the remaining untracked memory.
         if (_untracked_mems[_tracker_id] != 0) {
             _untracked_mem += _untracked_mems[_tracker_id];
             _untracked_mems[_tracker_id] = 0;
         }
-        // Allocating memory in the Hook command causes the TCMalloc Hook to be entered again,
-        // will enter infinite recursion. So the temporary memory allocated in mem_tracker.try_consume
-        // and mem_limit_exceeded will directly call consume.
         if (_check_limit) {
-            _check_limit = false;
             noncache_try_consume(_untracked_mem);
-            _check_limit = true;
         } else {
             mem_tracker()->consume(_untracked_mem);
         }
         _untracked_mem = 0;
+        _stop_consume = false;
     }
 }
 
@@ -283,11 +285,13 @@ inline void ThreadMemTrackerMgr::noncache_try_consume(int64_t size) {
 }
 
 inline void ThreadMemTrackerMgr::add_tracker(const std::shared_ptr<MemTracker>& mem_tracker) {
+#ifdef USE_MEM_TRACKER
     DCHECK(_mem_trackers.find(mem_tracker->id()) == _mem_trackers.end()) << print_debug_string();
     _mem_trackers[mem_tracker->id()] = mem_tracker;
     DCHECK(_mem_trackers[mem_tracker->id()]) << print_debug_string();
     _untracked_mems[mem_tracker->id()] = 0;
     _mem_tracker_labels[mem_tracker->id()] = mem_tracker->label();
+#endif
 }
 
 inline std::shared_ptr<MemTracker> ThreadMemTrackerMgr::mem_tracker() {

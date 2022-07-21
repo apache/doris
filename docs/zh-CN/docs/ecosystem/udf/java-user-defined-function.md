@@ -36,18 +36,12 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 * 性能：相比于 Native UDF，Java UDF会带来额外的JNI开销，不过通过批式执行的方式，我们已经尽可能的将JNI开销降到最低。
 * 向量化引擎：Java UDF当前只支持向量化引擎。
 
-## 编写 UDF 函数
+### 类型对应关系
 
-本小节主要介绍如何开发一个 Java UDF。在 `samples/doris-demo/java-udf-demo/` 下提供了示例，可供参考，查看点击[这里](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/java-udf-demo)
-
-使用Java代码编写UDF，UDF的主入口必须为 `evaluate` 函数。这一点与Hive等其他引擎保持一致。在本示例中，我们编写了 `AddOne` UDF来完成对整型输入进行加一的操作。
-值得一提的是，本例不只是Doris支持的Java UDF，同时还是Hive支持的UDF，也就是说，对于用户来讲，Hive UDF是可以直接迁移至Doris的。
-
-#### 类型对应关系
-
-|UDF Type|Argument Type|
+|Type|UDF Argument Type|
 |----|---------|
-|TinyInt|TinyIntVal|
+|Bool|Boolean|
+|TinyInt|Byte|
 |SmallInt|Short|
 |Int|Integer|
 |BigInt|Long|
@@ -60,10 +54,14 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 |Varchar|String|
 |Decimal|BigDecimal|
 
+## 编写 UDF 函数
+
+本小节主要介绍如何开发一个 Java UDF。在 `samples/doris-demo/java-udf-demo/` 下提供了示例，可供参考，查看点击[这里](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/java-udf-demo)
+
+使用Java代码编写UDF，UDF的主入口必须为 `evaluate` 函数。这一点与Hive等其他引擎保持一致。在本示例中，我们编写了 `AddOne` UDF来完成对整型输入进行加一的操作。
+值得一提的是，本例不只是Doris支持的Java UDF，同时还是Hive支持的UDF，也就是说，对于用户来讲，Hive UDF是可以直接迁移至Doris的。
 
 ## 创建 UDF
-
-目前暂不支持 UDAF 和 UDTF
 
 ```sql
 CREATE FUNCTION 
@@ -86,6 +84,83 @@ CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
     "type"="JAVA_UDF"
 );
 ```
+
+## 编写 UDAF 函数
+<br/>
+
+在使用Java代码编写UDAF时，有一些必须实现的函数(标记required)和一个内部类State，下面将以一个具体的实例来说明
+下面的SimpleDemo将实现一个类似的sum的简单函数,输入参数INT，输出参数是INT
+```JAVA
+package org.apache.doris.udf;
+
+public class SimpleDemo {
+    //Need an inner class to store data
+    /*required*/  
+    public static class State {
+        /*some variables if you need */
+        public int sum = 0;
+    }
+
+    /*required*/
+    public State create() {
+        /* here could do some init work if needed */
+        return new State();
+    }
+
+    /*required*/
+    public void destroy(State state) {
+      /* here could do some destroy work if needed */
+    }
+
+    /*required*/ 
+    //first argument is State, then other types your input
+    public void add(State state, Integer val) {
+      /* here doing update work when input data*/
+        if (val != null) {
+            state.sum += val;
+        }
+    }
+
+    /*required*/
+    public void serialize(State state, DataOutputStream out) {
+      /* serialize some data into buffer */
+        out.writeInt(state.sum);
+    }
+
+    /*required*/
+    public void deserialize(State state, DataInputStream in) {
+      /* deserialize get data from buffer before you put */
+        int val = in.readInt();
+        state.sum = val;
+    }
+
+    /*required*/
+    public void merge(State state, State rhs) {
+      /* merge data from state */
+        state.sum += rhs.sum;
+    }
+
+    /*required*/
+    //return Type you defined
+    public Integer getValue(State state) {
+      /* return finally result */
+        return state.sum;
+    }
+}
+
+```
+
+```sql
+CREATE AGGREGATE FUNCTION simple_sum(int) RETURNS int PROPERTIES (
+    "file"="file:///pathTo/java-udaf.jar",
+    "symbol"="org.apache.doris.udf.SimpleDemo",
+    "type"="JAVA_UDF"
+);
+```
+
+目前还暂不支持UDTF
+
+<br/>
 
 ## 使用 UDF
 

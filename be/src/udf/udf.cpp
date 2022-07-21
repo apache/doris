@@ -49,6 +49,9 @@ public:
     FreePool(MemPool*) {}
 
     uint8_t* allocate(int byte_size) { return reinterpret_cast<uint8_t*>(malloc(byte_size)); }
+    uint8_t* aligned_allocate(int alignment, int byte_size) {
+        return reinterpret_cast<uint8_t*>(aligned_alloc(alignment, byte_size));
+    }
 
     uint8_t* reallocate(uint8_t* ptr, int byte_size) {
         return reinterpret_cast<uint8_t*>(realloc(ptr, byte_size));
@@ -262,6 +265,17 @@ const char* FunctionContext::error_msg() const {
 
 uint8_t* FunctionContext::allocate(int byte_size) {
     uint8_t* buffer = _impl->_pool->allocate(byte_size);
+    _impl->_allocations[buffer] = byte_size;
+
+    if (_impl->_debug) {
+        memset(buffer, 0xff, byte_size);
+    }
+
+    return buffer;
+}
+
+uint8_t* FunctionContext::aligned_allocate(int alignment, int byte_size) {
+    uint8_t* buffer = _impl->_pool->aligned_allocate(alignment, byte_size);
     _impl->_allocations[buffer] = byte_size;
 
     if (_impl->_debug) {
@@ -542,10 +556,8 @@ void* FunctionContext::get_function_state(FunctionStateScope scope) const {
     switch (scope) {
     case THREAD_LOCAL:
         return _impl->_thread_local_fn_state;
-        break;
     case FRAGMENT_LOCAL:
         return _impl->_fragment_local_fn_state;
-        break;
     default:
         // TODO: signal error somehow
         return nullptr;

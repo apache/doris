@@ -21,7 +21,6 @@
 #pragma once
 
 #include "common/status.h"
-#include "fmt/format.h"
 #include "gutil/macros.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
@@ -203,8 +202,6 @@ private:
     }
 
     DISALLOW_COPY_AND_ASSIGN(BlockBloomFilter);
-
-    std::unique_ptr<char[]> _mem_holder;
 };
 
 } // namespace doris

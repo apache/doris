@@ -56,7 +56,7 @@ ALTER SYSTEM DROP BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...]
 
 ### Keywords
 
-    ALTER, SYSTEM, DROP, BACKEND
+    ALTER, SYSTEM, DROP, BACKEND, ALTER SYSTEM
 
 ### Best Practice
 

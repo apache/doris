@@ -55,7 +55,7 @@ ALTER SYSTEM DROP FOLLOWER "follower_host:edit_log_port"
 
 ### Keywords
 
-    ALTER, SYSTEM, DROP, FOLLOWER
+    ALTER, SYSTEM, DROP, FOLLOWER, ALTER SYSTEM
 
 ### Best Practice
 

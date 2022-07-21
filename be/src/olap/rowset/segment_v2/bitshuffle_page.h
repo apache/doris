@@ -243,21 +243,18 @@ inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
                                        size_t& compressed_size, size_t& num_element_after_padding,
                                        int& size_of_element) {
     if (data.size < BITSHUFFLE_PAGE_HEADER_SIZE) {
-        std::stringstream ss;
-        ss << "file corruption: invalid data size:" << data.size
-           << ", header size:" << BITSHUFFLE_PAGE_HEADER_SIZE;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("file corruption: invalid data size:{}, header size:{}",
+                                     data.size, BITSHUFFLE_PAGE_HEADER_SIZE);
     }
 
     num_elements = decode_fixed32_le((const uint8_t*)&data[0]);
     compressed_size = decode_fixed32_le((const uint8_t*)&data[4]);
     num_element_after_padding = decode_fixed32_le((const uint8_t*)&data[8]);
     if (num_element_after_padding != ALIGN_UP(num_elements, 8)) {
-        std::stringstream ss;
-        ss << "num of element information corrupted,"
-           << " _num_element_after_padding:" << num_element_after_padding
-           << ", _num_elements:" << num_elements;
-        return Status::InternalError(ss.str());
+        return Status::InternalError(
+                "num of element information corrupted,"
+                " _num_element_after_padding:{}, _num_elements:{}",
+                num_element_after_padding, num_elements);
     }
     size_of_element = decode_fixed32_le((const uint8_t*)&data[12]);
     switch (size_of_element) {
@@ -270,9 +267,7 @@ inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
     case 16:
         break;
     default:
-        std::stringstream ss;
-        ss << "invalid size_of_elem:" << size_of_element;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("invalid size_of_elem:{}", size_of_element);
     }
     return Status::OK();
 }
@@ -306,16 +301,13 @@ public:
 
         // Currently, only the UINT32 block encoder supports expanding size:
         if (UNLIKELY(Type != OLAP_FIELD_TYPE_UNSIGNED_INT && _size_of_element != SIZE_OF_TYPE)) {
-            std::stringstream ss;
-            ss << "invalid size info. size of element:" << _size_of_element
-               << ", SIZE_OF_TYPE:" << SIZE_OF_TYPE << ", type:" << Type;
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "invalid size info. size of element:{}, SIZE_OF_TYPE:{}, type:{}",
+                    _size_of_element, SIZE_OF_TYPE, Type);
         }
         if (UNLIKELY(_size_of_element > SIZE_OF_TYPE)) {
-            std::stringstream ss;
-            ss << "invalid size info. size of element:" << _size_of_element
-               << ", SIZE_OF_TYPE:" << SIZE_OF_TYPE;
-            return Status::InternalError(ss.str());
+            return Status::InternalError("invalid size info. size of element:{}, SIZE_OF_TYPE:{}",
+                                         _size_of_element, SIZE_OF_TYPE);
         }
         _parsed = true;
         return Status::OK();
@@ -407,6 +399,32 @@ public:
 
         return Status::OK();
     };
+
+    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                          vectorized::MutableColumnPtr& dst) override {
+        DCHECK(_parsed);
+        if (PREDICT_FALSE(*n == 0)) {
+            *n = 0;
+            return Status::OK();
+        }
+
+        auto total = *n;
+        auto read_count = 0;
+        CppType data[total];
+        for (size_t i = 0; i < total; ++i) {
+            ordinal_t ord = rowids[i] - page_first_ordinal;
+            if (UNLIKELY(ord >= _num_elements)) {
+                break;
+            }
+
+            data[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
+        }
+
+        if (LIKELY(read_count > 0)) dst->insert_many_fix_len_data((const char*)data, read_count);
+
+        *n = read_count;
+        return Status::OK();
+    }
 
     Status peek_next_batch(size_t* n, ColumnBlockView* dst) override {
         return next_batch<false>(n, dst);

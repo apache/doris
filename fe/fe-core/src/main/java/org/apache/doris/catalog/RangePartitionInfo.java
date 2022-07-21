@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class RangePartitionInfo extends PartitionInfo {
 
@@ -79,11 +80,12 @@ public class RangePartitionInfo extends PartitionInfo {
     // create a new range and check it.
     private Range<PartitionKey> createAndCheckNewRange(PartitionKeyDesc partKeyDesc, boolean isTemp)
             throws AnalysisException, DdlException {
-        boolean isFixedPartitionKeyValueType = partKeyDesc.getPartitionType() == PartitionKeyDesc.PartitionKeyValueType.FIXED;
+        boolean isFixedPartitionKeyValueType
+                = partKeyDesc.getPartitionType() == PartitionKeyDesc.PartitionKeyValueType.FIXED;
 
         // generate partitionItemEntryList
         List<Map.Entry<Long, PartitionItem>> partitionItemEntryList = isFixedPartitionKeyValueType
-                ? getPartitionItemEntryList(isTemp, false) : getPartitionItemEntryList(isTemp, true);
+                        ? getPartitionItemEntryList(isTemp, false) : getPartitionItemEntryList(isTemp, true);
 
         if (isFixedPartitionKeyValueType) {
             return createNewRangeForFixedPartitionValueType(partKeyDesc, partitionItemEntryList);
@@ -122,7 +124,7 @@ public class RangePartitionInfo extends PartitionInfo {
     }
 
     private Range<PartitionKey> createNewRangeForFixedPartitionValueType(PartitionKeyDesc partKeyDesc,
-                                                                         List<Map.Entry<Long, PartitionItem>> partitionItemEntryList)
+            List<Map.Entry<Long, PartitionItem>> partitionItemEntryList)
             throws AnalysisException, DdlException {
         PartitionKey lowKey = PartitionKey.createPartitionKey(partKeyDesc.getLowerValues(), partitionColumns);
         PartitionKey upperKey =  PartitionKey.createPartitionKey(partKeyDesc.getUpperValues(), partitionColumns);
@@ -138,8 +140,8 @@ public class RangePartitionInfo extends PartitionInfo {
 
     private Range<PartitionKey> createNewRangeForLessThanPartitionValueType(PartitionKey newRangeUpper,
             Range<PartitionKey> lastRange, Range<PartitionKey> currentRange) throws AnalysisException, DdlException {
-        PartitionKey lowKey = lastRange == null ? PartitionKey.createInfinityPartitionKey(partitionColumns, false)
-                : lastRange.upperEndpoint();
+        PartitionKey lowKey = lastRange == null
+                ? PartitionKey.createInfinityPartitionKey(partitionColumns, false) : lastRange.upperEndpoint();
 
         // check: [left, right), error if left equal right
         if (lowKey.compareTo(newRangeUpper) >= 0) {
@@ -169,7 +171,8 @@ public class RangePartitionInfo extends PartitionInfo {
     }
 
     @Override
-    public void checkPartitionItemListsConflict(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
+    public void checkPartitionItemListsConflict(List<PartitionItem> list1, List<PartitionItem> list2)
+            throws DdlException {
         RangeUtils.checkRangeConflict(list1, list2);
     }
 
@@ -256,6 +259,13 @@ public class RangePartitionInfo extends PartitionInfo {
             sb.append("PARTITION ").append(partitionName).append(" VALUES [");
             sb.append(range.lowerEndpoint().toSql());
             sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
+
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
+                if (!p.equals("")) {
+                    sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
+                    sb.append(p).append("\")");
+                }
+            });
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());

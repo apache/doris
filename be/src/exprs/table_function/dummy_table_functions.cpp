@@ -17,6 +17,8 @@
 
 #include "exprs/table_function/dummy_table_functions.h"
 
+#include "runtime/collection_value.h"
+
 namespace doris {
 
 void DummyTableFunctions::init() {}

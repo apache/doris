@@ -24,6 +24,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * This class represents one node with the http and potential thrift publish address
@@ -197,8 +198,8 @@ public class EsNodeInfo {
         if (hasThrift != nodeInfo.hasThrift) {
             return false;
         }
-        return (publishAddress != null ? publishAddress.equals(nodeInfo.publishAddress) : nodeInfo.publishAddress == null)
-                && (thriftAddress != null ? thriftAddress.equals(nodeInfo.thriftAddress) : nodeInfo.thriftAddress == null);
+        return (Objects.equals(publishAddress, nodeInfo.publishAddress))
+                && (Objects.equals(thriftAddress, nodeInfo.thriftAddress));
     }
 
     @Override

@@ -109,6 +109,7 @@ public enum AggregateType {
 
         compatibilityMap.put(NONE, EnumSet.copyOf(excObjectStored));
     }
+
     private final String sqlName;
 
     private AggregateType(String sqlName) {

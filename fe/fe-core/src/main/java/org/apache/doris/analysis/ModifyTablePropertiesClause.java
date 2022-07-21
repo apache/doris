@@ -32,6 +32,16 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
 
     private Map<String, String> properties;
 
+    public String getStoragePolicy() {
+        return this.storagePolicy;
+    }
+
+    public void setStoragePolicy(String storagePolicy) {
+        this.storagePolicy = storagePolicy;
+    }
+
+    private String storagePolicy;
+
     public ModifyTablePropertiesClause(Map<String, String> properties) {
         super(AlterOpType.MODIFY_TABLE_PROPERTY);
         this.properties = properties;
@@ -82,14 +92,18 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)
                 || properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
             ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "default");
-            properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
+            properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                    replicaAlloc.toCreateStmt());
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY)) {
+            // do nothing, just check valid.
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TABLET_TYPE)) {
             throw new AnalysisException("Alter tablet type not supported");
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE)) {
-            throw new AnalysisException("Alter table remote_storage_resource is not supported.");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
+            this.needTableStable = false;
+            setStoragePolicy(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, ""));
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

@@ -125,6 +125,9 @@ export ODBCSYSINI=$DORIS_HOME/conf
 # support utf8 for oracle database
 export NLS_LANG=AMERICAN_AMERICA.AL32UTF8
 
+#filter known leak for lsan.
+export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
+
 while read line; do
     envline=$(echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
     envline=$(eval "echo $envline")
@@ -158,7 +161,7 @@ if [ -f $pidfile ]; then
     fi
 fi
 
-chmod 755 ${DORIS_HOME}/lib/palo_be
+chmod 755 ${DORIS_HOME}/lib/doris_be
 echo "start time: "$(date) >> $LOG_DIR/be.out
 
 if [ ! -f /bin/limit3 ]; then
@@ -168,8 +171,8 @@ else
 fi
 
 if [ ${RUN_DAEMON} -eq 1 ]; then
-    nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 < /dev/null &
+    nohup $LIMIT ${DORIS_HOME}/lib/doris_be "$@" >> $LOG_DIR/be.out 2>&1 < /dev/null &
 else
     export DORIS_LOG_TO_STDERR=1
-    $LIMIT ${DORIS_HOME}/lib/palo_be "$@" 2>&1 < /dev/null
+    $LIMIT ${DORIS_HOME}/lib/doris_be "$@" 2>&1 < /dev/null
 fi

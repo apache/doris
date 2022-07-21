@@ -120,12 +120,14 @@ public class CacheBeProxy extends CacheProxy {
         }
     }
 
-    protected boolean clearCache(InternalService.PClearCacheRequest request, Backend backend, int timeoutMs, Status status) {
+    protected boolean clearCache(InternalService.PClearCacheRequest request,
+            Backend backend, int timeoutMs, Status status) {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             request = request.toBuilder().setClearType(InternalService.PClearType.CLEAR_ALL).build();
             LOG.info("clear all backend cache, backendId {}", backend.getId());
-            Future<InternalService.PCacheResponse> future = BackendServiceProxy.getInstance().clearCache(address, request);
+            Future<InternalService.PCacheResponse> future
+                    = BackendServiceProxy.getInstance().clearCache(address, request);
             InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MILLISECONDS);
             if (response.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));

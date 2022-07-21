@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -31,6 +30,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.datasource.DataSourceIf;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -87,17 +88,17 @@ public class MetaInfoAction extends RestBaseController {
             HttpServletRequest request, HttpServletResponse response) {
         checkWithCookie(request, response, false);
 
-        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
-            return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
+        // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
+        if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
+            ns = InternalDataSource.INTERNAL_DS_NAME;
         }
 
         // 1. get all database with privilege
-        List<String> dbNames = null;
-        try {
-            dbNames = Catalog.getCurrentCatalog().getClusterDbNames(ns);
-        } catch (AnalysisException e) {
-            return ResponseEntityBuilder.okWithCommonError("namespace does not exist: " + ns);
+        DataSourceIf ds = Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(ns);
+        if (ds == null) {
+            return ResponseEntityBuilder.badRequest("Unknown catalog " + ns);
         }
+        List<String> dbNames = ds.getDbNames();
         List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
@@ -142,7 +143,7 @@ public class MetaInfoAction extends RestBaseController {
         String fullDbName = getFullDbName(dbName);
         Database db;
         try {
-            db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
@@ -225,7 +226,7 @@ public class MetaInfoAction extends RestBaseController {
         Database db;
         Table tbl;
         try {
-            db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
             tbl = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());

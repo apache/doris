@@ -24,8 +24,6 @@
 #include "gtest/gtest.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/olap_meta.h"
-#include "olap/rowset/alpha_rowset.h"
-#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta_manager.h"
@@ -108,7 +106,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = FileUtils::check_exist(tablet->tablet_path_desc().filepath);
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
     EXPECT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
@@ -119,7 +117,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     EXPECT_TRUE(create_st == Status::OK());
 
-    Status drop_st = _tablet_mgr->drop_tablet(111, false);
+    Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id);
     EXPECT_TRUE(drop_st == Status::OK());
     tablet.reset();
     Status trash_st = _tablet_mgr->start_trash_sweep();
@@ -167,14 +165,14 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = FileUtils::check_exist(tablet->tablet_path_desc().filepath);
-    EXPECT_TRUE(dir_exist) << tablet->tablet_path_desc().filepath;
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
+    EXPECT_TRUE(dir_exist) << tablet->tablet_path();
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
     Status check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
     EXPECT_TRUE(check_meta_st == Status::OK());
 
-    Status drop_st = _tablet_mgr->drop_tablet(111, false);
+    Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id);
     EXPECT_TRUE(drop_st == Status::OK());
     tablet.reset();
     Status trash_st = _tablet_mgr->start_trash_sweep();
@@ -208,13 +206,13 @@ TEST_F(TabletMgrTest, DropTablet) {
     EXPECT_TRUE(tablet != nullptr);
 
     // drop unexist tablet will be success
-    Status drop_st = _tablet_mgr->drop_tablet(1121, false);
+    Status drop_st = _tablet_mgr->drop_tablet(1121, create_tablet_req.replica_id);
     EXPECT_TRUE(drop_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
 
     // drop exist tablet will be success
-    drop_st = _tablet_mgr->drop_tablet(111, false);
+    drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id);
     EXPECT_TRUE(drop_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet == nullptr);
@@ -222,7 +220,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     EXPECT_TRUE(tablet != nullptr);
 
     // check dir exist
-    std::string tablet_path = tablet->tablet_path_desc().filepath;
+    std::string tablet_path = tablet->tablet_path();
     bool dir_exist = FileUtils::check_exist(tablet_path);
     EXPECT_TRUE(dir_exist);
 

@@ -30,7 +30,8 @@ import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectIn
 
 import java.io.IOException;
 
-@Description(name = "bitmap_and", value = "a _FUNC_ b - Compute intersection of two or more input bitmaps, return the new bitmap")
+@Description(name = "bitmap_and", value = "a _FUNC_ b - Compute intersection of two or more input bitmaps,"
+        + " return the new bitmap")
 public class BitmapAndUDF extends GenericUDF {
 
     private transient BinaryObjectInspector inputOI0;

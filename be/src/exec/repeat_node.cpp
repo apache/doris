@@ -17,11 +17,12 @@
 
 #include "exec/repeat_node.h"
 
-#include "exprs/expr.h"
 #include "gutil/strings/join.h"
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/tuple.h"
+#include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 
 namespace doris {

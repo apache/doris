@@ -43,16 +43,22 @@ public:
 
     Version version() override { return _rowset->version(); }
 
+    int64_t oldest_write_timestamp() override { return _rowset->oldest_write_timestamp(); }
+    int64_t newest_write_timestamp() override { return _rowset->newest_write_timestamp(); }
+
     RowsetSharedPtr rowset() override { return std::dynamic_pointer_cast<Rowset>(_rowset); }
 
     // Return the total number of filtered rows, will be used for validation of schema change
     int64_t filtered_rows() override {
-        return _stats->rows_del_filtered + _stats->rows_conditions_filtered;
+        return _stats->rows_del_filtered + _stats->rows_conditions_filtered +
+               _stats->rows_vec_del_cond_filtered + _stats->rows_vec_cond_filtered;
     }
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
 private:
+    bool _should_push_down_value_predicates() const;
+
     std::unique_ptr<Schema> _schema;
     RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;

@@ -35,6 +35,7 @@ import javax.servlet.http.HttpServletResponse;
 public class ServletTraceIterceptor implements Filter {
 
     private static final Logger LOG = LogManager.getLogger(ServletTraceIterceptor.class);
+
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
 

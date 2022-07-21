@@ -23,12 +23,11 @@
 #include <sstream>
 
 #include "common/utils.h"
-#include "exec/hash_table.hpp"
+#include "exec/hash_table.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
-#include "exprs/in_predicate.h"
 #include "exprs/runtime_filter.h"
-#include "exprs/slot_ref.h"
+#include "exprs/runtime_filter_slots.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_filter_mgr.h"
@@ -161,7 +160,6 @@ Status HashJoinNode::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     // Must reset _probe_batch in close() to release resources
     _probe_batch.reset(nullptr);
 
@@ -221,7 +219,6 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
 
 Status HashJoinNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
@@ -303,7 +300,6 @@ Status HashJoinNode::open(RuntimeState* state) {
 }
 
 Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eos) {
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     // In most cases, no additional memory overhead will be applied for at this stage,
     // but if the expression calculation in this node needs to apply for additional memory,

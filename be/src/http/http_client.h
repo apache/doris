@@ -106,8 +106,7 @@ public:
             *length = cl;
             return Status::OK();
         }
-        return Status::InternalError(
-                fmt::format("failed to get content length. err code: {}", code));
+        return Status::InternalError("failed to get content length. err code: {}", code);
     }
 
     long get_http_status() const {

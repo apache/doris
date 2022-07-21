@@ -20,10 +20,8 @@
 
 #include "exprs/operators.h"
 
-#include "exprs/anyval_util.h"
 #include "runtime/datetime_value.h"
 #include "runtime/string_value.h"
-#include "util/debug_util.h"
 
 namespace doris {
 

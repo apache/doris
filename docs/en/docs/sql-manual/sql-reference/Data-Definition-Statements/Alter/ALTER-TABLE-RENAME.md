@@ -89,7 +89,7 @@ ALTER TABLE example_table RENAME PARTITION p1 p2;
 ### Keywords
 
 ```text
-ALTER, TABLE, RENAME
+ALTER, TABLE, RENAME, ALTER TABLE
 ```
 
 ### Best Practice

@@ -36,7 +36,6 @@
 #include "gen_cpp/MasterService_types.h"
 #include "gutil/ref_counted.h"
 #include "olap/compaction_permit_limiter.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
@@ -96,7 +95,7 @@ public:
     // @brief 获取所有root_path信息
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
-    int64_t get_file_or_directory_size(std::filesystem::path file_path);
+    int64_t get_file_or_directory_size(const std::string& file_path);
 
     // get root path for creating tablet. The returned vector of root path should be random,
     // for avoiding that all the tablet would be deployed one disk.
@@ -194,6 +193,7 @@ public:
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+    Status submit_quick_compaction_task(TabletSharedPtr tablet);
 
 private:
     // Instance should be inited from `static open()`
@@ -218,7 +218,7 @@ private:
 
     void _clean_unused_rowset_metas();
 
-    Status _do_sweep(const FilePathDesc& scan_root_desc, const time_t& local_tm_now,
+    Status _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
                      const int32_t expire);
 
     // All these xxx_callback() functions are for Background threads
@@ -254,8 +254,6 @@ private:
 
     void _compaction_tasks_producer_callback();
 
-    void _alpha_rowset_scan_thread_callback();
-
     std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
                                                             std::vector<DataDir*>& data_dirs,
                                                             bool check_score);
@@ -270,6 +268,12 @@ private:
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+
+    Status _handle_quick_compaction(TabletSharedPtr);
+
+    void _adjust_compaction_thread_num();
+
+    void _cooldown_tasks_producer_callback();
 
 private:
     struct CompactionCandidate {
@@ -378,10 +382,9 @@ private:
 
     HeartbeatFlags* _heartbeat_flags;
 
-    std::unique_ptr<ThreadPool> _compaction_thread_pool;
-
-    scoped_refptr<Thread> _alpha_rowset_scan_thread;
-    std::unique_ptr<ThreadPool> _convert_rowset_thread_pool;
+    std::unique_ptr<ThreadPool> _quick_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
 
@@ -400,6 +403,14 @@ private:
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+
+    scoped_refptr<Thread> _cooldown_tasks_producer_thread;
+
+    std::unique_ptr<ThreadPool> _cooldown_thread_pool;
+
+    std::mutex _running_cooldown_mutex;
+    std::unordered_map<DataDir*, int64_t> _running_cooldown_tasks_cnt;
+    std::unordered_set<int64_t> _running_cooldown_tablets;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

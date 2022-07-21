@@ -168,7 +168,7 @@ public class ExportMgr {
                 TableName tableName = job.getTableName();
                 if (tableName == null || tableName.getTbl().equals("DUMMY")) {
                     // forward compatibility, no table name is saved before
-                    Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+                    Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
                     if (db == null) {
                         continue;
                     }

@@ -17,10 +17,12 @@
 
 #pragma once
 
+#include <fmt/core.h>
 #include <rapidjson/document.h>
 
-#include "fmt/format.h"
-#include "runtime/string_value.h"
+#include <sstream>
+
+#include "udf/udf.h"
 
 namespace doris {
 

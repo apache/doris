@@ -20,7 +20,6 @@
 #include <sstream>
 
 #include "exprs/anyval_util.h"
-#include "runtime/string_value.hpp"
 
 namespace doris {
 

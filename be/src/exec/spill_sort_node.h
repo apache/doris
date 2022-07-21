@@ -19,7 +19,6 @@
 
 #include "exec/exec_node.h"
 #include "exec/sort_exec_exprs.h"
-#include "runtime/buffered_block_mgr2.h"
 #include "runtime/spill_sorter.h"
 
 namespace doris {

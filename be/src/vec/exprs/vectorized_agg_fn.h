@@ -67,6 +67,7 @@ public:
     static std::string debug_string(const std::vector<AggFnEvaluator*>& exprs);
     std::string debug_string() const;
     bool is_merge() const { return _is_merge; }
+    const std::vector<VExprContext*>& input_exprs_ctxs() const { return _input_exprs_ctxs; }
 
 private:
     const TFunction _fn;
@@ -77,8 +78,8 @@ private:
 
     void _calc_argment_columns(Block* block);
 
+    DataTypes _argument_types;
     const TypeDescriptor _return_type;
-    const TypeDescriptor _intermediate_type;
 
     const SlotDescriptor* _intermediate_slot_desc;
     const SlotDescriptor* _output_slot_desc;

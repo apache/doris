@@ -39,6 +39,7 @@ const std::string MemTracker::COUNTER_NAME = "PeakMemoryUsage";
 
 // The ancestor for all trackers. Every tracker is visible from the process down.
 // All manually created trackers should specify the process tracker as the parent.
+// Not limit total memory by process tracker, and it's just used to track virtual memory of process.
 static std::shared_ptr<MemTracker> process_tracker;
 static MemTracker* raw_process_tracker;
 static GoogleOnceType process_tracker_once = GOOGLE_ONCE_INIT;
@@ -124,14 +125,17 @@ std::shared_ptr<MemTracker> MemTracker::create_tracker_impl(
     std::string reset_label;
     MemTracker* task_parent_tracker = reset_parent->parent_task_mem_tracker();
     if (task_parent_tracker) {
-        reset_label = fmt::format("{}:{}", label, split(task_parent_tracker->label(), ":")[1]);
+        reset_label = fmt::format("{}#{}", label, split(task_parent_tracker->label(), "#")[1]);
     } else {
         reset_label = label;
     }
+    if (byte_limit == -1) byte_limit = reset_parent->limit();
 
     std::shared_ptr<MemTracker> tracker(
             new MemTracker(byte_limit, reset_label, reset_parent,
                            level > reset_parent->_level ? level : reset_parent->_level, profile));
+    // Do not check limit exceed when add_child_tracker, otherwise it will cause deadlock when log_usage is called.
+    STOP_CHECK_LIMIT_THREAD_LOCAL_MEM_TRACKER();
     reset_parent->add_child_tracker(tracker);
     return tracker;
 }
@@ -159,9 +163,13 @@ MemTracker::MemTracker(int64_t byte_limit, const std::string& label,
 void MemTracker::init() {
     DCHECK_GE(_limit, -1);
     MemTracker* tracker = this;
-    while (tracker != nullptr && tracker->_virtual == false) {
+    while (tracker != nullptr) {
         _all_trackers.push_back(tracker);
         if (tracker->has_limit()) _limit_trackers.push_back(tracker);
+        // This means that it terminates when recursively consume/release from the current tracker up to the virtual tracker.
+        if (tracker->_virtual == true) {
+            break;
+        }
         tracker = tracker->_parent.get();
     }
     DCHECK_GT(_all_trackers.size(), 0);
@@ -178,7 +186,7 @@ void MemTracker::init_virtual() {
 MemTracker::~MemTracker() {
     consume(_untracked_mem.exchange(0)); // before memory_leak_check
     // TCMalloc hook will be triggered during destructor memtracker, may cause crash.
-    if (_label == "Process") STOP_THREAD_LOCAL_MEM_TRACKER(false);
+    if (_label == "Process") doris::thread_local_ctx._init = false;
     if (!_virtual && config::memory_leak_detection) MemTracker::memory_leak_check(this);
     if (!_virtual && parent()) {
         // Do not call release on the parent tracker to avoid repeated releases.
@@ -285,6 +293,7 @@ std::string MemTracker::log_usage(int max_recursive_depth,
 
 Status MemTracker::mem_limit_exceeded(RuntimeState* state, const std::string& details,
                                       int64_t failed_allocation_size, Status failed_alloc) {
+    STOP_CHECK_LIMIT_THREAD_LOCAL_MEM_TRACKER();
     MemTracker* process_tracker = MemTracker::get_raw_process_tracker();
     std::string detail =
             "Memory exceed limit. fragment={}, details={}, on backend={}. Memory left in process "

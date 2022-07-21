@@ -30,7 +30,8 @@ Hive External Table of Doris 提供了 Doris 直接访问 Hive 外部表的能�
 
 1. 支持 Hive 数据源接入Doris
 2. 支持 Doris 与 Hive 数据源中的表联合查询，进行更加复杂的分析操作
-
+3. 支持 访问开启 kerberos 的 Hive 数据源
+ 
 本文档主要介绍该功能的使用方式和注意事项等。
 
 ## 名词解释
@@ -84,11 +85,55 @@ PROPERTIES (
 'database' = 'hive_db',
 'table' = 'hive_table',
 'dfs.nameservices'='hacluster',
-'dfs.ha.namenodes.hacluster'='3,4',
-'dfs.namenode.rpc-address.hacluster.3'='192.168.0.93:8020',
-'dfs.namenode.rpc-address.hacluster.4'='172.21.16.11:8020',
+'dfs.ha.namenodes.hacluster'='n1,n2',
+'dfs.namenode.rpc-address.hacluster.n1'='192.168.0.1:8020',
+'dfs.namenode.rpc-address.hacluster.n2'='192.168.0.2:8020',
 'dfs.client.failover.proxy.provider.hacluster'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
+
+-- 例子3：创建 Hive 集群中 hive_db 下的 hive_table 表, HDFS使用HA配置并开启kerberos认证方式
+CREATE TABLE `t_hive` (
+  `k1` int NOT NULL COMMENT "",
+  `k2` char(10) NOT NULL COMMENT "",
+  `k3` datetime NOT NULL COMMENT "",
+  `k5` varchar(20) NOT NULL COMMENT "",
+  `k6` double NOT NULL COMMENT ""
+) ENGINE=HIVE
+COMMENT "HIVE"
+PROPERTIES (
+'hive.metastore.uris' = 'thrift://192.168.0.1:9083',
+'database' = 'hive_db',
+'table' = 'hive_table',
+'dfs.nameservices'='hacluster',
+'dfs.ha.namenodes.hacluster'='n1,n2',
+'dfs.namenode.rpc-address.hacluster.n1'='192.168.0.1:8020',
+'dfs.namenode.rpc-address.hacluster.n2'='192.168.0.2:8020',
+'dfs.client.failover.proxy.provider.hacluster'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+'dfs.namenode.kerberos.principal'='hadoop/_HOST@REALM.COM'
+'hadoop.security.authentication'='kerberos',
+'hadoop.kerberos.principal'='doris_test@REALM.COM',
+'hadoop.kerberos.keytab'='/path/to/doris_test.keytab'
+);
+
+-- 例子4：创建 Hive 集群中 hive_db 下的 hive_table 表, Hive数据存储在S3上
+CREATE TABLE `t_hive` (
+  `k1` int NOT NULL COMMENT "",
+  `k2` char(10) NOT NULL COMMENT "",
+  `k3` datetime NOT NULL COMMENT "",
+  `k5` varchar(20) NOT NULL COMMENT "",
+  `k6` double NOT NULL COMMENT ""
+) ENGINE=HIVE
+COMMENT "HIVE"
+PROPERTIES (
+'hive.metastore.uris' = 'thrift://192.168.0.1:9083',
+'database' = 'hive_db',
+'table' = 'hive_table',
+'AWS_ACCESS_KEY' = 'your_access_key',
+'AWS_SECRET_KEY' = 'your_secret_key',
+'AWS_ENDPOINT' = 's3.us-east-1.amazonaws.com',
+'AWS_REGION' = 'us-east-1'
+);
+
 ```
 
 #### 参数说明：
@@ -107,6 +152,20 @@ PROPERTIES (
     - `dfs.ha.namenodes.[nameservice ID]：namenode的id列表,与hdfs-site.xml保持一致
     - `dfs.namenode.rpc-address.[nameservice ID].[name node ID]`：Name node的rpc地址，数量与namenode数量相同，与hdfs-site.xml保持一致
     - `dfs.client.failover.proxy.provider.[nameservice ID] `：HDFS客户端连接活跃namenode的java类，通常是"org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+
+- 访问开启kerberos的Hive数据源，需要为Hive外表额外配置如下 PROPERTIES 属性：
+    - `hadoop.security.authentication`：认证方式请设置为 kerberos，默认为simple
+    - `dfs.namenode.kerberos.principal`：HDFS namenode 服务的Kerberos 主体
+    - `hadoop.kerberos.principal`：设置 Doris 连接 HDFS 时使用的 Kerberos 主体
+    - `hadoop.kerberos.keytab`：设置 keytab 本地文件路径
+    - `AWS_ACCESS_KEY`: AWS账户的access key id.
+    - `AWS_SECRET_KEY`: AWS账户的secret access key.
+    - `AWS_ENDPOINT`: S3 endpoint. 例如：s3.us-east-1.amazonaws.com
+    - `AWS_REGION`: AWS区域. 例如：us-east-1
+
+**注意：**
+- 若要使 Doris 访问开启kerberos认证方式的hadoop集群，需要在 Doris 集群所有运行节点上部署 Kerberos 客户端 kinit，并配置 krb5.conf，填写KDC 服务信息等。
+- PROPERTIES 属性 `hadoop.kerberos.keytab` 的值需要指定 keytab 本地文件的绝对路径，并允许 Doris 进程访问该本地文件。
 
 ## 类型匹配
 

@@ -20,6 +20,7 @@ package org.apache.doris.planner.external;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -34,8 +35,8 @@ import java.util.List;
  */
 public class ExternalScanNode extends ScanNode {
 
-    public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, NodeType nodeType) {
-        super(id, desc, planNodeName, nodeType);
+    public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
+        super(id, desc, planNodeName, statisticalType);
     }
 
     @Override

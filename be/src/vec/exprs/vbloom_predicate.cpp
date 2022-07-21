@@ -1,0 +1,96 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "vec/exprs/vbloom_predicate.h"
+
+#include <string_view>
+
+namespace doris::vectorized {
+
+VBloomPredicate::VBloomPredicate(const TExprNode& node)
+        : VExpr(node), _filter(nullptr), _expr_name("bloom_predicate") {}
+
+Status VBloomPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
+                                VExprContext* context) {
+    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+
+    if (_prepared) {
+        return Status::OK();
+    }
+    if (_children.size() != 1) {
+        return Status::InternalError("Invalid argument for VBloomPredicate.");
+    }
+
+    _prepared = true;
+
+    ColumnsWithTypeAndName argument_template;
+    argument_template.reserve(_children.size());
+    for (auto child : _children) {
+        auto column = child->data_type()->create_column();
+        argument_template.emplace_back(std::move(column), child->data_type(), child->expr_name());
+    }
+    return Status::OK();
+}
+
+Status VBloomPredicate::open(RuntimeState* state, VExprContext* context,
+                             FunctionContext::FunctionStateScope scope) {
+    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    return Status::OK();
+}
+
+void VBloomPredicate::close(RuntimeState* state, VExprContext* context,
+                            FunctionContext::FunctionStateScope scope) {
+    VExpr::close(state, context, scope);
+}
+
+Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+    doris::vectorized::ColumnNumbers arguments(_children.size());
+    for (int i = 0; i < _children.size(); ++i) {
+        int column_id = -1;
+        _children[i]->execute(context, block, &column_id);
+        arguments[i] = column_id;
+    }
+    // call function
+    size_t num_columns_without_result = block->columns();
+    auto res_data_column = ColumnVector<UInt8>::create(block->rows());
+
+    ColumnPtr argument_column =
+            block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+    size_t sz = argument_column->size();
+    res_data_column->resize(sz);
+    auto ptr = ((ColumnVector<UInt8>*)res_data_column.get())->get_data().data();
+    for (size_t i = 0; i < sz; i++) {
+        ptr[i] = _filter->find(reinterpret_cast<const void*>(argument_column->get_data_at(i).data));
+    }
+    if (_data_type->is_nullable()) {
+        auto null_map = ColumnVector<UInt8>::create(block->rows(), 0);
+        block->insert({ColumnNullable::create(std::move(res_data_column), std::move(null_map)),
+                       _data_type, _expr_name});
+    } else {
+        block->insert({std::move(res_data_column), _data_type, _expr_name});
+    }
+    *result_column_id = num_columns_without_result;
+    return Status::OK();
+}
+
+const std::string& VBloomPredicate::expr_name() const {
+    return _expr_name;
+}
+void VBloomPredicate::set_filter(std::unique_ptr<IBloomFilterFuncBase>& filter) {
+    _filter.reset(filter.release());
+}
+} // namespace doris::vectorized

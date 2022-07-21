@@ -17,7 +17,7 @@
 
 // Reference from kudu, Solve the problem of gcc11 compiling
 // non-trivial thread_local variables on lower versions of GLIBC.
-// see https://github.com/apache/incubator-doris/pull/7911
+// see https://github.com/apache/doris/pull/7911
 //
 // Block-scoped static thread local implementation.
 //

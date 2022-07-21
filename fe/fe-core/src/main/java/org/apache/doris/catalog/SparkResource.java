@@ -162,8 +162,11 @@ public class SparkResource extends Resource {
         Map<String, String> copiedProperties = Maps.newHashMap(sparkConfigs);
         return copiedProperties;
     }
-    // Each SparkResource has and only has one SparkRepository.
-    // This method get the remote archive which matches the dpp version from remote repository
+
+    /**
+     * Each SparkResource has and only has one SparkRepository.
+     * This method get the remote archive which matches the dpp version from remote repository
+     */
     public synchronized SparkRepository.SparkArchive prepareArchive() throws LoadException {
         String remoteRepositoryPath = workingDir + "/" + Catalog.getCurrentCatalog().getClusterId()
                 + "/" + SparkRepository.REPOSITORY_DIR + name;
@@ -252,7 +255,8 @@ public class SparkResource extends Resource {
             throw new DdlException("Missing " + SPARK_SUBMIT_DEPLOY_MODE + " in properties");
         }
         // if deploy machines do not set HADOOP_CONF_DIR env, we should set these configs blow
-        if ((!sparkConfigs.containsKey(SPARK_YARN_RESOURCE_MANAGER_ADDRESS) || !sparkConfigs.containsKey(SPARK_FS_DEFAULT_FS))
+        if ((!sparkConfigs.containsKey(SPARK_YARN_RESOURCE_MANAGER_ADDRESS)
+                || !sparkConfigs.containsKey(SPARK_FS_DEFAULT_FS))
                 && isYarnMaster()) {
             throw new DdlException("Missing (" + SPARK_YARN_RESOURCE_MANAGER_ADDRESS + " and " + SPARK_FS_DEFAULT_FS
                                            + ") in yarn master");

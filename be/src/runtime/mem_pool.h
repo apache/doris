@@ -107,6 +107,13 @@ public:
         return allocate<false>(size, DEFAULT_ALIGNMENT, rst);
     }
 
+    uint8_t* allocate_aligned(int64_t size, int alignment, Status* rst = nullptr) {
+        DCHECK_GE(alignment, 1);
+        DCHECK_LE(alignment, config::memory_max_alignment);
+        DCHECK_EQ(BitUtil::RoundUpToPowerOfTwo(alignment), alignment);
+        return allocate<false>(size, alignment, rst);
+    }
+
     /// Same as Allocate() expect add a check when return a nullptr
     Status allocate_safely(int64_t size, uint8_t*& ret, Status* rst = nullptr) {
         return allocate_safely<false>(size, DEFAULT_ALIGNMENT, ret, rst);
@@ -162,7 +169,10 @@ public:
 
     MemTracker* mem_tracker() { return _mem_tracker; }
 
-    static constexpr int DEFAULT_ALIGNMENT = 8;
+    // The memory for __int128 should be aligned to 16 bytes.
+    // By the way, in 64-bit system, the address of a block returned by malloc or realloc in GNU systems
+    // is always a multiple of sixteen. (https://www.gnu.org/software/libc/manual/html_node/Aligned-Memory-Blocks.html)
+    static constexpr int DEFAULT_ALIGNMENT = 16;
 
 #if (defined(__SANITIZE_ADDRESS__) || defined(ADDRESS_SANITIZER)) && !defined(BE_TEST)
     static constexpr int DEFAULT_PADDING_SIZE = 0x10;

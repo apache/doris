@@ -27,13 +27,10 @@
 #include "exec/partitioned_hash_table.inline.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
-#include "exprs/slot_ref.h"
-#include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
-#include "util/doris_metrics.h"
 
 using namespace doris;
 using namespace strings;
@@ -105,9 +102,9 @@ Status PartitionedHashTableCtx::Init(ObjectPool* pool, RuntimeState* state, int 
     scratch_row_ = reinterpret_cast<TupleRow*>(malloc(scratch_row_size));
     if (UNLIKELY(scratch_row_ == nullptr)) {
         return Status::InternalError(
-                Substitute("Failed to allocate $0 bytes for scratch row of "
-                           "PartitionedHashTableCtx.",
-                           scratch_row_size));
+                "Failed to allocate {} bytes for scratch row of "
+                "PartitionedHashTableCtx.",
+                scratch_row_size);
     }
 
     // TODO chenhao replace ExprContext with ScalarFnEvaluator

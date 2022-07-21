@@ -62,7 +62,7 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     );
 
 
-    -- 例子：挂载 Iceberg 中 iceberg_db 下的 iceberg_table 
+    -- 例子1：挂载 Iceberg 中 iceberg_db 下的 iceberg_table
     CREATE TABLE `t_iceberg` 
     ENGINE = ICEBERG
     PROPERTIES (
@@ -70,6 +70,22 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     "iceberg.table" = "iceberg_table",
     "iceberg.hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
     "iceberg.catalog.type"  =  "HIVE_CATALOG"
+    );
+
+
+    -- 例子2：挂载 Iceberg 中 iceberg_db 下的 iceberg_table，HDFS开启HA
+    CREATE TABLE `t_iceberg`
+    ENGINE = ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_db",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type"  =  "HIVE_CATALOG",
+    "dfs.nameservices"="HDFS8000463",
+    "dfs.ha.namenodes.HDFS8000463"="nn2,nn1",
+    "dfs.namenode.rpc-address.HDFS8000463.nn2"="172.21.16.5:4007",
+    "dfs.namenode.rpc-address.HDFS8000463.nn1"="172.21.16.26:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000463"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
     );
     ```
 
@@ -114,7 +130,7 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     "iceberg.catalog.type"  =  "HIVE_CATALOG"
     );
 
-    -- 例子：挂载 Iceberg 中 iceberg_db 下的 iceberg_table 
+    -- 例子1：挂载 Iceberg 中 iceberg_db 下的 iceberg_table
     CREATE TABLE `t_iceberg` (
         `id` int NOT NULL COMMENT "id number",
         `name` varchar(10) NOT NULL COMMENT "user name"
@@ -124,6 +140,23 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     "iceberg.table" = "iceberg_table",
     "iceberg.hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
     "iceberg.catalog.type"  =  "HIVE_CATALOG"
+    );
+
+    -- 例子2：挂载 Iceberg 中 iceberg_db 下的 iceberg_table，HDFS开启HA
+    CREATE TABLE `t_iceberg` (
+        `id` int NOT NULL COMMENT "id number",
+        `name` varchar(10) NOT NULL COMMENT "user name"
+    ) ENGINE = ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_db",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
+    "iceberg.catalog.type"  =  "HIVE_CATALOG",
+    "dfs.nameservices"="HDFS8000463",
+    "dfs.ha.namenodes.HDFS8000463"="nn2,nn1",
+    "dfs.namenode.rpc-address.HDFS8000463.nn2"="172.21.16.5:4007",
+    "dfs.namenode.rpc-address.HDFS8000463.nn1"="172.21.16.26:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000463"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
     );
     ```
 
@@ -180,7 +213,7 @@ REFRESH DATABASE iceberg_test_db;
 
 **注意：**
 - Iceberg 表 Schema 变更**不会自动同步**，需要在 Doris 中通过 `REFRESH` 命令同步 Iceberg 外表或数据库。
-- 当前默认支持的 Iceberg 版本为 0.12.0，未在其他版本进行测试。后续后支持更多版本。
+- 当前默认支持的 Iceberg 版本为 0.12.0、0.13.2，未在其他版本进行测试。后续后支持更多版本。
 
 ### 查询用法
 

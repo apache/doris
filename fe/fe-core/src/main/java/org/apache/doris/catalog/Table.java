@@ -58,20 +58,6 @@ public class Table extends MetaObject implements Writable, TableIf {
 
     public volatile boolean isDropped = false;
 
-    public enum TableType {
-        MYSQL,
-        ODBC,
-        OLAP,
-        SCHEMA,
-        INLINE_VIEW,
-        VIEW,
-        BROKER,
-        ELASTICSEARCH,
-        HIVE,
-        ICEBERG,
-        HUDI
-    }
-
     protected long id;
     protected volatile String name;
     protected TableType type;
@@ -95,7 +81,7 @@ public class Table extends MetaObject implements Writable, TableIf {
      * Schema change (c3 to bigint)
      * When OlapTable is changing schema, the fullSchema is (c1 int, c2 int, c3 int, SHADOW_NAME_PRFIX_c3 bigint)
      * The fullSchema of OlapTable is mainly used by Scanner of Load job.
-     *
+     * <p>
      * If you want to get the mv columns, you should call getIndexToSchema in Subclass OlapTable.
      */
     protected List<Column> fullSchema;
@@ -253,6 +239,7 @@ public class Table extends MetaObject implements Writable, TableIf {
         return id;
     }
 
+    @Override
     public String getName() {
         return name;
     }
@@ -416,58 +403,22 @@ public class Table extends MetaObject implements Writable, TableIf {
         return null;
     }
 
+    @Override
     public String getEngine() {
-        switch (type) {
-            case MYSQL:
-                return "MySQL";
-            case ODBC:
-                return "Odbc";
-            case OLAP:
-                return "Doris";
-            case SCHEMA:
-                return "MEMORY";
-            case INLINE_VIEW:
-                return "InlineView";
-            case VIEW:
-                return "View";
-            case BROKER:
-                return "Broker";
-            case ELASTICSEARCH:
-                return "ElasticSearch";
-            case HIVE:
-                return "Hive";
-            case HUDI:
-                return "Hudi";
-            default:
-                return null;
-        }
+        return type.toEngineName();
     }
 
+    @Override
     public String getMysqlType() {
-        switch (type) {
-            case OLAP:
-                return "BASE TABLE";
-            case SCHEMA:
-                return "SYSTEM VIEW";
-            case INLINE_VIEW:
-            case VIEW:
-                return "VIEW";
-            case MYSQL:
-            case ODBC:
-            case BROKER:
-            case ELASTICSEARCH:
-            case HIVE:
-            case HUDI:
-                return "EXTERNAL TABLE";
-            default:
-                return null;
-        }
+        return type.toMysqlType();
     }
 
+    @Override
     public String getComment() {
         return getComment(false);
     }
 
+    @Override
     public String getComment(boolean escapeQuota) {
         if (!Strings.isNullOrEmpty(comment)) {
             if (!escapeQuota) {
@@ -480,6 +431,10 @@ public class Table extends MetaObject implements Writable, TableIf {
 
     public void setComment(String comment) {
         this.comment = Strings.nullToEmpty(comment);
+    }
+
+    public void setId(long id) {
+        this.id = id;
     }
 
     public CreateTableStmt toCreateTableStmt(String dbName) {

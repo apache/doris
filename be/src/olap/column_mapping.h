@@ -20,6 +20,8 @@
 #include <gen_cpp/Exprs_types.h>
 
 #include <memory>
+
+#include "olap/tablet_schema.h"
 namespace doris {
 
 class WrapperField;
@@ -36,6 +38,7 @@ struct ColumnMapping {
     // materialize view transform function used in schema change
     std::string materialized_function;
     std::shared_ptr<TExpr> expr;
+    const TabletColumn* new_column;
 };
 
 using SchemaMapping = std::vector<ColumnMapping>;

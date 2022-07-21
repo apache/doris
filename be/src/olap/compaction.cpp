@@ -17,7 +17,10 @@
 
 #include "olap/compaction.h"
 
+#include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/tablet.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -55,6 +58,57 @@ Status Compaction::execute_compact() {
     return st;
 }
 
+Status Compaction::quick_rowsets_compact() {
+    std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
+    if (!lock.owns_lock()) {
+        LOG(WARNING) << "The tablet is under cumulative compaction. tablet="
+                     << _tablet->full_name();
+        return Status::OLAPInternalError(OLAP_ERR_CE_TRY_CE_LOCK_ERROR);
+    }
+
+    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
+    // for compaction may change. In this case, current compaction task should not be executed.
+    if (_tablet->get_clone_occurred()) {
+        _tablet->set_clone_occurred(false);
+        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_CLONE_OCCURRED);
+    }
+
+    _input_rowsets.clear();
+    int version_count = _tablet->version_count();
+    MonotonicStopWatch watch;
+    watch.start();
+    int64_t permits = 0;
+    _tablet->pick_quick_compaction_rowsets(&_input_rowsets, &permits);
+    std::vector<Version> missedVersions;
+    find_longest_consecutive_version(&_input_rowsets, &missedVersions);
+    if (missedVersions.size() != 0) {
+        LOG(WARNING) << "quick_rowsets_compaction, find missed version"
+                     << ",input_size:" << _input_rowsets.size();
+    }
+    int nums = _input_rowsets.size();
+    if (_input_rowsets.size() >= config::quick_compaction_min_rowsets) {
+        Status st = check_version_continuity(_input_rowsets);
+        if (!st.ok()) {
+            LOG(WARNING) << "quick_rowsets_compaction failed, cause version not continuous";
+            return st;
+        }
+        st = do_compaction(permits);
+        if (!st.ok()) {
+            gc_output_rowset();
+            LOG(WARNING) << "quick_rowsets_compaction failed";
+        } else {
+            LOG(INFO) << "quick_compaction succ"
+                      << ", before_versions:" << version_count
+                      << ", after_versions:" << _tablet->version_count()
+                      << ", cost:" << (watch.elapsed_time() / 1000 / 1000) << "ms"
+                      << ", merged: " << nums << ", batch:" << config::quick_compaction_batch_size
+                      << ", segments:" << permits << ", tabletid:" << _tablet->tablet_id();
+            _tablet->set_last_quick_compaction_success_time(UnixMillis());
+        }
+    }
+    return Status::OK();
+}
+
 Status Compaction::do_compaction(int64_t permits) {
     TRACE("start to do compaction");
     _tablet->data_dir()->disks_compaction_score_increment(permits);
@@ -82,13 +136,18 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
 
+    _oldest_write_timestamp = _input_rowsets.front()->oldest_write_timestamp();
+    _newest_write_timestamp = _input_rowsets.back()->newest_write_timestamp();
+
     auto use_vectorized_compaction = config::enable_vectorized_compaction;
     string merge_type = use_vectorized_compaction ? "v" : "";
 
     LOG(INFO) << "start " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version << ", permits: " << permits;
+    // get cur schema if rowset schema exist, rowset schema must be newer than tablet schema
+    const TabletSchema cur_tablet_schema = _tablet->tablet_schema();
 
-    RETURN_NOT_OK(construct_output_rowset_writer());
+    RETURN_NOT_OK(construct_output_rowset_writer(&cur_tablet_schema));
     RETURN_NOT_OK(construct_input_rowset_readers());
     TRACE("prepare finished");
 
@@ -98,11 +157,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     Status res;
 
     if (use_vectorized_compaction) {
-        res = Merger::vmerge_rowsets(_tablet, compaction_type(), _input_rs_readers,
-                                     _output_rs_writer.get(), &stats);
+        res = Merger::vmerge_rowsets(_tablet, compaction_type(), &cur_tablet_schema,
+                                     _input_rs_readers, _output_rs_writer.get(), &stats);
     } else {
-        res = Merger::merge_rowsets(_tablet, compaction_type(), _input_rs_readers,
-                                    _output_rs_writer.get(), &stats);
+        res = Merger::merge_rowsets(_tablet, compaction_type(), &cur_tablet_schema,
+                                    _input_rs_readers, _output_rs_writer.get(), &stats);
     }
 
     if (!res.ok()) {
@@ -165,8 +224,9 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     return Status::OK();
 }
 
-Status Compaction::construct_output_rowset_writer() {
-    return _tablet->create_rowset_writer(_output_version, VISIBLE, NONOVERLAPPING,
+Status Compaction::construct_output_rowset_writer(const TabletSchema* schema) {
+    return _tablet->create_rowset_writer(_output_version, VISIBLE, NONOVERLAPPING, schema,
+                                         _oldest_write_timestamp, _newest_write_timestamp,
                                          &_output_rs_writer);
 }
 
@@ -246,42 +306,9 @@ Status Compaction::check_correctness(const Merger::Statistics& stats) {
                      << ", merged_row_num=" << stats.merged_rows
                      << ", filtered_row_num=" << stats.filtered_rows
                      << ", output_row_num=" << _output_rowset->num_rows();
-
-        // ATTN(cmy): We found that the num_rows in some rowset meta may be set to the wrong value,
-        // but it is not known which version of the code has the problem. So when the compaction
-        // result is inconsistent, we then try to verify by num_rows recorded in segment_groups.
-        // If the check passes, ignore the error and set the correct value in the output rowset meta
-        // to fix this problem.
-        // Only handle alpha rowset because we only find this bug in alpha rowset
-        int64_t num_rows = _get_input_num_rows_from_seg_grps();
-        if (num_rows == -1) {
-            return Status::OLAPInternalError(OLAP_ERR_CHECK_LINES_ERROR);
-        }
-        if (num_rows != _output_rowset->num_rows() + stats.merged_rows + stats.filtered_rows) {
-            // If it is still incorrect, it may be another problem
-            LOG(WARNING) << "row_num got from seg groups does not match between cumulative input "
-                            "and output! "
-                         << "input_row_num=" << num_rows << ", merged_row_num=" << stats.merged_rows
-                         << ", filtered_row_num=" << stats.filtered_rows
-                         << ", output_row_num=" << _output_rowset->num_rows();
-
-            return Status::OLAPInternalError(OLAP_ERR_CHECK_LINES_ERROR);
-        }
+        return Status::OLAPInternalError(OLAP_ERR_CHECK_LINES_ERROR);
     }
     return Status::OK();
-}
-
-int64_t Compaction::_get_input_num_rows_from_seg_grps() {
-    int64_t num_rows = 0;
-    for (auto& rowset : _input_rowsets) {
-        if (rowset->rowset_meta()->rowset_type() != RowsetTypePB::ALPHA_ROWSET) {
-            return -1;
-        }
-        for (auto& seg_grp : rowset->rowset_meta()->alpha_rowset_extra_meta_pb().segment_groups()) {
-            num_rows += seg_grp.num_rows();
-        }
-    }
-    return num_rows;
 }
 
 int64_t Compaction::get_compaction_permits() {

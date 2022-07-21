@@ -300,7 +300,8 @@ public class CaseExpr extends Expr {
 
     // this method just compare literal value and not completely consistent with be,for two cases
     // 1 not deal float
-    // 2 just compare literal value with same type. for a example sql 'select case when 123 then '1' else '2' end as col'
+    // 2 just compare literal value with same type.
+    //      for a example sql 'select case when 123 then '1' else '2' end as col'
     //      for be will return '1', because be only regard 0 as false
     //      but for current LiteralExpr.compareLiteral, `123`' won't be regard as true
     //  the case which two values has different type left to be
@@ -349,7 +350,8 @@ public class CaseExpr extends Expr {
         // early return when the `when expr` can't be converted to constants
         Expr startExpr = expr.getChild(startIndex);
         if ((!startExpr.isLiteral() || startExpr instanceof DecimalLiteral || startExpr instanceof FloatLiteral)
-                || (!(startExpr instanceof NullLiteral) && !startExpr.getClass().toString().equals(caseExpr.getClass().toString()))) {
+                || (!(startExpr instanceof NullLiteral)
+                && !startExpr.getClass().toString().equals(caseExpr.getClass().toString()))) {
             return expr;
         }
 
@@ -363,7 +365,9 @@ public class CaseExpr extends Expr {
             // 1 not literal
             // 2 float
             // 3 `case expr` and `when expr` don't have same type
-            if ((!currentWhenExpr.isLiteral() || currentWhenExpr instanceof DecimalLiteral || currentWhenExpr instanceof FloatLiteral)
+            if ((!currentWhenExpr.isLiteral()
+                    || currentWhenExpr instanceof DecimalLiteral
+                    || currentWhenExpr instanceof FloatLiteral)
                     || !currentWhenExpr.getClass().toString().equals(caseExpr.getClass().toString())) {
                 // remove the expr which has been evaluated
                 List<Expr> exprLeft = new ArrayList<>();

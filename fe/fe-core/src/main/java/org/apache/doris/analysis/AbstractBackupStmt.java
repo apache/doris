@@ -36,8 +36,8 @@ import java.util.Map;
 public class AbstractBackupStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(AbstractBackupStmt.class);
 
-    private final static String PROP_TIMEOUT = "timeout";
-    private final static long MIN_TIMEOUT_MS = 600 * 1000L; // 10 min
+    private static final String PROP_TIMEOUT = "timeout";
+    private static final long MIN_TIMEOUT_MS = 600 * 1000L; // 10 min
 
     protected LabelName labelName;
     protected String repoName;
@@ -46,8 +46,9 @@ public class AbstractBackupStmt extends DdlStmt {
 
     protected long timeoutMs;
 
-    public AbstractBackupStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause abstractBackupTableRefClause,
-                              Map<String, String> properties) {
+    public AbstractBackupStmt(LabelName labelName, String repoName,
+            AbstractBackupTableRefClause abstractBackupTableRefClause,
+            Map<String, String> properties) {
         this.labelName = labelName;
         this.repoName = repoName;
         this.abstractBackupTableRefClause = abstractBackupTableRefClause;

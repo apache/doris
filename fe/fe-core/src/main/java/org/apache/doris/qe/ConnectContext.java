@@ -19,10 +19,13 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.DataSourceIf;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
@@ -38,11 +41,13 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import io.opentelemetry.api.trace.Tracer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.channels.SocketChannel;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 // When one client connect in, we create a connect context for it.
@@ -80,7 +85,8 @@ public class ConnectContext {
     protected volatile String clusterName = "";
     // username@host of current login user
     protected volatile String qualifiedUser;
-    // LDAP authenticated but the Doris account does not exist, set the flag, and the user login Doris as Temporary user.
+    // LDAP authenticated but the Doris account does not exist,
+    // set the flag, and the user login Doris as Temporary user.
     protected volatile boolean isTempUser = false;
     // Save the privs from the ldap groups.
     protected volatile PaloRole ldapGroupsPrivs = null;
@@ -104,9 +110,12 @@ public class ConnectContext {
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
 
+    protected volatile Tracer tracer = Telemetry.getNoopTracer();
+
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
     protected Catalog catalog;
+    protected String defaultCatalog = InternalDataSource.INTERNAL_DS_NAME;
     protected boolean isSend;
 
     protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();
@@ -289,6 +298,7 @@ public class ConnectContext {
 
     public void setCatalog(Catalog catalog) {
         this.catalog = catalog;
+        defaultCatalog = catalog.getInternalDataSource().getName();
     }
 
     public Catalog getCatalog() {
@@ -409,13 +419,32 @@ public class ConnectContext {
         return serverCapability;
     }
 
+    public String getDefaultCatalog() {
+        return defaultCatalog;
+    }
+
+    public DataSourceIf getCurrentDataSource() {
+        // defaultCatalog is switched by SwitchStmt, so we don't need to check to exist of catalog.
+        if (catalog == null) {
+            return Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(defaultCatalog);
+        }
+        return catalog.getDataSourceMgr().getCatalog(defaultCatalog);
+    }
+
+    public void changeDefaultCatalog(String catalogName) {
+        defaultCatalog = catalogName;
+        currentDb = "";
+        currentDbId = -1;
+    }
+
     public String getDatabase() {
         return currentDb;
     }
 
     public void setDatabase(String db) {
         currentDb = db;
-        currentDbId = Catalog.getCurrentCatalog().getDb(db).map(Database::getId).orElse(-1L);
+        Optional<DatabaseIf> dbInstance = getCurrentDataSource().getDb(db);
+        currentDbId = dbInstance.isPresent() ? dbInstance.get().getId() : -1;
     }
 
     public void setExecutor(StmtExecutor executor) {
@@ -463,6 +492,14 @@ public class ConnectContext {
 
     public void setSqlHash(String sqlHash) {
         this.sqlHash = sqlHash;
+    }
+
+    public Tracer getTracer() {
+        return tracer;
+    }
+
+    public void initTracer(String name) {
+        this.tracer = Telemetry.getOpenTelemetry().getTracer(name);
     }
 
     // kill operation with no protect.

@@ -37,7 +37,8 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Use consistent hashing to find the BE corresponding to the key to avoid the change of BE leading to failure to hit the Cache
+ * Use consistent hashing to find the BE corresponding to the key to
+ * avoid the change of BE leading to failure to hit the Cache
  */
 public class CacheCoordinator {
     private static final Logger LOG = LogManager.getLogger(CacheCoordinator.class);

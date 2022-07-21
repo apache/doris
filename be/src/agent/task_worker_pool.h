@@ -27,11 +27,9 @@
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
-#include "gutil/ref_counted.h"
-#include "olap/olap_define.h"
-#include "olap/storage_engine.h"
+#include "olap/data_dir.h"
+#include "olap/tablet.h"
 #include "util/countdown_latch.h"
-#include "util/thread.h"
 
 namespace doris {
 
@@ -68,7 +66,8 @@ public:
         RECOVER_TABLET,
         UPDATE_TABLET_META_INFO,
         SUBMIT_TABLE_COMPACTION,
-        STORAGE_MEDIUM_MIGRATE_V2
+        REFRESH_STORAGE_POLICY,
+        UPDATE_STORAGE_POLICY
     };
 
     enum ReportType { TASK, DISK, TABLET };
@@ -124,8 +123,10 @@ public:
             return "UPDATE_TABLET_META_INFO";
         case SUBMIT_TABLE_COMPACTION:
             return "SUBMIT_TABLE_COMPACTION";
-        case STORAGE_MEDIUM_MIGRATE_V2:
-            return "STORAGE_MEDIUM_MIGRATE_V2";
+        case REFRESH_STORAGE_POLICY:
+            return "REFRESH_STORAGE_POLICY";
+        case UPDATE_STORAGE_POLICY:
+            return "UPDATE_STORAGE_POLICY";
         default:
             return "Unknown";
         }
@@ -189,7 +190,8 @@ private:
     void _move_dir_thread_callback();
     void _update_tablet_meta_worker_thread_callback();
     void _submit_table_compaction_worker_thread_callback();
-    void _storage_medium_migrate_v2_worker_thread_callback();
+    void _storage_refresh_storage_policy_worker_thread_callback();
+    void _storage_update_storage_policy_worker_thread_callback();
 
     void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
@@ -206,10 +208,6 @@ private:
 
     // random sleep 1~second seconds
     void _random_sleep(int second);
-
-    void _storage_medium_migrate_v2(const TAgentTaskRequest& agent_task_req, int64_t signature,
-                                    const TTaskType::type task_type,
-                                    TFinishTaskRequest* finish_task_request);
 
 private:
     std::string _name;

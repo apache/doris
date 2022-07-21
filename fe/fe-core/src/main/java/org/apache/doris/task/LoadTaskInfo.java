@@ -30,40 +30,65 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 public interface LoadTaskInfo {
-    public boolean getNegative();
-    public long getTxnId();
-    public int getTimeout();
-    public long getMemLimit();
-    public String getTimezone();
-    public PartitionNames getPartitions();
-    public LoadTask.MergeType getMergeType();
-    public Expr getDeleteCondition();
-    public boolean hasSequenceCol();
-    public String getSequenceCol();
-    public TFileType getFileType();
-    public TFileFormatType getFormatType();
-    public String getJsonPaths();
-    public String getJsonRoot();
-    public boolean isStripOuterArray();
-    public boolean isFuzzyParse();
-    public boolean isNumAsString();
-    public boolean isReadJsonByLine();
-    public String getPath();
+    boolean getNegative();
 
-    public double getMaxFilterRatio();
+    long getTxnId();
 
-    public ImportColumnDescs getColumnExprDescs();
-    public boolean isStrictMode();
+    int getTimeout();
 
-    public Expr getPrecedingFilter();
-    public Expr getWhereExpr();
-    public Separator getColumnSeparator();
-    public Separator getLineDelimiter();
-    public int getSendBatchParallelism();
-    public boolean isLoadToSingleTablet();
-    public String getHeaderType();
+    long getMemLimit();
 
-    public static class ImportColumnDescs {
+    String getTimezone();
+
+    PartitionNames getPartitions();
+
+    LoadTask.MergeType getMergeType();
+
+    Expr getDeleteCondition();
+
+    boolean hasSequenceCol();
+
+    String getSequenceCol();
+
+    TFileType getFileType();
+
+    TFileFormatType getFormatType();
+
+    String getJsonPaths();
+
+    String getJsonRoot();
+
+    boolean isStripOuterArray();
+
+    boolean isFuzzyParse();
+
+    boolean isNumAsString();
+
+    boolean isReadJsonByLine();
+
+    String getPath();
+
+    double getMaxFilterRatio();
+
+    ImportColumnDescs getColumnExprDescs();
+
+    boolean isStrictMode();
+
+    Expr getPrecedingFilter();
+
+    Expr getWhereExpr();
+
+    Separator getColumnSeparator();
+
+    Separator getLineDelimiter();
+
+    int getSendBatchParallelism();
+
+    boolean isLoadToSingleTablet();
+
+    String getHeaderType();
+
+    class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();
         public boolean isColumnDescsRewrited = false;
     }

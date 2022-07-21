@@ -52,8 +52,9 @@ statement
     : query                                                            #statementDefault
     ;
 
+//  -----------------Query-----------------
 query
-    : queryTerm
+    : queryTerm queryOrganization
     ;
 
 queryTerm
@@ -68,7 +69,9 @@ queryPrimary
 querySpecification
     : selectClause
       fromClause?
-      whereClause?                                                         #regularQuerySpecification
+      whereClause?
+      aggClause?
+      havingClause?                                                         #regularQuerySpecification
     ;
 
 selectClause
@@ -89,6 +92,30 @@ relation
 
 joinRelation
     : (joinType) JOIN right=relationPrimary joinCriteria?
+    ;
+
+aggClause
+    : GROUP BY groupByItem?
+    ;
+
+groupByItem
+    : expression (',' expression)*
+    ;
+
+havingClause
+    : HAVING booleanExpression
+    ;
+
+queryOrganization
+    : sortClause
+    ;
+
+sortClause
+    : (ORDER BY sortItem (',' sortItem)*)?
+    ;
+
+sortItem
+    :  expression ordering = (ASC | DESC)?
     ;
 
 joinType
@@ -128,6 +155,8 @@ multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
     ;
 
+
+// -----------------Expression-----------------
 namedExpression
     : expression (AS? name=errorCapturingIdentifier)?
     ;
@@ -141,11 +170,22 @@ expression
     ;
 
 booleanExpression
-    : valueExpression                                              #predicated
+    : NOT booleanExpression                                         #logicalNot
+    | valueExpression predicate?                                    #predicated
+    | left=booleanExpression operator=AND right=booleanExpression   #logicalBinary
+    | left=booleanExpression operator=OR right=booleanExpression    #logicalBinary
+    ;
+
+predicate
+    : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
+    | NOT? kind=(LIKE | REGEXP) pattern=valueExpression
     ;
 
 valueExpression
     : primaryExpression                                                                      #valueExpressionDefault
+    | operator=(MINUS | PLUS) valueExpression                                                #arithmeticUnary
+    | left=valueExpression operator=(ASTERISK | SLASH | PERCENT) right=valueExpression       #arithmeticBinary
+    | left=valueExpression operator=(PLUS | MINUS) right=valueExpression                     #arithmeticBinary
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     ;
 
@@ -153,9 +193,12 @@ primaryExpression
     : constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
+    | identifier LEFT_PAREN DISTINCT? arguments+=expression
+      (COMMA arguments+=expression)* RIGHT_PAREN                                                #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
+    | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
     ;
 
 qualifiedName
@@ -176,6 +219,7 @@ comparisonOperator
 booleanValue
     : TRUE | FALSE
     ;
+
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
 // replace identifier with errorCapturingIdentifier where the immediate follow symbol is not an expression, otherwise
@@ -233,6 +277,7 @@ ansiNonReserved
     | ARRAY
     | ASC
     | AT
+    | AVG
     | BETWEEN
     | BUCKET
     | BUCKETS
@@ -275,7 +320,6 @@ ansiNonReserved
     | DIRECTORIES
     | DIRECTORY
     | DISTRIBUTE
-    | DIV
     | DROP
     | ESCAPED
     | EXCHANGE
@@ -393,6 +437,7 @@ ansiNonReserved
     | STRUCT
     | SUBSTR
     | SUBSTRING
+    | SUM
     | SYNC
     | SYSTEM_TIME
     | SYSTEM_VERSION
@@ -473,6 +518,7 @@ nonReserved
     | ASC
     | AT
     | AUTHORIZATION
+    | AVG
     | BETWEEN
     | BOTH
     | BUCKET
@@ -528,7 +574,6 @@ nonReserved
     | DIRECTORY
     | DISTINCT
     | DISTRIBUTE
-    | DIV
     | DROP
     | ELSE
     | END
@@ -673,6 +718,7 @@ nonReserved
     | STRUCT
     | SUBSTR
     | SUBSTRING
+    | SUM
     | SYNC
     | SYSTEM_TIME
     | SYSTEM_VERSION

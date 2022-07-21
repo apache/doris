@@ -56,8 +56,8 @@ Status VCaseExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor
     _function = SimpleFunctionFactory::instance().get_function(_function_name, argument_template,
                                                                _data_type);
     if (_function == nullptr) {
-        return Status::NotSupported(
-                fmt::format("vcase_expr Function {} is not implemented", _fn.name.function_name));
+        return Status::NotSupported("vcase_expr Function {} is not implemented",
+                                    _fn.name.function_name);
     }
 
     VExpr::register_function_context(state, context);
@@ -115,4 +115,20 @@ const std::string& VCaseExpr::expr_name() const {
     return _expr_name;
 }
 
+std::string VCaseExpr::debug_string() const {
+    std::stringstream out;
+    out << "CaseExpr(has_case_expr=" << _has_case_expr << " has_else_expr=" << _has_else_expr
+        << " function=" << _function_name << "){";
+    bool first = true;
+    for (VExpr* input_expr : children()) {
+        if (first) {
+            first = false;
+        } else {
+            out << ",";
+        }
+        out << input_expr->debug_string();
+    }
+    out << "}";
+    return out.str();
+}
 } // namespace doris::vectorized

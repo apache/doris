@@ -38,16 +38,16 @@ grammar:
 
 ```sql
 CREATE [READ ONLY] REPOSITORY `repo_name`
-WITH [BROKER `broker_name`|S3]
+WITH [BROKER `broker_name`|S3|hdfs]
 ON LOCATION `repo_location`
 PROPERTIES ("key"="value", ...);
 ```
 
 illustrate:
 
-- Creation of repositories, relying on existing brokers or accessing cloud storage directly through AWS s3 protocol
+- Creation of repositories, relying on existing brokers or accessing cloud storage directly through AWS s3 protocol, or accessing HDFS directly.
 - If it is a read-only repository, restores can only be done on the repository. If not, backup and restore operations are available.
-- PROPERTIES are different according to different types of broker or S3, see the example for details.
+- PROPERTIES are different according to different types of broker or S3 or hdfs, see the example for details.
 
 ### Example
 
@@ -106,6 +106,18 @@ PROPERTIES
     "AWS_REGION" = "REGION"
 );
 ```
+
+5. Create a repository named hdfs_repo to link HDFS directly without going through the broker.
+
+```sql
+CREATE REPOSITORY `hdfs_repo`
+WITH hdfs
+ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
+PROPERTIES
+(
+    "fs.defaultFS"="hdfs://hadoop-name-node:54310",
+    "hadoop.username"="user"
+);
 
 ### Keywords
 

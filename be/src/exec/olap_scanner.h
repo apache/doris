@@ -28,16 +28,12 @@
 #include "exec/olap_utils.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/expr.h"
+#include "exprs/function_filter.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "olap/delete_handler.h"
-#include "olap/olap_cond.h"
-#include "olap/rowset/column_data.h"
-#include "olap/storage_engine.h"
 #include "olap/tuple_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
-#include "runtime/vectorized_row_batch.h"
 
 namespace doris {
 
@@ -54,7 +50,8 @@ public:
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    const std::vector<TCondition>& filters,
                    const std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                           bloom_filters);
+                           bloom_filters,
+                   const std::vector<FunctionFilter>& function_filters);
 
     Status open();
 
@@ -98,8 +95,9 @@ protected:
     Status _init_tablet_reader_params(
             const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
             const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                    bloom_filters);
-    Status _init_return_columns();
+                    bloom_filters,
+            const std::vector<FunctionFilter>& function_filters);
+    Status _init_return_columns(bool need_seq_col);
     void _convert_row_to_tuple(Tuple* tuple);
 
     // Update profile that need to be reported in realtime.
@@ -151,6 +149,8 @@ protected:
     MonotonicStopWatch _watcher;
 
     std::shared_ptr<MemTracker> _mem_tracker;
+
+    TabletSchema _tablet_schema;
 };
 
 } // namespace doris

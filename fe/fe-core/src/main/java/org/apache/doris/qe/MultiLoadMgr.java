@@ -43,15 +43,12 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.common.collect.Streams;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.awaitility.Awaitility;
@@ -64,7 +61,6 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 
 // Class used to record state of multi-load operation
 public class MultiLoadMgr {
@@ -105,18 +101,6 @@ public class MultiLoadMgr {
         }
         // Register to Load after put into map.
         Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromMultiStart(fullDbName, label);
-    }
-
-    public void load(TMiniLoadRequest request) throws DdlException {
-        if (CollectionUtils.isNotEmpty(request.getFileSize())
-                && request.getFileSize().size() != request.getFiles().size()) {
-            throw new DdlException("files count and file size count not match: [" + request.getFileSize().size()
-                    + "!=" + request.getFiles().size() + "]");
-        }
-        List<Pair<String, Long>> files = Streams.zip(request.getFiles().stream(), request.getFileSize().stream(), Pair::create)
-                .collect(Collectors.toList());
-        load(request.getDb(), request.getLabel(), request.getSubLabel(), request.getTbl(),
-                files, request.getBackend(), request.getProperties(), request.getTimestamp());
     }
 
     // Add one load job
@@ -472,10 +456,12 @@ public class MultiLoadMgr {
                     }
                 }
                 if (properties.get(LoadStmt.KEY_IN_PARAM_PARTITIONS) != null) {
-                    String[] partNames = properties.get(LoadStmt.KEY_IN_PARAM_PARTITIONS).trim().split("\\s*,\\s*");
+                    String[] partNames = properties.get(LoadStmt.KEY_IN_PARAM_PARTITIONS)
+                            .trim().split("\\s*,\\s*");
                     partitionNames = new PartitionNames(false, Lists.newArrayList(partNames));
                 } else if (properties.get(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS) != null) {
-                    String[] partNames = properties.get(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS).trim().split("\\s*,\\s*");
+                    String[] partNames = properties.get(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS)
+                            .trim().split("\\s*,\\s*");
                     partitionNames = new PartitionNames(true, Lists.newArrayList(partNames));
                 }
                 if (properties.get(LoadStmt.KEY_IN_PARAM_MERGE_TYPE) != null) {

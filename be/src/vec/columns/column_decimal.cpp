@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_decimal.h"
 
+#include "common/config.h"
 #include "util/simd/bits.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -56,6 +57,32 @@ template <typename T>
 const char* ColumnDecimal<T>::deserialize_and_insert_from_arena(const char* pos) {
     data.push_back(unaligned_load<T>(pos));
     return pos + sizeof(T);
+}
+
+template <typename T>
+size_t ColumnDecimal<T>::get_max_row_byte_size() const {
+    return sizeof(T);
+}
+
+template <typename T>
+void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                                     size_t max_row_byte_size) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+        keys[i].size += sizeof(T);
+    }
+}
+
+template <typename T>
+void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                                   const uint8_t* null_map,
+                                                   size_t max_row_byte_size) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        if (null_map[i] == 0) {
+            memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+            keys[i].size += sizeof(T);
+        }
+    }
 }
 
 template <typename T>
@@ -128,6 +155,23 @@ void ColumnDecimal<T>::insert_data(const char* src, size_t /*length*/) {
     T tmp;
     memcpy(&tmp, src, sizeof(T));
     data.emplace_back(tmp);
+}
+
+template <typename T>
+void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num) {
+    if (this->is_decimalv2_type()) {
+        for (int i = 0; i < num; i++) {
+            const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
+            int64_t int_value = *(int64_t*)(cur_ptr);
+            int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
+            DecimalV2Value decimal_val(int_value, frac_value);
+            this->insert_data(reinterpret_cast<char*>(&decimal_val), 0);
+        }
+    } else {
+        size_t old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
+    }
 }
 
 template <typename T>
@@ -256,6 +300,21 @@ void ColumnDecimal<T>::get_extremes(Field& min, Field& max) const {
 
     min = NearestFieldType<T>(cur_min, scale);
     max = NearestFieldType<T>(cur_max, scale);
+}
+
+template <>
+Decimal32 ColumnDecimal<Decimal32>::get_scale_multiplier() const {
+    return common::exp10_i32(scale);
+}
+
+template <>
+Decimal64 ColumnDecimal<Decimal64>::get_scale_multiplier() const {
+    return common::exp10_i64(scale);
+}
+
+template <>
+Decimal128 ColumnDecimal<Decimal128>::get_scale_multiplier() const {
+    return common::exp10_i128(scale);
 }
 
 template class ColumnDecimal<Decimal32>;

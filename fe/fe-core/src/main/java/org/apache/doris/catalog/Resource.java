@@ -44,8 +44,7 @@ public abstract class Resource implements Writable {
         UNKNOWN,
         SPARK,
         ODBC_CATALOG,
-        S3,
-        STORAGE_POLICY;
+        S3;
 
         public static ResourceType fromString(String resourceType) {
             for (ResourceType type : ResourceType.values()) {
@@ -96,9 +95,6 @@ public abstract class Resource implements Writable {
             case S3:
                 resource = new S3Resource(name);
                 break;
-            case STORAGE_POLICY:
-                resource = new StoragePolicyResource(name);
-                break;
             default:
                 throw new DdlException("Unknown resource type: " + type);
         }
@@ -141,6 +137,7 @@ public abstract class Resource implements Writable {
 
 
     public abstract Map<String, String> getCopiedProperties();
+
     /**
      * Fill BaseProcResult with different properties in child resources
      * ResourceMgr.RESOURCE_PROC_NODE_TITLE_NAMES format:

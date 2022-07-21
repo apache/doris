@@ -328,6 +328,27 @@ set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(idn STATIC IMPORTED)
 set_target_properties(idn PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libidn.a)
 
+add_library(opentelemetry_common STATIC IMPORTED)
+set_target_properties(opentelemetry_common PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_common.a)
+
+add_library(opentelemetry_exporter_zipkin_trace STATIC IMPORTED)
+set_target_properties(opentelemetry_exporter_zipkin_trace PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_exporter_zipkin_trace.a)
+
+add_library(opentelemetry_resources STATIC IMPORTED)
+set_target_properties(opentelemetry_resources PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_resources.a)
+
+add_library(opentelemetry_version STATIC IMPORTED)
+set_target_properties(opentelemetry_version PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_version.a)
+
+add_library(opentelemetry_exporter_ostream_span STATIC IMPORTED)
+set_target_properties(opentelemetry_exporter_ostream_span PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_exporter_ostream_span.a)
+
+add_library(opentelemetry_trace STATIC IMPORTED)
+set_target_properties(opentelemetry_trace PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_trace.a)
+
+add_library(opentelemetry_http_client_curl STATIC IMPORTED)
+set_target_properties(opentelemetry_http_client_curl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_http_client_curl.a)
+
 add_library(xml2 STATIC IMPORTED)
 set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
 
@@ -379,9 +400,25 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 
-if (USE_LLD)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld")
-endif ()
+function(TRY_TO_CHANGE_LINKER LINKER_COMMAND LINKER_NAME)
+    if (CUSTUM_LINKER_COMMAND STREQUAL "ld")
+        execute_process(COMMAND ${CMAKE_C_COMPILER} -fuse-ld=${LINKER_COMMAND} -Wl,--version ERROR_QUIET OUTPUT_VARIABLE LD_VERSION)
+        if ("${LD_VERSION}" MATCHES ${LINKER_NAME})
+            message("Linker ${LINKER_NAME} is available, change linker to ${LINKER_NAME}")
+            set(CUSTUM_LINKER_COMMAND "${LINKER_COMMAND}" PARENT_SCOPE)
+        endif()
+    endif()
+endfunction()
+
+# In terms of performance, mold> lld> gold> ld
+set(CUSTUM_LINKER_COMMAND "ld")
+# TODO: mold will link fail on thirdparty brpc now, waiting for investigation.
+# TRY_TO_CHANGE_LINKER("mold" "mold")
+TRY_TO_CHANGE_LINKER("lld" "LLD")
+TRY_TO_CHANGE_LINKER("gold" "GNU gold")
+if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
+endif()
 
 if (USE_LIBCPP AND COMPILER_CLANG)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
@@ -430,6 +467,21 @@ if (USE_MEM_TRACKER)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_MEM_TRACKER")
 endif()
 
+# Compile with jemalloc.
+# Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc 
+if (USE_JEMALLOC)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC")
+endif()
+
+# STRICT_MEMORY_USE=ON` expects BE to use less memory, and gives priority to ensuring stability
+# when the cluster memory is limited.
+# TODO In the future, expect a dynamic soft memory limit, combined with real-time memory usage of the cluster,
+# to control the main memory consumers, including HashTable, LRU Cache elimination strategy,
+# ChunkAllocator cache strategy, Disk IO buffer cache strategy, etc.
+if (STRICT_MEMORY_USE)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DSTRICT_MEMORY_USE")
+endif()
+
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
 endif()
@@ -450,7 +502,6 @@ set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG")
-
 SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O0 -fsanitize=address -DADDRESS_SANITIZER")
 SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
@@ -461,7 +512,7 @@ SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -fsanitize=undefined")
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
 # Use -Wno-builtin-declaration-mismatch to mute warnings like "new declaration ‘__tsan_atomic16 __tsan_atomic16_fetch_nand(..."
-# If use -O0 to compile, BE will stack overflow when start. https://github.com/apache/incubator-doris/issues/8868
+# If use -O0 to compile, BE will stack overflow when start. https://github.com/apache/doris/issues/8868
 SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O1 -fsanitize=thread -DTHREAD_SANITIZER -Wno-missing-declarations")
 
 # Set compile flags based on the build type.
@@ -534,6 +585,7 @@ set(KRB5_LIBS
 set(AWS_LIBS
     aws-sdk-s3
     aws-sdk-core
+    aws-sdk-transfer
     aws-checksums
     aws-c-io
     aws-c-event-stream
@@ -560,7 +612,6 @@ set(DORIS_LINK_LIBS
     IO
     Olap
     Rowset
-    OlapFs
     Runtime
     Service
     Udf
@@ -616,6 +667,13 @@ set(COMMON_THIRDPARTY
     odbc
     cctz
     minizip
+    opentelemetry_common
+    opentelemetry_exporter_zipkin_trace
+    opentelemetry_resources
+    opentelemetry_version
+    opentelemetry_exporter_ostream_span
+    opentelemetry_trace
+    opentelemetry_http_client_curl
     ${AWS_LIBS}
     # put this after lz4 to avoid using lz4 lib in librdkafka
     librdkafka_cpp
@@ -674,9 +732,15 @@ else ()
     set(UBSAN_LIBS -rtlib=compiler-rt tcmalloc)
 endif ()
 
+if (USE_JEMALLOC)
+    set(MALLOCLIB jemalloc)
+else ()
+    set(MALLOCLIB tcmalloc)
+endif()
+
 # Add sanitize static link flags or tcmalloc
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} tcmalloc)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
@@ -724,9 +788,9 @@ add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/geo)
-add_subdirectory(${SRC_DIR}/io)
 add_subdirectory(${SRC_DIR}/gutil)
 add_subdirectory(${SRC_DIR}/http)
+add_subdirectory(${SRC_DIR}/io)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
@@ -759,6 +823,7 @@ install(FILES
 install(FILES
     ${BASE_DIR}/../conf/be.conf
     ${BASE_DIR}/../conf/odbcinst.ini
+    ${BASE_DIR}/../conf/asan_suppr.conf
     DESTINATION ${OUTPUT_DIR}/conf)
 
 get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)

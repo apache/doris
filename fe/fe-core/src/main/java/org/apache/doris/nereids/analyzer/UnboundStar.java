@@ -17,38 +17,43 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
-
-import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
 
 /**
  * Star expression.
  */
-public class UnboundStar extends NamedExpression<UnboundStar> implements LeafExpression<UnboundStar> {
-    private final List<String> target;
+public class UnboundStar extends NamedExpression implements LeafExpression, Unbound {
+    private final List<String> qualifier;
 
-    public UnboundStar(List<String> target) {
-        super(NodeType.UNBOUND_STAR);
-        this.target = target;
+    public UnboundStar(List<String> qualifier) {
+        super(ExpressionType.UNBOUND_STAR);
+        this.qualifier = qualifier;
     }
 
     @Override
-    public String sql() {
-        String targetString = target.stream().map(Utils::quoteIfNeeded).reduce((t1, t2) -> t1 + "." + t2).orElse("");
-        if (StringUtils.isNotEmpty(targetString)) {
-            return targetString + ".*";
-        } else {
-            return "*";
-        }
+    public String toSql() {
+        return Utils.qualifiedName(qualifier, "*");
+    }
+
+    @Override
+    public List<String> getQualifier() throws UnboundException {
+        return qualifier;
     }
 
     @Override
     public String toString() {
-        return sql();
+        return toSql();
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitUnboundStar(this, context);
     }
 }

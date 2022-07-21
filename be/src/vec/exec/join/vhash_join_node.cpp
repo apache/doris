@@ -18,12 +18,14 @@
 #include "vec/exec/join/vhash_join_node.h"
 
 #include "gen_cpp/PlanNodes_types.h"
+#include "gutil/strings/substitute.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
 #include "vec/core/materialize_block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/template_helpers.hpp"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
@@ -37,7 +39,7 @@ std::variant<std::false_type, std::true_type> static inline make_bool_variant(bo
 }
 
 using ProfileCounter = RuntimeProfile::Counter;
-template <class HashTableContext, bool ignore_null, bool build_unique>
+template <class HashTableContext>
 struct ProcessHashTableBuild {
     ProcessHashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
                           HashJoinNode* join_node, int batch_size, uint8_t offset)
@@ -49,8 +51,8 @@ struct ProcessHashTableBuild {
               _batch_size(batch_size),
               _offset(offset) {}
 
-    Status operator()(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map,
-                      bool has_runtime_filter) {
+    template <bool ignore_null, bool build_unique, bool has_runtime_filter>
+    void run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map) {
         using KeyGetter = typename HashTableContext::State;
         using Mapped = typename HashTableContext::Mapped;
         int64_t old_bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
@@ -68,12 +70,13 @@ struct ProcessHashTableBuild {
         SCOPED_TIMER(_join_node->_build_table_insert_timer);
         // only not build_unique, we need expanse hash table before insert data
         if constexpr (!build_unique) {
+            // _rows contains null row, which will cause hash table resize to be large.
             hash_table_ctx.hash_table.expanse_for_add_elem(_rows);
         }
         hash_table_ctx.hash_table.reset_resize_timer();
 
         vector<int>& inserted_rows = _join_node->_inserted_rows[&_acquired_block];
-        if (has_runtime_filter) {
+        if constexpr (has_runtime_filter) {
             inserted_rows.reserve(_batch_size);
         }
 
@@ -92,14 +95,14 @@ struct ProcessHashTableBuild {
 
             if (emplace_result.is_inserted()) {
                 new (&emplace_result.get_mapped()) Mapped({k, _offset});
-                if (has_runtime_filter) {
+                if constexpr (has_runtime_filter) {
                     inserted_rows.push_back(k);
                 }
             } else {
                 if constexpr (!build_unique) {
                     /// The first element of the list is stored in the value of the hash table, the rest in the pool.
                     emplace_result.get_mapped().insert({k, _offset}, _join_node->_arena);
-                    if (has_runtime_filter) {
+                    if constexpr (has_runtime_filter) {
                         inserted_rows.push_back(k);
                     }
                 } else {
@@ -110,9 +113,16 @@ struct ProcessHashTableBuild {
 
         COUNTER_UPDATE(_join_node->_build_table_expanse_timer,
                        hash_table_ctx.hash_table.get_resize_timer_value());
-
-        return Status::OK();
     }
+
+    template <bool ignore_null, bool build_unique, bool has_runtime_filter>
+    struct Reducer {
+        template <typename... TArgs>
+        static void run(ProcessHashTableBuild<HashTableContext>& build, TArgs&&... args) {
+            build.template run<ignore_null, build_unique, has_runtime_filter>(
+                    std::forward<TArgs>(args)...);
+        }
+    };
 
 private:
     const int _rows;
@@ -214,10 +224,21 @@ struct ProcessHashTableProbe {
                                                                          _build_block_rows[j]);
                                 }
                             } else {
-                                auto& column = *_build_blocks[_build_block_offsets[j]]
-                                                        .get_by_position(i)
-                                                        .column;
-                                mcol[i + column_offset]->insert_from(column, _build_block_rows[j]);
+                                if (_build_block_offsets[j] == -1) {
+                                    // the only case to reach here:
+                                    // 1. left anti join with other conjuncts, and
+                                    // 2. equal conjuncts does not match
+                                    // since nullptr is emplaced back to visited_map,
+                                    // the output value of the build side does not matter,
+                                    // just insert default value
+                                    mcol[i + column_offset]->insert_default();
+                                } else {
+                                    auto& column = *_build_blocks[_build_block_offsets[j]]
+                                                            .get_by_position(i)
+                                                            .column;
+                                    mcol[i + column_offset]->insert_from(column,
+                                                                         _build_block_rows[j]);
+                                }
                             }
                         }
                     } else {
@@ -275,7 +296,7 @@ struct ProcessHashTableProbe {
 
         {
             SCOPED_TIMER(_search_hashtable_timer);
-            for (; _probe_index < _probe_rows;) {
+            while (_probe_index < _probe_rows) {
                 if constexpr (ignore_null) {
                     if ((*null_map)[_probe_index]) {
                         _items_counts[_probe_index++] = (uint32_t)0;
@@ -394,7 +415,7 @@ struct ProcessHashTableProbe {
 
         int current_offset = 0;
 
-        for (; _probe_index < _probe_rows;) {
+        while (_probe_index < _probe_rows) {
             // ignore null rows
             if constexpr (ignore_null) {
                 if ((*null_map)[_probe_index]) {
@@ -469,7 +490,7 @@ struct ProcessHashTableProbe {
         output_block->swap(mutable_block.to_block());
 
         // dispose the other join conjunt exec
-        {
+        if (output_block->rows()) {
             int result_column_id = -1;
             int orig_columns = output_block->columns();
             (*_join_node->_vother_join_conjunct_ptr)->execute(output_block, &result_column_id);
@@ -509,11 +530,6 @@ struct ProcessHashTableProbe {
                 }
                 output_block->get_by_position(result_column_id).column =
                         std::move(new_filter_column);
-            } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN) {
-                for (int i = 0; i < column->size(); ++i) {
-                    DCHECK(visited_map[i]);
-                    *visited_map[i] |= column->get_bool(i);
-                }
             } else if constexpr (JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN) {
                 auto new_filter_column = ColumnVector<UInt8>::create();
                 auto& filter_map = new_filter_column->get_data();
@@ -556,7 +572,8 @@ struct ProcessHashTableProbe {
                 output_block->get_by_position(result_column_id).column =
                         std::move(new_filter_column);
             } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
-                                 JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN) {
+                                 JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
+                                 JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN) {
                 for (int i = 0; i < column->size(); ++i) {
                     DCHECK(visited_map[i]);
                     *visited_map[i] |= column->get_bool(i);
@@ -671,7 +688,7 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
     // avoid vector expand change block address.
     // one block can store 4g data, _build_blocks can store 128*4g data.
     // if probe data bigger than 512g, runtime filter maybe will core dump when insert data.
-    _build_blocks.reserve(128);
+    _build_blocks.reserve(_MAX_BUILD_BLOCK_COUNT);
 }
 
 HashJoinNode::~HashJoinNode() = default;
@@ -820,9 +837,12 @@ Status HashJoinNode::close(RuntimeState* state) {
         return Status::OK();
     }
 
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "ashJoinNode::close");
     VExpr::close(_build_expr_ctxs, state);
     VExpr::close(_probe_expr_ctxs, state);
-    if (_vother_join_conjunct_ptr) (*_vother_join_conjunct_ptr)->close(state);
+    if (_vother_join_conjunct_ptr) {
+        (*_vother_join_conjunct_ptr)->close(state);
+    }
 
     _hash_table_mem_tracker->release(_mem_used);
 
@@ -834,6 +854,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
 }
 
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "HashJoinNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_TIMER(_probe_timer);
 
@@ -854,7 +875,8 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
 
         do {
             SCOPED_TIMER(_probe_next_timer);
-            RETURN_IF_ERROR(child(0)->get_next(state, &_probe_block, &_probe_eos));
+            RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next(state, &_probe_block, &_probe_eos),
+                                           child(0)->get_next_span(), _probe_eos);
         } while (_probe_block.rows() == 0 && !_probe_eos);
 
         probe_rows = _probe_block.rows();
@@ -965,10 +987,10 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
 }
 
 Status HashJoinNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
 
     RETURN_IF_ERROR(VExpr::open(_build_expr_ctxs, state));
@@ -977,28 +999,26 @@ Status HashJoinNode::open(RuntimeState* state) {
         RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->open(state));
     }
 
-    if (_runtime_filter_descs.empty()) {
-        std::promise<Status> thread_status;
-        std::thread(bind(&HashJoinNode::_hash_table_build_thread, this, state, &thread_status))
-                .detach();
+    std::promise<Status> thread_status;
+    std::thread([this, state, thread_status_p = &thread_status,
+                 parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
+        OpentelemetryScope scope {parent_span};
+        this->_hash_table_build_thread(state, thread_status_p);
+    }).detach();
 
-        // Open the probe-side child so that it may perform any initialisation in parallel.
-        // Don't exit even if we see an error, we still need to wait for the build thread
-        // to finish.
-        // ISSUE-1247, check open_status after buildThread execute.
-        // If this return first, build thread will use 'thread_status'
-        // which is already destructor and then coredump.
-        Status open_status = child(0)->open(state);
-        RETURN_IF_ERROR(thread_status.get_future().get());
-        return open_status;
-    } else {
-        RETURN_IF_ERROR(_hash_table_build(state));
-        RETURN_IF_ERROR(child(0)->open(state));
-        return Status::OK();
-    }
+    // Open the probe-side child so that it may perform any initialisation in parallel.
+    // Don't exit even if we see an error, we still need to wait for the build thread
+    // to finish.
+    // ISSUE-1247, check open_status after buildThread execute.
+    // If this return first, build thread will use 'thread_status'
+    // which is already destructor and then coredump.
+    Status open_status = child(0)->open(state);
+    RETURN_IF_ERROR(thread_status.get_future().get());
+    return open_status;
 }
 
 void HashJoinNode::_hash_table_build_thread(RuntimeState* state, std::promise<Status>* status) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::_hash_table_build_thread");
     SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     status->set_value(_hash_table_build(state));
 }
@@ -1013,12 +1033,16 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
     int64_t last_mem_used = 0;
     bool eos = false;
 
+    // make one block for each 4 gigabytes
+    constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
+
     Block block;
     while (!eos) {
         block.clear_column_data();
         RETURN_IF_CANCELLED(state);
 
-        RETURN_IF_ERROR(child(1)->get_next(state, &block, &eos));
+        RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next(state, &block, &eos),
+                                       child(1)->get_next_span(), eos);
         _hash_table_mem_tracker->consume(block.allocated_bytes());
         _mem_used += block.allocated_bytes();
 
@@ -1026,9 +1050,12 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
             mutable_block.merge(block);
         }
 
-        // make one block for each 4 gigabytes
-        constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
         if (UNLIKELY(_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE)) {
+            if (_build_blocks.size() == _MAX_BUILD_BLOCK_COUNT) {
+                return Status::NotSupported(
+                        strings::Substitute("data size of right table in hash join > $0",
+                                            BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
+            }
             _build_blocks.emplace_back(mutable_block.to_block());
             // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
             // which is better.
@@ -1040,8 +1067,15 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
         }
     }
 
-    _build_blocks.emplace_back(mutable_block.to_block());
-    RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
+    if (!mutable_block.empty()) {
+        if (_build_blocks.size() == _MAX_BUILD_BLOCK_COUNT) {
+            return Status::NotSupported(
+                    strings::Substitute("data size of right table in hash join > $0",
+                                        BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
+        }
+        _build_blocks.emplace_back(mutable_block.to_block());
+        RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
+    }
 
     return std::visit(
             [&](auto&& arg) -> Status {
@@ -1175,19 +1209,14 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-#define CALL_BUILD_FUNCTION(HAS_NULL, BUILD_UNIQUE)                                           \
-    ProcessHashTableBuild<HashTableCtxType, HAS_NULL, BUILD_UNIQUE> hash_table_build_process( \
-            rows, block, raw_ptrs, this, state->batch_size(), offset);                        \
-    st = hash_table_build_process(arg, &null_map_val, has_runtime_filter);
-                    if (std::pair {has_null, _build_unique} == std::pair {true, true}) {
-                        CALL_BUILD_FUNCTION(true, true);
-                    } else if (std::pair {has_null, _build_unique} == std::pair {true, false}) {
-                        CALL_BUILD_FUNCTION(true, false);
-                    } else if (std::pair {has_null, _build_unique} == std::pair {false, true}) {
-                        CALL_BUILD_FUNCTION(false, true);
-                    } else {
-                        CALL_BUILD_FUNCTION(false, false);
-                    }
+                    ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
+                            rows, block, raw_ptrs, this, state->batch_size(), offset);
+
+                    constexpr_3_bool_match<ProcessHashTableBuild<
+                            HashTableCtxType>::template Reducer>::run(has_null, _build_unique,
+                                                                      has_runtime_filter,
+                                                                      hash_table_build_process, arg,
+                                                                      &null_map_val);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }
@@ -1210,6 +1239,7 @@ void HashJoinNode::_hash_table_init() {
             break;
         case TYPE_INT:
         case TYPE_FLOAT:
+        case TYPE_DATEV2:
             _hash_table_variants.emplace<I32HashTableContext>();
             break;
         case TYPE_BIGINT:
@@ -1220,8 +1250,25 @@ void HashJoinNode::_hash_table_init() {
             break;
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
-            _hash_table_variants.emplace<I128HashTableContext>();
+        case TYPE_DECIMAL32:
+        case TYPE_DECIMAL64:
+        case TYPE_DECIMAL128: {
+            DataTypePtr& type_ptr = _build_expr_ctxs[0]->root()->data_type();
+            TypeIndex idx = _build_expr_ctxs[0]->root()->is_nullable()
+                                    ? assert_cast<const DataTypeNullable&>(*type_ptr)
+                                              .get_nested_type()
+                                              ->get_type_id()
+                                    : type_ptr->get_type_id();
+            WhichDataType which(idx);
+            if (which.is_decimal32()) {
+                _hash_table_variants.emplace<I32HashTableContext>();
+            } else if (which.is_decimal64()) {
+                _hash_table_variants.emplace<I64HashTableContext>();
+            } else {
+                _hash_table_variants.emplace<I128HashTableContext>();
+            }
             break;
+        }
         default:
             _hash_table_variants.emplace<SerializedHashTableContext>();
         }
@@ -1279,5 +1326,4 @@ void HashJoinNode::_hash_table_init() {
         _hash_table_variants.emplace<SerializedHashTableContext>();
     }
 }
-
 } // namespace doris::vectorized

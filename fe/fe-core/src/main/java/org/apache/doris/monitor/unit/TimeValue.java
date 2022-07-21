@@ -300,7 +300,8 @@ public class TimeValue implements Comparable<TimeValue> {
         } else if (normalized.endsWith("s")) {
             return new TimeValue(parse(sValue, normalized, "s"), TimeUnit.SECONDS);
         } else if (sValue.endsWith("m")) {
-            // parsing minutes should be case-sensitive as 'M' means "months", not "minutes"; this is the only special case.
+            // parsing minutes should be case-sensitive as 'M' means "months", not "minutes";
+            // this is the only special case.
             return new TimeValue(parse(sValue, normalized, "m"), TimeUnit.MINUTES);
         } else if (normalized.endsWith("h")) {
             return new TimeValue(parse(sValue, normalized, "h"), TimeUnit.HOURS);

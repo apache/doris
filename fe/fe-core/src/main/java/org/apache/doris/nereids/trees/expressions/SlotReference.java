@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.Utils;
 
-import org.apache.commons.lang.StringUtils;
+import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
@@ -30,7 +30,7 @@ import java.util.Objects;
 /**
  * Reference to slot in expression.
  */
-public class SlotReference extends Slot<SlotReference> {
+public class SlotReference extends Slot {
     private final ExprId exprId;
     private final String name;
     private final List<String> qualifier;
@@ -51,7 +51,7 @@ public class SlotReference extends Slot<SlotReference> {
      * @param qualifier slot reference qualifier
      */
     public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier) {
-        super(NodeType.SLOT_REFERENCE);
+        super(ExpressionType.SLOT_REFERENCE);
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;
@@ -80,28 +80,23 @@ public class SlotReference extends Slot<SlotReference> {
     }
 
     @Override
-    public DataType getDataType() throws UnboundException {
+    public DataType getDataType() {
         return dataType;
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
+    public boolean nullable() {
         return nullable;
     }
 
     @Override
-    public String sql() {
-        return null;
+    public String toSql() {
+        return name;
     }
 
     @Override
     public String toString() {
-        String uniqueName = name + "#" + exprId;
-        if (qualifier.isEmpty()) {
-            return uniqueName;
-        } else {
-            return StringUtils.join(qualifier, ".") + "." + uniqueName;
-        }
+        return Utils.qualifiedName(qualifier, name + "#" + exprId);
     }
 
     @Override
@@ -122,5 +117,27 @@ public class SlotReference extends Slot<SlotReference> {
     @Override
     public int hashCode() {
         return Objects.hash(exprId, name, qualifier, nullable);
+    }
+
+    public Column getColumn() {
+        return new Column(name, dataType.toCatalogDataType());
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitSlotReference(this, context);
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 0);
+        return this;
+    }
+
+    public Slot withNullable(boolean newNullable) {
+        if (this.nullable == newNullable) {
+            return this;
+        }
+        return new SlotReference(exprId, name, dataType, newNullable, qualifier);
     }
 }

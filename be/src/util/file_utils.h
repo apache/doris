@@ -68,7 +68,7 @@ public:
                                   std::set<std::string>* files, Env* env);
 
     // Get the number of children belong to the specified directory, this
-    // funciton also exclude '.' and '..'.
+    // function also exclude '.' and '..'.
     // Return OK with *count is set to the count, if execute successful.
     static Status get_children_count(Env* env, const std::string& dir, int64_t* count);
 

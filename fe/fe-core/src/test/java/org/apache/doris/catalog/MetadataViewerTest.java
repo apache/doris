@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
@@ -44,13 +45,16 @@ public class MetadataViewerTest {
     private Catalog catalog;
 
     @Mocked
+    private InternalDataSource internalDataSource;
+
+    @Mocked
     private SystemInfoService infoService;
 
     private static Database db;
 
     @BeforeClass
     public static void setUp() throws Exception {
-        Class[] argTypes = new Class[] { String.class, String.class, List.class, ReplicaStatus.class, Operator.class };
+        Class[] argTypes = new Class[] {String.class, String.class, List.class, ReplicaStatus.class, Operator.class};
         getTabletStatusMethod = MetadataViewer.class.getDeclaredMethod("getTabletStatus", argTypes);
         getTabletStatusMethod.setAccessible(true);
 
@@ -66,13 +70,21 @@ public class MetadataViewerTest {
 
         new Expectations() {
             {
+                internalDataSource.getDbOrDdlException(anyString);
+                minTimes = 0;
+                result = db;
+            }
+        };
+
+        new Expectations() {
+            {
                 Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
 
-                catalog.getDbOrDdlException(anyString);
+                catalog.getInternalDataSource();
                 minTimes = 0;
-                result = db;
+                result = internalDataSource;
             }
         };
 
@@ -97,7 +109,6 @@ public class MetadataViewerTest {
                 null };
         List<List<String>> result = (List<List<String>>) getTabletStatusMethod.invoke(null, args);
         Assert.assertEquals(3, result.size());
-        System.out.println(result);
 
         args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, partitions, ReplicaStatus.DEAD,
                 Operator.EQ };
@@ -116,7 +127,6 @@ public class MetadataViewerTest {
         Object[] args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, null };
         List<List<String>> result = (List<List<String>>) getTabletDistributionMethod.invoke(null, args);
         Assert.assertEquals(3, result.size());
-        System.out.println(result);
     }
 
 }

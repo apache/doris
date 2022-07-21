@@ -30,6 +30,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -67,7 +68,7 @@ public class RepeatNode extends PlanNode {
     private GroupByClause groupByClause;
 
     protected RepeatNode(PlanNodeId id, PlanNode input, GroupingInfo groupingInfo, GroupByClause groupByClause) {
-        super(id, input.getTupleIds(), "REPEAT_NODE", NodeType.REPEAT_NODE);
+        super(id, input.getTupleIds(), "REPEAT_NODE", StatisticalType.REPEAT_NODE);
         this.children.add(input);
         this.groupingInfo = groupingInfo;
         this.input = input;
@@ -78,7 +79,7 @@ public class RepeatNode extends PlanNode {
     // only for unittest
     protected RepeatNode(PlanNodeId id, PlanNode input, List<Set<SlotId>> repeatSlotIdList,
                       TupleDescriptor outputTupleDesc, List<List<Long>> groupingList) {
-        super(id, input.getTupleIds(), "REPEAT_NODE", NodeType.REPEAT_NODE);
+        super(id, input.getTupleIds(), "REPEAT_NODE", StatisticalType.REPEAT_NODE);
         this.children.add(input);
         this.repeatSlotIdList = buildIdSetList(repeatSlotIdList);
         this.groupingList = groupingList;

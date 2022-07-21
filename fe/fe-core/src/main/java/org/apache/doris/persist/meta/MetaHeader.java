@@ -56,7 +56,8 @@ public class MetaHeader {
             MetaMagicNumber magicNumber = MetaMagicNumber.read(raf);
             if (!Arrays.equals(MetaMagicNumber.MAGIC, magicNumber.getBytes())) {
                 LOG.warn("Image file {} format mismatch. Expected magic number is {}, actual is {}",
-                        imageFile.getPath(), Arrays.toString(MetaMagicNumber.MAGIC), Arrays.toString(magicNumber.getBytes()));
+                        imageFile.getPath(), Arrays.toString(MetaMagicNumber.MAGIC),
+                        Arrays.toString(magicNumber.getBytes()));
                 return EMPTY_HEADER;
             }
             MetaJsonHeader metaJsonHeader = MetaJsonHeader.read(raf);

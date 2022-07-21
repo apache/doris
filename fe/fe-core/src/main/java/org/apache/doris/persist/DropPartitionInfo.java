@@ -42,7 +42,8 @@ public class DropPartitionInfo implements Writable {
     private DropPartitionInfo() {
     }
 
-    public DropPartitionInfo(Long dbId, Long tableId, String partitionName, boolean isTempPartition, boolean forceDrop) {
+    public DropPartitionInfo(Long dbId, Long tableId, String partitionName,
+            boolean isTempPartition, boolean forceDrop) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionName = partitionName;

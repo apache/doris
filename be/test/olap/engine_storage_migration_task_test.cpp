@@ -82,7 +82,7 @@ static void tear_down() {
     }
     EXPECT_EQ(system("rm -rf ./data_test_1"), 0);
     EXPECT_EQ(system("rm -rf ./data_test_2"), 0);
-    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
 }
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
@@ -198,8 +198,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success
-    TabletSharedPtr tablet =
-            k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id);
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
     version.first = tablet->rowset_with_max_version()->end_version() + 1;
@@ -234,9 +233,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     res = engine_task.execute();
     EXPECT_EQ(Status::OK(), res);
     // reget the tablet from manager after migration
-    auto tablet_id = 10005;
-    auto schema_hash = 270068377;
-    TabletSharedPtr tablet2 = k_engine->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    TabletSharedPtr tablet2 = k_engine->tablet_manager()->get_tablet(request.tablet_id);
     // check path
     EXPECT_EQ(tablet2->data_dir()->path(), dest_store->path());
     // check rows
@@ -254,7 +251,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     EngineStorageMigrationTask engine_task2(tablet2, dest_store);
     res = engine_task2.execute();
     EXPECT_EQ(Status::OK(), res);
-    TabletSharedPtr tablet3 = k_engine->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    TabletSharedPtr tablet3 = k_engine->tablet_manager()->get_tablet(request.tablet_id);
     // check path
     EXPECT_EQ(tablet3->data_dir()->path(), tablet->data_dir()->path());
     // check rows
@@ -264,7 +261,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     EXPECT_NE(tablet3, tablet);
     // test case 2 end
 
-    res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
     EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }

@@ -18,23 +18,18 @@
 #include "exec/broker_scanner.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/internal_service.pb.h>
 
 #include <iostream>
 #include <sstream>
 
 #include "common/consts.h"
 #include "exec/decompressor.h"
-#include "exec/exec_node.h"
 #include "exec/plain_binary_line_reader.h"
 #include "exec/plain_text_line_reader.h"
-#include "exprs/expr.h"
-#include "io/buffered_reader.h"
 #include "io/file_factory.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/raw_value.h"
-#include "runtime/stream_load/load_stream_mgr.h"
-#include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
 #include "util/string_util.h"
 #include "util/utf8_check.h"
@@ -176,9 +171,8 @@ Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
         compress_type = CompressType::DEFLATE;
         break;
     default: {
-        std::stringstream ss;
-        ss << "Unknown format type, cannot inference compress type, type=" << type;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Unknown format type, cannot inference compress type, type={}",
+                                     type);
     }
     }
     RETURN_IF_ERROR(Decompressor::create_decompressor(compress_type, &_cur_decompressor));
@@ -201,9 +195,7 @@ Status BrokerScanner::open_line_reader() {
     int64_t size = range.size;
     if (range.start_offset != 0) {
         if (range.format_type != TFileFormatType::FORMAT_CSV_PLAIN) {
-            std::stringstream ss;
-            ss << "For now we do not support split compressed file";
-            return Status::InternalError(ss.str());
+            return Status::InternalError("For now we do not support split compressed file");
         }
         size += 1;
         // not first range will always skip one line
@@ -231,9 +223,8 @@ Status BrokerScanner::open_line_reader() {
         _cur_line_reader = new PlainBinaryLineReader(_cur_file_reader.get());
         break;
     default: {
-        std::stringstream ss;
-        ss << "Unknown format type, cannot init line reader, type=" << range.format_type;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Unknown format type, cannot init line reader, type={}",
+                                     range.format_type);
     }
     }
 

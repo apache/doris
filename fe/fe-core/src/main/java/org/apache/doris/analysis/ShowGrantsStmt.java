@@ -46,6 +46,7 @@ import com.google.common.base.Preconditions;
 public class ShowGrantsStmt extends ShowStmt {
 
     private static final ShowResultSetMetaData META_DATA;
+
     static {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String col : AuthProcDir.TITLE_NAMES) {

@@ -251,7 +251,7 @@ public class TransactionState implements Writable {
     }
 
     public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requestId,
-                            LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, long callbackId, long timeoutMs) {
+            LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, long callbackId, long timeoutMs) {
         this.dbId = dbId;
         this.tableIdList = (tableIdList == null ? Lists.newArrayList() : tableIdList);
         this.transactionId = transactionId;
@@ -425,8 +425,8 @@ public class TransactionState implements Writable {
         afterStateTransform(transactionStatus, txnOperated, null);
     }
 
-    public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated, String txnStatusChangeReason)
-            throws UserException {
+    public void afterStateTransform(TransactionStatus transactionStatus,
+            boolean txnOperated, String txnStatusChangeReason) throws UserException {
         // after status changed
         if (callback == null) {
             callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);

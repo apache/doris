@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -55,6 +56,8 @@ public class DataDescriptionTest {
     private Analyzer analyzer;
     @Mocked
     private Catalog catalog;
+    @Mocked
+    private InternalDataSource ds;
 
     @Before
     public void setUp() throws AnalysisException {
@@ -78,7 +81,11 @@ public class DataDescriptionTest {
                 minTimes = 0;
                 result = catalog;
 
-                catalog.getDbNullable(anyString);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+
+                ds.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
 

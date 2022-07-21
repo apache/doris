@@ -57,7 +57,7 @@ ALTER SYSTEM DECOMMISSION BACKEND "host:heartbeat_port"[,"host:heartbeat_port"..
 
 ### Keywords
 
-    ALTER, SYSTEM, DECOMMISSION, BACKEND
+    ALTER, SYSTEM, DECOMMISSION, BACKEND, ALTER SYSTEM
 
 ### Best Practice
 

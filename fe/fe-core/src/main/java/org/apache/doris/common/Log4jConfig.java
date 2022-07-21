@@ -37,6 +37,7 @@ import java.util.Map;
 public class Log4jConfig extends XmlConfiguration {
     private static final long serialVersionUID = 1L;
 
+    // CHECKSTYLE OFF
     private static String xmlConfTemplate = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
             + "\n<!-- Auto Generated. DO NOT MODIFY IT! -->\n"
             + "<Configuration status=\"info\" packages=\"org.apache.doris.common\">\n"
@@ -104,6 +105,7 @@ public class Log4jConfig extends XmlConfiguration {
             + "    <!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->\n"
             + "  </Loggers>\n"
             + "</Configuration>";
+    // CHECKSTYLE ON
 
     private static StrSubstitutor strSub;
     private static String sysLogLevel;
@@ -235,7 +237,7 @@ public class Log4jConfig extends XmlConfiguration {
         super(LoggerContext.getContext(), configSource);
     }
 
-    public synchronized static void initLogging(String dorisConfDir) throws IOException {
+    public static synchronized void initLogging(String dorisConfDir) throws IOException {
         sysLogLevel = Config.sys_log_level;
         verboseModules = Config.sys_log_verbose_modules;
         auditModules = Config.audit_log_modules;
@@ -244,7 +246,7 @@ public class Log4jConfig extends XmlConfiguration {
         reconfig();
     }
 
-    public synchronized static Tuple<String, String[], String[]> updateLogging(
+    public static synchronized Tuple<String, String[], String[]> updateLogging(
             String level, String[] verboseNames, String[] auditNames) throws IOException {
         boolean toReconfig = false;
         if (level != null) {

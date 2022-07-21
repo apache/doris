@@ -35,13 +35,13 @@ import java.io.IOException;
 import java.util.List;
 
 public class BatchModifyPartitionsInfoTest {
-    private final static String FILE_NAME = "./BatchModifyPartitionsInfoTest";
+    private static final String FILE_NAME = "./BatchModifyPartitionsInfoTest";
 
-    private final static long DB_ID = 10000L;
-    private final static long TB_ID = 30000L;
-    private final static long PARTITION_ID_1 = 40000L;
-    private final static long PARTITION_ID_2 = 40001L;
-    private final static long PARTITION_ID_3 = 40002L;
+    private static final long DB_ID = 10000L;
+    private static final long TB_ID = 30000L;
+    private static final long PARTITION_ID_1 = 40000L;
+    private static final long PARTITION_ID_2 = 40001L;
+    private static final long PARTITION_ID_3 = 40002L;
 
     @After
     public void tearDown() {
@@ -60,7 +60,7 @@ public class BatchModifyPartitionsInfoTest {
         List<Long> partitionIds = Lists.newArrayList(PARTITION_ID_1, PARTITION_ID_2, PARTITION_ID_3);
         for (long partitionId : partitionIds) {
             modifyInfos.add(new ModifyPartitionInfo(DB_ID, TB_ID, partitionId,
-                    DataProperty.DEFAULT_DATA_PROPERTY, ReplicaAllocation.DEFAULT_ALLOCATION, true));
+                    DataProperty.DEFAULT_DATA_PROPERTY, ReplicaAllocation.DEFAULT_ALLOCATION, true, ""));
         }
 
         BatchModifyPartitionsInfo batchModifyPartitionsInfo = new BatchModifyPartitionsInfo(modifyInfos);

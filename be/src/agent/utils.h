@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+
 #include "common/status.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
 #include "runtime/client_cache.h"
 
 namespace doris {
@@ -47,6 +48,15 @@ public:
     // Output parameters:
     // * result: The result of report task
     virtual Status report(const TReportRequest& request, TMasterResult* result);
+
+    // refreshStoragePolicy get storage policy from the master server
+    //
+    // Input parameters:
+    // * request: The name of storage policy
+    //
+    // Output parameters:
+    // * result: The result of storage policy
+    virtual Status refresh_storage_policy(TGetStoragePolicyResult* result);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(MasterServerClient);

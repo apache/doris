@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
-#include "vec/core/names.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -293,7 +292,21 @@ public:
                 is_date_or_datetime(get_return_type(arguments)->is_nullable()
                                             ? ((DataTypeNullable*)get_return_type(arguments).get())
                                                       ->get_nested_type()
-                                            : get_return_type(arguments))))
+                                            : get_return_type(arguments))) ||
+               (is_date_v2(return_type->is_nullable()
+                                   ? ((DataTypeNullable*)return_type.get())->get_nested_type()
+                                   : return_type) &&
+                is_date_v2(get_return_type(arguments)->is_nullable()
+                                   ? ((DataTypeNullable*)get_return_type(arguments).get())
+                                             ->get_nested_type()
+                                   : get_return_type(arguments))) ||
+               (is_decimal(return_type->is_nullable()
+                                   ? ((DataTypeNullable*)return_type.get())->get_nested_type()
+                                   : return_type) &&
+                is_decimal(get_return_type(arguments)->is_nullable()
+                                   ? ((DataTypeNullable*)get_return_type(arguments).get())
+                                             ->get_nested_type()
+                                   : get_return_type(arguments))))
                 << " with " << return_type->get_name() << " and " << func_return_type->get_name();
 
         return build_impl(arguments, return_type);

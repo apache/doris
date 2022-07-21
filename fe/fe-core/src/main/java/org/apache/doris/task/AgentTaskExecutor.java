@@ -24,7 +24,8 @@ import java.util.concurrent.ExecutorService;
 
 public class AgentTaskExecutor {
 
-    private static final ExecutorService EXECUTOR = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_agent_task_threads_num, "agent-task-pool", true);
+    private static final ExecutorService EXECUTOR = ThreadPoolManager.newDaemonCacheThreadPool(
+            Config.max_agent_task_threads_num, "agent-task-pool", true);
 
     public AgentTaskExecutor() {
 

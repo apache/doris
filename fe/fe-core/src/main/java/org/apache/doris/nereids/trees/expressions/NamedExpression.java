@@ -18,18 +18,16 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
-
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 
 /**
  * Expression in Nereids that having name.
  */
-public abstract class NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYPE>> extends Expression<EXPR_TYPE> {
+public abstract class NamedExpression extends Expression {
 
-    public NamedExpression(NodeType type, Expression... children) {
+    public NamedExpression(ExpressionType type, Expression... children) {
         super(type, children);
     }
 
@@ -49,6 +47,11 @@ public abstract class NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYP
         throw new UnboundException("qualifier");
     }
 
+    @Override
+    public boolean isConstant() {
+        return false;
+    }
+
     /**
      * Get qualified name of NamedExpression.
      *
@@ -56,10 +59,6 @@ public abstract class NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYP
      * @throws UnboundException throw this exception if this expression is unbound
      */
     public String getQualifiedName() throws UnboundException {
-        String qualifiedName = "";
-        if (CollectionUtils.isNotEmpty(getQualifier())) {
-            qualifiedName = String.join(".", getQualifier()) + ".";
-        }
-        return qualifiedName + getName();
+        return Utils.qualifiedName(getQualifier(), getName());
     }
 }

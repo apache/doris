@@ -39,12 +39,12 @@ import java.util.Map;
 public class RuntimeFilterTypeHelper {
     private static final Logger LOG = LogManager.getLogger(RuntimeFilterTypeHelper.class);
 
-    public final static long ALLOWED_MASK = (TRuntimeFilterType.IN.getValue()
+    public static final long ALLOWED_MASK = (TRuntimeFilterType.IN.getValue()
             | TRuntimeFilterType.BLOOM.getValue()
             | TRuntimeFilterType.MIN_MAX.getValue()
             | TRuntimeFilterType.IN_OR_BLOOM.getValue());
 
-    private final static Map<String, Long> varValueSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private static final Map<String, Long> varValueSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     static {
         varValueSet.put("IN", (long) TRuntimeFilterType.IN.getValue());
@@ -60,7 +60,8 @@ public class RuntimeFilterTypeHelper {
             return "";
         }
         if ((varValue & ~ALLOWED_MASK) != 0) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.RUNTIME_FILTER_TYPE, varValue);
+            ErrorReport.reportDdlException(
+                    ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.RUNTIME_FILTER_TYPE, varValue);
         }
 
         List<String> names = new ArrayList<String>();
@@ -86,12 +87,14 @@ public class RuntimeFilterTypeHelper {
             } else {
                 code = getCodeFromString(key);
                 if (code == 0) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.RUNTIME_FILTER_TYPE, key);
+                    ErrorReport.reportDdlException(
+                            ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.RUNTIME_FILTER_TYPE, key);
                 }
             }
             resultCode |= code;
             if ((resultCode & ~ALLOWED_MASK) != 0) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.RUNTIME_FILTER_TYPE, key);
+                ErrorReport.reportDdlException(
+                        ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.RUNTIME_FILTER_TYPE, key);
             }
         }
         return resultCode;

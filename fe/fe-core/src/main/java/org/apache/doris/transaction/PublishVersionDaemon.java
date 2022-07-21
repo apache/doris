@@ -144,7 +144,8 @@ public class PublishVersionDaemon extends MasterDaemon {
             List<PublishVersionTask> unfinishedTasks = Lists.newArrayList();
             for (PublishVersionTask publishVersionTask : transTasks.values()) {
                 if (publishVersionTask.isFinished()) {
-                    // sometimes backend finish publish version task, but it maybe failed to change transactionid to version for some tablets
+                    // sometimes backend finish publish version task,
+                    // but it maybe failed to change transactionid to version for some tablets
                     // and it will upload the failed tabletinfo to fe and fe will deal with them
                     List<Long> errorTablets = publishVersionTask.getErrorTablets();
                     if (errorTablets == null || errorTablets.isEmpty()) {
@@ -157,7 +158,8 @@ public class PublishVersionDaemon extends MasterDaemon {
                             if (tabletInvertedIndex.getTabletMeta(tabletId) == null) {
                                 continue;
                             }
-                            Replica replica = tabletInvertedIndex.getReplica(tabletId, publishVersionTask.getBackendId());
+                            Replica replica = tabletInvertedIndex.getReplica(
+                                    tabletId, publishVersionTask.getBackendId());
                             if (replica != null) {
                                 publishErrorReplicaIds.add(replica.getId());
                             } else {
@@ -188,7 +190,8 @@ public class PublishVersionDaemon extends MasterDaemon {
                             continue;
                         }
 
-                        Database db = Catalog.getCurrentCatalog().getDbNullable(transactionState.getDbId());
+                        Database db = Catalog.getCurrentInternalCatalog()
+                                .getDbNullable(transactionState.getDbId());
                         if (db == null) {
                             LOG.warn("Database [{}] has been dropped.", transactionState.getDbId());
                             continue;
@@ -206,10 +209,12 @@ public class PublishVersionDaemon extends MasterDaemon {
                                 for (Long errorPartitionId : errorPartitionIds) {
                                     Partition partition = olapTable.getPartition(errorPartitionId);
                                     if (partition != null) {
-                                        List<MaterializedIndex> materializedIndexList = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                                        List<MaterializedIndex> materializedIndexList
+                                                = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
                                         for (MaterializedIndex materializedIndex : materializedIndexList) {
                                             for (Tablet tablet : materializedIndex.getTablets()) {
-                                                Replica replica = tablet.getReplicaByBackendId(unfinishedTask.getBackendId());
+                                                Replica replica = tablet.getReplicaByBackendId(
+                                                        unfinishedTask.getBackendId());
                                                 if (replica != null) {
                                                     publishErrorReplicaIds.add(replica.getId());
                                                 }
@@ -232,7 +237,8 @@ public class PublishVersionDaemon extends MasterDaemon {
             if (shouldFinishTxn) {
                 try {
                     // one transaction exception should not affect other transaction
-                    globalTransactionMgr.finishTransaction(transactionState.getDbId(), transactionState.getTransactionId(), publishErrorReplicaIds);
+                    globalTransactionMgr.finishTransaction(transactionState.getDbId(),
+                            transactionState.getTransactionId(), publishErrorReplicaIds);
                 } catch (Exception e) {
                     LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
                 }

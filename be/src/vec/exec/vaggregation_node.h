@@ -50,13 +50,41 @@ struct AggregationMethodSerialized {
     Data data;
     Iterator iterator;
     bool inited = false;
+    std::vector<StringRef> keys;
+    AggregationMethodSerialized()
+            : _serialized_key_buffer_size(0),
+              _serialized_key_buffer(nullptr),
+              _mem_pool(new MemPool) {}
 
-    AggregationMethodSerialized() = default;
+    using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped, true>;
 
     template <typename Other>
     explicit AggregationMethodSerialized(const Other& other) : data(other.data) {}
 
-    using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped>;
+    void serialize_keys(const ColumnRawPtrs& key_columns, const size_t num_rows) {
+        size_t max_one_row_byte_size = 0;
+        for (const auto& column : key_columns) {
+            max_one_row_byte_size += column->get_max_row_byte_size();
+        }
+
+        if ((max_one_row_byte_size * num_rows) > _serialized_key_buffer_size) {
+            _serialized_key_buffer_size = max_one_row_byte_size * num_rows;
+            _mem_pool->clear();
+            _serialized_key_buffer = _mem_pool->allocate(_serialized_key_buffer_size);
+        }
+
+        if (keys.size() < num_rows) keys.resize(num_rows);
+
+        for (size_t i = 0; i < num_rows; ++i) {
+            keys[i].data =
+                    reinterpret_cast<char*>(_serialized_key_buffer + i * max_one_row_byte_size);
+            keys[i].size = 0;
+        }
+
+        for (const auto& column : key_columns) {
+            column->serialize_vec(keys, num_rows, max_one_row_byte_size);
+        }
+    }
 
     static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
                                         const Sizes&) {
@@ -70,10 +98,51 @@ struct AggregationMethodSerialized {
             iterator = data.begin();
         }
     }
+
+private:
+    size_t _serialized_key_buffer_size;
+    uint8_t* _serialized_key_buffer;
+    std::unique_ptr<MemPool> _mem_pool;
 };
 
 using AggregatedDataWithoutKey = AggregateDataPtr;
-using AggregatedDataWithStringKey = HashMapWithSavedHash<StringRef, AggregateDataPtr>;
+using AggregatedDataWithStringKey = PHHashMap<StringRef, AggregateDataPtr, DefaultHash<StringRef>>;
+using AggregatedDataWithShortStringKey = StringHashMap<AggregateDataPtr>;
+
+template <typename TData>
+struct AggregationMethodStringNoCache {
+    using Data = TData;
+    using Key = typename Data::key_type;
+    using Mapped = typename Data::mapped_type;
+    using Iterator = typename Data::iterator;
+
+    Data data;
+    Iterator iterator;
+    bool inited = false;
+
+    AggregationMethodStringNoCache() = default;
+
+    explicit AggregationMethodStringNoCache(size_t size_hint) : data(size_hint) {}
+
+    template <typename Other>
+    explicit AggregationMethodStringNoCache(const Other& other) : data(other.data) {}
+
+    using State = ColumnsHashing::HashMethodString<typename Data::value_type, Mapped, true, false>;
+
+    static const bool low_cardinality_optimization = false;
+
+    static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
+                                        const Sizes&) {
+        key_columns[0]->insert_data(key.data, key.size);
+    }
+
+    void init_once() {
+        if (!inited) {
+            inited = true;
+            iterator = data.begin();
+        }
+    }
+};
 
 /// For the case where there is one numeric key.
 /// FieldType is UInt8/16/32/64 for any type with corresponding bit width.
@@ -257,6 +326,8 @@ using AggregatedDataWithNullableUInt8Key = AggregationDataWithNullKey<Aggregated
 using AggregatedDataWithNullableUInt16Key = AggregationDataWithNullKey<AggregatedDataWithUInt16Key>;
 using AggregatedDataWithNullableUInt32Key = AggregationDataWithNullKey<AggregatedDataWithUInt32Key>;
 using AggregatedDataWithNullableUInt64Key = AggregationDataWithNullKey<AggregatedDataWithUInt64Key>;
+using AggregatedDataWithNullableShortStringKey =
+        AggregationDataWithNullKey<AggregatedDataWithShortStringKey>;
 using AggregatedDataWithNullableUInt128Key =
         AggregationDataWithNullKey<AggregatedDataWithUInt128Key>;
 
@@ -266,6 +337,7 @@ using AggregatedMethodVariants = std::variant<
         AggregationMethodOneNumber<UInt16, AggregatedDataWithUInt16Key, false>,
         AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32Key>,
         AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64Key>,
+        AggregationMethodStringNoCache<AggregatedDataWithShortStringKey>,
         AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128Key>,
         AggregationMethodSingleNullableColumn<
                 AggregationMethodOneNumber<UInt8, AggregatedDataWithNullableUInt8Key, false>>,
@@ -277,6 +349,8 @@ using AggregatedMethodVariants = std::variant<
                 AggregationMethodOneNumber<UInt64, AggregatedDataWithNullableUInt64Key>>,
         AggregationMethodSingleNullableColumn<
                 AggregationMethodOneNumber<UInt128, AggregatedDataWithNullableUInt128Key>>,
+        AggregationMethodSingleNullableColumn<
+                AggregationMethodStringNoCache<AggregatedDataWithNullableShortStringKey>>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, false>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, true>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, false>,
@@ -303,7 +377,8 @@ struct AggregatedDataVariants {
         int128_key,
         int64_keys,
         int128_keys,
-        int256_keys
+        int256_keys,
+        string_key,
     };
 
     Type _type = Type::EMPTY;
@@ -392,6 +467,16 @@ struct AggregatedDataVariants {
                         .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, false>>();
             }
             break;
+        case Type::string_key:
+            if (is_nullable) {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodSingleNullableColumn<AggregationMethodStringNoCache<
+                                AggregatedDataWithNullableShortStringKey>>>();
+            } else {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodStringNoCache<AggregatedDataWithShortStringKey>>();
+            }
+            break;
         default:
             DCHECK(false) << "Do not have a rigth agg data type";
         }
@@ -448,6 +533,7 @@ private:
     Arena _agg_arena_pool;
 
     RuntimeProfile::Counter* _build_timer;
+    RuntimeProfile::Counter* _serialize_key_timer;
     RuntimeProfile::Counter* _exec_timer;
     RuntimeProfile::Counter* _merge_timer;
     RuntimeProfile::Counter* _expr_timer;
@@ -466,7 +552,7 @@ private:
     void _make_nullable_output_key(Block* block);
 
     Status _create_agg_status(AggregateDataPtr data);
-    Status _destory_agg_status(AggregateDataPtr data);
+    Status _destroy_agg_status(AggregateDataPtr data);
 
     Status _get_without_key_result(RuntimeState* state, Block* block, bool* eos);
     Status _serialize_without_key(RuntimeState* state, Block* block, bool* eos);
@@ -483,6 +569,16 @@ private:
     void _update_memusage_with_serialized_key();
     void _close_with_serialized_key();
     void _init_hash_method(std::vector<VExprContext*>& probe_exprs);
+
+    template <typename AggState, typename AggMethod>
+    void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
+                                    const ColumnRawPtrs& key_columns, const size_t num_rows) {
+        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<AggState>::value) {
+            SCOPED_TIMER(_serialize_key_timer);
+            agg_method.serialize_keys(key_columns, num_rows);
+            state.set_serialized_keys(agg_method.keys.data());
+        }
+    }
 
     void release_tracker();
 

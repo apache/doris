@@ -38,6 +38,7 @@ public:
         return pool->add(new VCaseExpr(*this));
     }
     virtual const std::string& expr_name() const override;
+    virtual std::string debug_string() const override;
 
 private:
     bool _is_prepare;

@@ -19,13 +19,9 @@
 
 #include <parallel_hashmap/phmap.h>
 
-#include "olap/collect_iterator.h"
 #include "olap/reader.h"
 #include "olap/rowset/rowset_reader.h"
-#include "olap/tablet.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_reader.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/olap/vcollect_iterator.h"
 
 namespace doris {
@@ -50,9 +46,6 @@ public:
     }
 
 private:
-    friend class VCollectIterator;
-    friend class DeleteHandler;
-
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
     Status _direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);

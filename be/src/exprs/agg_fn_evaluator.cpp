@@ -33,15 +33,12 @@
 
 #include <sstream>
 
-#include "common/logging.h"
-#include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
 #include "runtime/datetime_value.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/user_function_cache.h"
 #include "udf/udf_internal.h"
-#include "util/debug_util.h"
 
 namespace doris {
 using doris_udf::FunctionContext;
@@ -197,9 +194,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
         (!_is_analytic_fn && _fn.aggregate_fn.merge_fn_symbol.empty())) {
         // This path is only for partially implemented builtins.
         DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::BUILTIN);
-        std::stringstream ss;
-        ss << "Function " << _fn.name.function_name << " is not implemented.";
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Function {} is not implemented.", _fn.name.function_name);
     }
 
     // Load the function pointers.

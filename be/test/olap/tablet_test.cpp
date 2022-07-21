@@ -22,7 +22,11 @@
 #include <sstream>
 
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
+#include "olap/storage_policy_mgr.h"
 #include "olap/tablet_meta.h"
+#include "testutil/mock_rowset.h"
+#include "util/time.h"
 
 using namespace std;
 
@@ -35,9 +39,7 @@ public:
     virtual ~TestTablet() {}
 
     virtual void SetUp() {
-        _tablet_meta = static_cast<TabletMetaSharedPtr>(new TabletMeta(
-                1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD, "", TCompressionType::LZ4F));
+        _tablet_meta = new_tablet_meta(TTabletSchema());
         _json_rowset_meta = R"({
             "rowset_id": 540081,
             "tablet_id": 15673,
@@ -90,11 +92,39 @@ public:
 
     virtual void TearDown() {}
 
+    TabletMetaSharedPtr new_tablet_meta(TTabletSchema schema, bool enable_merge_on_write = false) {
+        return static_cast<TabletMetaSharedPtr>(
+                new TabletMeta(1, 2, 15673, 15674, 4, 5, schema, 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F, std::string(),
+                               enable_merge_on_write));
+    }
+
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
         pb1->init_from_json(_json_rowset_meta);
         pb1->set_start_version(start);
         pb1->set_end_version(end);
         pb1->set_creation_time(10000);
+    }
+
+    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end, int64_t earliest_ts,
+                      int64_t latest_ts) {
+        pb1->init_from_json(_json_rowset_meta);
+        pb1->set_oldest_write_timestamp(earliest_ts);
+        pb1->set_newest_write_timestamp(latest_ts);
+        pb1->set_start_version(start);
+        pb1->set_end_version(end);
+        pb1->set_creation_time(10000);
+        pb1->set_num_segments(2);
+    }
+
+    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end,
+                      std::vector<KeyBoundsPB> keybounds) {
+        pb1->init_from_json(_json_rowset_meta);
+        pb1->set_start_version(start);
+        pb1->set_end_version(end);
+        pb1->set_creation_time(10000);
+        pb1->set_segments_key_bounds(keybounds);
+        pb1->set_num_segments(keybounds.size());
     }
 
     void init_all_rs_meta(std::vector<RowsetMetaSharedPtr>* rs_metas) {
@@ -118,6 +148,7 @@ public:
         init_rs_meta(ptr5, 10, 11);
         rs_metas->push_back(ptr5);
     }
+
     void fetch_expired_row_rs_meta(std::vector<RowsetMetaSharedContainerPtr>* rs_metas) {
         RowsetMetaSharedContainerPtr v2(new std::vector<RowsetMetaSharedPtr>());
         RowsetMetaSharedPtr ptr1(new RowsetMeta());
@@ -161,6 +192,18 @@ public:
         rs_metas->push_back(v5);
     }
 
+    std::vector<KeyBoundsPB> convert_key_bounds(
+            std::vector<std::pair<std::string, std::string>> key_pairs) {
+        std::vector<KeyBoundsPB> res;
+        for (auto pair : key_pairs) {
+            KeyBoundsPB key_bounds;
+            key_bounds.set_min_key(pair.first);
+            key_bounds.set_max_key(pair.second);
+            res.push_back(key_bounds);
+        }
+        return res;
+    }
+
 protected:
     std::string _json_rowset_meta;
     TabletMetaSharedPtr _tablet_meta;
@@ -177,9 +220,7 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    StorageParamPB storage_param;
-    storage_param.set_storage_medium(StorageMediumPB::HDD);
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, storage_param, nullptr));
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
     _tablet->init();
 
     for (auto ptr : expired_rs_metas) {
@@ -193,4 +234,174 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
     EXPECT_EQ(0, _tablet->_timestamped_version_tracker._stale_version_path_map.size());
     _tablet.reset();
 }
+
+TEST_F(TestTablet, cooldown_policy) {
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    RowsetMetaSharedPtr ptr1(new RowsetMeta());
+    init_rs_meta(ptr1, 1, 2, 100, 200);
+    rs_metas.push_back(ptr1);
+    RowsetSharedPtr rowset1 = make_shared<BetaRowset>(nullptr, "", ptr1);
+
+    RowsetMetaSharedPtr ptr2(new RowsetMeta());
+    init_rs_meta(ptr2, 3, 4, 300, 600);
+    rs_metas.push_back(ptr2);
+    RowsetSharedPtr rowset2 = make_shared<BetaRowset>(nullptr, "", ptr2);
+
+    RowsetMetaSharedPtr ptr3(new RowsetMeta());
+    init_rs_meta(ptr3, 5, 5, 800, 800);
+    rs_metas.push_back(ptr3);
+    RowsetSharedPtr rowset3 = make_shared<BetaRowset>(nullptr, "", ptr3);
+
+    RowsetMetaSharedPtr ptr4(new RowsetMeta());
+    init_rs_meta(ptr4, 6, 7, 1100, 1400);
+    rs_metas.push_back(ptr4);
+    RowsetSharedPtr rowset4 = make_shared<BetaRowset>(nullptr, "", ptr4);
+
+    RowsetMetaSharedPtr ptr5(new RowsetMeta());
+    init_rs_meta(ptr5, 8, 9, 1800, 2000);
+    rs_metas.push_back(ptr5);
+    RowsetSharedPtr rowset5 = make_shared<BetaRowset>(nullptr, "", ptr5);
+
+    for (auto& rowset : rs_metas) {
+        _tablet_meta->add_rs_meta(rowset);
+    }
+
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
+    _tablet->init();
+    _tablet->set_cooldown_resource("test_policy_name");
+
+    _tablet->_rs_version_map[ptr1->version()] = rowset1;
+    _tablet->_rs_version_map[ptr2->version()] = rowset2;
+    _tablet->_rs_version_map[ptr3->version()] = rowset3;
+    _tablet->_rs_version_map[ptr4->version()] = rowset4;
+    _tablet->_rs_version_map[ptr5->version()] = rowset5;
+
+    _tablet->set_cumulative_layer_point(20);
+
+    ExecEnv::GetInstance()->_storage_policy_mgr = new StoragePolicyMgr();
+
+    {
+        StoragePolicy* policy = new StoragePolicy();
+        policy->storage_policy_name = "test_policy_name";
+        policy->cooldown_datetime = 250;
+        policy->cooldown_ttl = -1;
+
+        std::shared_ptr<StoragePolicy> policy_ptr;
+        policy_ptr.reset(policy);
+
+        ExecEnv::GetInstance()->storage_policy_mgr()->_policy_map["test_policy_name"] = policy_ptr;
+
+        int64_t cooldown_timestamp = -1;
+        size_t file_size = -1;
+        bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        ASSERT_TRUE(ret);
+        ASSERT_EQ(cooldown_timestamp, 250);
+        ASSERT_EQ(file_size, -1);
+    }
+
+    {
+        StoragePolicy* policy = new StoragePolicy();
+        policy->storage_policy_name = "test_policy_name";
+        policy->cooldown_datetime = -1;
+        policy->cooldown_ttl = 3600;
+
+        std::shared_ptr<StoragePolicy> policy_ptr;
+        policy_ptr.reset(policy);
+
+        ExecEnv::GetInstance()->storage_policy_mgr()->_policy_map["test_policy_name"] = policy_ptr;
+
+        int64_t cooldown_timestamp = -1;
+        size_t file_size = -1;
+        bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        ASSERT_TRUE(ret);
+        ASSERT_EQ(cooldown_timestamp, 3700);
+        ASSERT_EQ(file_size, -1);
+    }
+
+    {
+        StoragePolicy* policy = new StoragePolicy();
+        policy->storage_policy_name = "test_policy_name";
+        policy->cooldown_datetime = UnixSeconds() + 100;
+        policy->cooldown_ttl = -1;
+
+        std::shared_ptr<StoragePolicy> policy_ptr;
+        policy_ptr.reset(policy);
+
+        ExecEnv::GetInstance()->storage_policy_mgr()->_policy_map["test_policy_name"] = policy_ptr;
+
+        int64_t cooldown_timestamp = -1;
+        size_t file_size = -1;
+        bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        ASSERT_FALSE(ret);
+        ASSERT_EQ(cooldown_timestamp, -1);
+        ASSERT_EQ(file_size, -1);
+    }
+
+    {
+        StoragePolicy* policy = new StoragePolicy();
+        policy->storage_policy_name = "test_policy_name";
+        policy->cooldown_datetime = UnixSeconds() + 100;
+        policy->cooldown_ttl = UnixSeconds() - 250;
+
+        std::shared_ptr<StoragePolicy> policy_ptr;
+        policy_ptr.reset(policy);
+
+        ExecEnv::GetInstance()->storage_policy_mgr()->_policy_map["test_policy_name"] = policy_ptr;
+
+        int64_t cooldown_timestamp = -1;
+        size_t file_size = -1;
+        bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        ASSERT_TRUE(ret);
+        ASSERT_EQ(cooldown_timestamp, -1);
+        ASSERT_EQ(file_size, 84699);
+    }
+}
+
+TEST_F(TestTablet, rowset_tree_update) {
+    TTabletSchema tschema;
+    tschema.keys_type = TKeysType::UNIQUE_KEYS;
+    TabletMetaSharedPtr tablet_meta = new_tablet_meta(tschema, true);
+    TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
+    tablet->init();
+
+    RowsetMetaSharedPtr rsm1(new RowsetMeta());
+    init_rs_meta(rsm1, 6, 7, convert_key_bounds({{"100", "200"}, {"300", "400"}}));
+    RowsetId id1;
+    id1.init(10010);
+    RowsetSharedPtr rs_ptr1;
+    MockRowset::create_rowset(&tablet_meta->tablet_schema(), "", rsm1, &rs_ptr1, false);
+    tablet->add_inc_rowset(rs_ptr1);
+
+    RowsetMetaSharedPtr rsm2(new RowsetMeta());
+    init_rs_meta(rsm2, 8, 8, convert_key_bounds({{"500", "999"}}));
+    RowsetId id2;
+    id2.init(10086);
+    rsm2->set_rowset_id(id2);
+    RowsetSharedPtr rs_ptr2;
+    MockRowset::create_rowset(&tablet_meta->tablet_schema(), "", rsm2, &rs_ptr2, false);
+    tablet->add_inc_rowset(rs_ptr2);
+
+    RowLocation loc;
+    // Key not in range.
+    ASSERT_TRUE(tablet->lookup_row_key("99", &loc, 7).is_not_found());
+    // Version too low.
+    ASSERT_TRUE(tablet->lookup_row_key("101", &loc, 3).is_not_found());
+    // Hit a segment, but since we don't have real data, return an internal error when loading the
+    // segment.
+    ASSERT_TRUE(tablet->lookup_row_key("101", &loc, 7).precise_code() ==
+                OLAP_ERR_ROWSET_LOAD_FAILED);
+    // Key not in range.
+    ASSERT_TRUE(tablet->lookup_row_key("201", &loc, 7).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("300", &loc, 7).precise_code() ==
+                OLAP_ERR_ROWSET_LOAD_FAILED);
+    // Key not in range.
+    ASSERT_TRUE(tablet->lookup_row_key("499", &loc, 7).is_not_found());
+    // Version too low.
+    ASSERT_TRUE(tablet->lookup_row_key("500", &loc, 7).is_not_found());
+    // Hit a segment, but since we don't have real data, return an internal error when loading the
+    // segment.
+    ASSERT_TRUE(tablet->lookup_row_key("500", &loc, 8).precise_code() ==
+                OLAP_ERR_ROWSET_LOAD_FAILED);
+}
+
 } // namespace doris

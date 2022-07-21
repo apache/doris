@@ -66,11 +66,11 @@ There are two ways to configure BE configuration items:
 
 ## Examples
 
-1. Modify `max_compaction_concurrency` statically
+1. Modify `max_base_compaction_concurrency` statically
 
      By adding in the `be.conf` file:
 
-     ```max_compaction_concurrency=5```
+     ```max_base_compaction_concurrency=5```
 
      Then restart the BE process to take effect the configuration.
 
@@ -238,9 +238,9 @@ The number of worker threads to calculate the checksum of the tablet
 
 ### `chunk_reserved_bytes_limit`
 
-Default: 2147483648
+Default: 20%
 
-The reserved bytes limit of Chunk Allocator is 2GB by default. Increasing this variable can improve performance, but it will get more free memory that other modules cannot use.
+The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit. defaults to bytes if no unit is given, the number of bytes must be a multiple of 2. must larger than 0. and if larger than physical memory size, it will be set to physical memory size. increase this variable can improve performance, but will acquire more free memory which can not be used by other modules.
 
 ### `clear_transaction_task_worker_count`
 
@@ -334,12 +334,6 @@ Generally it needs to be turned off. When you want to manually operate the compa
 Default: 104857600
 
 One of the trigger conditions of BaseCompaction: Singleton file size limit, 100MB
-
-### `cumulative_compaction_skip_window_seconds`
-
-Default: 30（s）
-
-CumulativeCompaction skips the most recently released increments to prevent compacting versions that may be queried (in case the query planning phase takes some time). Change the parameter is to set the skipped window time size
 
 ### cumulative_compaction_trace_threshold
 
@@ -556,6 +550,12 @@ Default: 5000 （ms）
 
 The timeout period for connecting to ES via http, the default is 5 seconds.
 
+### `enable_stream_load_record`
+
+Default: false
+
+Whether to enable stream load record function, the default is false，Disable stream load record.
+
 ### `es_scroll_keepalive`
 
 Default: 5m
@@ -672,11 +672,17 @@ Default: 10737418240
 
 BloomFilter/Min/Max and other statistical information cache capacity
 
+### `kafka_api_version_request`
+
+Default: true
+
+If the dependent Kafka version is lower than 0.10.0.0, this value should be set to false.
+
 ### `kafka_broker_version_fallback`
 
 Default: 0.10.0
 
-If the dependent Kafka version is lower than the Kafka client version that routine load depends on, the value set by the fallback version kafka_broker_version_fallback will be used, and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+If the dependent Kafka version is lower than 0.10.0.0, the value set by the fallback version kafka_broker_version_fallback will be used if the value of kafka_api_version_request is set to false, and the valid values are: 0.9.0.x, 0.8.x.y.
 
 ### `load_data_reserve_hours`
 
@@ -730,10 +736,16 @@ Default: 10
 
 The maximum number of client caches per host. There are multiple client caches in BE, but currently we use the same cache size configuration. If necessary, use different configurations to set up different client-side caches
 
-### `max_compaction_threads`
+### `max_base_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in compaction thread pool.
+* Description: The maximum of thread number in base compaction thread pool.
+* Default value: 4
+
+### `max_cumu_compaction_threads`
+
+* Type: int32
+* Description: The maximum of thread number in cumulative compaction thread pool.
 * Default value: 10
 
 ### `max_consumer_num_per_group`
@@ -1525,3 +1537,24 @@ Translated with www.DeepL.com/Translator (free version)
 * Type: int32
 * Description: The maximum amount of data read by each OlapScanner.
 * Default: 1024
+
+### `enable_quick_compaction`
+* Type: bool
+* Description: enable quick compaction,It is mainly used in the scenario of frequent import of small amount of data. The problem of -235 can be effectively avoided by merging the imported versions in time through the mechanism of rapid compaction. The definition of small amount of data is currently defined according to the number of rows
+* Default: false
+
+### `quick_compaction_max_rows`
+* Type: int32
+* Description: When the number of imported rows is less than this value, it is considered that this import is an import of small amount of data, which will be selected during quick compaction
+* Default: 1000
+
+### `quick_compaction_batch_size`
+* Type: int32
+* Description: trigger time, when import times reach quick_compaction_batch_size will trigger immediately 
+* Default: 10
+
+### `quick_compaction_min_rowsets`
+* Type: int32
+* Description: at least the number of versions to be compaction, and the number of rowsets with a small amount of data in the selection. If it is greater than this value, the real compaction will be carried out
+* Default: 10
+

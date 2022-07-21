@@ -181,13 +181,15 @@ public class BackendLoadStatistic {
             TStorageMedium medium = diskInfo.getStorageMedium();
             if (diskInfo.getState() == DiskState.ONLINE) {
                 // we only collect online disk's capacity
-                totalCapacityMap.put(medium, totalCapacityMap.getOrDefault(medium, 0L) + diskInfo.getTotalCapacityB());
-                totalUsedCapacityMap.put(medium, totalUsedCapacityMap.getOrDefault(medium, 0L) + (diskInfo.getTotalCapacityB() - diskInfo.getAvailableCapacityB()));
+                totalCapacityMap.put(medium, totalCapacityMap.getOrDefault(medium, 0L)
+                        + diskInfo.getTotalCapacityB());
+                totalUsedCapacityMap.put(medium, totalUsedCapacityMap.getOrDefault(medium, 0L)
+                        + (diskInfo.getTotalCapacityB() - diskInfo.getAvailableCapacityB()));
             }
 
             RootPathLoadStatistic pathStatistic = new RootPathLoadStatistic(beId, diskInfo.getRootPath(),
                     diskInfo.getPathHash(), diskInfo.getStorageMedium(),
-                    diskInfo.getTotalCapacityB(), diskInfo.getDataUsedCapacityB(), diskInfo.getState());
+                    diskInfo.getTotalCapacityB(), diskInfo.getDiskUsedCapacityB(), diskInfo.getState());
             pathStatistics.add(pathStatistic);
         }
 

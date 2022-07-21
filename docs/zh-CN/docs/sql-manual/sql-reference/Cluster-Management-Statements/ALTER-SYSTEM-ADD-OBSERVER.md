@@ -55,7 +55,7 @@ ALTER SYSTEM ADD OBSERVER "follower_host:edit_log_port"
 
 ### Keywords
 
-    ALTER, SYSTEM, ADD, OBSERVER
+    ALTER, SYSTEM, ADD, OBSERVER, ALTER SYSTEM
 
 ### Best Practice
 

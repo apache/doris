@@ -17,12 +17,9 @@
 
 #include "vec/olap/block_reader.h"
 
-#include "olap/row_block.h"
-#include "olap/rowset/beta_rowset_reader.h"
-#include "olap/schema.h"
-#include "olap/storage_engine.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/olap/vcollect_iterator.h"
 
@@ -82,7 +79,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_string_tag.resize(_stored_data_columns.size());
 
-    auto& tablet_schema = tablet()->tablet_schema();
+    auto& tablet_schema = *_tablet_schema;
     for (auto idx : _agg_columns_idx) {
         AggregateFunctionPtr function =
                 tablet_schema
@@ -109,8 +106,14 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 Status BlockReader::init(const ReaderParams& read_params) {
     TabletReader::init(read_params);
 
-    auto return_column_size =
-            read_params.origin_return_columns->size() - (_sequence_col_idx != -1 ? 1 : 0);
+    int32_t return_column_size = 0;
+    // read sequence column if not reader_query
+    if (read_params.reader_type != ReaderType::READER_QUERY) {
+        return_column_size = read_params.origin_return_columns->size();
+    } else {
+        return_column_size =
+                read_params.origin_return_columns->size() - (_sequence_col_idx != -1 ? 1 : 0);
+    }
     _return_columns_loc.resize(read_params.return_columns.size());
     for (int i = 0; i < return_column_size; ++i) {
         auto cid = read_params.origin_return_columns->at(i);
@@ -350,7 +353,9 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         if (is_close) {
             function->insert_result_into(place, *columns[_return_columns_loc[idx]]);
-            function->create(place); // reset aggregate data
+            // reset aggregate data
+            function->destroy(place);
+            function->create(place);
         }
     }
 }

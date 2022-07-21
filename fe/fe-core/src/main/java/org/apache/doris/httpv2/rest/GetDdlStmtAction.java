@@ -64,7 +64,7 @@ public class GetDdlStmtAction extends RestBaseController {
         String fullDbName = getFullDbName(dbName);
         Table table;
         try {
-            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
             table = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
@@ -76,7 +76,8 @@ public class GetDdlStmtAction extends RestBaseController {
 
         table.readLock();
         try {
-            Catalog.getDdlStmt(table, createTableStmt, addPartitionStmt, createRollupStmt, true, false /* show password */);
+            Catalog.getDdlStmt(table, createTableStmt, addPartitionStmt,
+                    createRollupStmt, true, false /* show password */);
         } finally {
             table.readUnlock();
         }

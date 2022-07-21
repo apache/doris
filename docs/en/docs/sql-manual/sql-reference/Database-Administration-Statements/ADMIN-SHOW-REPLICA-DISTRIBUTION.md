@@ -60,7 +60,7 @@ illustrate:
 
 ### Keywords
 
-    ADMIN, SHOW, REPLICA, DISTRIBUTION
+    ADMIN, SHOW, REPLICA, DISTRIBUTION, ADMIN SHOW
 
 ### Best Practice
 

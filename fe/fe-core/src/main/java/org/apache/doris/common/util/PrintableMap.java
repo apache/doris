@@ -32,6 +32,7 @@ public class PrintableMap<K, V> {
     private String entryDelimiter = ",";
 
     public static final Set<String> SENSITIVE_KEY;
+
     static {
         SENSITIVE_KEY = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         SENSITIVE_KEY.add("password");

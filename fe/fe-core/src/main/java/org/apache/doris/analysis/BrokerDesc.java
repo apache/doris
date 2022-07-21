@@ -41,11 +41,11 @@ import java.util.Map;
 //   "password" = "password0"
 // )
 public class BrokerDesc extends StorageDesc implements Writable {
-    private final static Logger LOG = LogManager.getLogger(BrokerDesc.class);
+    private static final Logger LOG = LogManager.getLogger(BrokerDesc.class);
 
     // just for multi load
-    public final static String MULTI_LOAD_BROKER = "__DORIS_MULTI_LOAD_BROKER__";
-    public final static String MULTI_LOAD_BROKER_BACKEND_KEY = "__DORIS_MULTI_LOAD_BROKER_BACKEND__";
+    public static final String MULTI_LOAD_BROKER = "__DORIS_MULTI_LOAD_BROKER__";
+    public static final String MULTI_LOAD_BROKER_BACKEND_KEY = "__DORIS_MULTI_LOAD_BROKER_BACKEND__";
 
     // Only used for recovery
     private BrokerDesc() {
@@ -108,6 +108,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
         }
         return TFileType.FILE_BROKER;
     }
+
     public StorageBackend.StorageType storageType() {
         return storageType;
     }

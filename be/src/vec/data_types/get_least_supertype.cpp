@@ -146,6 +146,19 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
         }
     }
 
+    {
+        UInt32 have_date_v2 = type_ids.count(TypeIndex::DateV2);
+
+        if (have_date_v2) {
+            if (type_ids.size() != have_date_v2) {
+                LOG(FATAL) << get_exception_message_prefix(types)
+                           << " because some of them are DateV2 and some of them are not";
+            }
+
+            return std::make_shared<DataTypeDateV2>();
+        }
+    }
+
     /// Decimals
     {
         UInt32 have_decimal32 = type_ids.count(TypeIndex::Decimal32);

@@ -43,7 +43,7 @@ public abstract class AgentTask {
     protected long createTime;
 
     public AgentTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
-                     long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature, long createTime) {
+            long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature, long createTime) {
         this.backendId = backendId;
         this.signature = signature;
         this.taskType = taskType;

@@ -39,9 +39,9 @@ import java.util.Map;
 import java.util.Set;
 
 public class DynamicPluginLoader extends PluginLoader {
-    private final static Logger LOG = LogManager.getLogger(DynamicPluginLoader.class);
+    private static final Logger LOG = LogManager.getLogger(DynamicPluginLoader.class);
 
-    public final static String MD5SUM_KEY = "md5sum";
+    public static final String MD5SUM_KEY = "md5sum";
 
     // the final dir which contains all plugin files.
     // eg:
@@ -49,6 +49,7 @@ public class DynamicPluginLoader extends PluginLoader {
     protected Path installPath;
 
     protected String expectedMd5sum;
+
     // for processing install stmt
     DynamicPluginLoader(String pluginDir, String source, String expectedMd5sum) {
         super(pluginDir, source);
@@ -258,8 +259,8 @@ public class DynamicPluginLoader extends PluginLoader {
      */
     public void movePlugin() throws UserException, IOException {
         if (installPath == null || !Files.exists(installPath)) {
-            throw new PluginException("Install plugin " + pluginInfo.getName() + " failed, because install path doesn't "
-                    + "exist.");
+            throw new PluginException("Install plugin " + pluginInfo.getName()
+                    + " failed, because install path doesn't exist.");
         }
 
         Path targetPath = FileSystems.getDefault().getPath(pluginDir.toString(), pluginInfo.getName());

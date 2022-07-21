@@ -66,7 +66,7 @@ public class OutputBuffer extends FilterOutputStream {
         public void write(InputStream in, int len) throws IOException {
             int newcount = count + len;
             if (newcount > buf.length) {
-                byte newbuf[] = new byte[Math.max(buf.length << 1, newcount)];
+                byte[] newbuf = new byte[Math.max(buf.length << 1, newcount)];
                 System.arraycopy(buf, 0, newbuf, 0, count);
                 buf = newbuf;
             }

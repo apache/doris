@@ -648,7 +648,8 @@ public class LoadJob implements Writable {
                 + ", loadFinishTimeMs=" + loadFinishTimeMs + ", failMsg=" + failMsg + ", etlJobType=" + etlJobType
                 + ", etlJobInfo=" + etlJobInfo + ", priority=" + priority + ", transactionId=" + transactionId
                 + ", quorumFinishTimeMs=" + quorumFinishTimeMs
-                + ", unfinished tablets=[" + this.unfinishedTablets.subList(0, Math.min(3, this.unfinishedTablets.size())) + "]"
+                + ", unfinished tablets=[" + this.unfinishedTablets.subList(
+                        0, Math.min(3, this.unfinishedTablets.size())) + "]"
                 + "]";
     }
 

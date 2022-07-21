@@ -32,10 +32,10 @@ import java.util.Map;
 import java.util.Set;
 
 public class RestoreStmt extends AbstractBackupStmt {
-    private final static String PROP_ALLOW_LOAD = "allow_load";
-    private final static String PROP_REPLICATION_NUM = "replication_num";
-    private final static String PROP_BACKUP_TIMESTAMP = "backup_timestamp";
-    private final static String PROP_META_VERSION = "meta_version";
+    private static final String PROP_ALLOW_LOAD = "allow_load";
+    private static final String PROP_REPLICATION_NUM = "replication_num";
+    private static final String PROP_BACKUP_TIMESTAMP = "backup_timestamp";
+    private static final String PROP_META_VERSION = "meta_version";
 
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;

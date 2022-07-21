@@ -74,7 +74,8 @@ public final class RollupSelector {
                 return v2RollupIndexId;
             }
         }
-        // Get first partition to select best prefix index rollups, because MaterializedIndex ids in one rollup's partitions are all same.
+        // Get first partition to select best prefix index rollups,
+        // because MaterializedIndex ids in one rollup's partitions are all same.
         final List<Long> bestPrefixIndexRollups = selectBestPrefixIndexRollup(conjuncts, isPreAggregation);
         return selectBestRowCountRollup(bestPrefixIndexRollups, partitionIds);
     }
@@ -113,7 +114,7 @@ public final class RollupSelector {
         return selectedIndexId;
     }
 
-    private List<Long> selectBestPrefixIndexRollup(List<Expr> conjuncts, boolean isPreAggregation) throws UserException {
+    private List<Long> selectBestPrefixIndexRollup(List<Expr> conjuncts, boolean isPreAggregation) {
 
         final List<String> outputColumns = Lists.newArrayList();
         for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {

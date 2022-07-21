@@ -26,6 +26,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TMySQLScanNode;
@@ -56,7 +57,7 @@ public class MysqlScanNode extends ScanNode {
      * Constructs node to scan given data files of table 'tbl'.
      */
     public MysqlScanNode(PlanNodeId id, TupleDescriptor desc, MysqlTable tbl) {
-        super(id, desc, "SCAN MYSQL", NodeType.MYSQL_SCAN_NODE);
+        super(id, desc, "SCAN MYSQL", StatisticalType.MYSQL_SCAN_NODE);
         tblName = "`" + tbl.getMysqlTableName() + "`";
     }
 

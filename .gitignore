@@ -18,9 +18,9 @@ nohup.out
 custom_env.sh
 derby.log
 dependency-reduced-pom.xml
-package-lock.json
 yarn.lock
 ut_dir
+package-lock.json
 
 # ignore all sub `/bin` and `/build` directory
 **/build/
@@ -43,7 +43,6 @@ docs/.temp
 
 # output, thirdparty, extension
 output/
-conf/
 rpc_data/
 thirdparty/src
 thirdparty/installed
@@ -56,6 +55,7 @@ fs_brokers/apache_hdfs_broker/src/main/thrift/
 
 # regression-test
 regression-test/framework/dependency-reduced-pom.xml
+regression-test/realdata/*
 
 samples/doris-demo/remote-udf-python-demo/*_pb2.py
 samples/doris-demo/remote-udf-python-demo/*_pb2_grpc.py
@@ -71,6 +71,7 @@ fe/fe-core/src/main/resources/static/
 
 # BE
 be/build*/
+be/cmake-build*/
 be/ut_build*/
 be/src/gen_cpp/*.[cc, cpp, h]
 be/src/gen_cpp/opcode
@@ -78,7 +79,7 @@ be/tags
 be/test/olap/test_data/tablet_meta_test.hdr
 be/.devcontainer/
 
-
+## tools
 tools/ssb-tools/ssb-data/
 tools/ssb-tools/ssb-dbgen/
 tools/tpch-tools/TPC-H_Tools_v*.zip
@@ -87,3 +88,5 @@ tools/tpch-tools/tpc-h_v*.docx
 tools/tpch-tools/tpc-h_v*.pdf
 tools/tpch-tools/tpch-data/
 
+# be-ut
+data_test

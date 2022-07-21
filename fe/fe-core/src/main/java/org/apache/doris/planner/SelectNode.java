@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -37,15 +38,16 @@ import java.util.List;
  * Node that applies conjuncts and a limit clause. Has exactly one child.
  */
 public class SelectNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(SelectNode.class);
+    private static final Logger LOG = LogManager.getLogger(SelectNode.class);
 
     protected SelectNode(PlanNodeId id, PlanNode child) {
-        super(id, child.getTupleIds(), "SELECT", NodeType.SELECT_NODE);
+        super(id, child.getTupleIds(), "SELECT", StatisticalType.SELECT_NODE);
         addChild(child);
         this.nullableTupleIds = child.nullableTupleIds;
     }
+
     protected SelectNode(PlanNodeId id, PlanNode child, List<Expr> conjuncts) {
-        super(id, child.getTupleIds(), "SELECT", NodeType.SELECT_NODE);
+        super(id, child.getTupleIds(), "SELECT", StatisticalType.SELECT_NODE);
         addChild(child);
         this.tblRefIds = child.tblRefIds;
         this.nullableTupleIds = child.nullableTupleIds;

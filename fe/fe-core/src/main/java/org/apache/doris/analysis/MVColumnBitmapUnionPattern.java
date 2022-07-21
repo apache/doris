@@ -61,7 +61,8 @@ public class MVColumnBitmapUnionPattern implements MVColumnPattern {
 
     @Override
     public String toString() {
-        return FunctionSet.BITMAP_UNION + "(" + FunctionSet.TO_BITMAP + "(column)), type of column could not be integer. "
+        return FunctionSet.BITMAP_UNION + "(" + FunctionSet.TO_BITMAP
+                + "(column)), type of column could not be integer. "
                 + "Or " + FunctionSet.BITMAP_UNION + "(bitmap_column) in agg table";
     }
 }

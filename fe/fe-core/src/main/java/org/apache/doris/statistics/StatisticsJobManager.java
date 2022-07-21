@@ -101,14 +101,15 @@ public class StatisticsJobManager {
      * - Rule3: The job for external table is not supported
      */
     private void checkRestrict(long dbId, Set<Long> tableIds) throws AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
         db.readLock();
         try {
             // check table type
             for (Long tableId : tableIds) {
                 Table table = db.getTableOrAnalysisException(tableId);
                 if (table.getType() != Table.TableType.OLAP) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, db.getFullName(), table.getName(), "ANALYZE");
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, db.getFullName(),
+                            table.getName(), "ANALYZE");
                 }
             }
         } finally {

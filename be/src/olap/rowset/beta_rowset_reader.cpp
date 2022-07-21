@@ -71,10 +71,8 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
                                               read_context->predicates->begin(),
                                               read_context->predicates->end());
     }
-    // if unique table with rowset [0-x] or [0-1] [2-y] [...],
-    // value column predicates can be pushdown on rowset [0-x] or [2-y]
-    if (_rowset->keys_type() == UNIQUE_KEYS &&
-        (_rowset->start_version() == 0 || _rowset->start_version() == 2)) {
+
+    if (_should_push_down_value_predicates()) {
         if (read_context->value_predicates != nullptr) {
             read_options.column_predicates.insert(read_options.column_predicates.end(),
                                                   read_context->value_predicates->begin(),
@@ -85,6 +83,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         }
     }
     read_options.use_page_cache = read_context->use_page_cache;
+    read_options.tablet_schema = read_context->tablet_schema;
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
@@ -115,7 +114,8 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         if (read_context->need_ordered_result &&
             _rowset->rowset_meta()->is_segments_overlapping()) {
             final_iterator = vectorized::new_merge_iterator(
-                    iterators, read_context->sequence_id_idx, read_context->is_unique);
+                    iterators, read_context->sequence_id_idx, read_context->is_unique,
+                    read_context->merged_rows);
         } else {
             final_iterator = vectorized::new_union_iterator(iterators);
         }
@@ -123,7 +123,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         if (read_context->need_ordered_result &&
             _rowset->rowset_meta()->is_segments_overlapping()) {
             final_iterator = new_merge_iterator(iterators, read_context->sequence_id_idx,
-                                                read_context->is_unique);
+                                                read_context->is_unique, read_context->merged_rows);
         } else {
             final_iterator = new_union_iterator(iterators);
         }
@@ -186,15 +186,17 @@ Status BetaRowsetReader::next_block(RowBlock** block) {
 Status BetaRowsetReader::next_block(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     if (config::enable_storage_vectorization && _context->is_vec) {
-        auto s = _iterator->next_batch(block);
-        if (!s.ok()) {
-            if (s.is_end_of_file()) {
-                return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
-            } else {
-                LOG(WARNING) << "failed to read next block: " << s.to_string();
-                return Status::OLAPInternalError(OLAP_ERR_ROWSET_READ_FAILED);
+        do {
+            auto s = _iterator->next_batch(block);
+            if (!s.ok()) {
+                if (s.is_end_of_file()) {
+                    return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+                } else {
+                    LOG(WARNING) << "failed to read next block: " << s.to_string();
+                    return Status::OLAPInternalError(OLAP_ERR_ROWSET_READ_FAILED);
+                }
             }
-        }
+        } while (block->rows() == 0);
     } else {
         bool is_first = true;
 
@@ -235,6 +237,14 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
     }
 
     return Status::OK();
+}
+
+bool BetaRowsetReader::_should_push_down_value_predicates() const {
+    // if unique table with rowset [0-x] or [0-1] [2-y] [...],
+    // value column predicates can be pushdown on rowset [0-x] or [2-y], [2-y] must be compaction and not overlapping
+    return _rowset->keys_type() == UNIQUE_KEYS &&
+           (_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
+           !_rowset->_rowset_meta->is_segments_overlapping();
 }
 
 } // namespace doris

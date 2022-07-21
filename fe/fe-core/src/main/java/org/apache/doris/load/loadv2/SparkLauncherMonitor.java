@@ -140,13 +140,14 @@ public class SparkLauncherMonitor {
                             }
                         }
 
-                        LOG.debug("spark appId that handle get is {}, state: {}", handle.getAppId(), handle.getState().toString());
+                        LOG.debug("spark appId that handle get is {}, state: {}",
+                                handle.getAppId(), handle.getState().toString());
                         switch (newState) {
                             case UNKNOWN:
                             case CONNECTED:
                             case SUBMITTED:
-                                // If the app stays in the UNKNOWN/CONNECTED/SUBMITTED state for more than submitTimeoutMs
-                                // stop monitoring and kill the process
+                                // If the app stays in the UNKNOWN/CONNECTED/SUBMITTED state
+                                // for more than submitTimeoutMs stop monitoring and kill the process
                                 if (System.currentTimeMillis() - startTime > submitTimeoutMs) {
                                     isStop = true;
                                     handle.kill();

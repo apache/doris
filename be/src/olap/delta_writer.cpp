@@ -17,6 +17,8 @@
 
 #include "olap/delta_writer.h"
 
+#include "olap/base_compaction.h"
+#include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
@@ -38,7 +40,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, bool 
           _tablet(nullptr),
           _cur_rowset(nullptr),
           _rowset_writer(nullptr),
-          _tablet_schema(nullptr),
+          _tablet_schema(new TabletSchema),
           _delta_written_success(false),
           _storage_engine(storage_engine),
           _is_vec(is_vec) {}
@@ -94,10 +96,16 @@ Status DeltaWriter::init() {
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
-    _mem_tracker =
-            MemTracker::create_tracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()));
+    // Only consume mem tracker manually in mem table. Using the virtual tracker can avoid
+    // frequent recursive consumption of the parent tracker, thereby improving performance.
+    _mem_tracker = MemTracker::create_virtual_tracker(
+            -1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()));
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
+        //trigger quick compaction
+        if (config::enable_quick_compaction) {
+            StorageEngine::instance()->submit_quick_compaction_task(_tablet);
+        }
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
                      << ", exceed limit: " << config::max_tablet_version_num
                      << ". tablet: " << _tablet->full_name();
@@ -113,10 +121,11 @@ Status DeltaWriter::init() {
         RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
                                                                   _req.txn_id, _req.load_id));
     }
+    // build tablet schema in request level
+    _build_current_tablet_schema(_req.index_id, _req.ptable_schema_param, _tablet->tablet_schema());
 
     RETURN_NOT_OK(_tablet->create_rowset_writer(_req.txn_id, _req.load_id, PREPARED, OVERLAPPING,
-                                                &_rowset_writer));
-    _tablet_schema = &(_tablet->tablet_schema());
+                                                _tablet_schema.get(), &_rowset_writer));
     _schema.reset(new Schema(*_tablet_schema));
     _reset_mem_table();
 
@@ -164,7 +173,6 @@ Status DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row
     if (_is_cancelled) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
-
     for (const auto& row_idx : row_idxs) {
         _mem_table->insert(row_batch->get_row(row_idx)->get_tuple(0));
     }
@@ -258,9 +266,9 @@ Status DeltaWriter::wait_flush() {
 }
 
 void DeltaWriter::_reset_mem_table() {
-    _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema, _req.slots,
-                                  _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(),
-                                  _mem_tracker, _is_vec));
+    _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema.get(),
+                                  _req.slots, _req.tuple_desc, _tablet->keys_type(),
+                                  _rowset_writer.get(), _mem_tracker, _is_vec));
 }
 
 Status DeltaWriter::close() {
@@ -295,6 +303,11 @@ Status DeltaWriter::close_wait() {
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
 
+    _mem_table.reset();
+    // In allocate/free of mem_pool, the consume_cache of _mem_tracker will be called,
+    // and _untracked_mem must be flushed first.
+    MemTracker::memory_leak_check(_mem_tracker.get());
+
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
     if (_cur_rowset == nullptr) {
@@ -327,6 +340,7 @@ Status DeltaWriter::cancel() {
         // cancel and wait all memtables in flush queue to be finished
         _flush_token->cancel();
     }
+    MemTracker::memory_leak_check(_mem_tracker.get());
     _is_cancelled = true;
     return Status::OK();
 }
@@ -351,6 +365,19 @@ int64_t DeltaWriter::mem_consumption() const {
 
 int64_t DeltaWriter::partition_id() const {
     return _req.partition_id;
+}
+
+void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
+                                               const POlapTableSchemaParam& ptable_schema_param,
+                                               const TabletSchema& ori_tablet_schema) {
+    *_tablet_schema = ori_tablet_schema;
+    //new tablet schame if new table
+    if (ptable_schema_param.indexes_size() > 0 &&
+        ptable_schema_param.indexes(0).columns_desc_size() != 0 &&
+        ptable_schema_param.indexes(0).columns_desc(0).unique_id() >= 0) {
+        _tablet_schema->build_current_tablet_schema(index_id, ptable_schema_param,
+                                                    ori_tablet_schema);
+    }
 }
 
 } // namespace doris

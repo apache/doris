@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -34,15 +35,20 @@ public class DbPrivTable extends PrivTable {
     private static final Logger LOG = LogManager.getLogger(DbPrivTable.class);
 
     /*
-     * Return first priv which match the user@host on db.* The returned priv will be
+     * Return first priv which match the user@host on ctl.db.* The returned priv will be
      * saved in 'savedPrivs'.
      */
-    public void getPrivs(UserIdentity currentUser, String db, PrivBitSet savedPrivs) {
+    public void getPrivs(UserIdentity currentUser, String ctl, String db, PrivBitSet savedPrivs) {
         DbPrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
 
             if (!dbPrivEntry.match(currentUser, true)) {
+                continue;
+            }
+
+            // check catalog
+            if (!dbPrivEntry.isAnyCtl() && !dbPrivEntry.getCtlPattern().match(ctl)) {
                 continue;
             }
 
@@ -61,22 +67,17 @@ public class DbPrivTable extends PrivTable {
         savedPrivs.or(matchedEntry.getPrivSet());
     }
 
-    /*
-     * Check if user@host has specified privilege on any database
-     */
-    public boolean hasPriv(String host, String user, PrivPredicate wanted) {
+    public boolean hasPrivsOfCatalog(UserIdentity currentUser, String ctl) {
         for (PrivEntry entry : entries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
-            // check host
-            if (!dbPrivEntry.isAnyHost() && !dbPrivEntry.getHostPattern().match(host)) {
+
+            if (!dbPrivEntry.match(currentUser, true)) {
                 continue;
             }
-            // check user
-            if (!dbPrivEntry.isAnyUser() && !dbPrivEntry.getUserPattern().match(user)) {
-                continue;
-            }
-            // check priv
-            if (dbPrivEntry.privSet.satisfy(wanted)) {
+
+            // check catalog
+            Preconditions.checkState(!dbPrivEntry.isAnyCtl());
+            if (dbPrivEntry.getCtlPattern().match(ctl)) {
                 return true;
             }
         }

@@ -118,9 +118,9 @@ The restore operation needs to specify an existing backup in the remote warehous
    SnapshotFinishedTime: 2022-04-08 15:59:05
    DownloadFinishedTime: 2022-04-08 15:59:12
            FinishedTime: 2022-04-08 15:59:18
-        UnfinishedTasks: 
-               Progress: 
-             TaskErrMsg: 
+        UnfinishedTasks:
+               Progress:
+             TaskErrMsg:
                  Status: [OK]
                 Timeout: 86400
    1 row in set (0.01 sec)
@@ -134,7 +134,7 @@ The commands related to the backup and restore function are as follows. For the 
 
 1. CREATE REPOSITORY
 
-   Create a remote repository path for backup or restore. This command needs to use the Broker process to access the remote storage. Different brokers need to provide different parameters. For details, please refer to [Broker documentation](../../advanced/broker.md), or you can directly back up to support through the S3 protocol For the remote storage of AWS S3 protocol, please refer to [Create Remote Warehouse Documentation](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY.md )
+   Create a remote repository path for backup or restore. This command needs to use the Broker process to access the remote storage. Different brokers need to provide different parameters. For details, please refer to [Broker documentation](../../advanced/broker.md), or you can directly back up to support through the S3 protocol For the remote storage of AWS S3 protocol, directly back up to HDFS, please refer to [Create Remote Warehouse Documentation](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY.md )
 
 2. RESTORE
 

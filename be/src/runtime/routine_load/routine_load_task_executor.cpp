@@ -40,7 +40,7 @@ RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
                        config::routine_load_thread_pool_size),
           _data_consumer_pool(config::routine_load_consumer_pool_size) {
     REGISTER_HOOK_METRIC(routine_load_task_count, [this]() {
-        std::lock_guard<std::mutex> l(_lock);
+        // std::lock_guard<std::mutex> l(_lock);
         return _task_map.size();
     });
 
@@ -161,7 +161,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
                   << ", job id: " << task.job_id
                   << ", queue size: " << _thread_pool.get_queue_size()
                   << ", current tasks num: " << _task_map.size();
-        return Status::TooManyTasks(UniqueId(task.id).to_string() + "_" +
+        return Status::TooManyTasks("{}_{}", UniqueId(task.id).to_string(),
                                     BackendOptions::get_localhost());
     }
 

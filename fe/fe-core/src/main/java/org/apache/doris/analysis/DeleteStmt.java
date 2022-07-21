@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -72,6 +73,8 @@ public class DeleteStmt extends DdlStmt {
         }
 
         tbl.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
 
         if (partitionNames != null) {
             partitionNames.analyze(analyzer);
@@ -132,7 +135,8 @@ public class DeleteStmt extends DdlStmt {
             int inElementNum = inPredicate.getInElementNum();
             int maxAllowedInElementNumOfDelete = Config.max_allowed_in_element_num_of_delete;
             if (inElementNum > maxAllowedInElementNumOfDelete) {
-                throw new AnalysisException("Element num of in predicate should not be more than " + maxAllowedInElementNumOfDelete);
+                throw new AnalysisException("Element num of in predicate should not be more than "
+                        + maxAllowedInElementNumOfDelete);
             }
             for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
                 Expr expr = inPredicate.getChild(i);
@@ -142,7 +146,8 @@ public class DeleteStmt extends DdlStmt {
             }
             deleteConditions.add(inPredicate);
         } else {
-            throw new AnalysisException("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate");
+            throw new AnalysisException("Where clause only supports compound predicate,"
+                    + " binary predicate, is_null predicate or in predicate");
         }
     }
 

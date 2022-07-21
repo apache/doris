@@ -50,8 +50,8 @@ public class PartitionPersistInfo implements Writable {
     }
 
     public PartitionPersistInfo(long dbId, long tableId, Partition partition, Range<PartitionKey> range,
-                                PartitionItem listPartitionItem, DataProperty dataProperty, ReplicaAllocation replicaAlloc,
-                                boolean isInMemory, boolean isTempPartition) {
+            PartitionItem listPartitionItem, DataProperty dataProperty, ReplicaAllocation replicaAlloc,
+            boolean isInMemory, boolean isTempPartition) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partition = partition;

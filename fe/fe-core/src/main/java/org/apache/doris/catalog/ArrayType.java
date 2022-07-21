@@ -81,8 +81,9 @@ public class ArrayType extends Type {
         if (itemType.isNull() || ((ArrayType) t).getItemType().isNull()) {
             return true;
         }
+
         return itemType.matchesType(((ArrayType) t).itemType)
-                && ((ArrayType) t).containsNull == containsNull;
+                && (((ArrayType) t).containsNull || !containsNull);
     }
 
     public static ArrayType create() {
@@ -96,9 +97,9 @@ public class ArrayType extends Type {
     @Override
     public String toSql(int depth) {
         if (!containsNull) {
-            return "ARRAY<NOT_NULL(" + itemType.toSql(depth + 1) + ")>";
+            return "array<not_null(" + itemType.toSql(depth + 1) + ")>";
         } else {
-            return "ARRAY<" + itemType.toSql(depth + 1) + ">";
+            return "array<" + itemType.toSql(depth + 1) + ">";
         }
     }
 
@@ -113,7 +114,7 @@ public class ArrayType extends Type {
             return false;
         }
         ArrayType otherArrayType = (ArrayType) other;
-        return otherArrayType.itemType.equals(itemType) && otherArrayType.containsNull == containsNull;
+        return otherArrayType.itemType.equals(itemType);
     }
 
     public static boolean canCastTo(ArrayType type, ArrayType targetType) {
@@ -158,7 +159,7 @@ public class ArrayType extends Type {
 
     @Override
     public String toString() {
-        return toSql(0);
+        return toSql(0).toUpperCase();
     }
 
     @Override

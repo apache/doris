@@ -18,36 +18,31 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 
-import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all concrete logical plan.
  */
-public abstract class AbstractLogicalPlan<
-            PLAN_TYPE extends AbstractLogicalPlan<PLAN_TYPE, OP_TYPE>,
-            OP_TYPE extends LogicalOperator>
-        extends AbstractPlan<PLAN_TYPE, OP_TYPE>
-        implements LogicalPlan<PLAN_TYPE, OP_TYPE> {
+public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan {
 
-    protected final LogicalProperties logicalProperties;
-
-    public AbstractLogicalPlan(NodeType type, OP_TYPE operator, Plan... children) {
-        super(type, operator, children);
-        this.logicalProperties = new LogicalProperties(Collections.emptyList());
+    public AbstractLogicalPlan(PlanType type, Plan... children) {
+        super(type, children);
     }
 
-    public AbstractLogicalPlan(NodeType type, OP_TYPE operator,
-            GroupExpression groupExpression, LogicalProperties logicalProperties, Plan... children) {
-        super(type, operator, groupExpression, children);
-        this.logicalProperties = logicalProperties;
+    public AbstractLogicalPlan(PlanType type, Optional<LogicalProperties> logicalProperties, Plan... children) {
+        super(type, logicalProperties, children);
+    }
+
+    public AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+                               Optional<LogicalProperties> logicalProperties, Plan... children) {
+        super(type, groupExpression, logicalProperties, children);
     }
 
     @Override

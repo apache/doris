@@ -1,7 +1,7 @@
 ---
 {
   "title": "How to share blogs", 
-  "language": "zh-CN"
+  "language": "en"
 }
 ---
 
@@ -36,4 +36,4 @@ Articles include, but are not limited to.
 * How Doris works
 * Doris business scenarios in practice
 
-For details, please go to: https://github.com/apache/incubator-doris-website [README](https://github.com/apache/incubator-doris-website)
+For details, please go to: https://github.com/apache/doris-website [README](https://github.com/apache/doris-website)

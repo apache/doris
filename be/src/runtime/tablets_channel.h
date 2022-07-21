@@ -154,10 +154,9 @@ template <typename Request>
 Status TabletsChannel::_get_current_seq(int64_t& cur_seq, const Request& request) {
     std::lock_guard<std::mutex> l(_lock);
     if (_state != kOpened) {
-        return _state == kFinished
-                       ? _close_status
-                       : Status::InternalError(strings::Substitute("TabletsChannel $0 state: $1",
-                                                                   _key.to_string(), _state));
+        return _state == kFinished ? _close_status
+                                   : Status::InternalError("TabletsChannel {} state: {}",
+                                                           _key.to_string(), _state);
     }
     cur_seq = _next_seqs[request.sender_id()];
     // check packet
@@ -172,7 +171,7 @@ Status TabletsChannel::_get_current_seq(int64_t& cur_seq, const Request& request
 template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
 Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
                                  TabletWriterAddResult* response) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t cur_seq = 0;
 
     auto status = _get_current_seq(cur_seq, request);
@@ -215,8 +214,8 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
     for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
         auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
         if (tablet_writer_it == _tablet_writers.end()) {
-            return Status::InternalError(strings::Substitute(
-                    "unknown tablet to append data, tablet=$0", tablet_to_rowidxs_it.first));
+            return Status::InternalError("unknown tablet to append data, tablet={}",
+                                         tablet_to_rowidxs_it.first);
         }
 
         Status st = tablet_writer_it->second->write(&send_data, tablet_to_rowidxs_it.second);

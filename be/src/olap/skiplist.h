@@ -73,7 +73,7 @@ public:
     // Use hint to insert a key. the hint is from previous Find()
     void InsertWithHint(const Key& key, bool is_exist, Hint* hint);
 
-    // Returns true iff an entry that compares equal to key is in the list.
+    // Returns true if an entry that compares equal to key is in the list.
     bool Contains(const Key& key) const;
     // Like Contains(), but it will return the position info as a hint. We can use this
     // position info to insert directly using InsertWithHint().
@@ -86,7 +86,7 @@ public:
         // The returned iterator is not valid.
         explicit Iterator(const SkipList* list);
 
-        // Returns true iff the iterator is positioned at a valid node.
+        // Returns true if the iterator is positioned at a valid node.
         bool Valid() const;
 
         // Returns the key at the current position.
@@ -105,11 +105,11 @@ public:
         void Seek(const Key& target);
 
         // Position at the first entry in list.
-        // Final state of iterator is Valid() iff list is not empty.
+        // Final state of iterator is Valid() if list is not empty.
         void SeekToFirst();
 
         // Position at the last entry in list.
-        // Final state of iterator is Valid() iff list is not empty.
+        // Final state of iterator is Valid() if list is not empty.
         void SeekToLast();
 
     private:

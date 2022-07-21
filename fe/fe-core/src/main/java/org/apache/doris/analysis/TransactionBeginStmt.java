@@ -24,12 +24,15 @@ import org.apache.doris.transaction.TransactionEntry;
 
 public class TransactionBeginStmt extends TransactionStmt {
     private String label = null;
+
     public TransactionBeginStmt() {
         this.label = "";
     }
+
     public TransactionBeginStmt(final String label) {
         this.label = label;
     }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (label == null || label.isEmpty()) {

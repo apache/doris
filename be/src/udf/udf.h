@@ -52,6 +52,7 @@ struct IntVal;
 struct BigIntVal;
 struct StringVal;
 struct DateTimeVal;
+struct DateV2Val;
 struct DecimalV2Val;
 struct HllVal;
 struct CollectionVal;
@@ -87,7 +88,13 @@ public:
         TYPE_DECIMALV2,
         TYPE_OBJECT,
         TYPE_ARRAY,
-        TYPE_QUANTILE_STATE
+        TYPE_QUANTILE_STATE,
+        TYPE_DATEV2,
+        TYPE_DATETIMEV2,
+        TYPE_TIMEV2,
+        TYPE_DECIMAL32,
+        TYPE_DECIMAL64,
+        TYPE_DECIMAL128
     };
 
     struct TypeDesc {
@@ -100,7 +107,7 @@ public:
         /// Only valid if type == TYPE_FIXED_BUFFER || type == TYPE_VARCHAR
         int len;
 
-        // only vaild if type == TYPE_ARRAY
+        // only valid if type == TYPE_ARRAY
         std::vector<TypeDesc> children;
     };
 
@@ -169,6 +176,13 @@ public:
     // in this object causing the query to fail.
     uint8_t* allocate(int byte_size);
 
+    // Allocate and align memory for UDAs. All UDA allocations should use this if possible instead of
+    // malloc/new. The UDA is responsible for calling Free() on all buffers returned
+    // by Allocate().
+    // If this Allocate causes the memory limit to be exceeded, the error will be set
+    // in this object causing the query to fail.
+    uint8_t* aligned_allocate(int alignment, int byte_size);
+
     // Reallocates 'ptr' to the new byte_size. If the currently underlying allocation
     // is big enough, the original ptr will be returned. If the allocation needs to
     // grow, a new allocation is made that is at least 'byte_size' and the contents
@@ -199,7 +213,7 @@ public:
     doris::FunctionContextImpl* impl() { return _impl; }
 
     /// Methods for maintaining state across UDF/UDA function calls. SetFunctionState() can
-    /// be used to store a pointer that can then be retreived via GetFunctionState(). If
+    /// be used to store a pointer that can then be retrieved via GetFunctionState(). If
     /// GetFunctionState() is called when no pointer is set, it will return
     /// nullptr. SetFunctionState() does not take ownership of 'ptr'; it is up to the UDF/UDA
     /// to clean up any function state if necessary.
@@ -282,7 +296,7 @@ private:
 // should only read the input arguments and return the result, using only the
 // FunctionContext as an external object.
 //
-// Memory Managment: the UDF can assume that memory from input arguments will have
+// Memory Management: the UDF can assume that memory from input arguments will have
 // the same lifetime as results for the UDF. In other words, the UDF can return
 // memory from input arguments without making copies. For example, a function like
 // substring will not need to allocate and copy the smaller string. For cases where
@@ -521,6 +535,85 @@ struct BigIntVal : public AnyVal {
     bool operator!=(const BigIntVal& other) const { return !(*this == other); }
 };
 
+struct Decimal32Val : public AnyVal {
+    int32_t val;
+
+    Decimal32Val() : val(0) {}
+    Decimal32Val(int32_t val) : val(val) {}
+
+    static Decimal32Val null() {
+        Decimal32Val result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const Decimal32Val& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const Decimal32Val& other) const { return !(*this == other); }
+};
+
+struct Decimal64Val : public AnyVal {
+    int64_t val;
+
+    Decimal64Val() : val(0) {}
+    Decimal64Val(int64_t val) : val(val) {}
+
+    static Decimal64Val null() {
+        Decimal64Val result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const Decimal64Val& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const Decimal64Val& other) const { return !(*this == other); }
+};
+
+struct Decimal128Val : public AnyVal {
+    __int128 val;
+
+    Decimal128Val() : val(0) {}
+
+    Decimal128Val(__int128 large_value) : val(large_value) {}
+
+    static Decimal128Val null() {
+        Decimal128Val result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const Decimal128Val& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const Decimal128Val& other) const { return !(*this == other); }
+};
+
 struct FloatVal : public AnyVal {
     float val;
 
@@ -595,6 +688,32 @@ struct DateTimeVal : public AnyVal {
     bool operator!=(const DateTimeVal& other) const { return !(*this == other); }
 };
 
+struct DateV2Val : public AnyVal {
+    uint32_t datev2_value;
+
+    DateV2Val() {}
+    DateV2Val(uint32_t val) : datev2_value(val) {}
+
+    static DateV2Val null() {
+        DateV2Val result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const DateV2Val& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return datev2_value == other.datev2_value;
+    }
+    bool operator!=(const DateV2Val& other) const { return !(*this == other); }
+};
+
 // Note: there is a difference between a nullptr string (is_null == true) and an
 // empty string (len == 0).
 struct StringVal : public AnyVal {
@@ -626,7 +745,7 @@ struct StringVal : public AnyVal {
     // string memory.
     StringVal(FunctionContext* context, int64_t len);
 
-    // Creates a StringVal, which memory is avaliable when this funciont context is used next time
+    // Creates a StringVal, which memory is available when this function context is used next time
     static StringVal create_temp_string_val(FunctionContext* ctx, int64_t len);
 
     bool resize(FunctionContext* context, int64_t len);
@@ -742,7 +861,7 @@ struct HllVal : public StringVal {
 
 struct CollectionVal : public AnyVal {
     void* data;
-    uint32_t length;
+    uint64_t length;
     // item has no null value if has_null is false.
     // item ```may``` has null value if has_null is true.
     bool has_null;
@@ -751,7 +870,7 @@ struct CollectionVal : public AnyVal {
 
     CollectionVal() = default;
 
-    CollectionVal(void* data, uint32_t length, bool has_null, bool* null_signs)
+    CollectionVal(void* data, uint64_t length, bool has_null, bool* null_signs)
             : data(data), length(length), has_null(has_null), null_signs(null_signs) {};
 
     static CollectionVal null() {
@@ -777,3 +896,6 @@ using doris_udf::DateTimeVal;
 using doris_udf::HllVal;
 using doris_udf::FunctionContext;
 using doris_udf::CollectionVal;
+using doris_udf::Decimal32Val;
+using doris_udf::Decimal64Val;
+using doris_udf::Decimal128Val;

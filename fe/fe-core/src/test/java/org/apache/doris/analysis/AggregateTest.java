@@ -38,8 +38,9 @@ public class AggregateTest extends TestWithFeService {
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase(DB_NAME).useDatabase(DB_NAME);
         String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME + " (empid int, name varchar, "
-                + "deptno int, salary int, commission int, time DATETIME) "
-                + "distributed by hash(empid) buckets 3 properties('replication_num' = '1');";
+                + "deptno int, salary int, commission int, time_col DATETIME, timev2_col "
+                + " DATETIME(3)) distributed by hash(empid) buckets 3"
+                + " properties('replication_num' = '1');";
         createTable(createTableSQL);
     }
 
@@ -52,11 +53,13 @@ public class AggregateTest extends TestWithFeService {
 
         // NOT support mix distinct, one DistinctAggregationFunction has one column, the other DistinctAggregationFunction has some columns.
         do {
-            String query = "select count(distinct empid), count(distinct salary), count(distinct empid, salary) from " + DB_NAME + "." + TABLE_NAME;
+            String query = "select count(distinct empid), count(distinct salary), "
+                    + "count(distinct empid, salary) from " + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("The query contains multi count distinct or sum distinct, each can't have multi columns."));
+                Assert.assertTrue(e.getMessage().contains(
+                        "The query contains multi count distinct or sum distinct, each can't have multi columns."));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
@@ -90,19 +93,43 @@ public class AggregateTest extends TestWithFeService {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
 
         // normal.
-        { // CHECKSTYLE IGNORE THIS LINE
-            String query = "select empid, window_funnel(1, 'default', time, empid = 1, empid = 2) from "
+        do {
+            String query = "select empid, window_funnel(1, 'default', time_col, empid = 1, empid = 2) from "
                     + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
             }
-        } // CHECKSTYLE IGNORE THIS LINE
+        } while (false);
+
+        do {
+            String query = "select empid, window_funnel(1, 'default', timev2_col, empid = 1, empid = 2) from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
 
         // less argument.
         do {
-            String query = "select empid, window_funnel(1, 'default', time) from "
+            String query = "select empid, window_funnel(1, 'default', time_col) from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("function must have at least four params"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+
+        do {
+            String query = "select empid, window_funnel(1, 'default', timev2_col) from "
                     + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
@@ -117,12 +144,13 @@ public class AggregateTest extends TestWithFeService {
 
         // argument with wrong type.
         do {
-            String query = "select empid, window_funnel('xx', 'default', time, empid = 1) from "
+            String query = "select empid, window_funnel('xx', 'default', time_col, empid = 1) from "
                     + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("The window params of window_funnel function must be integer"));
+                Assert.assertTrue(
+                        e.getMessage().contains("The window params of window_funnel function must be integer"));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
@@ -131,12 +159,13 @@ public class AggregateTest extends TestWithFeService {
         } while (false);
 
         do {
-            String query = "select empid, window_funnel(1, 1, time, empid = 1) from "
+            String query = "select empid, window_funnel('xx', 'default', timev2_col, empid = 1) from "
                     + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("The mode params of window_funnel function must be integer"));
+                Assert.assertTrue(
+                        e.getMessage().contains("The window params of window_funnel function must be integer"));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
@@ -144,6 +173,35 @@ public class AggregateTest extends TestWithFeService {
             Assert.fail("must be AnalysisException.");
         } while (false);
 
+        do {
+            String query = "select empid, window_funnel(1, 1, time_col, empid = 1) from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(
+                        e.getMessage().contains("The mode params of window_funnel function must be integer"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+
+        do {
+            String query = "select empid, window_funnel(1, 1, timev2_col, empid = 1) from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(
+                        e.getMessage().contains("The mode params of window_funnel function must be integer"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
 
         do {
             String query = "select empid, window_funnel(1, '1', empid, '1') from "
@@ -151,7 +209,8 @@ public class AggregateTest extends TestWithFeService {
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("The 3rd param of window_funnel function must be DATE or DATETIME"));
+                Assert.assertTrue(
+                        e.getMessage().contains("The 3rd param of window_funnel function must be DATE or DATETIME"));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
@@ -160,12 +219,28 @@ public class AggregateTest extends TestWithFeService {
         } while (false);
 
         do {
-            String query = "select empid, window_funnel(1, '1', time, '1') from "
+            String query = "select empid, window_funnel(1, '1', time_col, '1') from "
                     + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("The 4th and subsequent params of window_funnel function must be boolean"));
+                Assert.assertTrue(e.getMessage().contains(
+                        "The 4th and subsequent params of window_funnel function must be boolean"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+
+        do {
+            String query = "select empid, window_funnel(1, '1', timev2_col, '1') from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains(
+                        "The 4th and subsequent params of window_funnel function must be boolean"));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");

@@ -23,11 +23,7 @@
 #include <sstream>
 
 #include "exprs/anyval_util.h"
-#include "exprs/case_expr.h"
-#include "exprs/expr.h"
-#include "runtime/tuple_row.h"
 #include "util/date_func.h"
-#include "util/string_parser.hpp"
 
 namespace doris {
 void TimeOperators::init() {}

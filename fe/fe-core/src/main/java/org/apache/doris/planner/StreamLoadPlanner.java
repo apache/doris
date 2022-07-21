@@ -115,7 +115,8 @@ public class StreamLoadPlanner {
         }
 
         if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol()) {
-            throw new UserException("Table " + destTable.getName() + " has sequence column, need to specify the sequence column");
+            throw new UserException("Table " + destTable.getName()
+                    + " has sequence column, need to specify the sequence column");
         }
         if (!destTable.hasSequenceCol() && taskInfo.hasSequenceCol()) {
             throw new UserException("There is no sequence column in the table " + destTable.getName());

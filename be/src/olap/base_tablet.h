@@ -33,12 +33,11 @@ class DataDir;
 // storage engine evolves.
 class BaseTablet : public std::enable_shared_from_this<BaseTablet> {
 public:
-    BaseTablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param,
-               DataDir* data_dir);
+    BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
     virtual ~BaseTablet();
 
     DataDir* data_dir() const;
-    FilePathDesc tablet_path_desc() const;
+    const std::string& tablet_path() const;
 
     TabletState tablet_state() const { return _state; }
     Status set_tablet_state(TabletState state);
@@ -54,12 +53,21 @@ public:
     const std::string full_name() const;
     int64_t partition_id() const;
     int64_t tablet_id() const;
+    int64_t replica_id() const;
     int32_t schema_hash() const;
-    int16_t shard_id();
+    int16_t shard_id() const;
     bool equal(int64_t tablet_id, int32_t schema_hash);
 
+    const io::ResourceId& cooldown_resource() const { return _tablet_meta->cooldown_resource(); }
+
+    void set_cooldown_resource(io::ResourceId resource) {
+        _tablet_meta->set_cooldown_resource(std::move(resource));
+    }
+
     // properties encapsulated in TabletSchema
-    const TabletSchema& tablet_schema() const;
+    virtual const TabletSchema& tablet_schema() const;
+
+    bool set_tablet_schema_into_rowset_meta();
 
 protected:
     void _gen_tablet_path();
@@ -67,11 +75,10 @@ protected:
 protected:
     TabletState _state;
     TabletMetaSharedPtr _tablet_meta;
-    StorageParamPB _storage_param;
     const TabletSchema& _schema;
 
     DataDir* _data_dir;
-    FilePathDesc _tablet_path_desc;
+    std::string _tablet_path;
 
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity = nullptr;
@@ -91,8 +98,8 @@ inline DataDir* BaseTablet::data_dir() const {
     return _data_dir;
 }
 
-inline FilePathDesc BaseTablet::tablet_path_desc() const {
-    return _tablet_path_desc;
+inline const std::string& BaseTablet::tablet_path() const {
+    return _tablet_path;
 }
 
 inline const TabletMetaSharedPtr BaseTablet::tablet_meta() {
@@ -123,11 +130,15 @@ inline int64_t BaseTablet::tablet_id() const {
     return _tablet_meta->tablet_id();
 }
 
+inline int64_t BaseTablet::replica_id() const {
+    return _tablet_meta->replica_id();
+}
+
 inline int32_t BaseTablet::schema_hash() const {
     return _tablet_meta->schema_hash();
 }
 
-inline int16_t BaseTablet::shard_id() {
+inline int16_t BaseTablet::shard_id() const {
     return _tablet_meta->shard_id();
 }
 

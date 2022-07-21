@@ -31,9 +31,9 @@ import java.util.List;
 import java.util.Set;
 
 public class ProjectPlanner {
-    private final static Logger LOG = LogManager.getLogger(PlanNode.class);
+    private static final Logger LOG = LogManager.getLogger(PlanNode.class);
 
-    private Analyzer analyzer;
+    private final Analyzer analyzer;
 
     public ProjectPlanner(Analyzer analyzer) {
         this.analyzer = analyzer;

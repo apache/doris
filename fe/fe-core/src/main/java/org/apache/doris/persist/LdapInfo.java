@@ -46,6 +46,10 @@ public class LdapInfo implements Writable {
         ldapPasswdEncrypted = SymmetricEncryption.encrypt(ldapPasswd, secretKey, iv);
     }
 
+    public boolean isValid() {
+        return ldapPasswdEncrypted != null && secretKey != null && iv != null;
+    }
+
     public String getLdapPasswdEncrypted() {
         return ldapPasswdEncrypted;
     }

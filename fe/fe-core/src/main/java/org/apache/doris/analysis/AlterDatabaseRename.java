@@ -57,10 +57,9 @@ public class AlterDatabaseRename extends DdlStmt {
         }
 
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                                                               PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                                              PaloPrivilege.ALTER_PRIV),
-                                                                                Operator.OR))) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+                PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV, PaloPrivilege.ALTER_PRIV), Operator.OR))) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                    analyzer.getQualifiedUser(), dbName);
         }
 
         if (Strings.isNullOrEmpty(newDbName)) {

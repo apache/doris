@@ -36,7 +36,7 @@ import java.io.IOException;
  * listener for accept mysql connections.
  */
 public class AcceptListener implements ChannelListener<AcceptingChannel<StreamConnection>> {
-    private final static Logger LOG = LogManager.getLogger(AcceptListener.class);
+    private static final Logger LOG = LogManager.getLogger(AcceptListener.class);
     private final ConnectScheduler connectScheduler;
 
     public AcceptListener(ConnectScheduler connectScheduler) {
@@ -70,7 +70,8 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         MysqlProto.sendResponsePacket(context);
                         connection.setCloseListener(streamConnection -> connectScheduler.unregisterConnection(context));
                     } else {
-                        context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, "Reach limit of connections");
+                        context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS,
+                                "Reach limit of connections");
                         MysqlProto.sendResponsePacket(context);
                         throw new AfterConnectedException("Reach limit of connections");
                     }
@@ -88,7 +89,8 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                     } else if (e instanceof Error) {
                         LOG.error("connect processor exception because ", e);
                     } else {
-                        // for unauthrorized access such lvs probe request, may cause exception, just log it in debug level
+                        // for unauthrorized access such lvs probe request,
+                        // may cause exception, just log it in debug level
                         LOG.debug("connect processor exception because ", e);
                     }
                     context.cleanup();

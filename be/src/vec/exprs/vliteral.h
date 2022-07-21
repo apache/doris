@@ -41,6 +41,8 @@ public:
         return pool->add(new VLiteral(*this));
     }
 
+    virtual std::string debug_string() const override;
+
 protected:
     ColumnPtr _column_ptr;
     std::string _expr_name;

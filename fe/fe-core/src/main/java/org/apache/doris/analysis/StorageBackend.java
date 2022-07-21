@@ -38,7 +38,8 @@ public class StorageBackend extends StorageDesc implements ParseNode {
     private StorageType storageType;
     private Map<String, String> properties;
 
-    public StorageBackend(String storageName, String location, StorageType storageType, Map<String, String> properties) {
+    public StorageBackend(String storageName, String location,
+            StorageType storageType, Map<String, String> properties) {
         this.name = storageName;
         this.location = location;
         this.storageType = storageType;
@@ -84,7 +85,8 @@ public class StorageBackend extends StorageDesc implements ParseNode {
         if (this.storageType != StorageType.BROKER && StringUtils.isEmpty(name)) {
             name = this.storageType.name();
         }
-        if (this.storageType != StorageType.BROKER && this.storageType != StorageType.S3) {
+        if (this.storageType != StorageType.BROKER && this.storageType != StorageType.S3
+                && this.storageType != StorageType.HDFS) {
             throw new NotImplementedException(this.storageType.toString() + " is not support now.");
         }
         FeNameFormat.checkCommonName("repository", name);

@@ -54,7 +54,8 @@ public class RevokeStmt extends DdlStmt {
         this.privileges = privs.toPrivilegeList();
     }
 
-    public RevokeStmt(UserIdentity userIdent, String role, ResourcePattern resourcePattern, List<AccessPrivilege> privileges) {
+    public RevokeStmt(UserIdentity userIdent, String role,
+            ResourcePattern resourcePattern, List<AccessPrivilege> privileges) {
         this.userIdent = userIdent;
         this.role = role;
         this.tblPattern = null;
@@ -96,7 +97,7 @@ public class RevokeStmt extends DdlStmt {
         }
 
         if (tblPattern != null) {
-            tblPattern.analyze(analyzer.getClusterName());
+            tblPattern.analyze(analyzer);
         } else {
             // TODO(wyb): spark-load
             if (!Config.enable_spark_load) {

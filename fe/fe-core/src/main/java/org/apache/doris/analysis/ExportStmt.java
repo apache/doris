@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -54,7 +55,7 @@ import java.util.UUID;
 //          [PROPERTIES("key"="value")]
 //          BY BROKER 'broker_name' [( $broker_attrs)]
 public class ExportStmt extends StatementBase {
-    private final static Logger LOG = LogManager.getLogger(ExportStmt.class);
+    private static final Logger LOG = LogManager.getLogger(ExportStmt.class);
 
     public static final String TABLET_NUMBER_PER_TASK_PROP = "tablet_num_per_task";
     public static final String LABEL = "label";
@@ -143,6 +144,8 @@ public class ExportStmt extends StatementBase {
         tableRef.analyze(analyzer);
 
         this.tblName = tableRef.getName();
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
 
         PartitionNames partitionNames = tableRef.getPartitionNames();
         if (partitionNames != null) {
@@ -190,7 +193,7 @@ public class ExportStmt extends StatementBase {
     }
 
     private void checkTable(Catalog catalog) throws AnalysisException {
-        Database db = catalog.getDbOrAnalysisException(tblName.getDb());
+        Database db = catalog.getInternalDataSource().getDbOrAnalysisException(tblName.getDb());
         Table table = db.getTableOrAnalysisException(tblName.getTbl());
         table.readLock();
         try {

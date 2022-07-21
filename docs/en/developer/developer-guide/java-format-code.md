@@ -42,6 +42,13 @@ standard java package
 * Do not use `import *`
 * Do not use `import static`
 
+## Check when compile
+
+Now, when compiling with `caven`, `CheckStyle` checks are done by default. This will slightly slow down compilation. If you want to skip checkstyle, please use the following command to compile
+```
+mvn clean install -DskipTests -Dcheckstyle.skip
+```
+
 ## Checkstyle Plugin
 
 Now we have `formatter-check` in `CI` to check the code format.
@@ -82,5 +89,11 @@ After add the `build-support/IntelliJ-code-format.xml` file. Click `Code/Rearran
 
 ![](/images/idea-rearrange-code.png)
 
+## Remove unused header
 
+**CTRL + ALT + O --->** to remove the unused imports in windows.
+
+Auto remove unused header and reorder according to configure xml:
+
+Click `Preferences->Editor->Auto Import->Optimize Imports on the Fly`
 

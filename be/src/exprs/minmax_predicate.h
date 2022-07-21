@@ -18,7 +18,6 @@
 #pragma once
 
 #include "common/object_pool.h"
-#include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
 
 namespace doris {

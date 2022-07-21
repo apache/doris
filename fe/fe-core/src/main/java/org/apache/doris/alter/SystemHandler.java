@@ -117,7 +117,8 @@ public class SystemHandler extends AlterHandler {
             AddBackendClause addBackendClause = (AddBackendClause) alterClause;
             final String destClusterName = addBackendClause.getDestCluster();
 
-            if ((!Strings.isNullOrEmpty(destClusterName) || addBackendClause.isFree()) && Config.disable_cluster_feature) {
+            if ((!Strings.isNullOrEmpty(destClusterName) || addBackendClause.isFree())
+                    && Config.disable_cluster_feature) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "ADD BACKEND TO CLUSTER");
             }
 
@@ -125,8 +126,8 @@ public class SystemHandler extends AlterHandler {
                     && Catalog.getCurrentCatalog().getCluster(destClusterName) == null) {
                 throw new DdlException("Cluster: " + destClusterName + " does not exist.");
             }
-            Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(),
-                    addBackendClause.isFree(), addBackendClause.getDestCluster(), addBackendClause.getTag());
+            Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(), addBackendClause.isFree(),
+                    addBackendClause.getDestCluster(), addBackendClause.getTagMap());
         } else if (alterClause instanceof DropBackendClause) {
             // drop backend
             DropBackendClause dropBackendClause = (DropBackendClause) alterClause;

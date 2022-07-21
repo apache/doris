@@ -18,9 +18,13 @@
 package org.apache.doris.nereids.trees;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.Operator;
+
+import com.alibaba.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * interface for all node in Nereids, include plan node and expression.
@@ -30,17 +34,55 @@ import java.util.List;
  */
 public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
-    Operator getOperator();
+    // cache GroupExpression for fast exit from Memo.copyIn.
+    Optional<GroupExpression> getGroupExpression();
 
-    GroupExpression getGroupExpression();
+    List<NODE_TYPE> children();
 
-    NodeType getType();
-
-    <CHILD_TYPE extends TreeNode> List<CHILD_TYPE> children();
-
-    <CHILD_TYPE extends TreeNode> CHILD_TYPE child(int index);
+    NODE_TYPE child(int index);
 
     int arity();
 
-    NODE_TYPE newChildren(List<TreeNode> children);
+    NODE_TYPE withChildren(List<NODE_TYPE> children);
+
+    /**
+     * Foreach treeNode. Top-down traverse implicitly.
+     * @param func foreach function
+     */
+    default void foreach(Consumer<TreeNode<NODE_TYPE>> func) {
+        func.accept(this);
+        for (NODE_TYPE child : children()) {
+            child.foreach(func);
+        }
+    }
+
+    /**
+     * iterate top down and test predicate if any matched. Top-down traverse implicitly.
+     * @param predicate predicate
+     * @return true if any predicate return true
+     */
+    default boolean anyMatch(Predicate<TreeNode<NODE_TYPE>> predicate) {
+        if (predicate.test(this)) {
+            return true;
+        }
+        for (NODE_TYPE child : children()) {
+            if (child.anyMatch(predicate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Collect the nodes that satisfied the predicate.
+     */
+    default <T> T collect(Predicate<TreeNode<NODE_TYPE>> predicate) {
+        ImmutableList.Builder<TreeNode<NODE_TYPE>> result = ImmutableList.builder();
+        foreach(node -> {
+            if (predicate.test(node)) {
+                result.add(node);
+            }
+        });
+        return (T) result.build();
+    }
 }

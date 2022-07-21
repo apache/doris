@@ -17,35 +17,44 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.rules.RuleFactory;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Bottom up job for rewrite, use pattern match.
  */
-public class RewriteBottomUpJob<NODE_TYPE extends TreeNode> extends Job<NODE_TYPE> {
+public class RewriteBottomUpJob extends Job {
     private final Group group;
-    private final List<Rule<NODE_TYPE>> rules;
+    private final List<Rule> rules;
     private final boolean childrenOptimized;
 
-    public RewriteBottomUpJob(Group group, List<Rule<NODE_TYPE>> rules, PlannerContext context) {
+
+    public RewriteBottomUpJob(Group group, JobContext context, List<RuleFactory> factories) {
+        this(group, factories.stream()
+                .flatMap(factory -> factory.buildRules().stream())
+                .collect(Collectors.toList()), context, false);
+    }
+
+    public RewriteBottomUpJob(Group group, List<Rule> rules, JobContext context) {
         this(group, rules, context, false);
     }
 
-    private RewriteBottomUpJob(Group group, List<Rule<NODE_TYPE>> rules,
-            PlannerContext context, boolean childrenOptimized) {
+    private RewriteBottomUpJob(Group group, List<Rule> rules,
+            JobContext context, boolean childrenOptimized) {
         super(JobType.BOTTOM_UP_REWRITE, context);
         this.group = Objects.requireNonNull(group, "group cannot be null");
         this.rules = Objects.requireNonNull(rules, "rules cannot be null");
@@ -56,28 +65,30 @@ public class RewriteBottomUpJob<NODE_TYPE extends TreeNode> extends Job<NODE_TYP
     public void execute() throws AnalysisException {
         GroupExpression logicalExpression = group.getLogicalExpression();
         if (!childrenOptimized) {
+            pushTask(new RewriteBottomUpJob(group, rules, context, true));
             for (Group childGroup : logicalExpression.children()) {
-                pushTask(new RewriteBottomUpJob<>(childGroup, rules, context, false));
+                pushTask(new RewriteBottomUpJob(childGroup, rules, context, false));
             }
-            pushTask(new RewriteBottomUpJob<>(group, rules, context, true));
             return;
         }
 
-        List<Rule<NODE_TYPE>> validRules = getValidRules(logicalExpression, rules);
-        for (Rule<NODE_TYPE> rule : validRules) {
-            GroupExpressionMatching<NODE_TYPE> groupExpressionMatching
-                    = new GroupExpressionMatching<>(rule.getPattern(), logicalExpression);
-            for (NODE_TYPE before : groupExpressionMatching) {
-                List<NODE_TYPE> afters = rule.transform(before, context);
+        List<Rule> validRules = getValidRules(logicalExpression, rules);
+        for (Rule rule : validRules) {
+            GroupExpressionMatching groupExpressionMatching
+                    = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
+            for (Plan before : groupExpressionMatching) {
+                List<Plan> afters = rule.transform(before, context.getPlannerContext());
                 Preconditions.checkArgument(afters.size() == 1);
-                NODE_TYPE after = afters.get(0);
+                Plan after = afters.get(0);
                 if (after != before) {
-                    context.getOptimizerContext().getMemo().copyIn(after, group, rule.isRewrite());
-                    pushTask(new RewriteBottomUpJob<>(group, rules, context, false));
+                    GroupExpression groupExpr = context.getPlannerContext()
+                            .getMemo()
+                            .copyIn(after, group, rule.isRewrite());
+                    groupExpr.setApplied(rule);
+                    pushTask(new RewriteBottomUpJob(group, rules, context, false));
                     return;
                 }
             }
-            logicalExpression.setApplied(rule);
         }
     }
 }

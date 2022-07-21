@@ -29,6 +29,7 @@
 #include "exprs/expr_context.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/large_int_value.h"
 #include "runtime/row_batch.h"
@@ -38,6 +39,8 @@
 #include "runtime/tuple_row.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/runtime_profile.h"
+#include "util/thread.h"
+#include "util/to_string.h"
 
 namespace doris {
 
@@ -195,6 +198,8 @@ Status OlapScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
+    _runtime_profile->add_info_string("Table", _tuple_desc->table_desc()->name());
+
     const std::vector<SlotDescriptor*>& slots = _tuple_desc->slots();
 
     for (int i = 0; i < slots.size(); ++i) {
@@ -267,7 +272,6 @@ Status OlapScanNode::open(RuntimeState* state) {
 }
 
 Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 
@@ -384,8 +388,6 @@ Status OlapScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
-
     // change done status
     {
         std::unique_lock<std::mutex> l(_row_batches_lock);
@@ -431,6 +433,9 @@ Status OlapScanNode::close(RuntimeState* state) {
     }
 
     VLOG_CRITICAL << "OlapScanNode::close()";
+    // pushed functions close
+    Expr::close(_pushed_func_conjunct_ctxs, state);
+
     return ScanNode::close(state);
 }
 
@@ -474,21 +479,19 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
         return Status::OK();
     }
 
-    VLOG_CRITICAL << "BuildOlapFilters";
-    // 3. Using ColumnValueRange to Build StorageEngine filters
-    RETURN_IF_ERROR(build_olap_filters());
-
-    VLOG_CRITICAL << "BuildScanKey";
-    // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
-    RETURN_IF_ERROR(build_scan_key());
+    VLOG_CRITICAL << "BuildKeyRangesAndFilters";
+    // 3.1 Using ColumnValueRange to Build StorageEngine filters
+    RETURN_IF_ERROR(build_key_ranges_and_filters());
+    // 3.2 Function pushdown
+    if (config::enable_function_pushdown) RETURN_IF_ERROR(build_function_filters());
 
     VLOG_CRITICAL << "Filter idle conjuncts";
-    // 5. Filter idle conjunct which already trans to olap filters
+    // 4. Filter idle conjunct which already trans to olap filters
     // this must be after build_scan_key, it will free the StringValue memory
     remove_pushed_conjuncts(state);
 
     VLOG_CRITICAL << "StartScanThread";
-    // 6. Start multi thread to read several `Sub Sub ScanRange`
+    // 5. Start multi thread to read several `Sub Sub ScanRange`
     RETURN_IF_ERROR(start_scan_thread(state));
 
     return Status::OK();
@@ -507,29 +510,34 @@ bool OlapScanNode::is_key_column(const std::string& key_name) {
 }
 
 void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
-    if (_pushed_conjuncts_index.empty()) {
+    if (_pushed_conjuncts_index.empty() && _pushed_func_conjuncts_index.empty()) {
         return;
     }
 
     // dispose direct conjunct first
     std::vector<ExprContext*> new_conjunct_ctxs;
     for (int i = 0; i < _direct_conjunct_size; ++i) {
-        if (std::find(_pushed_conjuncts_index.cbegin(), _pushed_conjuncts_index.cend(), i) ==
-            _pushed_conjuncts_index.cend()) {
-            new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
+        if (!_pushed_conjuncts_index.empty() && _pushed_conjuncts_index.count(i)) {
+            _conjunct_ctxs[i]->close(state); // pushed condition, just close
+        } else if (!_pushed_func_conjuncts_index.empty() && _pushed_func_conjuncts_index.count(i)) {
+            _pushed_func_conjunct_ctxs.emplace_back(
+                    _conjunct_ctxs[i]); // pushed functions, need keep ctxs
         } else {
-            _conjunct_ctxs[i]->close(state);
+            new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
         }
     }
+
     auto new_direct_conjunct_size = new_conjunct_ctxs.size();
 
     // dispose hash join push down conjunct second
     for (int i = _direct_conjunct_size; i < _conjunct_ctxs.size(); ++i) {
-        if (std::find(_pushed_conjuncts_index.cbegin(), _pushed_conjuncts_index.cend(), i) ==
-            _pushed_conjuncts_index.cend()) {
-            new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
+        if (!_pushed_conjuncts_index.empty() && _pushed_conjuncts_index.count(i)) {
+            _conjunct_ctxs[i]->close(state); // pushed condition, just close
+        } else if (!_pushed_func_conjuncts_index.empty() && _pushed_func_conjuncts_index.count(i)) {
+            _pushed_func_conjunct_ctxs.emplace_back(
+                    _conjunct_ctxs[i]); // pushed functions, need keep ctxs
         } else {
-            _conjunct_ctxs[i]->close(state);
+            new_conjunct_ctxs.emplace_back(_conjunct_ctxs[i]);
         }
     }
 
@@ -554,8 +562,7 @@ void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
 
     // filter idle conjunct in vexpr_contexts
     auto checker = [&](int index) { return _pushed_conjuncts_index.count(index); };
-    std::string vconjunct_information = _peel_pushed_vconjunct(state, checker);
-    _scanner_profile->add_info_string("VconjunctExprTree", vconjunct_information);
+    _peel_pushed_vconjunct(state, checker);
 }
 
 void OlapScanNode::eval_const_conjuncts() {
@@ -577,67 +584,81 @@ Status OlapScanNode::normalize_conjuncts() {
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
         switch (slots[slot_idx]->type().type) {
         case TYPE_TINYINT: {
-            ColumnValueRange<int8_t> range(slots[slot_idx]->col_name(),
-                                           slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_TINYINT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_SMALLINT: {
-            ColumnValueRange<int16_t> range(slots[slot_idx]->col_name(),
-                                            slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_SMALLINT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_INT: {
-            ColumnValueRange<int32_t> range(slots[slot_idx]->col_name(),
-                                            slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_INT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_BIGINT: {
-            ColumnValueRange<int64_t> range(slots[slot_idx]->col_name(),
-                                            slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_BIGINT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_LARGEINT: {
-            ColumnValueRange<__int128> range(slots[slot_idx]->col_name(),
-                                             slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_LARGEINT> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_HLL:
+        case TYPE_CHAR: {
+            ColumnValueRange<TYPE_CHAR> range(slots[slot_idx]->col_name());
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+        case TYPE_VARCHAR: {
+            ColumnValueRange<TYPE_VARCHAR> range(slots[slot_idx]->col_name());
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+        case TYPE_HLL: {
+            ColumnValueRange<TYPE_HLL> range(slots[slot_idx]->col_name());
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
         case TYPE_STRING: {
-            ColumnValueRange<StringValue> range(slots[slot_idx]->col_name(),
-                                                slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_STRING> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
-        case TYPE_DATE:
+        case TYPE_DATE: {
+            ColumnValueRange<TYPE_DATE> range(slots[slot_idx]->col_name());
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
         case TYPE_DATETIME: {
-            ColumnValueRange<DateTimeValue> range(slots[slot_idx]->col_name(),
-                                                  slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_DATETIME> range(slots[slot_idx]->col_name());
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_DATEV2: {
+            ColumnValueRange<TYPE_DATEV2> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_DECIMALV2: {
-            ColumnValueRange<DecimalV2Value> range(slots[slot_idx]->col_name(),
-                                                   slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_DECIMALV2> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
 
         case TYPE_BOOLEAN: {
-            ColumnValueRange<bool> range(slots[slot_idx]->col_name(), slots[slot_idx]->type().type);
+            ColumnValueRange<TYPE_BOOLEAN> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
@@ -653,7 +674,121 @@ Status OlapScanNode::normalize_conjuncts() {
     return Status::OK();
 }
 
-Status OlapScanNode::build_olap_filters() {
+static std::string olap_filter_to_string(const doris::TCondition& condition) {
+    auto op_name = condition.condition_op;
+    if (condition.condition_op == "*=") {
+        op_name = "IN";
+    } else if (condition.condition_op == "!*=") {
+        op_name = "NOT IN";
+    }
+    return fmt::format("{{{} {} {}}}", condition.column_name, op_name,
+                       to_string(condition.condition_values));
+}
+
+static std::string olap_filters_to_string(const std::vector<doris::TCondition>& filters) {
+    // std::vector<std::string> filters_string;
+    std::string filters_string;
+    filters_string += "[";
+    for (auto it = filters.cbegin(); it != filters.cend(); it++) {
+        if (it != filters.cbegin()) {
+            filters_string += ",";
+        }
+        filters_string += olap_filter_to_string(*it);
+    }
+    filters_string += "]";
+    return filters_string;
+}
+
+Status OlapScanNode::build_function_filters() {
+    for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
+        ExprContext* ex_ctx = _conjunct_ctxs[conj_idx];
+        Expr* fn_expr = ex_ctx->root();
+        bool opposite = false;
+
+        if (TExprNodeType::COMPOUND_PRED == fn_expr->node_type() &&
+            TExprOpcode::COMPOUND_NOT == fn_expr->op()) {
+            fn_expr = fn_expr->get_child(0);
+            opposite = true;
+        }
+
+        // currently only support like / not like
+        if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type() &&
+            "like" == fn_expr->fn().name.function_name) {
+            doris_udf::FunctionContext* func_cxt =
+                    ex_ctx->fn_context(fn_expr->get_fn_context_index());
+
+            if (!func_cxt) {
+                continue;
+            }
+            if (fn_expr->children().size() != 2) {
+                continue;
+            }
+            SlotRef* slot_ref = nullptr;
+            Expr* literal_expr = nullptr;
+
+            if (TExprNodeType::SLOT_REF == fn_expr->get_child(0)->node_type()) {
+                literal_expr = fn_expr->get_child(1);
+                slot_ref = (SlotRef*)(fn_expr->get_child(0));
+            } else if (TExprNodeType::SLOT_REF == fn_expr->get_child(1)->node_type()) {
+                literal_expr = fn_expr->get_child(0);
+                slot_ref = (SlotRef*)(fn_expr->get_child(1));
+            } else {
+                continue;
+            }
+
+            if (TExprNodeType::STRING_LITERAL != literal_expr->node_type()) continue;
+
+            const SlotDescriptor* slot_desc = nullptr;
+            std::vector<SlotId> slot_ids;
+            slot_ref->get_slot_ids(&slot_ids);
+            for (SlotDescriptor* slot : _tuple_desc->slots()) {
+                if (slot->id() == slot_ids[0]) {
+                    slot_desc = slot;
+                    break;
+                }
+            }
+
+            if (!slot_desc) {
+                continue;
+            }
+            std::string col = slot_desc->col_name();
+            StringVal val = literal_expr->get_string_val(ex_ctx, nullptr);
+            _push_down_functions.emplace_back(opposite, col, func_cxt, val);
+            _pushed_func_conjuncts_index.insert(conj_idx);
+        }
+    }
+    return Status::OK();
+}
+
+Status OlapScanNode::build_key_ranges_and_filters() {
+    const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
+    const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
+    DCHECK(column_types.size() == column_names.size());
+
+    // 1. construct scan key except last olap engine short key
+    _scan_keys.set_is_convertible(limit() == -1);
+
+    // we use `exact_range` to identify a key range is an exact range or not when we convert
+    // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filter`.
+    bool exact_range = true;
+    for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
+         ++column_index) {
+        auto iter = _column_value_ranges.find(column_names[column_index]);
+        if (_column_value_ranges.end() == iter) {
+            break;
+        }
+
+        RETURN_IF_ERROR(std::visit(
+                [&](auto&& range) {
+                    RETURN_IF_ERROR(
+                            _scan_keys.extend_scan_key(range, _max_scan_key_num, &exact_range));
+                    if (exact_range) {
+                        _column_value_ranges.erase(iter->first);
+                    }
+                    return Status::OK();
+                },
+                iter->second));
+    }
     for (auto& iter : _column_value_ranges) {
         std::vector<TCondition> filters;
         std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
@@ -663,28 +798,9 @@ Status OlapScanNode::build_olap_filters() {
         }
     }
 
-    return Status::OK();
-}
+    _runtime_profile->add_info_string("PushdownPredicate", olap_filters_to_string(_olap_filter));
 
-Status OlapScanNode::build_scan_key() {
-    const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
-    const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
-    DCHECK(column_types.size() == column_names.size());
-
-    // 1. construct scan key except last olap engine short key
-    _scan_keys.set_is_convertible(limit() == -1);
-
-    for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
-         ++column_index) {
-        auto iter = _column_value_ranges.find(column_names[column_index]);
-        if (_column_value_ranges.end() == iter) {
-            break;
-        }
-
-        RETURN_IF_ERROR(std::visit(
-                [&](auto&& range) { return _scan_keys.extend_scan_key(range, _max_scan_key_num); },
-                iter->second));
-    }
+    _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
 
     VLOG_CRITICAL << _scan_keys.debug_string();
 
@@ -828,7 +944,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
             RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _olap_filter,
-                                             _bloom_filters_push_down));
+                                             _bloom_filters_push_down, _push_down_functions));
 
             _olap_scanners.push_back(scanner);
             disk_set.insert(scanner->scan_disk());
@@ -848,7 +964,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
     return Status::OK();
 }
 
-template <class T>
+template <PrimitiveType T>
 Status OlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot) {
     // 1. Normalize InPredicate, add to ColumnValueRange
     RETURN_IF_ERROR(normalize_in_and_eq_predicate(slot, &range));
@@ -963,16 +1079,18 @@ std::pair<bool, void*> OlapScanNode::should_push_down_eq_predicate(doris::SlotDe
     return result_pair;
 }
 
-template <typename T, typename ChangeFixedValueRangeFunc>
-Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, PrimitiveType type,
+template <PrimitiveType primitive_type, typename ChangeFixedValueRangeFunc>
+Status OlapScanNode::change_fixed_value_range(ColumnValueRange<primitive_type>& temp_range,
                                               void* value, const ChangeFixedValueRangeFunc& func) {
-    switch (type) {
+    switch (primitive_type) {
     case TYPE_DATE: {
         DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
         // There is must return empty data in olap_scan_node,
         // Because data value loss accuracy
         if (!date_value.check_loss_accuracy_cast_to_date()) {
-            func(temp_range, reinterpret_cast<T*>(&date_value));
+            func(temp_range,
+                 reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(
+                         &date_value));
         }
         break;
     }
@@ -987,16 +1105,19 @@ Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, P
     case TYPE_BIGINT:
     case TYPE_LARGEINT:
     case TYPE_STRING: {
-        func(temp_range, reinterpret_cast<T*>(value));
+        func(temp_range,
+             reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(value));
         break;
     }
     case TYPE_BOOLEAN: {
         bool v = *reinterpret_cast<bool*>(value);
-        func(temp_range, reinterpret_cast<T*>(&v));
+        func(temp_range,
+             reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(&v));
         break;
     }
     default: {
-        LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type=" << type << "]";
+        LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type="
+                     << primitive_type << "]";
         return Status::InternalError("Normalize filter fail, Unsupported Primitive type");
     }
     }
@@ -1007,13 +1128,13 @@ Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, P
 // It will only handle the InPredicate and eq BinaryPredicate in _conjunct_ctxs.
 // It will try to push down conditions of that column as much as possible,
 // But if the number of conditions exceeds the limit, none of conditions will be pushed down.
-template <class T>
+template <PrimitiveType T>
 Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                                                    ColumnValueRange<T>* range) {
     std::vector<uint32_t> filter_conjuncts_index;
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         // create empty range as temp range, temp range should do intersection on range
-        auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(range->type());
+        auto temp_range = ColumnValueRange<T>::create_empty_column_value_range();
 
         // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
         if (TExprOpcode::FILTER_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
@@ -1028,12 +1149,12 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                 // column in (nullptr) is always false so continue to
                 // dispose next item
                 if (nullptr == iter->get_value()) {
+                    iter->next();
                     continue;
                 }
                 auto value = const_cast<void*>(iter->get_value());
-                RETURN_IF_ERROR(
-                        change_fixed_value_range(temp_range, slot->type().type, value,
-                                                 ColumnValueRange<T>::add_fixed_value_range));
+                RETURN_IF_ERROR(change_fixed_value_range(
+                        temp_range, value, ColumnValueRange<T>::add_fixed_value_range));
                 iter->next();
             }
 
@@ -1060,9 +1181,8 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                 auto value = result_pair.second;
                 // where A = nullptr should return empty result set
                 if (value != nullptr) {
-                    RETURN_IF_ERROR(
-                            change_fixed_value_range(temp_range, slot->type().type, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range(
+                            temp_range, value, ColumnValueRange<T>::add_fixed_value_range));
                 }
 
                 if (is_key_column(slot->col_name())) {
@@ -1087,14 +1207,13 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
 // It will only handle the NotInPredicate and not eq BinaryPredicate in _conjunct_ctxs.
 // It will try to push down conditions of that column as much as possible,
 // But if the number of conditions exceeds the limit, none of conditions will be pushed down.
-template <class T>
+template <PrimitiveType T>
 Status OlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
                                                            ColumnValueRange<T>* range) {
     // If the conjunct of slot is fixed value, will change the fixed value set of column value range
     // else add value to not in range and push down predicate directly
     bool is_fixed_range = range->is_fixed_value_range();
-    auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(range->column_name(),
-                                                                             range->type());
+    auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(range->column_name());
 
     std::vector<uint32_t> filter_conjuncts_index;
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
@@ -1115,12 +1234,10 @@ Status OlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
                 auto value = const_cast<void*>(iter->get_value());
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(change_fixed_value_range(
-                            *range, slot->type().type, value,
-                            ColumnValueRange<T>::remove_fixed_value_range));
+                            *range, value, ColumnValueRange<T>::remove_fixed_value_range));
                 } else {
-                    RETURN_IF_ERROR(
-                            change_fixed_value_range(not_in_range, slot->type().type, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range(
+                            not_in_range, value, ColumnValueRange<T>::add_fixed_value_range));
                 }
                 iter->next();
             }
@@ -1150,12 +1267,10 @@ Status OlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
 
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(change_fixed_value_range(
-                            *range, slot->type().type, value,
-                            ColumnValueRange<T>::remove_fixed_value_range));
+                            *range, value, ColumnValueRange<T>::remove_fixed_value_range));
                 } else {
-                    RETURN_IF_ERROR(
-                            change_fixed_value_range(not_in_range, slot->type().type, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_fixed_value_range(
+                            not_in_range, value, ColumnValueRange<T>::add_fixed_value_range));
                 }
 
                 if (is_key_column(slot->col_name())) {
@@ -1178,7 +1293,7 @@ Status OlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
     return Status::OK();
 }
 
-template <typename T>
+template <PrimitiveType T>
 bool OlapScanNode::normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
                                                const std::string& is_null_str,
                                                ColumnValueRange<T>* range) {
@@ -1195,14 +1310,14 @@ bool OlapScanNode::normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
         return false;
     }
 
-    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(range->type());
+    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range();
     temp_range.set_contain_null(is_null_str == "null");
     range->intersection(temp_range);
 
     return true;
 }
 
-template <class T>
+template <PrimitiveType T>
 Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                                                       ColumnValueRange<T>* range) {
     std::vector<uint32_t> filter_conjuncts_index;
@@ -1272,7 +1387,8 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                         }
                     }
                     range->add_range(to_olap_filter_type(pred->op(), child_idx),
-                                     *reinterpret_cast<T*>(&date_value));
+                                     *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(
+                                             &date_value));
                     break;
                 }
                 case TYPE_TINYINT:
@@ -1287,8 +1403,9 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 case TYPE_LARGEINT:
                 case TYPE_BOOLEAN:
                 case TYPE_STRING: {
-                    range->add_range(to_olap_filter_type(pred->op(), child_idx),
-                                     *reinterpret_cast<T*>(value));
+                    range->add_range(
+                            to_olap_filter_type(pred->op(), child_idx),
+                            *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(value));
                     break;
                 }
 
@@ -1306,7 +1423,9 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
 
                 VLOG_CRITICAL << slot->col_name() << " op: "
                               << static_cast<int>(to_olap_filter_type(pred->op(), child_idx))
-                              << " value: " << *reinterpret_cast<T*>(value);
+                              << " value: "
+                              << *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(
+                                         value);
             }
         }
     }

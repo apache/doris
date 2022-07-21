@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class ListPartitionInfo extends PartitionInfo {
 
@@ -69,8 +70,8 @@ public class ListPartitionInfo extends PartitionInfo {
                 PartitionKey partitionKey = PartitionKey.createListPartitionKey(values, partitionColumns);
                 checkNewPartitionKey(partitionKey, partitionKeyDesc, isTemp);
                 if (partitionKeys.contains(partitionKey)) {
-                    throw new AnalysisException("The partition key[" + partitionKeyDesc.toSql() + "] has duplicate item ["
-                            + partitionKey.toSql() + "].");
+                    throw new AnalysisException("The partition key["
+                            + partitionKeyDesc.toSql() + "] has duplicate item [" + partitionKey.toSql() + "].");
                 }
                 partitionKeys.add(partitionKey);
             }
@@ -80,7 +81,8 @@ public class ListPartitionInfo extends PartitionInfo {
         return new ListPartitionItem(partitionKeys);
     }
 
-    private void checkNewPartitionKey(PartitionKey newKey, PartitionKeyDesc keyDesc, boolean isTemp) throws AnalysisException {
+    private void checkNewPartitionKey(PartitionKey newKey, PartitionKeyDesc keyDesc,
+            boolean isTemp) throws AnalysisException {
         Map<Long, PartitionItem> id2Item = idToItem;
         if (isTemp) {
             id2Item = idToTempItem;
@@ -103,7 +105,8 @@ public class ListPartitionInfo extends PartitionInfo {
     }
 
     @Override
-    public void checkPartitionItemListsConflict(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
+    public void checkPartitionItemListsConflict(List<PartitionItem> list1,
+            List<PartitionItem> list2) throws DdlException {
         ListUtil.checkListsConflict(list1, list2);
     }
 
@@ -203,6 +206,13 @@ public class ListPartitionInfo extends PartitionInfo {
                 idxInternal++;
             }
             sb.append(")");
+
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
+                if (!p.equals("")) {
+                    sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
+                    sb.append(p).append("\")");
+                }
+            });
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());

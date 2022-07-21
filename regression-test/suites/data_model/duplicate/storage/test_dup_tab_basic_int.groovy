@@ -152,5 +152,21 @@ PROPERTIES (
         result([[1,2,3,4]])
     }
 
+    // predicate in with two values
+    test {
+        sql """
+            select distinct userid as col from ${table1} where userid in (3,7) order by col;
+        """
+        result([[3],[7]])
+    }
+
+    // predicate not with two values
+    test {
+        sql """
+            select distinct userid as col from ${table1} where userid not in (3,7) order by col;
+        """
+        result([[11],[15],[19],[22]])
+    }
+
     sql "drop table if exists ${table1}"
 }

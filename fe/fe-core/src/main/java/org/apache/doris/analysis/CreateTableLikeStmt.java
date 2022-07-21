@@ -23,6 +23,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -47,7 +48,8 @@ public class CreateTableLikeStmt extends DdlStmt {
     private final ArrayList<String> rollupNames;
     private final boolean withAllRollup;
 
-    public CreateTableLikeStmt(boolean ifNotExists, TableName tableName, TableName existedTableName, ArrayList<String> rollupNames, boolean withAllRollup) throws DdlException {
+    public CreateTableLikeStmt(boolean ifNotExists, TableName tableName, TableName existedTableName,
+            ArrayList<String> rollupNames, boolean withAllRollup) throws DdlException {
         this.ifNotExists = ifNotExists;
         this.tableName = tableName;
         this.existedTableName = existedTableName;
@@ -90,6 +92,8 @@ public class CreateTableLikeStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         existedTableName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(existedTableName.getCtl(), this.getClass().getSimpleName());
         ConnectContext ctx = ConnectContext.get();
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ctx, existedTableName.getDb(),
                 existedTableName.getTbl(), PrivPredicate.SELECT)) {
@@ -97,6 +101,8 @@ public class CreateTableLikeStmt extends DdlStmt {
         }
 
         tableName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         FeNameFormat.checkTableName(getTableName());
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ctx, tableName.getDb(),
                 tableName.getTbl(), PrivPredicate.CREATE)) {

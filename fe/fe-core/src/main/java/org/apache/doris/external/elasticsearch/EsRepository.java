@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 
@@ -58,7 +58,8 @@ public class EsRepository extends MasterDaemon {
         }
         esTables.put(esTable.getId(), esTable);
         esClients.put(esTable.getId(),
-                new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd(), esTable.isHttpSslEnabled()));
+                new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd(),
+                        esTable.isHttpSslEnabled()));
         LOG.info("register a new table [{}] to sync list", esTable);
     }
 
@@ -72,9 +73,10 @@ public class EsRepository extends MasterDaemon {
     protected void runAfterCatalogReady() {
         for (EsTable esTable : esTables.values()) {
             try {
-                esTable.syncTableMetaData(esClients.get(esTable.getId()));
+                esTable.syncTableMetaData();
             } catch (Throwable e) {
-                LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", esTable.getName(), e);
+                LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster",
+                        esTable.getName(), e);
                 esTable.setEsTablePartitions(null);
                 esTable.setLastMetaDataSyncException(e);
             }
@@ -88,9 +90,9 @@ public class EsRepository extends MasterDaemon {
         if (Catalog.isCheckpointThread()) {
             return;
         }
-        List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
+        List<Long> dbIds = Catalog.getCurrentCatalog().getInternalDataSource().getDbIds();
         for (Long dbId : dbIds) {
-            Database database = Catalog.getCurrentCatalog().getDbNullable(dbId);
+            Database database = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
             if (database == null) {
                 continue;
             }

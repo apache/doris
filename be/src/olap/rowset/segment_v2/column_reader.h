@@ -22,8 +22,9 @@
 #include <memory>  // for unique_ptr
 
 #include "common/logging.h"
-#include "common/status.h"                              // for Status
-#include "gen_cpp/segment_v2.pb.h"                      // for ColumnMetaPB
+#include "common/status.h"         // for Status
+#include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
+#include "io/fs/file_reader.h"
 #include "olap/olap_cond.h"                             // for CondColumn
 #include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
 #include "olap/rowset/segment_v2/common.h"
@@ -63,7 +64,7 @@ struct ColumnReaderOptions {
 };
 
 struct ColumnIteratorOptions {
-    fs::ReadableBlock* rblock = nullptr;
+    io::FileReader* file_reader = nullptr;
     // reader statistics
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
@@ -73,7 +74,7 @@ struct ColumnIteratorOptions {
     PageTypePB type;
 
     void sanity_check() const {
-        CHECK_NOTNULL(rblock);
+        CHECK_NOTNULL(file_reader);
         CHECK_NOTNULL(stats);
     }
 };
@@ -87,8 +88,10 @@ public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                         uint64_t num_rows, const FilePathDesc& path_desc,
+                         uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                          std::unique_ptr<ColumnReader>* reader);
+
+    enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
 
     ~ColumnReader();
 
@@ -104,7 +107,7 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                     BlockCompressionCodec* codec);
+                     BlockCompressionCodec* codec) const;
 
     bool is_nullable() const { return _meta.is_nullable(); }
 
@@ -134,9 +137,17 @@ public:
 
     CompressionTypePB get_compression() const { return _meta.compression(); }
 
+    uint64_t num_rows() const { return _num_rows; }
+
+    void set_dict_encoding_type(DictEncodingType type) {
+        std::call_once(_set_dict_encoding_type_flag, [&] { _dict_encoding_type = type; });
+    }
+
+    DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
+
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 FilePathDesc path_desc);
+                 io::FileReaderSPtr file_reader);
     Status init();
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
@@ -172,7 +183,10 @@ private:
     ColumnMetaPB _meta;
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
-    FilePathDesc _path_desc;
+
+    io::FileReaderSPtr _file_reader;
+
+    DictEncodingType _dict_encoding_type;
 
     TypeInfoPtr _type_info =
             TypeInfoPtr(nullptr, nullptr); // initialized in init(), may changed by subclasses.
@@ -192,6 +206,8 @@ private:
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
+
+    std::once_flag _set_dict_encoding_type_flag;
 };
 
 // Base iterator to read one column data
@@ -230,7 +246,12 @@ public:
     virtual Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) = 0;
 
     virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) {
-        return Status::NotSupported("not implement");
+        return Status::NotSupported("next_batch not implement");
+    }
+
+    virtual Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                                  vectorized::MutableColumnPtr& dst) {
+        return Status::NotSupported("read_by_rowids not implement");
     }
 
     virtual ordinal_t get_current_ordinal() const = 0;
@@ -243,6 +264,8 @@ public:
     virtual Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) {
         return Status::OK();
     }
+
+    virtual bool is_all_dict_encoding() const { return false; }
 
 protected:
     ColumnIteratorOptions _opts;
@@ -267,6 +290,9 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
     // get row ranges by zone map
@@ -280,6 +306,8 @@ public:
     ParsedPage* get_current_page() { return &_page; }
 
     bool is_nullable() { return _reader->is_nullable(); }
+
+    bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
@@ -310,6 +338,8 @@ private:
     // current value ordinal
     ordinal_t _current_ordinal = 0;
 
+    bool _is_all_dict_encoding = false;
+
     std::unique_ptr<StringRef[]> _dict_word_info;
 };
 
@@ -334,6 +364,11 @@ public:
     Status init(const ColumnIteratorOptions& opts) override;
 
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
 
     Status seek_to_first() override {
         RETURN_IF_ERROR(_length_iterator->seek_to_first());
@@ -367,7 +402,7 @@ public:
                                            : size_to_read;
                 ColumnBlockView ordinal_view(&ordinal_block);
                 RETURN_IF_ERROR(_length_iterator->next_batch(&this_read, &ordinal_view, &has_null));
-                auto* ordinals = reinterpret_cast<uint32_t*>(_length_batch->data());
+                auto* ordinals = reinterpret_cast<uint64_t*>(_length_batch->data());
                 for (int i = 0; i < this_read; ++i) {
                     item_ordinal += ordinals[i];
                 }
@@ -394,7 +429,8 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, TypeInfoPtr type_info, size_t schema_length)
+                               bool is_nullable, TypeInfoPtr type_info, size_t schema_length,
+                               int precision, int scale)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
@@ -402,6 +438,8 @@ public:
               _schema_length(schema_length),
               _is_default_value_null(false),
               _type_size(0),
+              _precision(precision),
+              _scale(scale),
               _pool(new MemPool("DefaultValueColumnIterator")) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
@@ -425,10 +463,16 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
+    static void insert_default_data(const TypeInfo* type_info, size_t type_size, void* mem_value,
+                                    vectorized::MutableColumnPtr& dst, size_t n);
+
 private:
-    void insert_default_data(vectorized::MutableColumnPtr& dst, size_t n);
+    void _insert_many_default(vectorized::MutableColumnPtr& dst, size_t n);
 
     bool _has_default_value;
     std::string _default_value;
@@ -437,6 +481,8 @@ private:
     size_t _schema_length;
     bool _is_default_value_null;
     size_t _type_size;
+    int _precision;
+    int _scale;
     void* _mem_value = nullptr;
     std::unique_ptr<MemPool> _pool;
 

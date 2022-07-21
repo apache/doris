@@ -60,6 +60,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     private int metricNumber = 0;
 
     private static final Map<String, String> CORE_METRICS = Maps.newHashMap();
+
     static {
         CORE_METRICS.put(MAX_JOURMAL_ID, TYPE_LONG);
         CORE_METRICS.put(CONNECTION_TOTAL, TYPE_LONG);
@@ -135,9 +136,12 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
 
     @Override
     public void getNodeInfo(StringBuilder sb) {
-        long feDeadNum = Catalog.getCurrentCatalog().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
-        long beDeadNum = Catalog.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive()).count();
-        long brokerDeadNum =  Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count();
+        long feDeadNum = Catalog.getCurrentCatalog()
+                .getFrontends(null).stream().filter(f -> !f.isAlive()).count();
+        long beDeadNum = Catalog.getCurrentSystemInfo().getIdToBackend()
+                .values().stream().filter(b -> !b.isAlive()).count();
+        long brokerDeadNum =  Catalog.getCurrentCatalog().getBrokerMgr()
+                .getAllBrokers().stream().filter(b -> !b.isAlive).count();
         sb.append(prefix + "_frontend_dead_num").append(" ").append(String.valueOf(feDeadNum)).append("\n");
         sb.append(prefix + "_backend_dead_num").append(" ").append(String.valueOf(beDeadNum)).append("\n");
         sb.append(prefix + "_broker_dead_num").append(" ").append(String.valueOf(brokerDeadNum)).append("\n");

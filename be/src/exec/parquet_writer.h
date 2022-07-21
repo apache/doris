@@ -34,11 +34,7 @@
 
 #include "common/status.h"
 #include "exprs/expr_context.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
 #include "runtime/row_batch.h"
-#include "runtime/tuple.h"
 
 namespace doris {
 class FileWriter;

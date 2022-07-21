@@ -31,7 +31,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -50,6 +49,7 @@ import org.apache.doris.utframe.MockedFrontend.NotInitException;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
@@ -74,16 +74,21 @@ import java.util.UUID;
 public class UtFrameUtils {
 
     // Help to create a mocked ConnectContext.
-    public static ConnectContext createDefaultCtx() throws IOException {
+    public static ConnectContext createDefaultCtx(UserIdentity userIdentity, String remoteIp) throws IOException {
         SocketChannel channel = SocketChannel.open();
         ConnectContext ctx = new ConnectContext(channel);
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
-        ctx.setQualifiedUser(PaloAuth.ROOT_USER);
-        ctx.setRemoteIP("127.0.0.1");
+        ctx.setCurrentUserIdentity(userIdentity);
+        ctx.setQualifiedUser(userIdentity.getQualifiedUser());
+        ctx.setRemoteIP(remoteIp);
         ctx.setCatalog(Catalog.getCurrentCatalog());
         ctx.setThreadLocalInfo();
         return ctx;
+    }
+
+    // Help to create a mocked ConnectContext for root.
+    public static ConnectContext createDefaultCtx() throws IOException {
+        return createDefaultCtx(UserIdentity.ROOT, "127.0.0.1");
     }
 
     // Parse an origin stmt and analyze it. Return a StatementBase instance.
@@ -151,6 +156,7 @@ public class UtFrameUtils {
         }
         Config.plugin_dir = dorisHome + "/plugins";
         Config.custom_config_dir = dorisHome + "/conf";
+        Config.edit_log_type = "local";
         File file = new File(Config.custom_config_dir);
         if (!file.exists()) {
             file.mkdir();
@@ -183,18 +189,38 @@ public class UtFrameUtils {
     public static void createDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         int feRpcPort = startFEServer(runningDir);
+        List<Backend> bes = Lists.newArrayList();
         for (int i = 0; i < backendNum; i++) {
-            createBackend("127.0.0.1", feRpcPort);
-            // sleep to wait first heartbeat
-            Thread.sleep(6000);
+            bes.add(createBackend("127.0.0.1", feRpcPort));
+        }
+        System.out.println("after create backend");
+        checkBEHeartbeat(bes);
+        // Thread.sleep(2000);
+        System.out.println("after create backend2");
+    }
+
+    private static void checkBEHeartbeat(List<Backend> bes) throws InterruptedException {
+        int maxTry = 10;
+        boolean allAlive = false;
+        while (maxTry-- > 0 && !allAlive) {
+            Thread.sleep(1000);
+            boolean hasDead = false;
+            for (Backend be : bes) {
+                if (!be.isAlive()) {
+                    hasDead = true;
+                }
+            }
+            allAlive = !hasDead;
         }
     }
 
     // Create multi backends with different host for unit test.
     // the host of BE will be "127.0.0.1", "127.0.0.2"
-    public static void createDorisClusterWithMultiTag(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
-        // set runningUnitTest to true, so that for ut, the agent task will be send to "127.0.0.1" to make cluster running well.
+    public static void createDorisClusterWithMultiTag(String runningDir, int backendNum)
+            throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
+            InterruptedException {
+        // set runningUnitTest to true, so that for ut,
+        // the agent task will be sent to "127.0.0.1" to make cluster running well.
         FeConstants.runningUnitTest = true;
         int feRpcPort = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
@@ -205,22 +231,22 @@ public class UtFrameUtils {
         Thread.sleep(6000);
     }
 
-    public static void createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
+    public static Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
         int beHeartbeatPort = findValidPort();
         int beThriftPort = findValidPort();
         int beBrpcPort = findValidPort();
         int beHttpPort = findValidPort();
 
         // start be
-        MockedBackend backend = MockedBackendFactory.createBackend(beHost,
-                beHeartbeatPort, beThriftPort, beBrpcPort, beHttpPort,
-                new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
+        MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
+                beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
                 new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
         // add be
-        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(), backend.getHeartbeatPort());
+        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(),
+                backend.getHost(), backend.getHeartbeatPort());
         Map<String, DiskInfo> disks = Maps.newHashMap();
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setTotalCapacityB(1000000);
@@ -234,6 +260,7 @@ public class UtFrameUtils {
         be.setHttpPort(beHttpPort);
         be.setBrpcPort(beBrpcPort);
         Catalog.getCurrentSystemInfo().addBackend(be);
+        return be;
     }
 
     public static void cleanDorisFeDir(String baseDir) {
@@ -275,7 +302,7 @@ public class UtFrameUtils {
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
-            return planner.getExplainString(planner.getFragments(), new ExplainOptions(isVerbose, false));
+            return planner.getExplainString(new ExplainOptions(isVerbose, false));
         } else {
             return ctx.getState().getErrorMessage();
         }

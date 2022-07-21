@@ -21,7 +21,6 @@
 #include "exprs/conditional_functions.h"
 
 #include "exprs/anyval_util.h"
-#include "exprs/case_expr.h"
 #include "exprs/expr.h"
 #include "runtime/tuple_row.h"
 #include "udf/udf.h"

@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -42,6 +43,8 @@ public class TruncateTableStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         tblRef.getName().analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tblRef.getName().getCtl(), this.getClass().getSimpleName());
 
         if (tblRef.hasExplicitAlias()) {
             throw new AnalysisException("Not support truncate table with alias");

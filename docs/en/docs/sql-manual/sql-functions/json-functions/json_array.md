@@ -67,4 +67,4 @@ MySQL> select json_array("a", null, "c");
 +------------------------------+
 ```
 ### keywords
-json_array
+json,array,json_array

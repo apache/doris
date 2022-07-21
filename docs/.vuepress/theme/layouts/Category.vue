@@ -64,7 +64,6 @@ import PageFooter from "@theme/components/PageFooter";
 export default defineComponent({
   mixins: [moduleTransitonMixin],
   components: { Common, NoteAbstract, ModuleTransition, PageFooter },
-
   setup(props, ctx) {
     const instance = useInstance();
     const categories = computed(() => {

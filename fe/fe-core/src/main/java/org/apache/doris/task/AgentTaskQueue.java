@@ -67,10 +67,6 @@ public class AgentTaskQueue {
         signatureMap.put(signature, task);
         ++taskNum;
         LOG.debug("add task: type[{}], backend[{}], signature[{}]", type, backendId, signature);
-        if (type == TTaskType.PUSH) {
-            PushTask pushTask = (PushTask) task;
-            LOG.debug("push task info: version[{}]", pushTask.getVersion());
-        }
         return true;
     }
 

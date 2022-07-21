@@ -38,8 +38,14 @@ DROP POLICY
 
 语法：
 
+1. 删除行安全策略
 ```sql
 DROP ROW POLICY test_row_policy_1 on table1 [FOR user];
+```
+
+2. 删除冷热数据存储策略
+```sql
+DROP STORAGE POLICY policy_name1
 ```
 
 ### Example
@@ -56,6 +62,10 @@ DROP ROW POLICY test_row_policy_1 on table1 [FOR user];
    DROP ROW POLICY test_row_policy_1 on table1 for test
    ```
 
+3. 删除 policy_name1 对应的冷热数据存储策略
+   ```sql
+   DROP STORAGE POLICY policy_name1
+   ```
 ### Keywords
 
     DROP, POLICY

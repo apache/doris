@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.DataSourceIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -159,22 +160,27 @@ public class ConnectProcessorTest {
             public void setKilled() {
                 myContext.setKilled();
             }
+
             @Override
             public MysqlSerializer getSerializer() {
                 return myContext.getSerializer();
             }
+
             @Override
             public QueryState getState() {
                 return myContext.getState();
             }
+
             @Override
             public void setStartTime() {
                 myContext.setStartTime();
             }
+
             @Override
             public String getDatabase() {
                 return myContext.getDatabase();
             }
+
             @Override
             public void setCommand(MysqlCommand command) {
                 if (firstTimeToSetCommand) {
@@ -185,6 +191,8 @@ public class ConnectProcessorTest {
                 }
             }
         };
+
+        DataSourceIf ds = catalog.getCurrentDataSource();
 
         new Expectations(context) {
             {
@@ -231,6 +239,10 @@ public class ConnectProcessorTest {
                 context.queryId();
                 minTimes = 0;
                 result = new TUniqueId();
+
+                context.getCurrentDataSource();
+                minTimes = 0;
+                result = ds;
             }
         };
 

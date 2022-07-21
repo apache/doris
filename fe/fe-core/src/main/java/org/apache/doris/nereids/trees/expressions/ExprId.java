@@ -17,23 +17,18 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Id;
+import org.apache.doris.common.IdGenerator;
+
 import java.util.Objects;
-import java.util.UUID;
 
 /**
  * UUID for Expression in Nereids.
  */
-public class ExprId {
-    private final long id;
-    private final UUID jvmId;
+public class ExprId extends Id<ExprId> {
 
-    public ExprId(long id, UUID jvmId) {
-        this.id = id;
-        this.jvmId = jvmId;
-    }
-
-    public long getId() {
-        return id;
+    public ExprId(int id) {
+        super(id);
     }
 
     @Override
@@ -45,12 +40,29 @@ public class ExprId {
             return false;
         }
         ExprId exprId = (ExprId) o;
-        return id == exprId.id && jvmId.equals(exprId.jvmId);
+        return id == exprId.id;
+    }
+
+    /**
+     * Should be only called by {@link org.apache.doris.nereids.trees.expressions.NamedExpressionUtil}.
+     */
+    public static IdGenerator<ExprId> createGenerator() {
+        return new IdGenerator<ExprId>() {
+            @Override
+            public ExprId getNextId() {
+                return new ExprId(nextId++);
+            }
+
+            @Override
+            public ExprId getMaxId() {
+                return new ExprId(nextId++);
+            }
+        };
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, jvmId);
+        return Objects.hash(id);
     }
 
     @Override

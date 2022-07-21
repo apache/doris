@@ -190,14 +190,14 @@ public class BrokerTable extends Table {
                 case "parquet":
                     break;
                 default:
-                    throw new DdlException("Invalid file type: " + copiedProps.toString() + ".Only support csv and parquet.");
+                    throw new DdlException("Invalid file type: " + copiedProps + ".Only support csv and parquet.");
             }
         }
 
         copiedProps.remove(FILE_FORMAT);
 
         if (!copiedProps.isEmpty()) {
-            throw new DdlException("Unknown table properties: " + copiedProps.toString());
+            throw new DdlException("Unknown table properties: " + copiedProps);
         }
     }
 

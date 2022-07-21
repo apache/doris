@@ -170,7 +170,7 @@ public class DorisStreamLoad {
         }
 
         //in doris 0.9 version, you need to comment this line
-        //refer to https://github.com/apache/incubator-doris/issues/783
+        //refer to https://github.com/apache/doris/issues/783
         stringBuilder.deleteCharAt(stringBuilder.length() - 1);
 
         String loadData = stringBuilder.toString();

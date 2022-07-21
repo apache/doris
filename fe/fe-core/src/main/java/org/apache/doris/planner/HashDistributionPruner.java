@@ -82,7 +82,8 @@ public class HashDistributionPruner implements DistributionPruner {
             return Lists.newArrayList(bucketsList);
         }
         InPredicate inPredicate = filter.getInPredicate();
-        if (null == inPredicate || inPredicate.getInElementNum() * complex > Config.max_distribution_pruner_recursion_depth) {
+        if (null == inPredicate
+                || inPredicate.getInElementNum() * complex > Config.max_distribution_pruner_recursion_depth) {
             // equal one value
             if (filter.lowerBoundInclusive && filter.upperBoundInclusive
                     && filter.lowerBound != null && filter.upperBound != null

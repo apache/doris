@@ -22,14 +22,10 @@
 
 namespace doris {
 
-DEFINE_STATIC_THREAD_LOCAL(ThreadContext, ThreadContextPtr, thread_local_ctx);
+DEFINE_STATIC_THREAD_LOCAL(ThreadContext, ThreadContextPtr, _tls);
 
 ThreadContextPtr::ThreadContextPtr() {
-    INIT_STATIC_THREAD_LOCAL(ThreadContext, thread_local_ctx);
-}
-
-ThreadContext* ThreadContextPtr::get() {
-    return thread_local_ctx;
+    INIT_STATIC_THREAD_LOCAL(ThreadContext, _tls);
 }
 
 AttachTaskThread::AttachTaskThread(const ThreadContext::TaskType& type, const std::string& task_id,
@@ -136,12 +132,14 @@ SwitchThreadMemTracker<Existed>::~SwitchThreadMemTracker() {
 #endif // USE_MEM_TRACKER
 }
 
-SwitchThreadMemTrackerErrCallBack::SwitchThreadMemTrackerErrCallBack(
-        const std::string& action_type, bool cancel_work, ERRCALLBACK err_call_back_func) {
+SwitchThreadMemTrackerErrCallBack::SwitchThreadMemTrackerErrCallBack(const std::string& action_type,
+                                                                     bool cancel_work,
+                                                                     ERRCALLBACK err_call_back_func,
+                                                                     bool log_limit_exceeded) {
 #ifdef USE_MEM_TRACKER
     DCHECK(action_type != std::string());
     _old_tracker_cb = tls_ctx()->_thread_mem_tracker_mgr->update_consume_err_cb(
-            action_type, cancel_work, err_call_back_func);
+            action_type, cancel_work, err_call_back_func, log_limit_exceeded);
 #endif
 }
 
@@ -167,8 +165,10 @@ SwitchBthread::SwitchBthread() {
         DCHECK(tls->type() == ThreadContext::TaskType::UNKNOWN);
         tls->_thread_mem_tracker_mgr->clear_untracked_mems();
     }
-    tls->_thread_mem_tracker_mgr->init();
+    tls->init();
     tls->set_type(ThreadContext::TaskType::BRPC);
+    bthread_tls_key = btls_key;
+    bthread_tls = tls;
 #endif
 }
 
@@ -178,6 +178,8 @@ SwitchBthread::~SwitchBthread() {
     tls->_thread_mem_tracker_mgr->clear_untracked_mems();
     tls->_thread_mem_tracker_mgr->init();
     tls->set_type(ThreadContext::TaskType::UNKNOWN);
+    bthread_tls = nullptr;
+    bthread_tls_key = EMPTY_BTLS_KEY;
 #ifndef NDEBUG
     DorisMetrics::instance()->switch_bthread_count->increment(1);
 #endif // NDEBUG

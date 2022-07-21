@@ -27,9 +27,10 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/field.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
 #include "olap/row_block2.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_writer.h"
@@ -45,7 +46,10 @@
 #include "testutil/desc_tbl_builder.h"
 #include "util/file_utils.h"
 #include "util/uid_util.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 
@@ -246,8 +250,9 @@ private:
     template <segment_v2::EncodingTypePB array_encoding, segment_v2::EncodingTypePB item_encoding>
     void test_write_and_read_column(const ColumnPB& column_pb, const Field* field,
                                     const std::vector<const CollectionValue*>& arrays) {
-        const std::string path = TEST_DIR + "/" + generate_uuid_string();
-        LOG(INFO) << "Test directory: " << path;
+        auto filename = generate_uuid_string();
+        const std::string path = TEST_DIR + "/" + filename;
+        LOG(INFO) << "Test path: " << path;
 
         segment_v2::ColumnMetaPB meta;
         init_column_meta<array_encoding, item_encoding>(&meta, column_pb);
@@ -256,10 +261,10 @@ private:
         tablet_column.init_from_pb(column_pb);
         Schema schema({tablet_column}, 0);
         {
-            auto wblock = create_writable_block(path);
-            EXPECT_NE(wblock, nullptr);
-            auto writer = create_column_writer<array_encoding, item_encoding>(wblock.get(), meta,
-                                                                              column_pb);
+            auto file_writer = creat_file_writer(path);
+            EXPECT_NE(file_writer, nullptr);
+            auto writer = create_column_writer<array_encoding, item_encoding>(file_writer.get(),
+                                                                              meta, column_pb);
             EXPECT_NE(writer, nullptr);
             Status st;
             for (auto array : arrays) {
@@ -271,7 +276,7 @@ private:
             EXPECT_TRUE(writer->write_ordinal_index().ok());
             EXPECT_TRUE(writer->write_zone_map().ok());
 
-            EXPECT_TRUE(wblock->close().ok());
+            EXPECT_TRUE(file_writer->close().ok());
         }
         {
             auto reader = create_column_reader(path, meta, arrays.size());
@@ -289,10 +294,12 @@ private:
             auto col = block.column_block(0);
             int index = 0;
             size_t rows_read = 1024;
+            size_t num_rows = 0;
             do {
                 ColumnBlockView dst(&col);
                 st = iter->next_batch(&rows_read, &dst);
                 EXPECT_TRUE(st.ok());
+                num_rows += rows_read;
                 for (int i = 0; i < rows_read; ++i) {
                     validate(field, arrays[index++],
                              reinterpret_cast<const CollectionValue*>(col.cell_ptr(i)));
@@ -301,8 +308,43 @@ private:
             } while (rows_read >= 1024);
             auto type_info = get_type_info(column_pb);
             auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
-            block.set_selected_size(rows_read);
+            block.set_selected_size(num_rows);
             test_convert_to_vec_block(block, tuple_desc, field, arrays);
+        }
+        {
+            auto type_info = get_type_info(column_pb);
+            auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+
+            auto reader = create_column_reader(path, meta, arrays.size());
+            EXPECT_NE(reader, nullptr);
+            auto rblock = create_readable_block(path);
+            EXPECT_NE(rblock, nullptr);
+            OlapReaderStatistics stats;
+            std::unique_ptr<segment_v2::ColumnIterator> iter(
+                    new_iterator(rblock.get(), &stats, reader.get()));
+            EXPECT_NE(iter, nullptr);
+            auto st = iter->seek_to_first();
+            EXPECT_TRUE(st.ok()) << st.to_string();
+
+            auto data_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(tablet_column);
+            auto column_ptr = data_type->create_column();
+            size_t rows_read = 1024;
+            column_ptr->reserve(rows_read);
+            do {
+                bool has_null = false;
+                st = iter->next_batch(&rows_read, column_ptr, &has_null);
+                EXPECT_TRUE(st.ok());
+                vectorized::Block vblock;
+                vblock.insert({const_cast<const vectorized::IColumn&>(*column_ptr).get_ptr(),
+                               data_type, ""});
+                for (int i = 0; i < arrays.size(); ++i) {
+                    auto tuple = vblock.deep_copy_tuple(*tuple_desc, _mem_pool.get(), i, 0, false);
+                    auto actual =
+                            tuple->get_collection_slot(tuple_desc->slots().front()->tuple_offset());
+                    validate(field, arrays[i], actual);
+                }
+            } while (rows_read >= 1024);
         }
     }
 
@@ -334,24 +376,21 @@ private:
         }
     }
 
-    std::unique_ptr<fs::WritableBlock> create_writable_block(const std::string& path) {
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions fs_opts(path);
-        FilePathDesc path_desc;
-        path_desc.storage_medium = TStorageMedium::HDD;
-        auto st = fs::fs_util::block_manager(path_desc)->create_block(fs_opts, &wblock);
-        return st.ok() ? std::move(wblock) : nullptr;
+    io::FileWriterPtr creat_file_writer(const std::string& path) {
+        io::FileWriterPtr file_writer;
+        io::global_local_filesystem()->create_file(path, &file_writer);
+        return file_writer;
     }
 
     template <segment_v2::EncodingTypePB array_encoding, segment_v2::EncodingTypePB item_encoding>
-    std::unique_ptr<segment_v2::ColumnWriter> create_column_writer(fs::WritableBlock* wblock,
+    std::unique_ptr<segment_v2::ColumnWriter> create_column_writer(io::FileWriter* file_writer,
                                                                    segment_v2::ColumnMetaPB& meta,
                                                                    const ColumnPB& column_pb) {
         segment_v2::ColumnWriterOptions writer_opts = {.meta = &meta};
         TabletColumn column;
         column.init_from_pb(column_pb);
         std::unique_ptr<segment_v2::ColumnWriter> writer;
-        auto st = segment_v2::ColumnWriter::create(writer_opts, &column, wblock, &writer);
+        auto st = segment_v2::ColumnWriter::create(writer_opts, &column, file_writer, &writer);
         if (!st.ok()) {
             return nullptr;
         }
@@ -362,24 +401,19 @@ private:
     std::unique_ptr<segment_v2::ColumnReader> create_column_reader(
             const std::string& path, const segment_v2::ColumnMetaPB& meta, size_t num_rows) {
         segment_v2::ColumnReaderOptions reader_opts;
-        FilePathDesc path_desc;
-        path_desc.filepath = path;
         std::unique_ptr<segment_v2::ColumnReader> reader;
-        auto st = segment_v2::ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
+        auto st = segment_v2::ColumnReader::create(reader_opts, meta, num_rows,
+                                                   io::global_local_filesystem(), path, &reader);
         return st.ok() ? std::move(reader) : nullptr;
     }
 
-    std::unique_ptr<fs::ReadableBlock> create_readable_block(const std::string& path) {
-        std::unique_ptr<fs::ReadableBlock> rblock;
-        FilePathDesc path_desc;
-        path_desc.storage_medium = TStorageMedium::HDD;
-        path_desc.filepath = path;
-        auto block_manager = fs::fs_util::block_manager(path_desc);
-        auto st = block_manager->open_block(path_desc, &rblock);
-        return st.ok() ? std::move(rblock) : nullptr;
+    io::FileReaderSPtr create_readable_block(const std::string& path) {
+        io::FileReaderSPtr reader;
+        auto st = io::global_local_filesystem()->open_file(path, &reader);
+        return st.ok() ? std::move(reader) : nullptr;
     }
 
-    segment_v2::ColumnIterator* new_iterator(fs::ReadableBlock* rblock, OlapReaderStatistics* stats,
+    segment_v2::ColumnIterator* new_iterator(io::FileReader* rblock, OlapReaderStatistics* stats,
                                              segment_v2::ColumnReader* reader) {
         segment_v2::ColumnIterator* iter = nullptr;
         auto st = reader->new_iterator(&iter);
@@ -388,7 +422,7 @@ private:
         }
         segment_v2::ColumnIteratorOptions iter_opts;
         iter_opts.stats = stats;
-        iter_opts.rblock = rblock;
+        iter_opts.file_reader = rblock;
         st = iter->init(iter_opts);
         return st.ok() ? iter : nullptr;
     }

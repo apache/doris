@@ -16,7 +16,7 @@
 #
 
 github:
-  description: Apache Doris(Incubating) is an MPP-based interactive SQL data warehousing for reporting and analysis.
+  description: Apache Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
   homepage: https://doris.apache.org/
   labels:
     - data-warehousing
@@ -25,6 +25,19 @@ github:
     - dbms
     - apache
     - doris
+    - database
+    - distributed-system
+    - big-data
+    - iceberg
+    - hudi
+    - datalake
+    - hive
+    - hadoop
+    - analytics
+    - tpch
+    - ssb
+    - vectorized
+
   enabled_merge_buttons:
     squash:  true
     merge:   false
@@ -41,6 +54,7 @@ github:
           - P0 regression (Doris P0 Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
+          - CheckStyle
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true

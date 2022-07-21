@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include "runtime/runtime_state.h"
-#include "vec/core/block.h"
-
+#include "vec/columns/column.h"
 namespace doris {
 
 class MemPool;
@@ -54,6 +52,9 @@ public:
 
     bool write_column(const SlotDescriptor* slot_desc, vectorized::MutableColumnPtr* column_ptr,
                       const char* data, size_t len, bool copy_string, bool need_escape);
+
+    bool write_vec_column(const SlotDescriptor* slot_desc, vectorized::IColumn* nullable_col_ptr,
+                          const char* data, size_t len, bool copy_string, bool need_escape);
 
     // Removes escape characters from len characters of the null-terminated string src,
     // and copies the unescaped string into dest, changing *len to the unescaped length.

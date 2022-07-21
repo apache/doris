@@ -237,7 +237,8 @@ public class SimpleScheduler {
                                 iterator.remove();
                                 LOG.warn("remove backend {} from black list. reach max try time", backendId);
                             } else {
-                                LOG.debug("blacklistBackends backendID={} retryTimes={}", backendId, entry.getValue().first);
+                                LOG.debug("blacklistBackends backendID={} retryTimes={}",
+                                        backendId, entry.getValue().first);
                             }
                         }
                     }

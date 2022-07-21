@@ -21,7 +21,6 @@
 #pragma once
 
 #include "exec/exec_node.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 

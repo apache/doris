@@ -76,7 +76,8 @@ public class CanalSyncChannel extends SyncChannel {
     private Data<InternalService.PDataRow> batchBuffer;
     private InsertStreamTxnExecutor txnExecutor;
 
-    public CanalSyncChannel(long id, SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
+    public CanalSyncChannel(long id, SyncJob syncJob, Database db, OlapTable table, List<String> columns,
+            String srcDataBase, String srcTable) {
         super(id, syncJob, db, table, columns, srcDataBase, srcTable);
         this.index = SyncTaskPool.getNextIndex();
         this.batchBuffer = new Data<>();
@@ -84,11 +85,12 @@ public class CanalSyncChannel extends SyncChannel {
         this.timeoutSecond = -1L;
     }
 
-    private final static class SendTask extends SyncTask {
+    private static final class SendTask extends SyncTask {
         private final InsertStreamTxnExecutor executor;
         private final Data<InternalService.PDataRow> rows;
 
-        public SendTask(long signature, int index, SyncChannelCallback callback, Data<InternalService.PDataRow> rows, InsertStreamTxnExecutor executor) {
+        public SendTask(long signature, int index, SyncChannelCallback callback, Data<InternalService.PDataRow> rows,
+                InsertStreamTxnExecutor executor) {
             super(signature, index, callback);
             this.executor = executor;
             this.rows = rows;
@@ -101,7 +103,7 @@ public class CanalSyncChannel extends SyncChannel {
         }
     }
 
-    private final static class EOFTask extends SyncTask {
+    private static final class EOFTask extends SyncTask {
 
         public EOFTask(long signature, int index, SyncChannelCallback callback) {
             super(signature, index, callback);
@@ -201,7 +203,8 @@ public class CanalSyncChannel extends SyncChannel {
             LOG.info("abort txn in channel {}, table: {}, txn id: {}, last batch: {}, reason: {}",
                     id, targetTable, txnExecutor.getTxnId(), lastBatchId, reason);
         } catch (TException e) {
-            LOG.warn("Failed to abort txn in channel {}, table: {}, txn: {}, msg:{}", id, targetTable, txnExecutor.getTxnId(), e.getMessage());
+            LOG.warn("Failed to abort txn in channel {}, table: {}, txn: {}, msg:{}",
+                    id, targetTable, txnExecutor.getTxnId(), e.getMessage());
             throw e;
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             LOG.warn("Error occur while waiting abort txn response in channel {}, table: {}, txn: {}, msg:{}",
@@ -225,7 +228,8 @@ public class CanalSyncChannel extends SyncChannel {
             LOG.info("commit txn in channel {}, table: {}, txn id: {}, last batch: {}",
                     id, targetTable, txnExecutor.getTxnId(), lastBatchId);
         } catch (TException e) {
-            LOG.warn("Failed to commit txn in channel {}, table: {}, txn: {}, msg:{}", id, targetTable, txnExecutor.getTxnId(), e.getMessage());
+            LOG.warn("Failed to commit txn in channel {}, table: {}, txn: {}, msg:{}",
+                    id, targetTable, txnExecutor.getTxnId(), e.getMessage());
             throw e;
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             LOG.warn("Error occur while waiting commit txn return in channel {}, table: {}, txn: {}, msg:{}",

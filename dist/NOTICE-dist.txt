@@ -1,4 +1,4 @@
-Apache Doris (incubating)
+Apache Doris
 Copyright 2018-2022 The Apache Software Foundation
 
 This product includes software developed at

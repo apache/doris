@@ -60,7 +60,8 @@ public class LoadAction extends RestBaseController {
     public Object load(HttpServletRequest request, HttpServletResponse response,
                        @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
         if (Config.disable_mini_load) {
-            ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been disabled by default, if you need to add disable_mini_load=false in fe.conf.");
+            ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been"
+                    + " disabled by default, if you need to add disable_mini_load=false in fe.conf.");
             return entity;
         } else {
             executeCheckPassword(request, response);

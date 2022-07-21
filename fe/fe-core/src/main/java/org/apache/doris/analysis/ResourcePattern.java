@@ -39,6 +39,7 @@ public class ResourcePattern implements Writable {
     private String resourceName;
 
     public static ResourcePattern ALL;
+
     static {
         ALL = new ResourcePattern("*");
         try {

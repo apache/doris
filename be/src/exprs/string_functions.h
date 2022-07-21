@@ -27,9 +27,7 @@
 #include <sstream>
 #include <string_view>
 
-#include "anyval_util.h"
 #include "gutil/strings/numbers.h"
-#include "runtime/string_search.hpp"
 #include "runtime/string_value.h"
 
 namespace doris {

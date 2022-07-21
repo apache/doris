@@ -34,21 +34,21 @@ import java.util.UUID;
 
 public class MaterializedViewFunctionTest {
     private static String baseDir = "fe";
-    private static String runningDir = baseDir + "/mocked/MaterializedViewFunctionTest/"
-            + UUID.randomUUID().toString() + "/";
+    private static String runningDir =
+            baseDir + "/mocked/MaterializedViewFunctionTest/" + UUID.randomUUID().toString() + "/";
     private static final String EMPS_TABLE_NAME = "emps";
     private static final String EMPS_MV_NAME = "emps_mv";
     private static final String HR_DB_NAME = "db1";
-    private static final String QUERY_USE_EMPS_MV = "rollup: " + EMPS_MV_NAME;
-    private static final String QUERY_USE_EMPS = "rollup: " + EMPS_TABLE_NAME;
+    private static final String QUERY_USE_EMPS_MV = "(" + EMPS_MV_NAME + ")";
+    private static final String QUERY_USE_EMPS = "(" + EMPS_TABLE_NAME + ")";
     private static final String DEPTS_TABLE_NAME = "depts";
     private static final String DEPTS_MV_NAME = "depts_mv";
-    private static final String QUERY_USE_DEPTS_MV = "rollup: " + DEPTS_MV_NAME;
-    private static final String QUERY_USE_DEPTS = "rollup: " + DEPTS_TABLE_NAME;
+    private static final String QUERY_USE_DEPTS_MV = "(" + DEPTS_MV_NAME + ")";
+    private static final String QUERY_USE_DEPTS = "(" + DEPTS_TABLE_NAME + ")";
     private static final String USER_TAG_TABLE_NAME = "user_tags";
     private static final String USER_TAG_MV_NAME = "user_tags_mv";
-    private static final String QUERY_USE_USER_TAG_MV = "rollup: " + USER_TAG_MV_NAME;
-    private static final String QUERY_USE_USER_TAG = "rollup: " + USER_TAG_TABLE_NAME;
+    private static final String QUERY_USE_USER_TAG_MV = "(" + USER_TAG_MV_NAME + ")";
+    private static final String QUERY_USE_USER_TAG = "(" + USER_TAG_TABLE_NAME + ")";
     private static final String TEST_TABLE_NAME = "test_tb";
     private static DorisAssert dorisAssert;
 
@@ -63,20 +63,20 @@ public class MaterializedViewFunctionTest {
 
     @Before
     public void beforeMethod() throws Exception {
-        String createTableSQL = "create table " + HR_DB_NAME + "." + EMPS_TABLE_NAME + " (time date, empid int, name varchar, "
-                + "deptno int, salary int, commission int) partition by range (time) "
-                + "(partition p1 values less than MAXVALUE) "
-                + "distributed by hash(time) buckets 3 properties('replication_num' = '1');";
+        String createTableSQL = "create table " + HR_DB_NAME + "." + EMPS_TABLE_NAME + " (time_col date, empid int, "
+                + "name varchar, deptno int, salary int, commission int) partition by range (time_col) "
+                + "(partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3"
+                + " properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
         createTableSQL = "create table " + HR_DB_NAME + "." + DEPTS_TABLE_NAME
-                + " (time date, deptno int, name varchar, cost int) partition by range (time) "
+                + " (time_col date, deptno int, name varchar, cost int) partition by range (time_col) "
                 + "(partition p1 values less than MAXVALUE) "
-                + "distributed by hash(time) buckets 3 properties('replication_num' = '1');";
+                + "distributed by hash(time_col) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
         createTableSQL = "create table " + HR_DB_NAME + "." + USER_TAG_TABLE_NAME
-                + " (time date, user_id int, user_name varchar(20), tag_id int) partition by range (time) "
+                + " (time_col date, user_id int, user_name varchar(20), tag_id int) partition by range (time_col) "
                 + " (partition p1 values less than MAXVALUE) "
-                + "distributed by hash(time) buckets 3 properties('replication_num' = '1');";
+                + "distributed by hash(time_col) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
     }
 
@@ -434,8 +434,8 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testQueryOnStar() throws Exception {
-        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select time, deptno, empid, name, "
-                + "salary, commission from " + EMPS_TABLE_NAME + " order by time, deptno, empid;";
+        String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select time_col, deptno,"
+                + "empid, name, salary, commission from " + EMPS_TABLE_NAME + " order by time_col, deptno, empid;";
         String query = "select * from " + EMPS_TABLE_NAME + " where deptno = 1";
         dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV);
     }
@@ -556,7 +556,7 @@ public class MaterializedViewFunctionTest {
                 + "(select deptno, sum(salary) from " + EMPS_TABLE_NAME + " where deptno >200 group by deptno) B "
                 + "using (deptno);";
         dorisAssert.withMaterializedView(createEmpsMVSql01).withMaterializedView(createEmpsMVSql02).query(query)
-                .explainContains("rollup: emp_mv_01", "rollup: emp_mv_02");
+                .explainContains("(emp_mv_01)", "(emp_mv_02)");
     }
 
     @Test

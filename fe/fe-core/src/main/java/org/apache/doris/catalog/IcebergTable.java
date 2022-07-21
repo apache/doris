@@ -86,10 +86,9 @@ public class IcebergTable extends Table {
         this.icebergDb = icebergProperty.getDatabase();
         this.icebergTbl = icebergProperty.getTable();
 
-        icebergProperties.put(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS,
-                icebergProperty.getHiveMetastoreUris());
-        icebergProperties.put(IcebergProperty.ICEBERG_CATALOG_TYPE,
-                icebergProperty.getCatalogType());
+        icebergProperties.put(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS, icebergProperty.getHiveMetastoreUris());
+        icebergProperties.put(IcebergProperty.ICEBERG_CATALOG_TYPE, icebergProperty.getCatalogType());
+        icebergProperties.putAll(icebergProperty.getDfsProperties());
         this.icebergTable = icebergTable;
     }
 
@@ -171,7 +170,6 @@ public class IcebergTable extends Table {
         return fileFormat;
     }
 
-    // get the iceberg table instance, if table is not loaded, load it.
     private org.apache.iceberg.Table getTable() throws Exception {
         if (isLoaded.get()) {
             Preconditions.checkNotNull(icebergTable);

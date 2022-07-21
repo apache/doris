@@ -1488,7 +1488,7 @@ string AccurateItoaKMGT(int64 i) {
         i = -i;
     }
 
-    string ret = std::to_string(i) + " = " + StringPrintf("%s", sign);
+    string ret = StringPrintf("%s", sign) + std::to_string(i) + " = " + StringPrintf("%s", sign);
     int64 val;
     if ((val = (i >> 40)) > 1) {
         ret += StringPrintf("%" PRId64

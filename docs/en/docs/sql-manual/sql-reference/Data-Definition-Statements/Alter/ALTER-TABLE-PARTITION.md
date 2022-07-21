@@ -159,7 +159,7 @@ ADD PARTITION p1 VALUES [("2014-01-01"), ("2014-02-01"));
 ### Keywords
 
 ```text
-ALTER, TABLE, PARTITION
+ALTER, TABLE, PARTITION, ALTER TABLE
 ```
 
 ### Best Practice

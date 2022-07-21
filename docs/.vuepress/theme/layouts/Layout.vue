@@ -16,7 +16,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 <template>
-  <Common :sidebarItems="sidebarItems" v-if="renderComponent" :showModule="recoShowModule">
+  <Common :sidebarItems="sidebarItems" :showModule="recoShowModule">
     <component v-if="$frontmatter.home" :is="homeCom"/>
     <Page v-else :sidebar-items="sidebarItems"/>
     <Footer v-if="$frontmatter.home" class="footer" />
@@ -24,7 +24,7 @@ under the License.
 </template>
 
 <script>
-import { defineComponent, computed, onMounted } from 'vue-demi'
+import { defineComponent, computed, onMounted, onUpdated } from 'vue-demi'
 import Home from '@theme/components/Home'
 import HomeBlog from '@theme/components/HomeBlog'
 import Page from '@theme/components/Page'
@@ -116,7 +116,8 @@ export default defineComponent({
           $page,
           $page.regularPath,
           $site,
-          $localePath
+          $localePath,
+          instance.renderComponent
         )
       } else {
         return []

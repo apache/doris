@@ -30,7 +30,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 #include "udf/udf.h"
-#include "util/hash_util.hpp"
+#include "udf/udf_internal.h"
 
 namespace doris {
 

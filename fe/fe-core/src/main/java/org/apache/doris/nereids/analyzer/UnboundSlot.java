@@ -17,8 +17,9 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
@@ -28,11 +29,11 @@ import java.util.List;
 /**
  * Slot has not been bound.
  */
-public class UnboundSlot extends Slot<UnboundSlot> {
+public class UnboundSlot extends Slot implements Unbound {
     private final List<String> nameParts;
 
     public UnboundSlot(List<String> nameParts) {
-        super(NodeType.UNBOUND_SLOT);
+        super(ExpressionType.UNBOUND_SLOT);
         this.nameParts = nameParts;
     }
 
@@ -52,7 +53,7 @@ public class UnboundSlot extends Slot<UnboundSlot> {
     }
 
     @Override
-    public String sql() {
+    public String toSql() {
         return nameParts.stream().map(Utils::quoteIfNeeded).reduce((left, right) -> left + "." + right).orElse("");
     }
 
@@ -63,5 +64,22 @@ public class UnboundSlot extends Slot<UnboundSlot> {
     @Override
     public String toString() {
         return "'" + getName();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        UnboundSlot other = (UnboundSlot) o;
+        return nameParts.containsAll(other.getNameParts());
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitUnboundSlot(this, context);
     }
 }

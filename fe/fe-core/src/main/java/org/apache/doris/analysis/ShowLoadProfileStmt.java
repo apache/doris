@@ -29,7 +29,7 @@ import com.google.common.base.Strings;
 // show load profile "/";   # list all saving load job ids
 // show load profile "/10014"  # show task ids of specified job
 // show load profile "/10014/e0f7390f5363419e-b416a2a79996083e/" # show instance list of the task
-// show load profile "/10014/e0f7390f5363419e-b416a2a79996083e/e0f7390f5363419e-b416a2a799960906" # show instance tree graph
+// show load profile "/10014/e0f7390f5363419e-b416a2a79996083e/e0f7390f5363419e-b416a2a7999" # show instance's graph
 public class ShowLoadProfileStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA_TASK_IDS =
             ShowResultSetMetaData.builder()

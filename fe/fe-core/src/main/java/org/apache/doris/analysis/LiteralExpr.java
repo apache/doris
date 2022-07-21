@@ -69,6 +69,9 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 literalExpr = new FloatLiteral(value);
                 break;
             case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
                 literalExpr = new DecimalLiteral(value);
                 break;
             case CHAR:
@@ -80,6 +83,8 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 break;
             case DATE:
             case DATETIME:
+            case DATEV2:
+            case DATETIMEV2:
                 literalExpr = new DateLiteral(value, type);
                 break;
             default:
@@ -140,6 +145,8 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 return LargeIntLiteral.createMinValue();
             case DATE:
             case DATETIME:
+            case DATEV2:
+            case DATETIMEV2:
                 return DateLiteral.createMinValue(type);
             default:
                 throw new AnalysisException("Invalid data type for creating infinity: " + type);
@@ -242,5 +249,10 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public boolean isNullable() {
         return this instanceof NullLiteral;
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+
     }
 }

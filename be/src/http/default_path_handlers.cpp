@@ -97,7 +97,8 @@ void mem_usage_handler(const std::shared_ptr<MemTracker>& mem_tracker,
     }
 
     (*output) << "<pre>";
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(USE_JEMALLOC)
     (*output) << "Memory tracking is not available with address sanitizer builds.";
 #else
     char buf[2048];
@@ -167,7 +168,8 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
 void heap_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
     (*output) << "<h2>Heap Profile</h2>" << std::endl;
 
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(USE_JEMALLOC)
     (*output) << "<pre>" << std::endl;
     (*output) << "Heap profiling is not available with address sanitizer builds." << std::endl;
     (*output) << "</pre>" << std::endl;
@@ -190,7 +192,7 @@ void heap_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* ou
     (*output) << std::endl;
     (*output) << "    curl http://localhost:" << config::webserver_port
               << "/pprof/heap?seconds=30 > perf.data" << std::endl;
-    (*output) << "    pprof --text be/lib/palo_be perf.data" << std::endl;
+    (*output) << "    pprof --text be/lib/doris_be perf.data" << std::endl;
     (*output) << std::endl;
     (*output) << "</pre>" << std::endl;
     (*output) << "<div id=\"heap\">" << std::endl;
@@ -232,7 +234,8 @@ void heap_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* ou
 void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
     (*output) << "<h2>CPU Profile</h2>" << std::endl;
 
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(USE_JEMALLOC)
     (*output) << "<pre>" << std::endl;
     (*output) << "CPU profiling is not available with address sanitizer builds." << std::endl;
     (*output) << "</pre>" << std::endl;
@@ -256,7 +259,7 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
     (*output) << std::endl;
     (*output) << "    curl http://localhost:" << config::webserver_port
               << "/pprof/profile?seconds=30 > perf.data" << std::endl;
-    (*output) << "    pprof --text be/lib/palo_be perf.data" << std::endl;
+    (*output) << "    pprof --text be/lib/doris_be perf.data" << std::endl;
     (*output) << std::endl;
     (*output) << "If you want to get the flame graph, you must first make sure that there is a "
                  "'perf' command on the host machine."

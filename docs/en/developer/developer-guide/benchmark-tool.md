@@ -1,7 +1,7 @@
 ---
 {
     "title": "Doris BE Storage Layer Benchmark Tool",
-    "language": "zh-CN"
+    "language": "en"
 }
 
 ---
@@ -33,7 +33,7 @@ It can be used to test the performance of some parts of the BE storage layer (fo
 
 ## Compilation
 
-1. To ensure that the environment has been able to successfully compile the Doris ontology, you can refer to [Installation and deployment](../install/source-install/compilation.md)。
+1. To ensure that the environment has been able to successfully compile the Doris ontology, you can refer to [Installation and deployment](../../docs/install/source-install/compilation.md)。
 
 2. Execute`run-be-ut.sh`
 

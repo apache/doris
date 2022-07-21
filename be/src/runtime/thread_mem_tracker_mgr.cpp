@@ -60,25 +60,24 @@ void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details
         ExecEnv::GetInstance()->fragment_mgr()->cancel(
                 _fragment_instance_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
                 cancel_details);
-        _fragment_instance_id = TUniqueId(); // Make sure it will only be canceled once
     }
 }
 
 void ThreadMemTrackerMgr::exceeded(int64_t mem_usage, Status st) {
-    auto rst = _mem_trackers[_tracker_id]->mem_limit_exceeded(
-            nullptr, fmt::format("In TCMalloc Hook, {}", _consume_err_cb.cancel_msg), mem_usage,
-            st);
     if (_consume_err_cb.cb_func != nullptr) {
         _consume_err_cb.cb_func();
     }
     if (is_attach_task()) {
-        if (_consume_err_cb.cancel_task == true) {
+        if (_consume_err_cb.cancel_task) {
+            auto rst = _mem_trackers[_tracker_id]->mem_limit_exceeded(
+                    nullptr,
+                    fmt::format("Task mem limit exceeded and cancel it, msg:{}",
+                                _consume_err_cb.cancel_msg),
+                    mem_usage, st);
             exceeded_cancel_task(rst.to_string());
-        } else {
-            // TODO(zxy) Need other processing, or log (not too often).
+            _consume_err_cb.cancel_task = false; // Make sure it will only be canceled once
+            _consume_err_cb.log_limit_exceeded = false;
         }
-    } else {
-        // TODO(zxy) Need other processing, or log (not too often).
     }
 }
 } // namespace doris

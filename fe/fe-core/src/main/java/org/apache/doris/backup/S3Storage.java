@@ -104,7 +104,8 @@ public class S3Storage extends BlobStorage {
         // If not, it will not be converted ( https://github.com/aws/aws-sdk-java-v2/pull/763),
         // but the endpoints of many cloud service providers for object storage do not start with s3,
         // so they cannot be converted to virtual hosted-sytle.
-        // Some of them, such as aliyun's oss, only support virtual hosted-sytle, and some of them(ceph) may only support
+        // Some of them, such as aliyun's oss, only support virtual hosted-sytle,
+        // and some of them(ceph) may only support
         // path-style, so we need to do some additional conversion.
         //
         //          use_path_style          |     !use_path_style
@@ -202,7 +203,8 @@ public class S3Storage extends BlobStorage {
         }
         try {
             S3URI uri = S3URI.create(remoteFilePath, forceHostedStyle);
-            GetObjectResponse response = getClient(uri.getVirtualBucket()).getObject(GetObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(), localFile.toPath());
+            GetObjectResponse response = getClient(uri.getVirtualBucket()).getObject(
+                    GetObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(), localFile.toPath());
             if (localFile.length() == fileSize) {
                 LOG.info(
                         "finished to download from {} to {} with size: {}. cost {} ms",
@@ -348,7 +350,9 @@ public class S3Storage extends BlobStorage {
                 return Status.OK;
             }
             for (FileStatus fileStatus : files) {
-                RemoteFile remoteFile = new RemoteFile(fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(), !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen());
+                RemoteFile remoteFile = new RemoteFile(
+                        fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(),
+                        !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen());
                 result.add(remoteFile);
             }
         } catch (FileNotFoundException e) {

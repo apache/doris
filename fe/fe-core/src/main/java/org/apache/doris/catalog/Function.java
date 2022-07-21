@@ -133,7 +133,8 @@ public class Function implements Writable {
         this(0, name, args, retType, varArgs, vectorized, NullableMode.DEPEND_ON_ARGUMENT);
     }
 
-    public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs, boolean vectorized, NullableMode mode) {
+    public Function(FunctionName name, List<Type> args, Type retType,
+            boolean varArgs, boolean vectorized, NullableMode mode) {
         this(0, name, args, retType, varArgs, vectorized, mode);
     }
 
@@ -451,7 +452,7 @@ public class Function implements Writable {
         }
     }
 
-    public TFunction toThrift() {
+    public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
         TFunction fn = new TFunction();
         fn.setSignature(signatureString());
         fn.setName(name.toThrift());
@@ -459,8 +460,20 @@ public class Function implements Writable {
         if (location != null) {
             fn.setHdfsLocation(location.getLocation());
         }
-        fn.setArgTypes(Type.toThrift(argTypes));
-        fn.setRetType(getReturnType().toThrift());
+        // `realArgTypes.length != argTypes.length` is true iff this is an aggregation function.
+        // For aggregation functions, `argTypes` here is already its real type with true precision and scale.
+        if (realArgTypes.length != argTypes.length) {
+            fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes)));
+        } else {
+            fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes), Lists.newArrayList(realArgTypes)));
+        }
+        // For types with different precisions and scales, return type only indicates a type with default
+        // precision and scale so we need to transform it to the correct type.
+        if (PrimitiveType.typeWithPrecision.contains(realReturnType.getPrimitiveType())) {
+            fn.setRetType(realReturnType.toThrift());
+        } else {
+            fn.setRetType(getReturnType().toThrift());
+        }
         fn.setHasVarArgs(hasVarArgs);
         // TODO: Comment field is missing?
         // fn.setComment(comment)
@@ -495,6 +508,7 @@ public class Function implements Writable {
                 return "float_val";
             case DOUBLE:
             case TIME:
+            case TIMEV2:
                 return "double_val";
             case VARCHAR:
             case CHAR:
@@ -505,9 +519,18 @@ public class Function implements Writable {
                 return "string_val";
             case DATE:
             case DATETIME:
+            case DATETIMEV2:
                 return "datetime_val";
+            case DATEV2:
+                return "datev2_val";
             case DECIMALV2:
                 return "decimalv2_val";
+            case DECIMAL32:
+                return "decimal32_val";
+            case DECIMAL64:
+                return "decimal64_val";
+            case DECIMAL128:
+                return "decimal128_val";
             default:
                 Preconditions.checkState(false, t.toString());
                 return "";
@@ -534,6 +557,7 @@ public class Function implements Writable {
                 return "FloatVal";
             case DOUBLE:
             case TIME:
+            case TIMEV2:
                 return "DoubleVal";
             case VARCHAR:
             case CHAR:
@@ -544,9 +568,18 @@ public class Function implements Writable {
                 return "StringVal";
             case DATE:
             case DATETIME:
+            case DATETIMEV2:
                 return "DateTimeVal";
+            case DATEV2:
+                return "DateV2Val";
             case DECIMALV2:
                 return "DecimalV2Val";
+            case DECIMAL32:
+                return "Decimal32Val";
+            case DECIMAL64:
+                return "Decimal64Val";
+            case DECIMAL128:
+                return "Decimal128Val";
             default:
                 Preconditions.checkState(false, t.toString());
                 return "";
@@ -606,6 +639,7 @@ public class Function implements Writable {
         FunctionType(int code) {
             this.code = code;
         }
+
         public int getCode() {
             return code;
         }
@@ -627,10 +661,11 @@ public class Function implements Writable {
         public void write(DataOutput output) throws IOException {
             output.writeInt(code);
         }
+
         public static FunctionType read(DataInput input) throws IOException {
             return fromCode(input.readInt());
         }
-    };
+    }
 
     protected void writeFields(DataOutput output) throws IOException {
         output.writeLong(id);

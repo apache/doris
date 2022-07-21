@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "olap/olap_common.h"
+
 namespace doris {
 
 // Because __int128 in memory is not aligned, but GCC7 will generate SSE instruction
@@ -32,13 +34,16 @@ struct PackedInt128 {
         value = value_;
         return *this;
     }
-    PackedInt128& operator=(const PackedInt128& rhs) {
-        value = rhs.value;
-        return *this;
-    }
+    PackedInt128& operator=(const PackedInt128& rhs) = default;
 #pragma GCC diagnostic pop
 
     __int128 value;
 } __attribute__((packed));
 
+// unalign address directly casted to int128 will core dump
+inline int128_t get_int128_from_unalign(const void* address) {
+    int128_t value = 0;
+    memcpy(&value, address, sizeof(int128_t));
+    return value;
+}
 } // namespace doris

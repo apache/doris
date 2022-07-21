@@ -136,6 +136,26 @@ If `function_column.sequence_type` is set when creating a new table, the new tab
 Let's take the stream Load as an example to show how to use it
 1. Create a table that supports sequence column. 
 
+Create the test_table data table of the unique model and specify that the type of the specified sequence column is Date
+
+```sql
+CREATE TABLE test.test_table
+(
+    user_id bigint,
+    date date,
+    group_id bigint,
+    modify_date date,
+    keyword VARCHAR(128)
+)
+UNIQUE KEY(user_id, date, group_id)
+DISTRIBUTED BY HASH (user_id) BUCKETS 32
+PROPERTIES(
+    "function_column.sequence_type" = 'Date',
+    "replication_num" = "1",
+    "in_memory" = "false"
+);
+```
+
 The table structure is shown below
 ```sql
 MySQL > desc test_table;
@@ -154,12 +174,12 @@ MySQL > desc test_table;
 
 Import the following data
 ```
-1       2020-02-22      1       2020-02-22      a
+1       2020-02-22      1       2020-02-21      a
 1       2020-02-22      1       2020-02-22      b
 1       2020-02-22      1       2020-03-05      c
 1       2020-02-22      1       2020-02-26      d
-1       2020-02-22      1       2020-02-22      e
-1       2020-02-22      1       2020-02-22      b
+1       2020-02-22      1       2020-02-23      e
+1       2020-02-22      1       2020-02-24      b
 ```
 Take the Stream Load as an example here and map the sequence column to the modify_date column
 ```shell
@@ -192,7 +212,7 @@ MySQL [test]> select * from test_table;
 |       1 | 2020-02-22 |        1 | 2020-03-05  | c       |
 +---------+------------+----------+-------------+---------+
 ```
-Because the sequence column for the newly imported data are all smaller than the values already in the table, they cannot be replaced
+In this import, the c is eventually retained in the keyword column because the value of the sequence column (the value in modify_date) in all imports is the maximum value: '2020-03-05'.
 Try importing the following data again
 
 ```
@@ -208,5 +228,5 @@ MySQL [test]> select * from test_table;
 |       1 | 2020-02-22 |        1 | 2020-03-23  | w       |
 +---------+------------+----------+-------------+---------+
 ```
-At this point, you can replace the original data in the table
+At this point, you can replace the original data in the table. To sum up, the sequence column will be compared among all the batches, the largest value of the same key will be imported into Doris table.
 

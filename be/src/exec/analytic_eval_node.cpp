@@ -21,7 +21,6 @@
 #include "exec/analytic_eval_node.h"
 
 #include "exprs/agg_fn_evaluator.h"
-#include "exprs/anyval_util.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -818,7 +817,6 @@ inline int64_t AnalyticEvalNode::num_output_rows_ready() const {
 Status AnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     //RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(state->check_query_state("Analytic eval, while get_next."));

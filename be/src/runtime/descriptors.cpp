@@ -55,6 +55,7 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _tuple_offset(tdesc.byteOffset),
           _null_indicator_offset(tdesc.nullIndicatorByte, tdesc.nullIndicatorBit),
           _col_name(tdesc.colName),
+          _col_unique_id(tdesc.col_unique_id),
           _slot_idx(tdesc.slotIdx),
           _slot_size(_type.get_slot_size()),
           _field_idx(-1),
@@ -68,6 +69,7 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _tuple_offset(pdesc.byte_offset()),
           _null_indicator_offset(pdesc.null_indicator_byte(), pdesc.null_indicator_bit()),
           _col_name(pdesc.col_name()),
+          _col_unique_id(-1),
           _slot_idx(pdesc.slot_idx()),
           _slot_size(_type.get_slot_size()),
           _field_idx(-1),
@@ -319,7 +321,9 @@ std::string TupleDescriptor::debug_string() const {
 RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TTupleId>& row_tuples,
                              const std::vector<bool>& nullable_tuples)
         : _tuple_idx_nullable_map(nullable_tuples) {
-    DCHECK(nullable_tuples.size() == row_tuples.size());
+    DCHECK(nullable_tuples.size() == row_tuples.size())
+            << "nullable_tuples size " << nullable_tuples.size() << " != row_tuples size "
+            << row_tuples.size();
     DCHECK_GT(row_tuples.size(), 0);
     _num_materialized_slots = 0;
     _num_null_slots = 0;
@@ -570,6 +574,7 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         }
 
         (*tbl)->_tuple_desc_map[tdesc.id] = desc;
+        (*tbl)->_row_tuples.emplace_back(tdesc.id);
     }
 
     for (size_t i = 0; i < thrift_tbl.slotDescriptors.size(); ++i) {
@@ -619,16 +624,6 @@ SlotDescriptor* DescriptorTbl::get_slot_descriptor(SlotId id) const {
         return nullptr;
     } else {
         return i->second;
-    }
-}
-
-// return all registered tuple descriptors
-void DescriptorTbl::get_tuple_descs(std::vector<TupleDescriptor*>* descs) const {
-    descs->clear();
-
-    for (TupleDescriptorMap::const_iterator i = _tuple_desc_map.begin(); i != _tuple_desc_map.end();
-         ++i) {
-        descs->push_back(i->second);
     }
 }
 

@@ -28,13 +28,13 @@ feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
 feHttpPassword = ""
 
-beHttpAddress = "127.0.0.1:8040"
-
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./
 suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
+realDataPath = "${DORIS_HOME}/regression-test/realdata"
+sf1DataPath = "/data"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
@@ -47,7 +47,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = ""
+excludeSuites = "test_create_table_with_bloom_filter"
 // this directories will not be executed
 excludeDirectories = ""
 

@@ -22,10 +22,16 @@ import org.apache.doris.nereids.trees.BinaryNode;
 /**
  * Interface for all expression that have two children.
  */
-public interface BinaryExpression<
-            EXPR_TYPE extends BinaryExpression<EXPR_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-            LEFT_CHILD_TYPE extends Expression,
-            RIGHT_CHILD_TYPE extends Expression>
-        extends BinaryNode<EXPR_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public interface BinaryExpression extends BinaryNode<Expression, Expression, Expression> {
+
+    @Override
+    default Expression left() {
+        return child(0);
+    }
+
+    @Override
+    default Expression right() {
+        return child(1);
+    }
 
 }

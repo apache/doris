@@ -19,7 +19,40 @@ package org.apache.doris.nereids.properties;
 
 /**
  * Physical properties used in cascades.
+ * TODO(wj): Do we need to `PhysicalPropertySpec` Interface like NoisePage?
  */
 public class PhysicalProperties {
+    private OrderSpec orderSpec;
 
+    private DistributionSpec distributionSpec;
+
+    public PhysicalProperties() {
+    }
+
+    public PhysicalProperties(DistributionSpec distributionSpec, OrderSpec orderSpec) {
+        this.distributionSpec = distributionSpec;
+        this.orderSpec = orderSpec;
+    }
+
+    public boolean meet(PhysicalProperties other) {
+        // TODO: handle distributionSpec meet()
+        return orderSpec.meet(other.orderSpec) && distributionSpec.meet(other.distributionSpec);
+    }
+
+
+    public OrderSpec getOrderSpec() {
+        return orderSpec;
+    }
+
+    public void setOrderSpec(OrderSpec orderSpec) {
+        this.orderSpec = orderSpec;
+    }
+
+    public DistributionSpec getDistributionSpec() {
+        return distributionSpec;
+    }
+
+    public void setDistributionSpec(DistributionSpec distributionSpec) {
+        this.distributionSpec = distributionSpec;
+    }
 }

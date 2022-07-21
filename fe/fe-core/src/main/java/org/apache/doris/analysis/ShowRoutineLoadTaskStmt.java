@@ -128,7 +128,8 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
         } // CHECKSTYLE IGNORE THIS LINE
 
         if (!valid) {
-            throw new AnalysisException("show routine load job only support one equal expr which is sames like JobName=\"ILoveDoris\"");
+            throw new AnalysisException("show routine load job only support one equal expr "
+                    + "which is sames like JobName=\"ILoveDoris\"");
         }
     }
 

@@ -20,8 +20,6 @@
 #include "exec/sort_exec_exprs.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/sorted_run_merger.h"
-#include "util/debug_util.h"
 
 namespace doris {
 
@@ -85,8 +83,6 @@ Status SpillSortNode::open(RuntimeState* state) {
 Status SpillSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
-    // RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT, state));
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(state->check_query_state("Spill sort, while getting next."));
 

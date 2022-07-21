@@ -68,7 +68,8 @@ public class ResultReceiver {
                         .build();
 
                 currentThread = Thread.currentThread();
-                Future<InternalService.PFetchDataResult> future = BackendServiceProxy.getInstance().fetchDataAsync(address, request);
+                Future<InternalService.PFetchDataResult> future
+                        = BackendServiceProxy.getInstance().fetchDataAsync(address, request);
                 InternalService.PFetchDataResult pResult = null;
                 while (pResult == null) {
                     long currentTs = System.currentTimeMillis();

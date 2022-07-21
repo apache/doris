@@ -109,7 +109,8 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_COMPACTION_SCORE;
 
-    private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1, "Metric-Timer-Pool", true);
+    private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager
+            .newDaemonScheduledThreadPool(1, "Metric-Timer-Pool", true);
     private static MetricCalculator metricCalculator = new MetricCalculator();
 
     // init() should only be called after catalog is contructed.
@@ -177,9 +178,11 @@ public final class MetricRepo {
                         return 0L;
                     }
                     if (jobType == JobType.SCHEMA_CHANGE) {
-                        return alter.getSchemaChangeHandler().getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
+                        return alter.getSchemaChangeHandler().getAlterJobV2Num(
+                                org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
                     } else {
-                        return alter.getMaterializedViewHandler().getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
+                        return alter.getMaterializedViewHandler().getAlterJobV2Num(
+                                org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
                     }
                 }
             };
@@ -231,13 +234,16 @@ public final class MetricRepo {
 
         // qps, rps and error rate
         // these metrics should be set an init value, in case that metric calculator is not running
-        GAUGE_QUERY_PER_SECOND = new GaugeMetricImpl<>("qps", MetricUnit.NOUNIT, "query per second");
+        GAUGE_QUERY_PER_SECOND = new GaugeMetricImpl<>("qps", MetricUnit.NOUNIT,
+                "query per second");
         GAUGE_QUERY_PER_SECOND.setValue(0.0);
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_QUERY_PER_SECOND);
-        GAUGE_REQUEST_PER_SECOND = new GaugeMetricImpl<>("rps", MetricUnit.NOUNIT, "request per second");
+        GAUGE_REQUEST_PER_SECOND = new GaugeMetricImpl<>("rps", MetricUnit.NOUNIT,
+                "request per second");
         GAUGE_REQUEST_PER_SECOND.setValue(0.0);
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_REQUEST_PER_SECOND);
-        GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", MetricUnit.NOUNIT, "query error rate");
+        GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", MetricUnit.NOUNIT,
+                "query error rate");
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_QUERY_ERR_RATE);
         GAUGE_QUERY_ERR_RATE.setValue(0.0);
         GAUGE_MAX_TABLET_COMPACTION_SCORE = new GaugeMetricImpl<>("max_tablet_compaction_score",
@@ -246,24 +252,33 @@ public final class MetricRepo {
         GAUGE_MAX_TABLET_COMPACTION_SCORE.setValue(0L);
 
         // 2. counter
-        COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", MetricUnit.REQUESTS, "total request");
+        COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", MetricUnit.REQUESTS,
+                "total request");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_REQUEST_ALL);
-        COUNTER_QUERY_ALL = new LongCounterMetric("query_total", MetricUnit.REQUESTS, "total query");
+        COUNTER_QUERY_ALL = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
+                "total query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ALL);
-        COUNTER_QUERY_BEGIN = new LongCounterMetric("query_begin", MetricUnit.REQUESTS, "query begin");
+        COUNTER_QUERY_BEGIN = new LongCounterMetric("query_begin", MetricUnit.REQUESTS,
+                "query begin");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_BEGIN);
-        COUNTER_QUERY_ERR = new LongCounterMetric("query_err", MetricUnit.REQUESTS, "total error query");
+        COUNTER_QUERY_ERR = new LongCounterMetric("query_err", MetricUnit.REQUESTS,
+                "total error query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ERR);
-        COUNTER_LOAD_ADD = new LongCounterMetric("load_add", MetricUnit.REQUESTS, "total load submit");
+        COUNTER_LOAD_ADD = new LongCounterMetric("load_add", MetricUnit.REQUESTS,
+                "total load submit");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_ADD);
 
-        COUNTER_QUERY_TABLE = new LongCounterMetric("query_table", MetricUnit.REQUESTS, "total query from table");
+        COUNTER_QUERY_TABLE = new LongCounterMetric("query_table", MetricUnit.REQUESTS,
+                "total query from table");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_TABLE);
-        COUNTER_QUERY_OLAP_TABLE = new LongCounterMetric("query_olap_table", MetricUnit.REQUESTS, "total query from olap table");
+        COUNTER_QUERY_OLAP_TABLE = new LongCounterMetric("query_olap_table", MetricUnit.REQUESTS,
+                "total query from olap table");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_OLAP_TABLE);
-        COUNTER_CACHE_MODE_SQL = new LongCounterMetric("cache_mode_sql", MetricUnit.REQUESTS, "total query of sql mode");
+        COUNTER_CACHE_MODE_SQL = new LongCounterMetric("cache_mode_sql", MetricUnit.REQUESTS,
+                "total query of sql mode");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_MODE_SQL);
-        COUNTER_CACHE_HIT_SQL = new LongCounterMetric("cache_hit_sql", MetricUnit.REQUESTS, "total hits query by sql model");
+        COUNTER_CACHE_HIT_SQL = new LongCounterMetric("cache_hit_sql", MetricUnit.REQUESTS,
+                "total hits query by sql model");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_HIT_SQL);
         COUNTER_CACHE_MODE_PARTITION = new LongCounterMetric("query_mode_partition", MetricUnit.REQUESTS,
                 "total query of partition mode");
@@ -278,56 +293,73 @@ public final class MetricRepo {
                 "hit partition of cache partition model");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_PARTITION_HIT);
 
-        COUNTER_LOAD_FINISHED = new LongCounterMetric("load_finished", MetricUnit.REQUESTS, "total load finished");
+        COUNTER_LOAD_FINISHED = new LongCounterMetric("load_finished", MetricUnit.REQUESTS,
+                "total load finished");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_FINISHED);
-        COUNTER_EDIT_LOG_WRITE = new LongCounterMetric("edit_log_write", MetricUnit.OPERATIONS, "counter of edit log write into bdbje");
+        COUNTER_EDIT_LOG_WRITE = new LongCounterMetric("edit_log_write", MetricUnit.OPERATIONS,
+                "counter of edit log write into bdbje");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_WRITE);
-        COUNTER_EDIT_LOG_READ = new LongCounterMetric("edit_log_read", MetricUnit.OPERATIONS, "counter of edit log read from bdbje");
+        COUNTER_EDIT_LOG_READ = new LongCounterMetric("edit_log_read", MetricUnit.OPERATIONS,
+                "counter of edit log read from bdbje");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_READ);
-        COUNTER_EDIT_LOG_SIZE_BYTES = new LongCounterMetric("edit_log_size_bytes", MetricUnit.BYTES, "size of edit log");
+        COUNTER_EDIT_LOG_SIZE_BYTES = new LongCounterMetric("edit_log_size_bytes", MetricUnit.BYTES,
+                "size of edit log");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_SIZE_BYTES);
 
         // image generate
-        COUNTER_IMAGE_WRITE_SUCCESS = new LongCounterMetric("image_write", MetricUnit.OPERATIONS, "counter of image succeed in write");
+        COUNTER_IMAGE_WRITE_SUCCESS = new LongCounterMetric("image_write", MetricUnit.OPERATIONS,
+                "counter of image succeed in write");
         COUNTER_IMAGE_WRITE_SUCCESS.addLabel(new MetricLabel("type", "success"));
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_WRITE_SUCCESS);
-        COUNTER_IMAGE_WRITE_FAILED = new LongCounterMetric("image_write", MetricUnit.OPERATIONS, "counter of image failed to write");
+        COUNTER_IMAGE_WRITE_FAILED = new LongCounterMetric("image_write", MetricUnit.OPERATIONS,
+                "counter of image failed to write");
         COUNTER_IMAGE_WRITE_FAILED.addLabel(new MetricLabel("type", "failed"));
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_WRITE_FAILED);
 
-        COUNTER_IMAGE_PUSH_SUCCESS = new LongCounterMetric("image_push", MetricUnit.OPERATIONS, "counter of image succeeded in pushing to other frontends");
+        COUNTER_IMAGE_PUSH_SUCCESS = new LongCounterMetric("image_push", MetricUnit.OPERATIONS,
+                "counter of image succeeded in pushing to other frontends");
         COUNTER_IMAGE_PUSH_SUCCESS.addLabel(new MetricLabel("type", "success"));
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH_SUCCESS);
-        COUNTER_IMAGE_PUSH_FAILED = new LongCounterMetric("image_push", MetricUnit.OPERATIONS, "counter of image failed to other frontends");
+        COUNTER_IMAGE_PUSH_FAILED = new LongCounterMetric("image_push", MetricUnit.OPERATIONS,
+                "counter of image failed to other frontends");
         COUNTER_IMAGE_PUSH_FAILED.addLabel(new MetricLabel("type", "failed"));
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH_FAILED);
 
         // image clean
-        COUNTER_IMAGE_CLEAN_SUCCESS = new LongCounterMetric("image_clean", MetricUnit.OPERATIONS, "counter of image succeeded in cleaning");
+        COUNTER_IMAGE_CLEAN_SUCCESS = new LongCounterMetric("image_clean", MetricUnit.OPERATIONS,
+                "counter of image succeeded in cleaning");
         COUNTER_IMAGE_CLEAN_SUCCESS.addLabel(new MetricLabel("type", "success"));
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_CLEAN_SUCCESS);
-        COUNTER_IMAGE_CLEAN_FAILED = new LongCounterMetric("image_clean", MetricUnit.OPERATIONS, "counter of image failed to clean");
+        COUNTER_IMAGE_CLEAN_FAILED = new LongCounterMetric("image_clean", MetricUnit.OPERATIONS,
+                "counter of image failed to clean");
         COUNTER_IMAGE_CLEAN_FAILED.addLabel(new MetricLabel("type", "failed"));
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_CLEAN_FAILED);
 
         // edit log clean
-        COUNTER_EDIT_LOG_CLEAN_SUCCESS = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS, "counter of edit log succeed in cleaning");
+        COUNTER_EDIT_LOG_CLEAN_SUCCESS = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS,
+                "counter of edit log succeed in cleaning");
         COUNTER_EDIT_LOG_CLEAN_SUCCESS.addLabel(new MetricLabel("type", "success"));
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_CLEAN_SUCCESS);
-        COUNTER_EDIT_LOG_CLEAN_FAILED = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS, "counter of edit log failed to clean");
+        COUNTER_EDIT_LOG_CLEAN_FAILED = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS,
+                "counter of edit log failed to clean");
         COUNTER_EDIT_LOG_CLEAN_FAILED.addLabel(new MetricLabel("type", "failed"));
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_CLEAN_FAILED);
 
-        COUNTER_TXN_REJECT = new LongCounterMetric("txn_reject", MetricUnit.REQUESTS, "counter of rejected transactions");
+        COUNTER_TXN_REJECT = new LongCounterMetric("txn_reject", MetricUnit.REQUESTS,
+                "counter of rejected transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_REJECT);
-        COUNTER_TXN_BEGIN = new LongCounterMetric("txn_begin", MetricUnit.REQUESTS, "counter of beginning transactions");
+        COUNTER_TXN_BEGIN = new LongCounterMetric("txn_begin", MetricUnit.REQUESTS,
+                "counter of beginning transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_BEGIN);
-        COUNTER_TXN_SUCCESS = new LongCounterMetric("txn_success", MetricUnit.REQUESTS, "counter of success transactions");
+        COUNTER_TXN_SUCCESS = new LongCounterMetric("txn_success", MetricUnit.REQUESTS,
+                "counter of success transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_SUCCESS);
-        COUNTER_TXN_FAILED = new LongCounterMetric("txn_failed", MetricUnit.REQUESTS, "counter of failed transactions");
+        COUNTER_TXN_FAILED = new LongCounterMetric("txn_failed", MetricUnit.REQUESTS,
+                "counter of failed transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_FAILED);
 
-        COUNTER_ROUTINE_LOAD_ROWS = new LongCounterMetric("routine_load_rows", MetricUnit.ROWS, "total rows of routine load");
+        COUNTER_ROUTINE_LOAD_ROWS = new LongCounterMetric("routine_load_rows",
+                MetricUnit.ROWS, "total rows of routine load");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_ROUTINE_LOAD_ROWS);
         COUNTER_ROUTINE_LOAD_RECEIVED_BYTES = new LongCounterMetric("routine_load_receive_bytes", MetricUnit.BYTES,
                 "total received bytes of routine load");
@@ -340,18 +372,22 @@ public final class MetricRepo {
                 "total hit sql block rule query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_HIT_SQL_BLOCK_RULE);
         // 3. histogram
-        HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));
-        HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency", "ms"));
+        HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("query", "latency", "ms"));
+        HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("editlog", "write", "latency", "ms"));
 
-        METRIC_REGISTER.register(MetricRegistry.name("palo", "fe", "query", "max_instances_num_per_user"), (Gauge<Integer>) () -> {
-            try {
-                return ((QeProcessorImpl) QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
-                        .reduce(-1, BinaryOperator.maxBy(Integer::compareTo));
-            } catch (Throwable ex) {
-                LOG.warn("Get max_instances_num_per_user error", ex);
-                return -2;
+        METRIC_REGISTER.register(MetricRegistry.name("palo", "fe", "query", "max_instances_num_per_user"),
+                (Gauge<Integer>) () -> {
+                    try {
+                        return ((QeProcessorImpl) QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
+                                .reduce(-1, BinaryOperator.maxBy(Integer::compareTo));
+                    } catch (Throwable ex) {
+                        LOG.warn("Get max_instances_num_per_user error", ex);
+                        return -2;
+                    }
             }
-        });
+        );
 
         // init system metrics
         initSystemMetrics();
@@ -432,8 +468,8 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(memFree);
 
         // Memory Total
-        GaugeMetric<Long> memAvailable = (GaugeMetric<Long>) new GaugeMetric<Long>(
-                "meminfo", MetricUnit.BYTES, "An estimate of how much memory is available for starting new applications, without swapping") {
+        GaugeMetric<Long> memAvailable = (GaugeMetric<Long>) new GaugeMetric<Long>("meminfo", MetricUnit.BYTES,
+                "An estimate of how much memory is available for starting new applications, without swapping") {
             @Override
             public Long getValue() {
                 return SYSTEM_METRICS.memAvailable;
@@ -443,8 +479,8 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(memAvailable);
 
         // Buffers
-        GaugeMetric<Long> buffers = (GaugeMetric<Long>) new GaugeMetric<Long>(
-                "meminfo", MetricUnit.BYTES, "Memory in buffer cache, so relatively temporary storage for raw disk blocks") {
+        GaugeMetric<Long> buffers = (GaugeMetric<Long>) new GaugeMetric<Long>("meminfo", MetricUnit.BYTES,
+                "Memory in buffer cache, so relatively temporary storage for raw disk blocks") {
             @Override
             public Long getValue() {
                 return SYSTEM_METRICS.buffers;

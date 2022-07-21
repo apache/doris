@@ -22,9 +22,7 @@
 #include "runtime/runtime_state.h"
 
 // for rpc
-#include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "service/brpc.h"
 #include "util/brpc_client_cache.h"
 
 namespace doris {

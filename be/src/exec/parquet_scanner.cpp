@@ -18,18 +18,10 @@
 #include "exec/parquet_scanner.h"
 
 #include "exec/arrow/parquet_reader.h"
-#include "exec/decompressor.h"
-#include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
-#include "exprs/expr.h"
-#include "io/buffered_reader.h"
 #include "io/file_factory.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/raw_value.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_pipe.h"
-#include "runtime/tuple.h"
 
 namespace doris {
 
@@ -115,18 +107,18 @@ Status ParquetScanner::open_next_reader() {
             num_of_columns_from_file = range.num_of_columns_from_file;
         }
         _cur_file_reader = new ParquetReaderWrap(file_reader.release(), _state->batch_size(),
-                                                 num_of_columns_from_file);
-
-        Status status = _cur_file_reader->init_reader(_src_slot_descs, _state->timezone());
-
+                                                 num_of_columns_from_file, 0, 0);
+        auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
+        Status status = _cur_file_reader->init_reader(tuple_desc, _src_slot_descs, _conjunct_ctxs,
+                                                      _state->timezone());
         if (status.is_end_of_file()) {
             continue;
         } else {
             if (!status.ok()) {
-                std::stringstream ss;
-                ss << " file: " << range.path << " error:" << status.get_error_msg();
-                return Status::InternalError(ss.str());
+                return Status::InternalError("file: {}, error:{}", range.path,
+                                             status.get_error_msg());
             } else {
+                RETURN_IF_ERROR(_cur_file_reader->init_parquet_type());
                 return status;
             }
         }

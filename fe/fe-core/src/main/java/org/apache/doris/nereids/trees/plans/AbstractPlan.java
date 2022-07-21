@@ -18,52 +18,51 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.PlanOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.statistics.ExprStats;
+import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Abstract class for all concrete plan node.
- *
- * @param <PLAN_TYPE> either {@link org.apache.doris.nereids.trees.plans.logical.LogicalPlan}
- *                  or {@link org.apache.doris.nereids.trees.plans.physical.PhysicalPlan}
  */
-public abstract class AbstractPlan<
-        PLAN_TYPE extends AbstractPlan<PLAN_TYPE, OP_TYPE>,
-        OP_TYPE extends PlanOperator>
-        extends AbstractTreeNode<PLAN_TYPE> implements Plan<PLAN_TYPE, OP_TYPE> {
+public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
 
-    public final OP_TYPE operator;
+    protected StatsDeriveResult statsDeriveResult;
+    protected long limit;
 
-    public AbstractPlan(NodeType type, OP_TYPE operator, Plan... children) {
-        super(type, children);
-        this.operator = Objects.requireNonNull(operator, "operator can not be null");
+    protected final PlanType type;
+    protected final LogicalProperties logicalProperties;
+
+    public AbstractPlan(PlanType type, Plan... children) {
+        this(type, Optional.empty(), Optional.empty(), children);
     }
 
-    public AbstractPlan(NodeType type, OP_TYPE operator, GroupExpression groupExpression, Plan... children) {
-        super(type, groupExpression, children);
-        this.operator = Objects.requireNonNull(operator, "operator can not be null");
+    public AbstractPlan(PlanType type, Optional<LogicalProperties> optLogicalProperties, Plan... children) {
+        this(type, Optional.empty(), optLogicalProperties, children);
+    }
+
+    /** all parameter constructor. */
+    public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
+                        Optional<LogicalProperties> optLogicalProperties, Plan... children) {
+        super(groupExpression, children);
+        this.type = Objects.requireNonNull(type, "type can not be null");
+        LogicalProperties logicalProperties = optLogicalProperties.orElseGet(() -> computeLogicalProperties(children));
+        this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
     }
 
     @Override
-    public OP_TYPE getOperator() {
-        return operator;
-    }
-
-    @Override
-    public List<Plan> children() {
-        return (List) children;
-    }
-
-    @Override
-    public Plan child(int index) {
-        return (Plan) children.get(index);
+    public PlanType getType() {
+        return type;
     }
 
     /**
@@ -100,5 +99,54 @@ public abstract class AbstractPlan<
             newLasts.add(i + 1 == children.size());
             treeString(lines, depth + 1, newLasts, children.get(i));
         }
+    }
+
+    @Override
+    public List<StatsDeriveResult> getChildrenStats() {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public StatsDeriveResult getStatsDeriveResult() {
+        return statsDeriveResult;
+    }
+
+    @Override
+    public StatisticalType getStatisticalType() {
+        return null;
+    }
+
+    @Override
+    public void setStatsDeriveResult(StatsDeriveResult result) {
+        this.statsDeriveResult = result;
+    }
+
+    @Override
+    public long getLimit() {
+        return limit;
+    }
+
+    @Override
+    public List<? extends ExprStats> getConjuncts() {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        AbstractPlan that = (AbstractPlan) o;
+        return limit == that.limit
+                && Objects.equals(statsDeriveResult, that.statsDeriveResult)
+                && Objects.equals(logicalProperties, that.logicalProperties);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(statsDeriveResult, limit, logicalProperties);
     }
 }

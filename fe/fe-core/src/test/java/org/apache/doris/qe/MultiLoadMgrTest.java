@@ -40,6 +40,7 @@ public class MultiLoadMgrTest {
     private ConnectContext context;
     @Mocked
     private SystemInfoService systemInfoService;
+
     @Before
     public void setUp() throws Exception {
         new Expectations() {

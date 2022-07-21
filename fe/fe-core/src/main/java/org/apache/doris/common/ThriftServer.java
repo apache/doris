@@ -99,7 +99,8 @@ public class ThriftServer {
         TThreadedSelectorServer.Args args = new TThreadedSelectorServer.Args(
                 new TNonblockingServerSocket(port, Config.thrift_client_timeout_ms)).protocolFactory(
                         new TBinaryProtocol.Factory()).processor(processor);
-        ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
+        ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
+                Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
         args.executorService(threadPoolExecutor);
         server = new TThreadedSelectorServer(args);
     }
@@ -114,7 +115,8 @@ public class ThriftServer {
         TThreadPoolServer.Args serverArgs =
                 new TThreadPoolServer.Args(new TServerSocket(socketTransportArgs)).protocolFactory(
                         new TBinaryProtocol.Factory()).processor(processor);
-        ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
+        ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
+                Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
         serverArgs.executorService(threadPoolExecutor);
         server = new TThreadPoolServer(serverArgs);
     }

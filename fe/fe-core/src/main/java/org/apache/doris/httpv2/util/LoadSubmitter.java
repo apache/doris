@@ -83,11 +83,13 @@ public class LoadSubmitter {
             // choose a backend to submit the stream load
             Backend be = selectOneBackend();
 
-            String loadUrlStr = String.format(STREAM_LOAD_URL_PATTERN, be.getHost(), be.getHttpPort(), loadContext.db, loadContext.tbl);
+            String loadUrlStr = String.format(STREAM_LOAD_URL_PATTERN, be.getHost(),
+                    be.getHttpPort(), loadContext.db, loadContext.tbl);
             URL loadUrl = new URL(loadUrlStr);
             HttpURLConnection conn = (HttpURLConnection) loadUrl.openConnection();
             conn.setRequestMethod("PUT");
-            String auth = String.format("%s:%s", ClusterNamespace.getNameFromFullName(loadContext.user), loadContext.passwd);
+            String auth = String.format("%s:%s", ClusterNamespace.getNameFromFullName(loadContext.user),
+                    loadContext.passwd);
             String authEncoding = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
             conn.setRequestProperty("Authorization", "Basic " + authEncoding);
             conn.addRequestProperty("Expect", "100-continue");

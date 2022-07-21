@@ -22,6 +22,7 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 set(VEC_FILES
   aggregate_functions/aggregate_function_window_funnel.cpp
   aggregate_functions/aggregate_function_avg.cpp
+  aggregate_functions/aggregate_function_collect.cpp
   aggregate_functions/aggregate_function_count.cpp
   aggregate_functions/aggregate_function_distinct.cpp
   aggregate_functions/aggregate_function_sum.cpp
@@ -39,7 +40,8 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_group_concat.cpp
   aggregate_functions/aggregate_function_percentile_approx.cpp
   aggregate_functions/aggregate_function_simple_factory.cpp
-  columns/collator.cpp
+  aggregate_functions/aggregate_function_java_udaf.h
+  aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
   columns/column.cpp
   columns/column_array.cpp
   columns/column_const.cpp
@@ -76,6 +78,7 @@ set(VEC_FILES
   data_types/nested_utils.cpp
   data_types/data_type_date.cpp
   data_types/data_type_date_time.cpp
+  data_types/data_type_time_v2.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
   exec/ves_http_scan_node.cpp
@@ -106,6 +109,8 @@ set(VEC_FILES
   exec/vparquet_scanner.cpp
   exec/vorc_scanner.cpp
   exec/join/vhash_join_node.cpp
+  exec/tablefunction/vnumbers_tbf.cpp
+  exec/vtable_valued_function_scannode.cpp
   exprs/vectorized_agg_fn.cpp
   exprs/vectorized_fn_call.cpp
   exprs/vexpr.cpp
@@ -113,6 +118,8 @@ set(VEC_FILES
   exprs/vliteral.cpp
   exprs/varray_literal.cpp
   exprs/vin_predicate.cpp
+  exprs/vbloom_predicate.cpp
+  exprs/vruntimefilter_wrapper.cpp
   exprs/vtuple_is_null_predicate.cpp
   exprs/vslot_ref.cpp
   exprs/vcast_expr.cpp
@@ -126,6 +133,12 @@ set(VEC_FILES
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
   functions/array/function_array_size.cpp
+  functions/array/function_array_aggregation.cpp
+  functions/array/function_array_sort.cpp
+  functions/array/function_array_utils.cpp
+  functions/array/function_arrays_overlap.cpp
+  functions/array/function_array_distinct.cpp
+  functions/array/function_array_remove.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -185,12 +198,13 @@ set(VEC_FILES
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
   olap/olap_data_convertor.cpp
-  sink/mysql_result_writer.cpp
-  sink/result_sink.cpp
+  sink/vmysql_result_writer.cpp
+  sink/vresult_sink.cpp
   sink/vdata_stream_sender.cpp
   sink/vtablet_sink.cpp
   sink/vmysql_table_writer.cpp
   sink/vmysql_table_sink.cpp
+  sink/vodbc_table_sink.cpp
   sink/vresult_file_sink.cpp
   runtime/vdatetime_value.cpp
   runtime/vdata_stream_recvr.cpp
@@ -198,7 +212,11 @@ set(VEC_FILES
   runtime/vfile_result_writer.cpp
   runtime/vpartition_info.cpp
   utils/arrow_column_to_doris_column.cpp
-  runtime/vsorted_run_merger.cpp)
+  runtime/vsorted_run_merger.cpp
+  exec/file_arrow_scanner.cpp
+  exec/file_scanner.cpp
+  exec/file_scan_node.cpp
+  exec/file_text_scanner.cpp)
 
 add_library(Vec STATIC
     ${VEC_FILES}

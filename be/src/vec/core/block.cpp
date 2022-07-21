@@ -403,7 +403,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
 }
 
 std::string Block::dump_one_line(size_t row, int column_end) const {
-    assert(column_end < columns());
+    assert(column_end <= columns());
     fmt::memory_buffer line;
     for (int i = 0; i < column_end; ++i) {
         if (LIKELY(i != 0)) {
@@ -635,8 +635,8 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
         ColumnUInt8* concrete_column = typeid_cast<ColumnUInt8*>(mutable_holder.get());
         if (!concrete_column) {
             return Status::InvalidArgument(
-                    "Illegal type " + filter_column->get_name() +
-                    " of column for filter. Must be UInt8 or Nullable(UInt8).");
+                    "Illegal type {} of column for filter. Must be UInt8 or Nullable(UInt8).",
+                    filter_column->get_name());
         }
         auto* __restrict null_map = nullable_column->get_null_map_data().data();
         IColumn::Filter& filter = concrete_column->get_data();
@@ -732,8 +732,8 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
                  << ", compressed size: " << compressed_size;
     }
     if (!allow_transfer_large_data && *compressed_bytes >= std::numeric_limits<int32_t>::max()) {
-        return Status::InternalError(fmt::format(
-                "The block is large than 2GB({}), can not send by Protobuf.", *compressed_bytes));
+        return Status::InternalError("The block is large than 2GB({}), can not send by Protobuf.",
+                                     *compressed_bytes);
     }
     return Status::OK();
 }

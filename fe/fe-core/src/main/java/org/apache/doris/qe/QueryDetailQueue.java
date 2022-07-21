@@ -66,4 +66,4 @@ public class QueryDetailQueue {
         return results;
     }
 
-};
+}

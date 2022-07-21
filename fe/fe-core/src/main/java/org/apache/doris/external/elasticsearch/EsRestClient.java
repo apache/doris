@@ -125,11 +125,8 @@ public class EsRestClient {
      * @return
      * @throws Exception
      */
-    public String getMapping(String indexName, boolean includeTypeName) throws DorisEsException {
+    public String getMapping(String indexName) throws DorisEsException {
         String path = indexName + "/_mapping";
-        if (includeTypeName) {
-            path += "?include_type_name=true";
-        }
         String indexMapping = execute(path);
         if (indexMapping == null) {
             throw new DorisEsException("index[" + indexName + "] not found");

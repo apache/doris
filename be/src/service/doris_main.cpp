@@ -58,12 +58,14 @@
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/logging.h"
+#include "util/perf_counters.h"
+#include "util/telemetry/telemetry.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER)
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include "runtime/tcmalloc_hook.h"
 #endif
 
@@ -320,7 +322,7 @@ int main(int argc, char** argv) {
     }
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER)
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     // Aggressive decommit is required so that unused pages in the TCMalloc page heap are
     // not backed by physical pages and do not contribute towards memory consumption.
     MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
@@ -331,7 +333,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
         return -1;
     }
-#ifdef USE_MEM_TRACKER
+#if defined(USE_MEM_TRACKER) && !defined(USE_JEMALLOC)
     if (doris::config::track_new_delete) {
         init_hook();
     }
@@ -399,9 +401,11 @@ int main(int argc, char** argv) {
     exec_env->set_storage_engine(engine);
     engine->set_heartbeat_flags(exec_env->heartbeat_flags());
 
-    // start all backgroud threads of storage engine.
+    // start all background threads of storage engine.
     // SHOULD be called after exec env is initialized.
     EXIT_IF_ERROR(engine->start_bg_threads());
+
+    doris::telemetry::initTracer();
 
     // begin to start services
     doris::ThriftRpcHelper::setup(exec_env);
@@ -471,14 +475,17 @@ int main(int argc, char** argv) {
         __lsan_do_leak_check();
 #endif
 
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
+        !defined(USE_JEMALLOC)
         doris::MemInfo::refresh_current_mem();
 #endif
+        doris::PerfCounters::refresh_proc_status();
+
         // TODO(zxy) 10s is too long to clear the expired task mem tracker.
         // A query mem tracker is about 57 bytes, assuming 10000 qps, which wastes about 55M of memory.
         // It should be actively triggered at the end of query/load.
         doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
-        sleep(10);
+        sleep(1);
     }
 
     http_service.stop();
@@ -492,11 +499,14 @@ int main(int argc, char** argv) {
 
     delete be_server;
     be_server = nullptr;
-    delete engine;
-    engine = nullptr;
+
     delete heartbeat_thrift_server;
     heartbeat_thrift_server = nullptr;
+
     doris::ExecEnv::destroy(exec_env);
+
+    delete engine;
+    engine = nullptr;
     return 0;
 }
 

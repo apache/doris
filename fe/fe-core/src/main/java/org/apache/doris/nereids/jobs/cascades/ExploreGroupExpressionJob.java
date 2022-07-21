@@ -17,14 +17,15 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.plans.Plan;
+
+import com.google.common.collect.Lists;
 
 import java.util.Comparator;
 import java.util.List;
@@ -32,32 +33,33 @@ import java.util.List;
 /**
  * Job to explore {@link GroupExpression} in {@link org.apache.doris.nereids.memo.Memo}.
  */
-public class ExploreGroupExpressionJob extends Job<Plan> {
+public class ExploreGroupExpressionJob extends Job {
     private final GroupExpression groupExpression;
 
     /**
      * Constructor for ExplorePlanJob.
      *
      * @param groupExpression {@link GroupExpression} to be explored
-     * @param context context of optimization
+     * @param context context of current job
      */
-    public ExploreGroupExpressionJob(GroupExpression groupExpression, PlannerContext context) {
+    public ExploreGroupExpressionJob(GroupExpression groupExpression, JobContext context) {
         super(JobType.EXPLORE_PLAN, context);
         this.groupExpression = groupExpression;
     }
 
     @Override
     public void execute() {
-        List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
-        List<Rule<Plan>> validRules = getValidRules(groupExpression, explorationRules);
+        // TODO: enable exploration job after we test it
+        // List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
+        List<Rule> explorationRules = Lists.newArrayList();
+        List<Rule> validRules = getValidRules(groupExpression, explorationRules);
         validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
-        // TODO: adapt situation when pattern arity smaller than group expression arity
-        for (Rule<Plan> rule : validRules) {
+        for (Rule rule : validRules) {
             pushTask(new ApplyRuleJob(groupExpression, rule, context));
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
-                if (childPattern.arity() > 0 && !childPattern.isFixed()) {
+                if (childPattern.arity() > 0 && !childPattern.isGroup()) {
                     Group child = groupExpression.child(i);
                     pushTask(new ExploreGroupJob(child, context));
                 }

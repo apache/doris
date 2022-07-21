@@ -64,7 +64,8 @@ public class MetaFooter {
             MetaMagicNumber magicNumber = MetaMagicNumber.read(raf);
             if (!Arrays.equals(MetaMagicNumber.MAGIC, magicNumber.getBytes())) {
                 LOG.warn("Image file {} format mismatch. Expected magic number is {}, actual is {}",
-                        imageFile.getPath(), Arrays.toString(MetaMagicNumber.MAGIC), Arrays.toString(magicNumber.getBytes()));
+                        imageFile.getPath(), Arrays.toString(MetaMagicNumber.MAGIC),
+                        Arrays.toString(magicNumber.getBytes()));
                 // this will compatible with old image
                 long footerIndex = fileLength - CHECKSUM_LENGTH_SIZE;
                 raf.seek(footerIndex);

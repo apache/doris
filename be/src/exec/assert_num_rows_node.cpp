@@ -57,7 +57,6 @@ Status AssertNumRowsNode::open(RuntimeState* state) {
 }
 
 Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, bool* eos) {
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
     output_batch->reset();
@@ -100,9 +99,8 @@ Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, 
         };
         LOG(INFO) << "Expected " << to_string_lambda(_assertion) << " " << _desired_num_rows
                   << " to be returned by expression " << _subquery_string;
-        return Status::Cancelled(strings::Substitute(
-                "Expected $0 $1 to be returned by expression $2", to_string_lambda(_assertion),
-                _desired_num_rows, _subquery_string));
+        return Status::Cancelled("Expected {} {} to be returned by expression {}",
+                                 to_string_lambda(_assertion), _desired_num_rows, _subquery_string);
     }
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     return Status::OK();

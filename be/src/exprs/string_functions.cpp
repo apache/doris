@@ -25,9 +25,7 @@
 #include <algorithm>
 
 #include "exprs/anyval_util.h"
-#include "fmt/format.h"
 #include "math_functions.h"
-#include "runtime/string_value.hpp"
 #include "util/simd/vstring_function.h"
 #include "util/url_parser.h"
 

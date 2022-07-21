@@ -20,16 +20,19 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
- *
+ * The interface of DataSource(catalog).
  */
-public interface DataSourceIf {
+public interface DataSourceIf<T extends DatabaseIf> {
 
     // Type of this data source
     String getType();
@@ -41,29 +44,71 @@ public interface DataSourceIf {
 
     List<String> getDbNames();
 
-    @Nullable
-    DatabaseIf getDbNullable(String dbName);
+    List<Long> getDbIds();
 
     @Nullable
-    DatabaseIf getDbNullable(long dbId);
+    T getDbNullable(String dbName);
 
-    Optional<DatabaseIf> getDb(String dbName);
+    @Nullable
+    T getDbNullable(long dbId);
 
-    Optional<DatabaseIf> getDb(long dbId);
+    Map<String, String> getProperties();
 
-    <E extends Exception> DatabaseIf getDbOrException(String dbName, java.util.function.Function<String, E> e) throws E;
+    void modifyDatasourceName(String name);
 
-    <E extends Exception> DatabaseIf getDbOrException(long dbId, java.util.function.Function<Long, E> e) throws E;
+    void modifyDatasourceProps(Map<String, String> props);
 
-    DatabaseIf getDbOrMetaException(String dbName) throws MetaNotFoundException;
+    default Optional<T> getDb(String dbName) {
+        return Optional.ofNullable(getDbNullable(dbName));
+    }
 
-    DatabaseIf getDbOrMetaException(long dbId) throws MetaNotFoundException;
+    default Optional<T> getDb(long dbId) {
+        return Optional.ofNullable(getDbNullable(dbId));
+    }
 
-    DatabaseIf getDbOrDdlException(String dbName) throws DdlException;
+    default <E extends Exception> T getDbOrException(String dbName, Function<String, E> e) throws E {
+        T db = getDbNullable(dbName);
+        if (db == null) {
+            throw e.apply(dbName);
+        }
+        return db;
+    }
 
-    DatabaseIf getDbOrDdlException(long dbId) throws DdlException;
+    default <E extends Exception> T getDbOrException(long dbId, Function<Long, E> e) throws E {
+        T db = getDbNullable(dbId);
+        if (db == null) {
+            throw e.apply(dbId);
+        }
+        return db;
+    }
 
-    DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException;
+    default T getDbOrMetaException(String dbName) throws MetaNotFoundException {
+        return getDbOrException(dbName,
+                s -> new MetaNotFoundException("unknown databases, dbName=" + s, ErrorCode.ERR_BAD_DB_ERROR));
+    }
 
-    DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException;
+    default T getDbOrMetaException(long dbId) throws MetaNotFoundException {
+        return getDbOrException(dbId,
+                s -> new MetaNotFoundException("unknown databases, dbId=" + s, ErrorCode.ERR_BAD_DB_ERROR));
+    }
+
+    default T getDbOrDdlException(String dbName) throws DdlException {
+        return getDbOrException(dbName,
+                s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
+    }
+
+    default T getDbOrDdlException(long dbId) throws DdlException {
+        return getDbOrException(dbId,
+                s -> new DdlException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
+    }
+
+    default T getDbOrAnalysisException(String dbName) throws AnalysisException {
+        return getDbOrException(dbName,
+                s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
+    }
+
+    default T getDbOrAnalysisException(long dbId) throws AnalysisException {
+        return getDbOrException(dbId,
+                s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
+    }
 }

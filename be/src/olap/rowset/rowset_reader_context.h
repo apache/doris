@@ -64,6 +64,8 @@ struct RowsetReaderContext {
     int batch_size = 1024;
     bool is_vec = false;
     bool is_unique = false;
+    //record row num merged in generic iterator
+    uint64_t* merged_rows = nullptr;
 };
 
 } // namespace doris

@@ -153,7 +153,8 @@ public class CacheAnalyzer {
         }
 
         public void debug() {
-            LOG.debug("table {}, partition id {}, ver {}, time {}", olapTable.getName(), latestPartitionId, latestVersion, latestTime);
+            LOG.debug("table {}, partition id {}, ver {}, time {}", olapTable.getName(),
+                    latestPartitionId, latestVersion, latestTime);
         }
     }
 
@@ -207,6 +208,12 @@ public class CacheAnalyzer {
                 LOG.debug("query contains non-olap table. queryid {}", DebugUtil.printId(queryId));
                 return CacheMode.None;
             }
+            if (enablePartitionCache() && ((OlapScanNode) node).getSelectedPartitionNum() > 1
+                    && selectStmt.hasGroupByClause()) {
+                LOG.debug("more than one partition scanned when qeury has agg, partition cache cannot use, queryid {}",
+                        DebugUtil.printId(queryId));
+                return CacheMode.None;
+            }
             CacheTable cTable = getSelectedPartitionLastUpdateTime((OlapScanNode) node);
             tblTimeList.add(cTable);
         }
@@ -239,7 +246,7 @@ public class CacheAnalyzer {
         //Check if selectStmt matches partition key
         //Only one table can be updated in Config.cache_last_version_interval_second range
         for (int i = 1; i < tblTimeList.size(); i++) {
-            if ((now - tblTimeList.get(i).latestTime) < Config.cache_last_version_interval_second * 1000) {
+            if ((now - tblTimeList.get(i).latestTime) < Config.cache_last_version_interval_second * 1000L) {
                 LOG.debug("the time of other tables is newer than {} s, queryid {}",
                         Config.cache_last_version_interval_second, DebugUtil.printId(queryId));
                 return CacheMode.None;
@@ -254,20 +261,23 @@ public class CacheAnalyzer {
         List<Column> columns = partitionInfo.getPartitionColumns();
         //Partition key has only one column
         if (columns.size() != 1) {
-            LOG.debug("more than one partition column, queryid {}", columns.size(), DebugUtil.printId(queryId));
+            LOG.debug("more than one partition column {}, queryid {}", columns.size(),
+                    DebugUtil.printId(queryId));
             return CacheMode.None;
         }
         partColumn = columns.get(0);
         //Check if group expr contain partition column
         if (!checkGroupByPartitionKey(this.selectStmt, partColumn)) {
-            LOG.debug("group by columns does not contains all partition column, queryid {}", DebugUtil.printId(queryId));
+            LOG.debug("group by columns does not contains all partition column, queryid {}",
+                    DebugUtil.printId(queryId));
             return CacheMode.None;
         }
         //Check if whereClause have one CompoundPredicate of partition column
         List<CompoundPredicate> compoundPredicates = Lists.newArrayList();
         getPartitionKeyFromSelectStmt(this.selectStmt, partColumn, compoundPredicates);
         if (compoundPredicates.size() != 1) {
-            LOG.debug("empty or more than one predicates contain partition column, queryid {}", DebugUtil.printId(queryId));
+            LOG.debug("empty or more than one predicates contain partition column, queryid {}",
+                    DebugUtil.printId(queryId));
             return CacheMode.None;
         }
         partitionPredicate = compoundPredicates.get(0);

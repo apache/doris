@@ -17,63 +17,126 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
+import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
+import org.apache.doris.nereids.jobs.scheduler.JobPool;
+import org.apache.doris.nereids.jobs.scheduler.JobScheduler;
+import org.apache.doris.nereids.jobs.scheduler.JobStack;
+import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleFactory;
+import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Sets;
+import com.google.common.collect.ImmutableList;
 
-import java.util.Set;
+import java.util.List;
 
 /**
- * Context used in all stage in Nereids.
+ * Context used in memo.
  */
 public class PlannerContext {
-    private final OptimizerContext optimizerContext;
+    private final Memo memo;
     private final ConnectContext connectContext;
-    private final PhysicalProperties physicalProperties;
-    private double costUpperBound;
-    private Set<Slot> neededSlots;
+    private RuleSet ruleSet;
+    private JobPool jobPool;
+    private final JobScheduler jobScheduler;
+    private JobContext currentJobContext;
 
     /**
-     * Constructor of OptimizationContext.
+     * Constructor of OptimizerContext.
      *
-     * @param optimizerContext context includes all data struct used in memo
-     * @param connectContext connect context of this query
-     * @param physicalProperties target physical properties
+     * @param memo {@link Memo} reference
      */
-    public PlannerContext(
-            OptimizerContext optimizerContext,
-            ConnectContext connectContext,
-            PhysicalProperties physicalProperties) {
-        this.optimizerContext = optimizerContext;
+    public PlannerContext(Memo memo, ConnectContext connectContext) {
+        this.memo = memo;
         this.connectContext = connectContext;
-        this.physicalProperties = physicalProperties;
-        this.costUpperBound = Double.MAX_VALUE;
-        this.neededSlots = Sets.newHashSet();
+        this.ruleSet = new RuleSet();
+        this.jobPool = new JobStack();
+        this.jobScheduler = new SimpleJobScheduler();
     }
 
-    public double getCostUpperBound() {
-        return costUpperBound;
+    public void pushJob(Job job) {
+        jobPool.push(job);
     }
 
-    public void setCostUpperBound(double costUpperBound) {
-        this.costUpperBound = costUpperBound;
-    }
-
-    public OptimizerContext getOptimizerContext() {
-        return optimizerContext;
+    public Memo getMemo() {
+        return memo;
     }
 
     public ConnectContext getConnectContext() {
         return connectContext;
     }
 
-    public PhysicalProperties getPhysicalProperties() {
-        return physicalProperties;
+    public RuleSet getRuleSet() {
+        return ruleSet;
     }
 
-    public Set<Slot> getNeededAttributes() {
-        return neededSlots;
+    public void setRuleSet(RuleSet ruleSet) {
+        this.ruleSet = ruleSet;
+    }
+
+    public JobPool getJobPool() {
+        return jobPool;
+    }
+
+    public void setJobPool(JobPool jobPool) {
+        this.jobPool = jobPool;
+    }
+
+    public JobScheduler getJobScheduler() {
+        return jobScheduler;
+    }
+
+    public JobContext getCurrentJobContext() {
+        return currentJobContext;
+    }
+
+    public void setCurrentJobContext(JobContext currentJobContext) {
+        this.currentJobContext = currentJobContext;
+    }
+
+    public PlannerContext setDefaultJobContext() {
+        this.currentJobContext = new JobContext(this, new PhysicalProperties(), Double.MAX_VALUE);
+        return this;
+    }
+
+    public PlannerContext setJobContext(PhysicalProperties physicalProperties) {
+        this.currentJobContext = new JobContext(this, physicalProperties, Double.MAX_VALUE);
+        return this;
+    }
+
+    public PlannerContext bottomUpRewrite(RuleFactory... rules) {
+        return execute(new RewriteBottomUpJob(memo.getRoot(), currentJobContext, ImmutableList.copyOf(rules)));
+    }
+
+    public PlannerContext bottomUpRewrite(Rule... rules) {
+        return bottomUpRewrite(ImmutableList.copyOf(rules));
+    }
+
+    public PlannerContext bottomUpRewrite(List<Rule> rules) {
+        return execute(new RewriteBottomUpJob(memo.getRoot(), rules, currentJobContext));
+    }
+
+    public PlannerContext topDownRewrite(RuleFactory... rules) {
+        return execute(new RewriteTopDownJob(memo.getRoot(), currentJobContext, ImmutableList.copyOf(rules)));
+    }
+
+    public PlannerContext topDownRewrite(Rule... rules) {
+        return topDownRewrite(ImmutableList.copyOf(rules));
+    }
+
+    public PlannerContext topDownRewrite(List<Rule> rules) {
+        return execute(new RewriteTopDownJob(memo.getRoot(), rules, currentJobContext));
+    }
+
+    private PlannerContext execute(Job job) {
+        pushJob(job);
+        jobScheduler.executeJobPool(this);
+        return this;
     }
 }

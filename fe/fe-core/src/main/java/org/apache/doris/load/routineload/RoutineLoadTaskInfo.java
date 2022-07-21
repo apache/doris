@@ -168,8 +168,8 @@ public abstract class RoutineLoadTaskInfo {
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         try {
             MetricRepo.COUNTER_LOAD_ADD.increase(1L);
-            txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                    routineLoadJob.getDbId(), Lists.newArrayList(routineLoadJob.getTableId()), DebugUtil.printId(id), null,
+            txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(routineLoadJob.getDbId(),
+                    Lists.newArrayList(routineLoadJob.getTableId()), DebugUtil.printId(id), null,
                     new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                     TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId(),
                     timeoutMs / 1000);

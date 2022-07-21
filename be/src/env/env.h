@@ -13,7 +13,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "util/slice.h"
@@ -29,6 +28,10 @@ struct FilePathDesc;
 struct WritableFileOptions;
 struct RandomAccessFileOptions;
 struct RandomRWFileOptions;
+
+namespace io {
+class FileSystem;
+}
 
 class Env {
 public:
@@ -191,6 +194,8 @@ struct FilePathDesc {
     std::string filepath;
     std::string remote_path;
     std::string storage_name;
+    io::FileSystem* file_system;
+
     std::string debug_string() const {
         std::stringstream ss;
         ss << "storage_medium: " << to_string(storage_medium) << ", local_path: " << filepath;

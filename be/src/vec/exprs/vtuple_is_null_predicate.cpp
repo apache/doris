@@ -83,4 +83,21 @@ const std::string& VTupleIsNullPredicate::expr_name() const {
     return _expr_name;
 }
 
+std::string VTupleIsNullPredicate::debug_string() const {
+    std::stringstream out;
+    out << "TupleIsNullPredicate(_column_to_check=[";
+
+    bool first = true;
+    for (int i = 0; i < _column_to_check.size(); ++i) {
+        if (first) {
+            out << _column_to_check[i];
+            first = false;
+        } else {
+            out << ", " << _column_to_check[i];
+        }
+    }
+    out << "])";
+    return out.str();
+}
+
 } // namespace doris::vectorized

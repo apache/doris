@@ -47,21 +47,21 @@ public class ExecuteEnvTest {
             Assert.assertEquals(oids[i - 1], oids[i]);
         }
     }
-}
 
-class MyTest implements Runnable {
-    public int index;
-    public int[] oids;
+    static class MyTest implements Runnable {
+        public int index;
+        public int[] oids;
 
-    MyTest(int index, int[] oids) {
-        this.index = index;
-        this.oids = oids;
-    }
+        MyTest(int index, int[] oids) {
+            this.index = index;
+            this.oids = oids;
+        }
 
-    @Override
-    public void run() {
-        ExecuteEnv instance = ExecuteEnv.getInstance();
-        int oid = instance.hashCode();
-        oids[index] = oid;
+        @Override
+        public void run() {
+            ExecuteEnv instance = ExecuteEnv.getInstance();
+            int oid = instance.hashCode();
+            oids[index] = oid;
+        }
     }
 }

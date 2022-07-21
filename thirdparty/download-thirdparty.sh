@@ -293,7 +293,7 @@ fi
 echo "Finished patching $ROCKSDB_SOURCE"
 
 # opentelemetry patch is used to solve the problem that threadlocal depends on GLIBC_2.18
-# see: https://github.com/apache/incubator-doris/pull/7911
+# see: https://github.com/apache/doris/pull/7911
 if [ $OPENTELEMETRY_SOURCE == "opentelemetry-cpp-1.4.0" ]; then
     rm -rf $TP_SOURCE_DIR/$OPENTELEMETRY_SOURCE/third_party/opentelemetry-proto/*
     cp -r $TP_SOURCE_DIR/$OPENTELEMETRY_PROTO_SOURCE/* $TP_SOURCE_DIR/$OPENTELEMETRY_SOURCE/third_party/opentelemetry-proto
@@ -349,4 +349,12 @@ fi
 cd -
 echo "Finished patching $AWS_SDK_SOURCE"
 
-
+cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
+if [[ ! -f $PATCHED_MARK ]]; then
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/brpc-1.1.0.patch"
+        touch ${PATCHED_MARK}
+    fi
+fi
+cd -
+echo "Finished patching ${BRPC_SOURCE}"

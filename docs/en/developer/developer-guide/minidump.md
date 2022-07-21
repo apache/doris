@@ -123,39 +123,39 @@ We can use the following two methods to analyze Minidump files.
     Then we can use the gdb tool to analyze the coredump file:
     
     ```
-    gdb lib/palo_be -c 1.coredump
+    gdb lib/doris_be -c 1.coredump
     ```
 
 2. Generate a readable call stack
 
-    The Minidump file only contains the address of the call stack, and we need to map these addresses to the actual function file location. Therefore, we first need to generate the symbol table `palo_be.sym` of the BE binary file through `dump_syms`:
+    The Minidump file only contains the address of the call stack, and we need to map these addresses to the actual function file location. Therefore, we first need to generate the symbol table `doris_be.sym` of the BE binary file through `dump_syms`:
     
     ```
-    ./dump_syms ./lib/palo_be> palo_be.sym
+    ./dump_syms ./lib/doris_be> doris_be.sym
     ```
 
     Next, we need the information in the first row of the symbol table to build a corresponding symbol table directory.
     
     ```
-    head -n1 palo_be.sym
+    head -n1 doris_be.sym
     ```
     
-    The above command will print the first line of palo_be.sym as follows:
+    The above command will print the first line of doris_be.sym as follows:
     
     ```
-    MODULE Linux x86_64 137706CC745F5EC3EABBF730D4B229370 palo_be
+    MODULE Linux x86_64 137706CC745F5EC3EABBF730D4B229370 doris_be
     ```
     
     Then we create a directory structure:
     
     ```
-    mkdir -p ./symbols/palo_be/137706CC745F5EC3EABBF730D4B229370
+    mkdir -p ./symbols/doris_be/137706CC745F5EC3EABBF730D4B229370
     ```
     
-    The `palo_be` and `137706CC745F5EC3EABBF730D4B229370` in the directory path must be consistent with the first line of the palo_be.sym file. Then we move the palo_be.sym file to this directory:
+    The `doris_be` and `137706CC745F5EC3EABBF730D4B229370` in the directory path must be consistent with the first line of the doris_be.sym file. Then we move the doris_be.sym file to this directory:
     
     ```
-    cp palo_be.sym ./symbols/palo_be/137706CC745F5EC3EABBF730D4B229370
+    cp doris_be.sym ./symbols/doris_be/137706CC745F5EC3EABBF730D4B229370
     ```
     
     Finally, we can use `minidump_stackwalk` to produce readable call stack information:
@@ -164,7 +164,7 @@ We can use the following two methods to analyze Minidump files.
     minidump_stackwalk 4f8d4fe5-15f8-40a3-843109b3-d49993f3.dmp ./symbols/> readable.stack
     ```
     
-    Among them, `4f8d4fe5-15f8-40a3-843109b3-d49993f3.dmp` is a minidump file. `./symbols/` is the previously created directory containing palo_be.sym. `readable.stack` redirects the generated results to this file. At the same time, when this command is executed, some program running logs will be flashed on the screen, so you can ignore it.
+    Among them, `4f8d4fe5-15f8-40a3-843109b3-d49993f3.dmp` is a minidump file. `./symbols/` is the previously created directory containing doris_be.sym. `readable.stack` redirects the generated results to this file. At the same time, when this command is executed, some program running logs will be flashed on the screen, so you can ignore it.
     
     At this point, we have obtained a readable thread call stack file: readable.stack. It contains the call stack information of all threads when the BE program is writing the Minidump file, and the corresponding register information. Among them, `Crash reason` explains why the program crashed. If it is `DUMP_REQUESTED`, it means that this is a Minidump triggered by the user.
     

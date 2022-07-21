@@ -67,9 +67,7 @@ Status LoadErrorHub::create_hub(ExecEnv* env, const TLoadErrorHubInfo* t_hub_inf
         hub->reset(tmp_hub);
         break;
     default:
-        std::stringstream err;
-        err << "Unknown hub type." << t_hub_info->type;
-        return Status::InternalError(err.str());
+        return Status::InternalError("Unknown hub type {}", t_hub_info->type);
     }
 
     return Status::OK();

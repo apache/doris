@@ -20,21 +20,10 @@
 #include <sstream>
 #include <thread>
 
-#include "exec/text_converter.hpp"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/client_cache.h"
-#include "runtime/exec_env.h"
-#include "runtime/row_batch.h"
-#include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
-#include "util/debug_util.h"
-#include "util/network_util.h"
-#include "util/runtime_profile.h"
 #include "util/thrift_rpc_helper.h"
-#include "util/thrift_util.h"
 
 namespace doris {
 

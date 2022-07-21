@@ -111,7 +111,8 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     /**
-     * Situation1: When attachment is instance of BrokerPendingTaskAttachment, this method is called by broker pending task.
+     * Situation1: When attachment is instance of BrokerPendingTaskAttachment,
+     * this method is called by broker pending task.
      * LoadLoadingTask will be created after BrokerPendingTask is finished.
      * Situation2: When attachment is instance of BrokerLoadingTaskAttachment, this method is called by LoadLoadingTask.
      * CommitTxn will be called after all of LoadingTasks are finished.
@@ -183,13 +184,15 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     private void createLoadingTask(Database db, BrokerPendingTaskAttachment attachment) throws UserException {
-        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(
+                Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
         // divide job into broker loading task by table
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
         this.jobProfile = new RuntimeProfile("BrokerLoadJob " + id + ". " + label);
         MetaLockUtils.readLockTables(tableList);
         try {
-            for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry : fileGroupAggInfo.getAggKeyToFileGroups().entrySet()) {
+            for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry
+                    : fileGroupAggInfo.getAggKeyToFileGroups().entrySet()) {
                 FileGroupAggKey aggKey = entry.getKey();
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
@@ -212,7 +215,8 @@ public class BrokerLoadJob extends BulkLoadJob {
                 // load id will be added to loadStatistic when executing this task
 
                 // save all related tables and rollups in transaction state
-                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(dbId, transactionId);
+                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(dbId, transactionId);
                 if (txnState == null) {
                     throw new UserException("txn does not exist: " + transactionId);
                 }
@@ -267,8 +271,8 @@ public class BrokerLoadJob extends BulkLoadJob {
 
         // check data quality
         if (!checkDataQuality()) {
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, DataQualityException.QUALITY_FAIL_MSG),
-                    true, true);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED,
+                            DataQualityException.QUALITY_FAIL_MSG), true, true);
             return;
         }
         Database db = null;
@@ -315,7 +319,8 @@ public class BrokerLoadJob extends BulkLoadJob {
         summaryProfile.addInfoString(ProfileManager.QUERY_ID, String.valueOf(id));
         summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(createTimestamp));
         summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(finishTimestamp));
-        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(finishTimestamp - createTimestamp));
+        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME,
+                DebugUtil.getPrettyStringMs(finishTimestamp - createTimestamp));
 
         summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Load");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, "N/A");

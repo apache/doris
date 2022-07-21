@@ -20,7 +20,6 @@
 #include <stdint.h>
 
 #include "udf/udf.h"
-#include "udf/udf_internal.h"
 #include "util/encryption_util.h"
 #include "util/string_util.h"
 

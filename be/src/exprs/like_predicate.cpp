@@ -25,7 +25,6 @@
 #include <sstream>
 
 #include "exprs/string_functions.h"
-#include "runtime/string_value.hpp"
 
 namespace doris {
 

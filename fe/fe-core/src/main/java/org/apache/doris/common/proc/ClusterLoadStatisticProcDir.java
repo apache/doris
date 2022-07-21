@@ -25,7 +25,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Table;
 
 import java.util.List;
 import java.util.Map;
@@ -51,7 +50,8 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        Map<String, ClusterLoadStatistic> map = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap().column(tag);
+        Map<String, ClusterLoadStatistic> map = Catalog.getCurrentCatalog()
+                .getTabletScheduler().getStatisticMap().column(tag);
 
         map.values().forEach(t -> {
             List<List<String>> statistics = t.getClusterStatistic(medium);
@@ -80,7 +80,8 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
             throw new AnalysisException("backend " + beId + " does not exist");
         }
 
-        Map<String, ClusterLoadStatistic> map = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap().column(tag);
+        Map<String, ClusterLoadStatistic> map = Catalog.getCurrentCatalog()
+                .getTabletScheduler().getStatisticMap().column(tag);
         return new BackendLoadStatisticProcNode(map.get(be.getOwnerClusterName()), beId);
     }
 

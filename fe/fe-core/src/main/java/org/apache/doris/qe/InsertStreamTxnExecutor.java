@@ -62,7 +62,8 @@ public class InsertStreamTxnExecutor {
             InterruptedException, ExecutionException {
         TTxnParams txnConf = txnEntry.getTxnConf();
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-        StreamLoadPlanner planner = new StreamLoadPlanner(txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
+        StreamLoadPlanner planner = new StreamLoadPlanner(
+                txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(txnEntry.getDb().getClusterName())
                 .needLoadAvailable().needQueryAvailable().build();
@@ -110,7 +111,8 @@ public class InsertStreamTxnExecutor {
         Backend backend = txnEntry.getBackend();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
-            Future<InternalService.PCommitResult> future = BackendServiceProxy.getInstance().commit(address, fragmentInstanceId);
+            Future<InternalService.PCommitResult> future = BackendServiceProxy
+                    .getInstance().commit(address, fragmentInstanceId);
             InternalService.PCommitResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {

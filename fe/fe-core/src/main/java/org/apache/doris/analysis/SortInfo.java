@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
@@ -40,7 +41,7 @@ import java.util.Set;
  * particular input row (materialize all row slots)
  */
 public class SortInfo {
-    private final static Logger LOG = LogManager.getLogger(SortInfo.class);
+    private static final Logger LOG = LogManager.getLogger(SortInfo.class);
     // All ordering exprs with cost greater than this will be materialized. Since we don't
     // currently have any information about actual function costs, this value is intended to
     // ensure that all expensive functions will be materialized while still leaving simple
@@ -71,6 +72,19 @@ public class SortInfo {
         this.isAscOrder = isAscOrder;
         this.nullsFirstParams = nullsFirstParams;
         materializedOrderingExprs = Lists.newArrayList();
+    }
+
+    /**
+     * Used by new optimizer.
+     */
+    public SortInfo(List<Expr> orderingExprs,
+                    List<Boolean> isAscOrder,
+                    List<Boolean> nullsFirstParams,
+                    TupleDescriptor sortTupleDesc) {
+        this.orderingExprs = orderingExprs;
+        this.isAscOrder = isAscOrder;
+        this.nullsFirstParams = nullsFirstParams;
+        this.sortTupleDesc = sortTupleDesc;
     }
 
     /**
@@ -121,6 +135,14 @@ public class SortInfo {
 
     public List<Expr> getSortTupleSlotExprs() {
         return sortTupleSlotExprs;
+    }
+
+    public void setSortTupleSlotExprs(List<Expr> sortTupleSlotExprs) {
+        this.sortTupleSlotExprs = sortTupleSlotExprs;
+    }
+
+    public void setSortTupleDesc(TupleDescriptor tupleDesc) {
+        sortTupleDesc = tupleDesc;
     }
 
     public TupleDescriptor getSortTupleDescriptor() {
@@ -259,5 +281,16 @@ public class SortInfo {
             materializedOrderingExprs.add(origOrderingExpr);
         }
         return substOrderBy;
+    }
+
+    /**
+     * Convert the sort info to TSortInfo.
+     */
+    public TSortInfo toThrift() {
+        TSortInfo sortInfo = new TSortInfo(
+                Expr.treesToThrift(orderingExprs),
+                isAscOrder,
+                nullsFirstParams);
+        return sortInfo;
     }
 }

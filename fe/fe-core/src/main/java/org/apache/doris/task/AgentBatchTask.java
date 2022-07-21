@@ -210,15 +210,14 @@ public class AgentBatchTask implements Runnable {
                 tAgentTaskRequest.setDropTabletReq(request);
                 return tAgentTaskRequest;
             }
-            case REALTIME_PUSH:
-            case PUSH: {
+            case REALTIME_PUSH: {
                 PushTask pushTask = (PushTask) task;
                 TPushReq request = pushTask.toThrift();
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setPushReq(request);
-                if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
+                if (pushTask.getPushType() == TPushType.LOAD) {
                     tAgentTaskRequest.setResourceInfo(pushTask.getResourceInfo());
                 }
                 tAgentTaskRequest.setPriority(pushTask.getPriority());

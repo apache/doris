@@ -25,17 +25,17 @@ under the License.
 
     ```console
     $ cd /to/your/workspace/
-    $ git clone https://github.com/apache/incubator-doris.git
+    $ git clone https://github.com/apache/doris.git
     ```
 
-    You can remove the `.git` dir in `incubator-doris/` to make the dir size smaller.
+    You can remove the `.git` dir in `doris/` to make the dir size smaller.
     So that the following generated docker image can be smaller.
 
 2. Copy Dockerfile
 
     ```console
     $ cd /to/your/workspace/
-    $ cp incubator-doris/docker/Dockerfile ./
+    $ cp doris/docker/Dockerfile ./
     ```
 
 After preparation, your workspace should like this:
@@ -43,7 +43,7 @@ After preparation, your workspace should like this:
 ```
 .
 ├── Dockerfile
-├── incubator-doris
+├── doris
 │   ├── be
 │   ├── bin
 │   ├── build.sh
@@ -72,14 +72,14 @@ to download it first and map it to the container. (You can just use the one you
 used to build this image before)
 
 ```console
-$ docker run -it -v /your/local/path/incubator-doris/:/root/incubator-doris/ doris:v1.0
-$ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ doris:v1.0
+$ docker run -it -v /your/local/path/doris/:/root/doris/ doris:v1.0
+$ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/doris-DORIS-x.x.x-release/:/root/doris-DORIS-x.x.x-release/ doris:v1.0
 ```
 
 Then you can build source code inside the container.
 
 ```console
-$ cd /root/incubator-doris/
+$ cd /root/doris/
 $ sh build.sh
 ```
 

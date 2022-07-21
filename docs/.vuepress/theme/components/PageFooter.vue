@@ -23,7 +23,9 @@ under the License.
       </li>
     </ul>
     <div class="footer-copyright">
-      <p class="wow fadeInUp">Copyright © 2022 The Apache Software Foundation. Licensed under the Apache License, Version 2.0. Apache <br/> Doris(Incubating), Apache Incubator, Apache, the Apache feather logo, the Apache Doris(Incubating) logo and the <br/>Apache Incubator project logo are trademarks of The Apache Software Foundation.</p>
+      <p class="wow fadeInUp">
+        Copyright © 2022 The Apache Software Foundation. Licensed under the Apache License, Version 2.0.  <br/>Apache Doris, Apache,  the Apache feather logo, the Apache Doris logo are trademarks of The Apache Software Foundation.
+      </p>
     </div>
   </div>
 </template>

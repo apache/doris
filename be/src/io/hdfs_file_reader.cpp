@@ -19,7 +19,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "common/logging.h"
 #include "service/backend_options.h"
 
 namespace doris {
@@ -31,74 +30,74 @@ HdfsFileReader::HdfsFileReader(const THdfsParams& hdfs_params, const std::string
           _current_offset(start_offset),
           _file_size(-1),
           _hdfs_fs(nullptr),
-          _hdfs_file(nullptr) {
+          _hdfs_file(nullptr),
+          _builder(createHDFSBuilder(_hdfs_params)) {
     _namenode = _hdfs_params.fs_name;
+}
+
+HdfsFileReader::HdfsFileReader(const std::map<std::string, std::string>& properties,
+                               const std::string& path, int64_t start_offset)
+        : _path(path),
+          _current_offset(start_offset),
+          _file_size(-1),
+          _hdfs_fs(nullptr),
+          _hdfs_file(nullptr),
+          _builder(createHDFSBuilder(properties)) {
+    _parse_properties(properties);
 }
 
 HdfsFileReader::~HdfsFileReader() {
     close();
 }
 
+void HdfsFileReader::_parse_properties(const std::map<std::string, std::string>& prop) {
+    auto iter = prop.find(FS_KEY);
+    if (iter != prop.end()) {
+        _namenode = iter->second;
+    }
+}
+
 Status HdfsFileReader::connect() {
-    hdfsBuilder* hdfs_builder = hdfsNewBuilder();
-    hdfsBuilderSetNameNode(hdfs_builder, _namenode.c_str());
-    // set hdfs user
-    if (_hdfs_params.__isset.user) {
-        hdfsBuilderSetUserName(hdfs_builder, _hdfs_params.user.c_str());
+    if (_builder.is_need_kinit()) {
+        RETURN_IF_ERROR(_builder.run_kinit());
     }
-    // set kerberos conf
-    if (_hdfs_params.__isset.kerb_principal) {
-        hdfsBuilderSetPrincipal(hdfs_builder, _hdfs_params.kerb_principal.c_str());
-    }
-    if (_hdfs_params.__isset.kerb_ticket_cache_path) {
-        hdfsBuilderSetKerbTicketCachePath(hdfs_builder,
-                                          _hdfs_params.kerb_ticket_cache_path.c_str());
-    }
-    // set token
-    if (_hdfs_params.__isset.token) {
-        hdfsBuilderSetToken(hdfs_builder, _hdfs_params.token.c_str());
-    }
-    // set other conf
-    if (_hdfs_params.__isset.hdfs_conf) {
-        for (const THdfsConf& conf : _hdfs_params.hdfs_conf) {
-            hdfsBuilderConfSetStr(hdfs_builder, conf.key.c_str(), conf.value.c_str());
-        }
-    }
-    _hdfs_fs = hdfsBuilderConnect(hdfs_builder);
-    hdfsFreeBuilder(hdfs_builder);
+    _hdfs_fs = hdfsBuilderConnect(_builder.get());
     if (_hdfs_fs == nullptr) {
-        std::stringstream ss;
-        ss << "connect to hdfs failed. namenode address:" << _namenode
-           << ", error: " << hdfsGetLastError();
-        return Status::InternalError(ss.str());
+        return Status::InternalError("connect to hdfs failed. namenode address:{}, error: {}",
+                                     _namenode, hdfsGetLastError());
     }
     return Status::OK();
 }
 
 Status HdfsFileReader::open() {
+    if (_namenode.empty()) {
+        LOG(WARNING) << "hdfs properties is incorrect.";
+        return Status::InternalError("hdfs properties is incorrect");
+    }
+    // if the format of _path is hdfs://ip:port/path, replace it to /path.
+    // path like hdfs://ip:port/path can't be used by libhdfs3.
+    if (_path.find(_namenode) != _path.npos) {
+        _path = _path.substr(_namenode.size());
+    }
+
     if (!closed()) {
         close();
     }
     RETURN_IF_ERROR(connect());
     _hdfs_file = hdfsOpenFile(_hdfs_fs, _path.c_str(), O_RDONLY, 0, 0, 0);
     if (_hdfs_file == nullptr) {
-        std::stringstream ss;
-        ss << "open file failed. "
-           << "(BE: " << BackendOptions::get_localhost() << ")" << _namenode << _path
-           << ", err: " << strerror(errno);
-        ;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("open file failed. (BE: {}) namenode:{}, path:{}, err: {}",
+                                     BackendOptions::get_localhost(), _namenode, _path,
+                                     hdfsGetLastError());
     }
-    LOG(INFO) << "open file. " << _namenode << _path;
+    VLOG_NOTICE << "open file, namenode:" << _namenode << ", path:" << _path;
     return seek(_current_offset);
 }
 
 void HdfsFileReader::close() {
     if (!closed()) {
         if (_hdfs_file != nullptr && _hdfs_fs != nullptr) {
-            std::stringstream ss;
-            ss << "close hdfs file: " << _namenode << _path;
-            LOG(INFO) << ss.str();
+            VLOG_NOTICE << "close hdfs file: " << _namenode << _path;
             //If the hdfs file was valid, the memory associated with it will
             // be freed at the end of this call, even if there was an I/O error
             hdfsCloseFile(_hdfs_fs, _hdfs_file);
@@ -113,7 +112,7 @@ void HdfsFileReader::close() {
 }
 
 bool HdfsFileReader::closed() {
-    return _hdfs_file == nullptr || _hdfs_fs == nullptr;
+    return _hdfs_file == nullptr && _hdfs_fs == nullptr;
 }
 
 // Read all bytes
@@ -124,7 +123,7 @@ Status HdfsFileReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t
         *length = 0;
         return Status::OK();
     }
-    bool eof;
+    bool eof = false;
     buf->reset(new uint8_t[file_size]);
     read(buf->get(), file_size, length, &eof);
     return Status::OK();
@@ -144,23 +143,17 @@ Status HdfsFileReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
     if (position != _current_offset) {
         int ret = hdfsSeek(_hdfs_fs, _hdfs_file, position);
         if (ret != 0) { // check fseek return value
-            std::stringstream ss;
-            ss << "hdfsSeek failed. "
-               << "(BE: " << BackendOptions::get_localhost() << ")" << _namenode << _path
-               << ", err: " << strerror(errno);
-            ;
-            return Status::InternalError(ss.str());
+            return Status::InternalError("hdfsSeek failed.(BE: {}) namenode:{}, path:{}, err: {}",
+                                         BackendOptions::get_localhost(), _namenode, _path,
+                                         hdfsGetLastError());
         }
     }
 
     *bytes_read = hdfsRead(_hdfs_fs, _hdfs_file, out, nbytes);
     if (*bytes_read < 0) {
-        std::stringstream ss;
-        ss << "Read hdfs file failed. "
-           << "(BE: " << BackendOptions::get_localhost() << ")" << _namenode << _path
-           << ", err: " << strerror(errno);
-        ;
-        return Status::InternalError(ss.str());
+        return Status::InternalError(
+                "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
+                BackendOptions::get_localhost(), _namenode, _path, hdfsGetLastError());
     }
     _current_offset += *bytes_read; // save offset with file
     return Status::OK();
@@ -178,7 +171,7 @@ int64_t HdfsFileReader::size() {
         hdfsFileInfo* file_info = hdfsGetPathInfo(_hdfs_fs, _path.c_str());
         if (file_info == nullptr) {
             LOG(WARNING) << "get path info failed: " << _namenode << _path
-                         << ", err: " << strerror(errno);
+                         << ", err: " << hdfsGetLastError();
             ;
             close();
             return -1;
@@ -195,11 +188,8 @@ int64_t HdfsFileReader::size() {
 Status HdfsFileReader::seek(int64_t position) {
     int res = hdfsSeek(_hdfs_fs, _hdfs_file, position);
     if (res != 0) {
-        std::stringstream ss;
-        ss << "Seek to offset failed. "
-           << "(BE: " << BackendOptions::get_localhost() << ")"
-           << " offset=" << position << ", err: " << strerror(errno);
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
+                                     BackendOptions::get_localhost(), position, hdfsGetLastError());
     }
     return Status::OK();
 }

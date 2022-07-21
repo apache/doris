@@ -60,7 +60,7 @@ Status convert_to_arrow_type(FieldType type, std::shared_ptr<arrow::DataType>* r
         *result = arrow::float64();
         break;
     default:
-        return Status::InvalidArgument(strings::Substitute("Unknown FieldType($0)", type));
+        return Status::InvalidArgument("Unknown FieldType({})", type);
     }
     return Status::OK();
 }
@@ -106,7 +106,7 @@ Status convert_to_type_name(const arrow::DataType& type, std::string* name) {
         *name = "DOUBLE";
         break;
     default:
-        return Status::InvalidArgument(strings::Substitute("Unknown arrow type id($0)", type.id()));
+        return Status::InvalidArgument("Unknown arrow type id({})", type.id());
     }
     return Status::OK();
 }

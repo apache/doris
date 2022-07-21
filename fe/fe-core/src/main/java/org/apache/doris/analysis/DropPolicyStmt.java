@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -54,9 +55,16 @@ public class DropPolicyStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        tableName.analyze(analyzer);
-        if (user != null) {
-            user.analyze(analyzer.getClusterName());
+        switch (type) {
+            case STORAGE:
+                // current not support drop storage policy, because be use it policy name to find s3 resource.
+                throw new DdlException("current not support drop storage policy.");
+            case ROW:
+            default:
+                tableName.analyze(analyzer);
+                if (user != null) {
+                    user.analyze(analyzer.getClusterName());
+                }
         }
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
@@ -71,9 +79,16 @@ public class DropPolicyStmt extends DdlStmt {
         if (ifExists) {
             sb.append("IF EXISTS ");
         }
-        sb.append(policyName).append(" ON ").append(tableName.toSql());
-        if (user != null) {
-            sb.append(" FOR ").append(user.getQualifiedUser());
+        sb.append(policyName);
+        switch (type) {
+            case STORAGE:
+                break;
+            case ROW:
+            default:
+                sb.append(" ON ").append(tableName.toSql());
+                if (user != null) {
+                    sb.append(" FOR ").append(user.getQualifiedUser());
+                }
         }
         return sb.toString();
     }

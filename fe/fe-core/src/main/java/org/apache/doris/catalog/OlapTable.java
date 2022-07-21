@@ -38,6 +38,7 @@ import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -141,6 +142,8 @@ public class OlapTable extends Table {
 
     private TableProperty tableProperty;
 
+    private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
+
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -189,6 +192,20 @@ public class OlapTable extends Table {
 
     public TableProperty getTableProperty() {
         return this.tableProperty;
+    }
+
+    //take care: only use at create olap table.
+    public int incAndGetMaxColUniqueId() {
+        this.maxColUniqueId++;
+        return this.maxColUniqueId;
+    }
+
+    public int getMaxColUniqueId() {
+        return this.maxColUniqueId;
+    }
+
+    public void setMaxColUniqueId(int maxColUniqueId) {
+        this.maxColUniqueId = maxColUniqueId;
     }
 
     public boolean dynamicPartitionExists() {
@@ -340,8 +357,8 @@ public class OlapTable extends Table {
         this.indexIdToMeta.remove(indexId);
         // Some column of deleted index should be removed during `deleteIndexInfo` such as `mv_bitmap_union_c1`
         // If deleted index id == base index id, the schema will not be rebuilt.
-        // The reason is that the base index has been removed from indexIdToMeta while the new base index hasn't changed.
-        // The schema could not be rebuild in here with error base index id.
+        // The reason is that the base index has been removed from indexIdToMeta while the new base index
+        // hasn't changed. The schema could not be rebuild in here with error base index id.
         if (indexId != baseIndexId) {
             rebuildFullSchema();
         }
@@ -643,10 +660,12 @@ public class OlapTable extends Table {
             return partitionColumnNames;
         } else if (partitionInfo instanceof RangePartitionInfo) {
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-            return rangePartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
+            return rangePartitionInfo.getPartitionColumns().stream()
+                    .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
         } else if (partitionInfo instanceof ListPartitionInfo) {
             ListPartitionInfo listPartitionInfo = (ListPartitionInfo) partitionInfo;
-            return listPartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
+            return listPartitionInfo.getPartitionColumns().stream()
+                    .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
         } else {
             throw new DdlException("Unknown partition info type: " + partitionInfo.getType().name());
         }
@@ -1142,6 +1161,7 @@ public class OlapTable extends Table {
         }
 
         tempPartitions.write(out);
+        out.writeInt(maxColUniqueId);
     }
 
     @Override
@@ -1233,6 +1253,10 @@ public class OlapTable extends Table {
             }
         }
         tempPartitions.unsetPartitionInfo();
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_112) {
+            maxColUniqueId = in.readInt();
+        }
         // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
@@ -1255,7 +1279,8 @@ public class OlapTable extends Table {
         }
 
         // remove shadow index from copied table
-        List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst().get().getMaterializedIndices(IndexExtState.SHADOW);
+        List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst()
+                .get().getMaterializedIndices(IndexExtState.SHADOW);
         for (MaterializedIndex deleteIndex : shadowIndex) {
             LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
             copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
@@ -1292,7 +1317,8 @@ public class OlapTable extends Table {
         partNames.addAll(copied.getPartitionNames());
 
         // partition name is case insensitive:
-        Set<String> lowerReservedPartitionNames = reservedPartitions.stream().map(String::toLowerCase).collect(Collectors.toSet());
+        Set<String> lowerReservedPartitionNames = reservedPartitions.stream()
+                .map(String::toLowerCase).collect(Collectors.toSet());
         for (String partName : partNames) {
             if (!lowerReservedPartitionNames.contains(partName.toLowerCase())) {
                 copied.dropPartitionAndReserveTablet(partName);
@@ -1419,11 +1445,11 @@ public class OlapTable extends Table {
                     if (be == null) {
                         continue;
                     }
-                    short num = currentReplicaAlloc.getOrDefault(be.getTag(), (short) 0);
-                    currentReplicaAlloc.put(be.getTag(), (short) (num + 1));
-                    List<Long> beIds = tag2beIds.getOrDefault(be.getTag(), Lists.newArrayList());
+                    short num = currentReplicaAlloc.getOrDefault(be.getLocationTag(), (short) 0);
+                    currentReplicaAlloc.put(be.getLocationTag(), (short) (num + 1));
+                    List<Long> beIds = tag2beIds.getOrDefault(be.getLocationTag(), Lists.newArrayList());
                     beIds.add(beId);
-                    tag2beIds.put(be.getTag(), beIds);
+                    tag2beIds.put(be.getLocationTag(), beIds);
                 }
                 if (!currentReplicaAlloc.equals(replicaAlloc.getAllocMap())) {
                     throw new DdlException("The relica allocation is " + currentReplicaAlloc.toString()
@@ -1530,8 +1556,24 @@ public class OlapTable extends Table {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
         }
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INMEMORY, Boolean.valueOf(isInMemory).toString());
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INMEMORY,
+                Boolean.valueOf(isInMemory).toString());
         tableProperty.buildInMemory();
+    }
+
+    public void setStoragePolicy(String storagePolicy) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, storagePolicy);
+        tableProperty.buildStoragePolicy();
+    }
+
+    public String getStoragePolicy() {
+        if (tableProperty != null) {
+            return tableProperty.getStoragePolicy();
+        }
+        return "";
     }
 
     public void setDataSortInfo(DataSortInfo dataSortInfo) {
@@ -1542,12 +1584,17 @@ public class OlapTable extends Table {
         tableProperty.buildDataSortInfo();
     }
 
-    public void setRemoteStorageResource(String resourceName) {
+    /**
+     * set remote storage policy for table.
+     *
+     * @param remoteStoragePolicy remote storage policy name
+     */
+    public void setRemoteStoragePolicy(String remoteStoragePolicy) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
         }
-        tableProperty.setRemoteStorageResource(resourceName);
-        tableProperty.buildRemoteStorageResource();
+        tableProperty.setRemoteStoragePolicy(remoteStoragePolicy);
+        tableProperty.buildRemoteStoragePolicy();
     }
 
     // return true if partition with given name already exist, both in partitions and temp partitions.
@@ -1717,11 +1764,30 @@ public class OlapTable extends Table {
         return tableProperty.getDataSortInfo();
     }
 
-    public String getRemoteStorageResource() {
+    /**
+     * get remote storage policy name.
+     *
+     * @return remote storage policy name for this table.
+     */
+    public String getRemoteStoragePolicy() {
         if (tableProperty == null) {
             return "";
         }
-        return tableProperty.getRemoteStorageResource();
+        return tableProperty.getRemoteStoragePolicy();
+    }
+
+    public void setEnableUniqueKeyMergeOnWrite(boolean speedup) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.setEnableUniqueKeyMergeOnWrite(speedup);
+    }
+
+    public boolean getEnableUniqueKeyMergeOnWrite() {
+        if (tableProperty == null) {
+            return false;
+        }
+        return tableProperty.getEnableUniqueKeyMergeOnWrite();
     }
 
     // For non partitioned table:
@@ -1774,8 +1840,8 @@ public class OlapTable extends Table {
                         if (be == null) {
                             continue;
                         }
-                        short num = curMap.getOrDefault(be.getTag(), (short) 0);
-                        curMap.put(be.getTag(), (short) (num + 1));
+                        short num = curMap.getOrDefault(be.getLocationTag(), (short) 0);
+                        curMap.put(be.getLocationTag(), (short) (num + 1));
                     }
                     if (!curMap.equals(allocMap)) {
                         throw new UserException("replica allocation of tablet " + tablet.getId() + " is not expected"

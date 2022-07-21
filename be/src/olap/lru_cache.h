@@ -78,7 +78,7 @@ public:
     // Return the length (in bytes) of the referenced data
     size_t size() const { return _size; }
 
-    // Return true iff the length of the referenced data is zero
+    // Return true if the length of the referenced data is zero
     bool empty() const { return _size == 0; }
 
     // Return the ith byte in the referenced data.
@@ -125,7 +125,7 @@ public:
 
     uint32_t hash(const char* data, size_t n, uint32_t seed) const;
 
-    // Return true iff "x" is a prefix of "*this"
+    // Return true if "x" is a prefix of "*this"
     bool starts_with(const CacheKey& x) const {
         return ((_size >= x._size) && (memcmp(_data, x._data, x._size) == 0));
     }

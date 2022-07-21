@@ -29,6 +29,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "util/mem_info.h"
+#include "util/perf_counters.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 
@@ -112,10 +113,14 @@ public:
     static std::shared_ptr<MemTracker> get_temporary_mem_tracker(const std::string& label);
 
     Status check_sys_mem_info(int64_t bytes) {
-        if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
-            return Status::MemoryLimitExceeded(fmt::format(
+        // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
+        // This is independent of the consumption value of the mem tracker, which counts the virtual memory
+        // of the process malloc.
+        // for fast, expect MemInfo::initialized() to be true.
+        if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit()) {
+            return Status::MemoryLimitExceeded(
                     "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
-                    _label, bytes, MemInfo::current_mem(), MemInfo::mem_limit()));
+                    _label, bytes, MemInfo::current_mem(), MemInfo::mem_limit());
         }
         return Status::OK();
     }
@@ -401,8 +406,7 @@ public:
     /// 'failed_allocation_size' is zero, nothing about the allocation size is logged.
     /// If 'state' is non-nullptr, logs the error to 'state'.
     Status mem_limit_exceeded(RuntimeState* state, const std::string& details = std::string(),
-                              int64_t failed_allocation = -1,
-                              Status failed_alloc = Status::OK()) WARN_UNUSED_RESULT;
+                              int64_t failed_allocation = -1, Status failed_alloc = Status::OK());
 
     // Usually, a negative values means that the statistics are not accurate,
     // 1. The released memory is not consumed.
@@ -417,9 +421,17 @@ public:
 
     // If an ancestor of this tracker is a Task MemTracker, return that tracker. Otherwise return nullptr.
     MemTracker* parent_task_mem_tracker() {
-        MemTracker* tracker = this;
+        if (this->_level == MemTrackerLevel::TASK) {
+            return this;
+        } else {
+            return parent_task_mem_tracker_no_own().get();
+        }
+    }
+
+    std::shared_ptr<MemTracker> parent_task_mem_tracker_no_own() {
+        std::shared_ptr<MemTracker> tracker = this->_parent;
         while (tracker != nullptr && tracker->_level != MemTrackerLevel::TASK) {
-            tracker = tracker->_parent.get();
+            tracker = tracker->_parent;
         }
         return tracker;
     }
@@ -467,8 +479,8 @@ private:
     inline Status try_gc_memory(int64_t bytes) {
         if (UNLIKELY(gc_memory(_limit - bytes))) {
             return Status::MemoryLimitExceeded(
-                    fmt::format("label={} TryConsume failed size={}, used={}, limit={}", label(),
-                                bytes, _consumption->current_value(), _limit));
+                    "label={} TryConsume failed size={}, used={}, limit={}", label(), bytes,
+                    _consumption->current_value(), _limit);
         }
         VLOG_NOTICE << "GC succeeded, TryConsume bytes=" << bytes
                     << " consumption=" << _consumption->current_value() << " limit=" << _limit;

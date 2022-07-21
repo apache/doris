@@ -21,11 +21,10 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_outfile", "export") {
-    StringBuilder strBuilder = new StringBuilder();
-    strBuilder.append("curl --location-trusted -u root: http://")
-    strBuilder.append(context.config.feHttpAddress)
-    strBuilder.append("/rest/v1/config/fe")
+suite("test_outfile", "basic") {
+    StringBuilder strBuilder = new StringBuilder()
+    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
+    strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
 
     String command = strBuilder.toString()
     def process = command.toString().execute()

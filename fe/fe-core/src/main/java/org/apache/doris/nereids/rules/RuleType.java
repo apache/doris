@@ -17,16 +17,38 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.pattern.PatternMatcher;
+import org.apache.doris.nereids.trees.plans.Plan;
+
 /**
  * Type of rules, each rule has its unique type.
  */
 public enum RuleType {
     // binding rules
-    BINDING_UNBOUND_RELATION_RULE(RuleTypeClass.REWRITE),
-    BINDING_SENTINEL(RuleTypeClass.REWRITE),
-
+    BINDING_RELATION(RuleTypeClass.REWRITE),
+    BINDING_PROJECT_SLOT(RuleTypeClass.REWRITE),
+    BINDING_FILTER_SLOT(RuleTypeClass.REWRITE),
+    BINDING_JOIN_SLOT(RuleTypeClass.REWRITE),
+    BINDING_AGGREGATE_SLOT(RuleTypeClass.REWRITE),
+    BINDING_SORT_SLOT(RuleTypeClass.REWRITE),
+    BINDING_PROJECT_FUNCTION(RuleTypeClass.REWRITE),
+    BINDING_AGGREGATE_FUNCTION(RuleTypeClass.REWRITE),
+    RESOLVE_PROJECT_ALIAS(RuleTypeClass.REWRITE),
+    RESOLVE_AGGREGATE_ALIAS(RuleTypeClass.REWRITE),
+    PROJECT_TO_GLOBAL_AGGREGATE(RuleTypeClass.REWRITE),
     // rewrite rules
+    AGGREGATE_DISASSEMBLE(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),
+    // predicate push down rules
+    PUSH_DOWN_PREDICATE_THROUGH_JOIN(RuleTypeClass.REWRITE),
+    // column prune rules,
+    COLUMN_PRUNE_AGGREGATION_CHILD(RuleTypeClass.REWRITE),
+    COLUMN_PRUNE_FILTER_CHILD(RuleTypeClass.REWRITE),
+    COLUMN_PRUNE_SORT_CHILD(RuleTypeClass.REWRITE),
+    COLUMN_PRUNE_JOIN_CHILD(RuleTypeClass.REWRITE),
+
+    REORDER_JOIN(RuleTypeClass.REWRITE),
+
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // exploration rules
@@ -36,7 +58,12 @@ public enum RuleType {
     LOGICAL_JOIN_EXCHANGE(RuleTypeClass.EXPLORATION),
 
     // implementation rules
+    LOGICAL_AGG_TO_PHYSICAL_HASH_AGG_RULE(RuleTypeClass.IMPLEMENTATION),
     LOGICAL_JOIN_TO_HASH_JOIN_RULE(RuleTypeClass.IMPLEMENTATION),
+    LOGICAL_PROJECT_TO_PHYSICAL_PROJECT_RULE(RuleTypeClass.IMPLEMENTATION),
+    LOGICAL_FILTER_TO_PHYSICAL_FILTER_RULE(RuleTypeClass.IMPLEMENTATION),
+    LOGICAL_SORT_TO_PHYSICAL_HEAP_SORT_RULE(RuleTypeClass.IMPLEMENTATION),
+    LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE(RuleTypeClass.IMPLEMENTATION),
     IMPLEMENTATION_SENTINEL(RuleTypeClass.IMPLEMENTATION),
 
     // sentinel, use to count rules
@@ -55,6 +82,11 @@ public enum RuleType {
 
     public RuleTypeClass getRuleTypeClass() {
         return ruleTypeClass;
+    }
+
+    public <INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan>
+            Rule build(PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> patternMatcher) {
+        return patternMatcher.toRule(this);
     }
 
     enum RuleTypeClass {

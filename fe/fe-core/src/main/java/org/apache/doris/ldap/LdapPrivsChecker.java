@@ -38,9 +38,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.Map;
 
 /**
- * If the user logs in with LDAP authentication, the user LDAP group privileges will be saved in 'ldapGroupsPrivs' of ConnectContext.
- * When checking user privileges, Doris need to check both the privileges granted by Doris and LDAP group privileges.
- * This class is used for checking current user LDAP group privileges.
+ * If the user logs in with LDAP authentication, the user LDAP group privileges will be saved in 'ldapGroupsPrivs' of
+ * ConnectContext. When checking user privileges, Doris need to check both the privileges granted by Doris
+ * and LDAP group privileges. This class is used for checking current user LDAP group privileges.
  */
 public class LdapPrivsChecker {
     private static final Logger LOG = LogManager.getLogger(LdapPrivsChecker.class);
@@ -145,13 +145,14 @@ public class LdapPrivsChecker {
         }
     }
 
-    private static void getCurrentUserResourcePrivs(UserIdentity currentUser, String resourceName, PrivBitSet savedPrivs,
-                                                    PaloAuth.PrivLevel level) {
+    private static void getCurrentUserResourcePrivs(UserIdentity currentUser,
+            String resourceName, PrivBitSet savedPrivs, PaloAuth.PrivLevel level) {
         if (!hasLdapPrivs(currentUser)) {
             return;
         }
         PaloRole currentUserLdapPrivs = ConnectContext.get().getLdapGroupsPrivs();
-        for (Map.Entry<ResourcePattern, PrivBitSet> entry : currentUserLdapPrivs.getResourcePatternToPrivs().entrySet()) {
+        for (Map.Entry<ResourcePattern, PrivBitSet> entry
+                : currentUserLdapPrivs.getResourcePatternToPrivs().entrySet()) {
             switch (entry.getKey().getPrivLevel()) {
                 case GLOBAL:
                     if (level.equals(PaloAuth.PrivLevel.GLOBAL)) {
@@ -192,7 +193,8 @@ public class LdapPrivsChecker {
         }
         PaloRole currentUserLdapPrivs = ConnectContext.get().getLdapGroupsPrivs();
         for (Map.Entry<TablePattern, PrivBitSet> entry : currentUserLdapPrivs.getTblPatternToPrivs().entrySet()) {
-            if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.TABLE) && entry.getKey().getQualifiedDb().equals(db)) {
+            if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.TABLE)
+                    && entry.getKey().getQualifiedDb().equals(db)) {
                 return true;
             }
         }

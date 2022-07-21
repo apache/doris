@@ -69,12 +69,10 @@ public:
 
     /// This function implements the policy which represents how to pick the candidate rowsets for compaction.
     /// This base class gives a unified implementation. Its derived classes also can override this function each other.
-    /// param skip_window_sec, it means skipping the rowsets which use create time plus skip_window_sec is greater than now.
     /// param rs_version_map, mapping from version to rowset
     /// param cumulative_point,  current cumulative point of tablet
     /// return candidate_rowsets, the container of candidate rowsets
     virtual void pick_candidate_rowsets(
-            int64_t skip_window_sec,
             const std::unordered_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
             int64_t cumulative_point, std::vector<RowsetSharedPtr>* candidate_rowsets);
 

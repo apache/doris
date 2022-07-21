@@ -178,8 +178,10 @@ public class BrokerFileGroupAggInfo implements Writable {
         if (fileGroupList == null) {
             // check if there are overlapping partitions of same table
             if (tableIdToPartitionIds.containsKey(fileGroup.getTableId())
-                    && tableIdToPartitionIds.get(fileGroup.getTableId()).stream().anyMatch(id -> fileGroup.getPartitionIds().contains(id))) {
-                throw new DdlException("There are overlapping partitions of same table in data description of load job stmt");
+                    && tableIdToPartitionIds.get(fileGroup.getTableId()).stream()
+                    .anyMatch(id -> fileGroup.getPartitionIds().contains(id))) {
+                throw new DdlException("There are overlapping partitions of same table"
+                        + " in data description of load job stmt");
             }
 
             fileGroupList = Lists.newArrayList();

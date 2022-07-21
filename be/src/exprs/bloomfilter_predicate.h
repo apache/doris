@@ -25,12 +25,10 @@
 #include "common/object_pool.h"
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/predicate.h"
-#include "olap/bloom_filter.hpp"
 #include "olap/decimal12.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/uint24.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/raw_value.h"
 
 namespace doris {
 namespace detail {
@@ -251,6 +249,15 @@ struct DateFindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
 };
 
 template <class BloomFilterAdaptor>
+struct DateV2FindOp : public CommonFindOp<doris::vectorized::DateV2Value, BloomFilterAdaptor> {
+    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
+        doris::vectorized::DateV2Value value;
+        value.from_date(*reinterpret_cast<const uint32_t*>(data));
+        return bloom_filter.test(Slice((char*)&value, sizeof(doris::vectorized::DateV2Value)));
+    }
+};
+
+template <class BloomFilterAdaptor>
 struct DecimalV2FindOp : public CommonFindOp<DecimalV2Value, BloomFilterAdaptor> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         auto packed_decimal = *static_cast<const decimal12_t*>(data);
@@ -275,6 +282,11 @@ struct BloomFilterTypeTraits {
 template <class BloomFilterAdaptor>
 struct BloomFilterTypeTraits<TYPE_DATE, BloomFilterAdaptor> {
     using FindOp = DateFindOp<BloomFilterAdaptor>;
+};
+
+template <class BloomFilterAdaptor>
+struct BloomFilterTypeTraits<TYPE_DATEV2, BloomFilterAdaptor> {
+    using FindOp = DateV2FindOp<BloomFilterAdaptor>;
 };
 
 template <class BloomFilterAdaptor>

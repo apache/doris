@@ -398,8 +398,7 @@ public class RuntimeProfile {
     // Because the profile of summary and child fragment is not a real parent-child relationship
     // Each child profile needs to calculate the time proportion consumed by itself
     public void computeTimeInChildProfile() {
-        childMap.values().
-                forEach(RuntimeProfile::computeTimeInProfile);
+        childMap.values().forEach(RuntimeProfile::computeTimeInProfile);
     }
 
     public void computeTimeInProfile() {
@@ -468,5 +467,9 @@ public class RuntimeProfile {
     // or null if this map contains no mapping for the key.
     public String getInfoString(String key) {
         return infoStrings.get(key);
+    }
+
+    public Map<String, String> getInfoStrings() {
+        return infoStrings;
     }
 }

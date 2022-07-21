@@ -20,9 +20,7 @@
 
 #pragma once
 
-#include "olap/hll.h"
 #include "udf/udf.h"
-#include "udf/udf_internal.h"
 
 namespace doris {
 

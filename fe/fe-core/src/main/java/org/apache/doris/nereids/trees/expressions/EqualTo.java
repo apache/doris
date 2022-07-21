@@ -18,16 +18,19 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
 
 /**
  * Equal to expression: a = b.
  */
-public class EqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class EqualTo extends ComparisonPredicate {
 
-    public EqualTo(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.EQUAL_TO, left, right);
+    public EqualTo(Expression left, Expression right) {
+        super(ExpressionType.EQUAL_TO, left, right, "=");
     }
 
     @Override
@@ -38,5 +41,15 @@ public class EqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extend
     @Override
     public String toString() {
         return "(" + left() + " = " + right() + ")";
+    }
+
+    @Override
+    public EqualTo withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new EqualTo(children.get(0), children.get(1));
+    }
+
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitEqualTo(this, context);
     }
 }

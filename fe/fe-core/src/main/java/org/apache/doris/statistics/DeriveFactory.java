@@ -17,12 +17,10 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.planner.PlanNode;
-
 public class DeriveFactory {
 
-    public BaseStatsDerive getStatsDerive(PlanNode.NodeType nodeType) {
-        switch (nodeType) {
+    public BaseStatsDerive getStatsDerive(StatisticalType statisticalType) {
+        switch (statisticalType) {
             case AGG_NODE:
                 return new AggStatsDerive();
             case ANALYTIC_EVAL_NODE:

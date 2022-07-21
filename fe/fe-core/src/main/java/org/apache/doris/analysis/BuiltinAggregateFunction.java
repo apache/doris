@@ -40,6 +40,7 @@ public class BuiltinAggregateFunction extends Function {
     public boolean isAnalyticFn() {
         return isAnalyticFn;
     }
+
     // TODO: this is not used yet until the planner understand this.
     private org.apache.doris.catalog.Type intermediateType;
     private boolean reqIntermediateTuple = false;
@@ -65,8 +66,8 @@ public class BuiltinAggregateFunction extends Function {
     }
 
     @Override
-    public TFunction toThrift() {
-        TFunction fn = super.toThrift();
+    public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
+        TFunction fn = super.toThrift(realReturnType, realArgTypes);
         // TODO: for now, just put the op_ enum as the id.
         if (op == BuiltinAggregateFunction.Operator.FIRST_VALUE_REWRITE) {
             fn.setId(0);
@@ -126,6 +127,7 @@ public class BuiltinAggregateFunction extends Function {
         // The intermediate type for this function if it is constant regardless of
         // input type. Set to null if it can only be determined during analysis.
         private final org.apache.doris.catalog.Type intermediateType;
+
         Operator(String description, TAggregationOp thriftOp,
                 org.apache.doris.catalog.Type intermediateType) {
             this.description = description;

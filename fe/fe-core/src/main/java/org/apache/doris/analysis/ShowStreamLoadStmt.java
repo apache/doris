@@ -68,7 +68,8 @@ public class ShowStreamLoadStmt extends ShowStmt {
             .add("StartTime").add("FinishTime")
             .build();
 
-    public ShowStreamLoadStmt(String db, Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
+    public ShowStreamLoadStmt(String db, Expr labelExpr,
+            List<OrderByElement> orderByElements, LimitElement limitElement) {
         this.dbName = db;
         this.whereClause = labelExpr;
         this.orderByElements = orderByElements;

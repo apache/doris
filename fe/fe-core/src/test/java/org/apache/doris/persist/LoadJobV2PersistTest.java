@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.qe.OriginStatement;
@@ -56,13 +57,15 @@ public class LoadJobV2PersistTest {
     }
 
     @Test
-    public void testBrokerLoadJob(@Mocked Catalog catalog,
-                                  @Injectable Database database,
-                                  @Injectable Table table) throws Exception {
+    public void testBrokerLoadJob(@Mocked Catalog catalog, @Mocked InternalDataSource ds, @Injectable Database database,
+            @Injectable Table table) throws Exception {
 
         new Expectations() {
             {
-                catalog.getDbNullable(anyLong);
+                catalog.getInternalDataSource();
+                minTimes = 0;
+                result = ds;
+                ds.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(anyLong);

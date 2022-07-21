@@ -57,14 +57,14 @@ ENV REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/" \
 RUN rm -f /etc/profile.d/ccache.*
 
 # clone lastest source code, download and build third party
-COPY incubator-doris ${DEFAULT_DIR}/incubator-doris
-RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.sh \
-    && rm -rf ${DEFAULT_DIR}/incubator-doris/thirdparty/src \
+COPY doris ${DEFAULT_DIR}/doris
+RUN cd ${DEFAULT_DIR}/doris && /bin/bash thirdparty/build-thirdparty.sh \
+    && rm -rf ${DEFAULT_DIR}/doris/thirdparty/src \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty.tar.gz \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty \
     && mkdir -p ${DEFAULT_DIR}/thirdparty \
-    && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
-    && rm -rf ${DEFAULT_DIR}/incubator-doris
+    && mv ${DEFAULT_DIR}/doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
+    && rm -rf ${DEFAULT_DIR}/doris
 
 RUN alternatives --set java java-11-openjdk.x86_64 && alternatives --set javac java-11-openjdk.x86_64
 

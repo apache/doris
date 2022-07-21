@@ -17,11 +17,8 @@
 
 #include "exec/orc_scanner.h"
 
-#include "io/buffered_reader.h"
 #include "io/file_factory.h"
-#include "io/local_file_reader.h"
 #include "runtime/exec_env.h"
-#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 
@@ -393,6 +390,15 @@ Status ORCScanner::open_next_reader() {
         std::unique_ptr<orc::InputStream> inStream = std::unique_ptr<orc::InputStream>(
                 new ORCFileStream(file_reader.release(), range.path));
         _reader = orc::createReader(std::move(inStream), _options);
+
+        // Something the upstream system(eg, hive) may create empty orc file
+        // which only has a header and footer, without schema.
+        // And if we call `_reader->createRowReader()` with selected columns,
+        // it will throw ParserError: Invalid column selected xx.
+        // So here we first check its number of rows and skip these kind of files.
+        if (_reader->getNumberOfRows() == 0) {
+            continue;
+        }
 
         _total_groups = _reader->getNumberOfStripes();
         _current_group = 0;

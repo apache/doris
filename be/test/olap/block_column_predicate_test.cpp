@@ -27,7 +27,6 @@
 #include "olap/wrapper_field.h"
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.hpp"
-#include "runtime/vectorized_row_batch.h"
 #include "util/logging.h"
 #include "vec/columns/predicate_column.h"
 
@@ -116,7 +115,7 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
         sel_idx[i] = i;
     }
 
-    single_column_block_pred.evaluate(block, sel_idx, &selected_size);
+    selected_size = single_column_block_pred.evaluate(block, sel_idx, selected_size);
     EXPECT_EQ(selected_size, 1);
     auto* pred_col = reinterpret_cast<vectorized::PredicateColumnType<int>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], value);
@@ -181,7 +180,7 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
         sel_idx[i] = i;
     }
 
-    and_block_column_pred.evaluate(block, sel_idx, &selected_size);
+    selected_size = and_block_column_pred.evaluate(block, sel_idx, selected_size);
     EXPECT_EQ(selected_size, 1);
     auto* pred_col = reinterpret_cast<vectorized::PredicateColumnType<int>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
@@ -246,7 +245,7 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
         sel_idx[i] = i;
     }
 
-    or_block_column_pred.evaluate(block, sel_idx, &selected_size);
+    selected_size = or_block_column_pred.evaluate(block, sel_idx, selected_size);
     EXPECT_EQ(selected_size, 10);
     auto* pred_col = reinterpret_cast<vectorized::PredicateColumnType<int>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
@@ -344,7 +343,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
         sel_idx[i] = i;
     }
 
-    or_block_column_pred.evaluate(block, sel_idx, &selected_size);
+    selected_size = or_block_column_pred.evaluate(block, sel_idx, selected_size);
     EXPECT_EQ(selected_size, 4);
     auto* pred_col = reinterpret_cast<vectorized::PredicateColumnType<int>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
@@ -362,7 +361,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
     or_block_column_pred1.add_column_predicate(new SingleColumnBlockPredicate(less_pred1.get()));
     or_block_column_pred1.add_column_predicate(and_block_column_pred1);
 
-    or_block_column_pred1.evaluate(block, sel_idx, &selected_size);
+    selected_size = or_block_column_pred1.evaluate(block, sel_idx, selected_size);
     EXPECT_EQ(selected_size, 4);
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
     EXPECT_EQ(pred_col->get_data()[sel_idx[1]], 1);
@@ -456,7 +455,7 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
         sel_idx[i] = i;
     }
 
-    and_block_column_pred.evaluate(block, sel_idx, &selected_size);
+    selected_size = and_block_column_pred.evaluate(block, sel_idx, selected_size);
 
     auto* pred_col = reinterpret_cast<vectorized::PredicateColumnType<int>*>(block[col_idx].get());
     EXPECT_EQ(selected_size, 1);

@@ -80,6 +80,7 @@ void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
+
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
@@ -144,6 +145,7 @@ public:
             return iter->second()->build(arguments, return_type);
         }
 
+        LOG(WARNING) << fmt::format("Function signature {} is not founded", key_str);
         return nullptr;
     }
 
@@ -161,7 +163,7 @@ public:
     static SimpleFunctionFactory& instance() {
         static std::once_flag oc;
         static SimpleFunctionFactory instance;
-        std::call_once(oc, [&]() {
+        std::call_once(oc, []() {
             register_function_bitmap(instance);
             register_function_bitmap_variadic(instance);
             register_function_hll_cardinality(instance);

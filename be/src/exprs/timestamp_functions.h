@@ -23,7 +23,6 @@
 #include <thread>
 
 #include "runtime/datetime_value.h"
-#include "runtime/string_value.h"
 
 namespace doris {
 

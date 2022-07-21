@@ -38,6 +38,7 @@ class SuiteContext implements Closeable {
     public final Config config
     public final File dataPath
     public final File outputFile
+    public final File realOutputFile
     public final ScriptContext scriptContext
     public final String flowName
     public final String flowId
@@ -45,6 +46,7 @@ class SuiteContext implements Closeable {
     public final ExecutorService suiteExecutors
     public final ExecutorService actionExecutors
     private volatile OutputUtils.OutputBlocksWriter outputBlocksWriter
+    private volatile OutputUtils.OutputBlocksWriter realOutputBlocksWriter
     private long startTime
     private long finishTime
     private volatile Throwable throwable
@@ -65,13 +67,20 @@ class SuiteContext implements Closeable {
         this.actionExecutors = actionExecutors
 
         def path = new File(config.suitePath).relativePath(file)
+        def realPath = new File(config.suitePath).relativePath(file)
+        def sf1DataPath = config.sf1DataPath
         def outputRelativePath = path.substring(0, path.lastIndexOf(".")) + ".out"
+        def realOutputRelativePath = path.substring(0, realPath.lastIndexOf(".")) + ".out"
         this.outputFile = new File(new File(config.dataPath), outputRelativePath)
+        this.realOutputFile = new File(new File(config.realDataPath), realOutputRelativePath)
         this.dataPath = this.outputFile.getParentFile().getCanonicalFile()
+        // - flowName: tpcds_sf1.sql.q47.q47, flowId: tpcds_sf1/sql/q47.sql#q47
+        log.info("flowName: ${flowName}, flowId: ${flowId}".toString())
     }
 
     String getPackageName() {
         String packageName = scriptContext.name
+        log.info("packageName: ${packageName}".toString())
         int dirSplitPos = packageName.lastIndexOf(File.separator)
         if (dirSplitPos != -1) {
             packageName = packageName.substring(0, dirSplitPos)
@@ -82,6 +91,7 @@ class SuiteContext implements Closeable {
 
     String getClassName() {
         String scriptFileName = scriptContext.file.name
+        log.info("scriptFileName: ${scriptFileName}".toString())
         int suffixPos = scriptFileName.lastIndexOf(".")
         String className = scriptFileName
         if (suffixPos != -1) {
@@ -98,7 +108,8 @@ class SuiteContext implements Closeable {
     Connection getConnection() {
         def threadConn = threadLocalConn.get()
         if (threadConn == null) {
-            threadConn = config.getConnection()
+            def groupList = group.split(',')
+            threadConn = config.getConnection(groupList[groupList.length - 1].replace(File.separator, '_'))
             threadLocalConn.set(threadConn)
         }
         return threadConn
@@ -157,6 +168,32 @@ class SuiteContext implements Closeable {
         }
     }
 
+    OutputUtils.OutputBlocksWriter getRealOutputWriter(boolean deleteIfExist) {
+        if (realOutputBlocksWriter != null) {
+            return realOutputBlocksWriter
+        }
+        synchronized (this) {
+            if (realOutputBlocksWriter != null) {
+                return realOutputBlocksWriter
+            } else if (realOutputFile.exists() && deleteIfExist) {
+                log.info("Delete ${realOutputFile}".toString())
+                realOutputFile.delete()
+                log.info("Generate ${realOutputFile}".toString())
+                realOutputFile.createNewFile()
+                realOutputBlocksWriter = OutputUtils.writer(realOutputFile)
+            } else if (!realOutputFile.exists()) {
+                realOutputFile.parentFile.mkdirs()
+                realOutputFile.createNewFile()
+                log.info("Generate ${realOutputFile}".toString())
+                realOutputBlocksWriter = OutputUtils.writer(realOutputFile)
+            } else {
+                log.info("Skip generate output file because exists: ${realOutputFile}".toString())
+                realOutputBlocksWriter = new OutputUtils.OutputBlocksWriter(null)
+            }
+            return realOutputBlocksWriter
+        }
+    }
+
     void closeThreadLocal() {
         def outputIterator = threadLocalOutputIterator.get()
         if (outputIterator != null) {
@@ -203,6 +240,10 @@ class SuiteContext implements Closeable {
 
         if (outputBlocksWriter != null) {
             outputBlocksWriter.close()
+        }
+
+        if (realOutputBlocksWriter != null) {
+            realOutputBlocksWriter.close()
         }
 
         this.finishTime = System.currentTimeMillis()

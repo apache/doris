@@ -108,7 +108,8 @@ public:
 };
 
 TEST_F(BinaryPlainPageTest, TestBinaryPlainPageBuilderSeekByValueSmallPage) {
-    TestBinarySeekByValueSmallPage<BinaryPlainPageBuilder, BinaryPlainPageDecoder>();
+    TestBinarySeekByValueSmallPage<BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>,
+                                   BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>>();
 }
 
 } // namespace segment_v2

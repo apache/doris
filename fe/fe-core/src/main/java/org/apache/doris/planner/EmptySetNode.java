@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -40,7 +41,7 @@ public class EmptySetNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(EmptySetNode.class);
 
     public EmptySetNode(PlanNodeId id, ArrayList<TupleId> tupleIds) {
-        super(id, tupleIds, "EMPTYSET", NodeType.EMPTY_SET_NODE);
+        super(id, tupleIds, "EMPTYSET", StatisticalType.EMPTY_SET_NODE);
         Preconditions.checkArgument(tupleIds.size() > 0);
     }
 

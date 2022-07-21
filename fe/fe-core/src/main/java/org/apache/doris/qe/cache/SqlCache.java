@@ -98,7 +98,8 @@ public class SqlCache extends Cache {
                 dataSize += value.getDataSize();
             }
             LOG.info("update cache model {}, queryid {}, sqlkey {}, value count {}, row count {}, data size {}",
-                    CacheAnalyzer.CacheMode.Sql, DebugUtil.printId(queryId), DebugUtil.printId(updateRequest.getSqlKey()),
+                    CacheAnalyzer.CacheMode.Sql, DebugUtil.printId(queryId),
+                    DebugUtil.printId(updateRequest.getSqlKey()),
                     updateRequest.getValuesCount(), rowCount, dataSize);
         }
     }

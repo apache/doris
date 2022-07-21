@@ -26,6 +26,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "util/logging.h"
+#include "util/types.h"
 
 namespace doris {
 
@@ -78,70 +79,79 @@ void set_tablet_schema_for_init(TabletSchema* tablet_schema) {
     column_5->set_index_length(8);
 
     ColumnPB* column_6 = tablet_schema_pb.add_column();
-    column_6->set_unique_id(6);
+    column_6->set_unique_id(5);
     column_6->set_name("column_6");
-    column_6->set_type("DECIMAL");
+    column_6->set_type("DATEV2");
     column_6->set_is_key(true);
     column_6->set_is_nullable(true);
-    column_6->set_length(12);
-    column_6->set_index_length(12);
-    column_6->set_frac(3);
-    column_6->set_precision(6);
+    column_6->set_length(4);
+    column_6->set_index_length(4);
 
     ColumnPB* column_7 = tablet_schema_pb.add_column();
-    column_7->set_unique_id(7);
+    column_7->set_unique_id(6);
     column_7->set_name("column_7");
-    column_7->set_type("CHAR");
+    column_7->set_type("DECIMAL");
     column_7->set_is_key(true);
     column_7->set_is_nullable(true);
-    column_7->set_length(4);
-    column_7->set_index_length(4);
-    column_7->set_default_value("char");
+    column_7->set_length(12);
+    column_7->set_index_length(12);
+    column_7->set_frac(3);
+    column_7->set_precision(6);
 
     ColumnPB* column_8 = tablet_schema_pb.add_column();
-    column_8->set_unique_id(8);
+    column_8->set_unique_id(7);
     column_8->set_name("column_8");
-    column_8->set_type("BIGINT");
+    column_8->set_type("CHAR");
+    column_8->set_is_key(true);
     column_8->set_is_nullable(true);
-    column_8->set_length(8);
-    column_8->set_aggregation("SUM");
-    column_8->set_is_key(false);
+    column_8->set_length(4);
+    column_8->set_index_length(4);
+    column_8->set_default_value("char");
 
     ColumnPB* column_9 = tablet_schema_pb.add_column();
-    column_9->set_unique_id(9);
+    column_9->set_unique_id(8);
     column_9->set_name("column_9");
-    column_9->set_type("VARCHAR");
+    column_9->set_type("BIGINT");
     column_9->set_is_nullable(true);
-    column_9->set_length(16 + OLAP_VARCHAR_MAX_BYTES);
-    column_9->set_aggregation("REPLACE");
+    column_9->set_length(8);
+    column_9->set_aggregation("SUM");
     column_9->set_is_key(false);
 
     ColumnPB* column_10 = tablet_schema_pb.add_column();
-    column_10->set_unique_id(10);
+    column_10->set_unique_id(9);
     column_10->set_name("column_10");
-    column_10->set_type("LARGEINT");
+    column_10->set_type("VARCHAR");
     column_10->set_is_nullable(true);
-    column_10->set_length(16);
-    column_10->set_aggregation("MAX");
+    column_10->set_length(16 + OLAP_VARCHAR_MAX_BYTES);
+    column_10->set_aggregation("REPLACE");
     column_10->set_is_key(false);
 
     ColumnPB* column_11 = tablet_schema_pb.add_column();
-    column_11->set_unique_id(11);
+    column_11->set_unique_id(10);
     column_11->set_name("column_11");
-    column_11->set_type("DECIMAL");
+    column_11->set_type("LARGEINT");
     column_11->set_is_nullable(true);
-    column_11->set_length(12);
-    column_11->set_aggregation("MIN");
+    column_11->set_length(16);
+    column_11->set_aggregation("MAX");
     column_11->set_is_key(false);
 
     ColumnPB* column_12 = tablet_schema_pb.add_column();
-    column_12->set_unique_id(12);
+    column_12->set_unique_id(11);
     column_12->set_name("column_12");
-    column_12->set_type("HLL");
+    column_12->set_type("DECIMAL");
     column_12->set_is_nullable(true);
-    column_12->set_length(HLL_COLUMN_DEFAULT_LEN);
-    column_12->set_aggregation("HLL_UNION");
+    column_12->set_length(12);
+    column_12->set_aggregation("MIN");
     column_12->set_is_key(false);
+
+    ColumnPB* column_13 = tablet_schema_pb.add_column();
+    column_13->set_unique_id(12);
+    column_13->set_name("column_13");
+    column_13->set_type("HLL");
+    column_13->set_is_nullable(true);
+    column_13->set_length(HLL_COLUMN_DEFAULT_LEN);
+    column_13->set_aggregation("HLL_UNION");
+    column_13->set_is_key(false);
 
     tablet_schema->init_from_pb(tablet_schema_pb);
 }
@@ -271,7 +281,7 @@ TEST_F(TestRowCursor, InitRowCursor) {
     RowCursor row;
     Status res = row.init(tablet_schema);
     EXPECT_EQ(res, Status::OK());
-    EXPECT_EQ(row.get_fixed_len(), 126);
+    EXPECT_EQ(row.get_fixed_len(), 131);
     EXPECT_EQ(row.get_variable_len(), 20);
 }
 
@@ -299,8 +309,8 @@ TEST_F(TestRowCursor, InitRowCursorWithColIds) {
     RowCursor row;
     Status res = row.init(tablet_schema, col_ids);
     EXPECT_EQ(res, Status::OK());
-    EXPECT_EQ(row.get_fixed_len(), 63);
-    EXPECT_EQ(row.get_variable_len(), 20);
+    EXPECT_EQ(row.get_fixed_len(), 55);
+    EXPECT_EQ(row.get_variable_len(), 0);
 }
 
 TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
@@ -498,8 +508,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
 
     agg_update_row(&row, right, nullptr);
 
-    int128_t agg_value = 0;
-    memcpy(&agg_value, row.cell_ptr(2), 16);
+    int128_t agg_value = get_int128_from_unalign(row.cell_ptr(2));
     EXPECT_TRUE(agg_value == ((int128_t)(1) << 101));
 
     double agg_double = *reinterpret_cast<double*>(row.cell_ptr(3));
@@ -559,8 +568,7 @@ TEST_F(TestRowCursor, AggregateWithNull) {
 
     agg_update_row(&row, right, nullptr);
 
-    int128_t agg_value = 0;
-    memcpy(&agg_value, row.cell_ptr(2), 16);
+    int128_t agg_value = get_int128_from_unalign(row.cell_ptr(2));
     EXPECT_TRUE(agg_value == ((int128_t)(1) << 101));
 
     bool is_null_double = left.is_null(3);

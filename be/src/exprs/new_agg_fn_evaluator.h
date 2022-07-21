@@ -22,13 +22,8 @@
 
 #include <string>
 
-#include "common/compiler_util.h"
 #include "common/status.h"
 #include "exprs/agg_fn.h"
-#include "exprs/hybrid_map.h"
-#include "gen_cpp/Exprs_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple_row.h"
 #include "runtime/types.h"

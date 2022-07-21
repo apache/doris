@@ -86,7 +86,7 @@ public class ExprRewriter {
         do {
             oldNumChanges = numChanges;
             for (ExprRewriteRule rule : rules) {
-                // when foldConstantByBe is on, fold all constant expr by BE instead of applying FoldConstantsRule in FE.
+                // when foldConstantByBe is on, fold all constant expr by BE instead of applying FoldConstantsRule in FE
                 if (rule instanceof FoldConstantsRule && analyzer.safeIsEnableFoldConstantByBe()) {
                     continue;
                 }
@@ -100,7 +100,8 @@ public class ExprRewriter {
         return rewrittenExpr;
     }
 
-    private Expr applyRuleOnce(Expr expr, ExprRewriteRule rule, Analyzer analyzer, ClauseType clauseType) throws AnalysisException {
+    private Expr applyRuleOnce(Expr expr, ExprRewriteRule rule, Analyzer analyzer, ClauseType clauseType)
+            throws AnalysisException {
         Expr rewrittenExpr = rule.apply(expr, analyzer, clauseType);
         if (rewrittenExpr != expr) {
             numChanges++;

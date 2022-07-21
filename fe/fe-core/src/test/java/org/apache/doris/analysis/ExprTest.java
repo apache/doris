@@ -17,10 +17,12 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 
 import com.google.common.collect.Maps;
 import mockit.Expectations;
@@ -35,6 +37,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class ExprTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     @Test
     public void testGetTableNameToColumnNames(@Mocked Analyzer analyzer,
@@ -44,8 +47,8 @@ public class ExprTest {
                                               @Injectable TupleDescriptor tupleDescriptor2,
                                               @Injectable Table tableA,
                                               @Injectable Table tableB) throws AnalysisException {
-        TableName tableAName = new TableName("test", "tableA");
-        TableName tableBName = new TableName("test", "tableB");
+        TableName tableAName = new TableName(internalCtl, "test", "tableA");
+        TableName tableBName = new TableName(internalCtl, "test", "tableB");
         SlotRef tableAColumn1 = new SlotRef(tableAName, "c1");
         SlotRef tableBColumn1 = new SlotRef(tableBName, "c1");
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, tableAColumn1, tableBColumn1);
@@ -166,6 +169,10 @@ public class ExprTest {
         Expr r2 = new DateLiteral(2020, 10, 21);
         Expr r3 = new DateLiteral(2020, 10, 22);
         Expr r4 = new DateLiteral(2020, 10, 23);
+        Expr r5 = new DateLiteral(2020, 10, 23, Type.DATEV2);
+        Expr r6 = new DateLiteral(2020, 10, 23, 0, 0, 0, Type.DATETIME);
+        Expr r7 = new DateLiteral(2020, 10, 23, 0, 0, 0, Type.DATETIMEV2);
+        Expr r8 = new DateLiteral(2020, 10, 23, 0, 0, 0, ScalarType.createDatetimeV2Type(3));
 
         //list1 equal list2
         List<Expr> list1 = new ArrayList<>();
@@ -173,9 +180,17 @@ public class ExprTest {
         list1.add(r1);
         list1.add(r2);
         list1.add(r3);
+        list1.add(r5);
+        list1.add(r6);
+        list1.add(r7);
+        list1.add(r8);
         list2.add(r1);
         list2.add(r2);
         list2.add(r3);
+        list2.add(r5);
+        list2.add(r6);
+        list2.add(r7);
+        list2.add(r8);
         Assert.assertTrue(Expr.equalSets(list1, list2));
 
         //list3 not equal list4
@@ -185,7 +200,7 @@ public class ExprTest {
 
     @Test
     public void testSrcSlotRef(@Injectable SlotDescriptor slotDescriptor) {
-        TableName tableName = new TableName("db1", "table1");
+        TableName tableName = new TableName(internalCtl, "db1", "table1");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         slotRef.setDesc(slotDescriptor);
         Deencapsulation.setField(slotRef, "isAnalyzed", true);

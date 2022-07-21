@@ -35,6 +35,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -112,7 +113,8 @@ public class IcebergCatalogMgr {
         }
 
         if (!Enums.getIfPresent(IcebergCatalogMgr.CatalogType.class, icebergCatalogType).isPresent()) {
-            throw new DdlException("Unknown catalog type: " + icebergCatalogType + ". Current only support HiveCatalog.");
+            throw new DdlException("Unknown catalog type: " + icebergCatalogType
+                    + ". Current only support HiveCatalog.");
         }
 
         // only check table property when it's an iceberg table
@@ -123,6 +125,16 @@ public class IcebergCatalogMgr {
                         IcebergProperty.ICEBERG_TABLE, IcebergProperty.ICEBERG_TABLE));
             }
             copiedProps.remove(IcebergProperty.ICEBERG_TABLE);
+        }
+
+        if (!copiedProps.isEmpty()) {
+            Iterator<Map.Entry<String, String>> iter = copiedProps.entrySet().iterator();
+            while (iter.hasNext()) {
+                Map.Entry<String, String> entry = iter.next();
+                if (entry.getKey().startsWith(IcebergProperty.ICEBERG_HDFS_PREFIX)) {
+                    iter.remove();
+                }
+            }
         }
 
         if (!copiedProps.isEmpty()) {

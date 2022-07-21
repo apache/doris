@@ -40,7 +40,7 @@ public class RefreshManager {
         Catalog catalog = Catalog.getCurrentCatalog();
 
         // 0. check table type
-        Database db = catalog.getDbOrDdlException(dbName);
+        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
         Table table = db.getTableNullable(tableName);
         if (!(table instanceof IcebergTable)) {
             throw new DdlException("Only support refresh Iceberg table.");
@@ -67,7 +67,7 @@ public class RefreshManager {
         String dbName = stmt.getDbName();
         Catalog catalog = Catalog.getCurrentCatalog();
 
-        Database db = catalog.getDbOrDdlException(dbName);
+        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
 
         // 0. build iceberg property
         // Since we have only persisted database properties with key-value format in DatabaseProperty,
@@ -82,7 +82,8 @@ public class RefreshManager {
         // Current database may have other types of table, which is not allowed to drop.
         for (Table table : db.getTables()) {
             if (table instanceof IcebergTable) {
-                DropTableStmt dropTableStmt = new DropTableStmt(true, new TableName(dbName, table.getName()), true);
+                DropTableStmt dropTableStmt =
+                        new DropTableStmt(true, new TableName(null, dbName, table.getName()), true);
                 catalog.dropTable(dropTableStmt);
             }
         }

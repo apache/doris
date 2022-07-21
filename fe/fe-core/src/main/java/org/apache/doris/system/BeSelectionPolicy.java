@@ -47,6 +47,7 @@ public class BeSelectionPolicy {
 
     public static class Builder {
         private BeSelectionPolicy policy;
+
         public Builder() {
             policy = new BeSelectionPolicy();
         }
@@ -97,11 +98,10 @@ public class BeSelectionPolicy {
     }
 
     public boolean isMatch(Backend backend) {
-        if (needScheduleAvailable && !backend.isScheduleAvailable()
-                || needQueryAvailable && !backend.isQueryAvailable()
-                || needLoadAvailable && !backend.isLoadAvailable()
-                || !resourceTags.isEmpty() && !resourceTags.contains(backend.getTag())
-                || storageMedium != null && !backend.hasSpecifiedStorageMedium(storageMedium)) {
+        if (needScheduleAvailable && !backend.isScheduleAvailable() || needQueryAvailable && !backend.isQueryAvailable()
+                || needLoadAvailable && !backend.isLoadAvailable() || !resourceTags.isEmpty() && !resourceTags.contains(
+                backend.getLocationTag()) || storageMedium != null && !backend.hasSpecifiedStorageMedium(
+                storageMedium)) {
             return false;
         }
 

@@ -164,7 +164,7 @@ public class JMXJsonUtil {
             jg.writeStartObject();
             jg.writeStringField("name", oname.toString());
             jg.writeStringField("modelerType", code);
-            MBeanAttributeInfo attrs[] = minfo.getAttributes();
+            MBeanAttributeInfo[] attrs = minfo.getAttributes();
             for (int i = 0; i < attrs.length; i++) {
                 writeAttribute(jg, oname, attrs[i]);
             }

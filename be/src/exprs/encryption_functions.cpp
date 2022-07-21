@@ -18,10 +18,6 @@
 #include "exprs/encryption_functions.h"
 
 #include "exprs/anyval_util.h"
-#include "exprs/expr.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
-#include "util/debug_util.h"
 #include "util/md5.h"
 #include "util/sm3.h"
 #include "util/url_coding.h"

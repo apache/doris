@@ -25,7 +25,6 @@
 #include "runtime/broker_mgr.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
-#include "util/thrift_util.h"
 
 namespace doris {
 

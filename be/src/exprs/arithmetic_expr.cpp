@@ -17,8 +17,6 @@
 
 #include "exprs/arithmetic_expr.h"
 
-#include "runtime/runtime_state.h"
-
 namespace doris {
 
 std::set<std::string> ArithmeticExpr::_s_valid_fn_names = {

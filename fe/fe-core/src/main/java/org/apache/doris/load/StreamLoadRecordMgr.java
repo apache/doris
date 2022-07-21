@@ -122,7 +122,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 long deDbId = record.getDbId();
 
                 Map<String, StreamLoadRecord> labelToStreamLoadRecord = dbIdToLabelToStreamLoadRecord.get(deDbId);
-                Iterator<Map.Entry<String, StreamLoadRecord>> iterRecord = labelToStreamLoadRecord.entrySet().iterator();
+                Iterator<Map.Entry<String, StreamLoadRecord>> iterRecord
+                        = labelToStreamLoadRecord.entrySet().iterator();
                 while (iterRecord.hasNext()) {
                     String labelInMap = iterRecord.next().getKey();
                     if (labelInMap.equals(deLabel)) {
@@ -150,7 +151,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         return new ArrayList<>(streamLoadRecordHeap);
     }
 
-    public List<List<Comparable>> getStreamLoadRecordByDb(long dbId, String label, boolean accurateMatch, StreamLoadState state) {
+    public List<List<Comparable>> getStreamLoadRecordByDb(
+            long dbId, String label, boolean accurateMatch, StreamLoadState state) {
         LinkedList<List<Comparable>> streamLoadRecords = new LinkedList<List<Comparable>>();
 
         readLock();
@@ -299,7 +301,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                     }
 
                     String fullDbName = ClusterNamespace.getFullName(cluster, streamLoadItem.getDb());
-                    Database db = Catalog.getCurrentCatalog().getDbNullable(fullDbName);
+                    Database db = Catalog.getCurrentInternalCatalog().getDbNullable(fullDbName);
                     if (db == null) {
                         String dbName = fullDbName;
                         if (Strings.isNullOrEmpty(streamLoadItem.getCluster())) {
@@ -348,7 +350,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         for (Backend backend : backends.values()) {
             if (beIdToLastStreamLoad.containsKey(backend.getId())) {
                 long lastStreamLoadTime = beIdToLastStreamLoad.get(backend.getId());
-                LOG.info("Replay stream load bdbje. backend: {}, last stream load time: {}", backend.getHost(), lastStreamLoadTime);
+                LOG.info("Replay stream load bdbje. backend: {}, last stream load time: {}",
+                        backend.getHost(), lastStreamLoadTime);
                 backend.setLastStreamLoadTime(lastStreamLoadTime);
             }
         }

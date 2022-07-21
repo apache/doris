@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "anyval_util.h"
+#include "udf/udf.h"
 
 namespace doris {
 
@@ -32,4 +32,6 @@ public:
 
     static CollectionVal array(FunctionContext* context, int num_children, const StringVal* values);
 };
+
+doris_udf::AnyVal array_fake_function(FunctionContext* context);
 } // namespace doris

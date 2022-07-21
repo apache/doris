@@ -22,9 +22,6 @@
 
 #include <sstream>
 
-#include "runtime/runtime_state.h"
-#include "util/debug_util.h"
-
 namespace doris {
 
 CompoundPredicate::CompoundPredicate(const TExprNode& node) : Predicate(node) {}

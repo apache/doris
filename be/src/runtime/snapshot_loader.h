@@ -49,10 +49,10 @@ struct FileStat;
  * It will also only download files which does not exist in local dir.
  *
  * Move:
- * move() is the final step of restore process. it will replace the 
+ * move() is the final step of restore process. it will replace the
  * old tablet data dir with the newly downloaded snapshot dir.
  * and reload the tablet header to take this tablet on line.
- * 
+ *
  */
 class SnapshotLoader {
 public:
@@ -61,7 +61,8 @@ public:
                    const TNetworkAddress& broker_addr,
                    const std::map<std::string, std::string>& broker_prop);
     SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
-                   const std::map<std::string, std::string>& broker_prop);
+                   const std::map<std::string, std::string>& broker_prop,
+                   TStorageBackendType::type type);
 
     ~SnapshotLoader();
 

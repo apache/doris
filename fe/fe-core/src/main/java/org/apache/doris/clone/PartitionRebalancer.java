@@ -73,7 +73,8 @@ public class PartitionRebalancer extends Rebalancer {
             ClusterLoadStatistic clusterStat, TStorageMedium medium) {
         String clusterName = clusterStat.getClusterName();
         MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(clusterName, clusterStat.getTag(), medium);
-        Preconditions.checkNotNull(movesInProgress, "clusterStat is got from statisticMap, movesCacheMap should have the same entry");
+        Preconditions.checkNotNull(movesInProgress,
+                "clusterStat is got from statisticMap, movesCacheMap should have the same entry");
 
         // Iterating through Cache.asMap().values() does not reset access time for the entries you retrieve.
         List<TabletMove> movesInProgressList = movesInProgress.get().asMap().values()
@@ -111,7 +112,8 @@ public class PartitionRebalancer extends Rebalancer {
         LOG.debug("Cluster {}-{}: peek max skew {}, assume {} in-progress moves are succeeded {}", clusterName, medium,
                 skews.isEmpty() ? 0 : skews.last(), movesInProgressList.size(), movesInProgressList);
 
-        List<TwoDimensionalGreedyRebalanceAlgo.PartitionMove> moves = algo.getNextMoves(clusterBalanceInfo, Config.partition_rebalance_max_moves_num_per_selection);
+        List<TwoDimensionalGreedyRebalanceAlgo.PartitionMove> moves
+                = algo.getNextMoves(clusterBalanceInfo, Config.partition_rebalance_max_moves_num_per_selection);
 
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
         List<Long> inProgressIds = movesInProgressList.stream().map(m -> m.tabletId).collect(Collectors.toList());
@@ -154,7 +156,8 @@ public class PartitionRebalancer extends Rebalancer {
             tabletCtx.setOrigPriority(TabletSchedCtx.Priority.LOW);
             alternativeTablets.add(tabletCtx);
             // Pair<Move, ToDeleteReplicaId>, ToDeleteReplicaId should be -1L before scheduled successfully
-            movesInProgress.get().put(pickedTabletId, new Pair<>(new TabletMove(pickedTabletId, move.fromBe, move.toBe), -1L));
+            movesInProgress.get().put(pickedTabletId,
+                    new Pair<>(new TabletMove(pickedTabletId, move.fromBe, move.toBe), -1L));
             counterBalanceMoveCreated.incrementAndGet();
             // Synchronize with movesInProgress
             inProgressIds.add(pickedTabletId);
@@ -172,7 +175,7 @@ public class PartitionRebalancer extends Rebalancer {
     }
 
     private boolean buildClusterInfo(ClusterLoadStatistic clusterStat, TStorageMedium medium,
-                                     List<TabletMove> movesInProgress, ClusterBalanceInfo info, List<Long> toDeleteKeys) {
+            List<TabletMove> movesInProgress, ClusterBalanceInfo info, List<Long> toDeleteKeys) {
         Preconditions.checkState(info.beByTotalReplicaCount.isEmpty() && info.partitionInfoBySkew.isEmpty(), "");
 
         // If we wanna modify the PartitionBalanceInfo in info.beByTotalReplicaCount, deep-copy it
@@ -180,7 +183,8 @@ public class PartitionRebalancer extends Rebalancer {
         info.partitionInfoBySkew.putAll(clusterStat.getSkewMap(medium));
 
         // Skip the toDeleteKeys
-        List<TabletMove> filteredMoves = movesInProgress.stream().filter(m -> !toDeleteKeys.contains(m.tabletId)).collect(Collectors.toList());
+        List<TabletMove> filteredMoves = movesInProgress.stream()
+                .filter(m -> !toDeleteKeys.contains(m.tabletId)).collect(Collectors.toList());
 
         for (TabletMove move : filteredMoves) {
             TabletMeta meta = invertedIndex.getTabletMeta(move.tabletId);
@@ -190,8 +194,11 @@ public class PartitionRebalancer extends Rebalancer {
                 continue;
             }
 
-            TwoDimensionalGreedyRebalanceAlgo.PartitionMove partitionMove = new TwoDimensionalGreedyRebalanceAlgo.PartitionMove(meta.getPartitionId(), meta.getIndexId(), move.fromBe, move.toBe);
-            boolean st = TwoDimensionalGreedyRebalanceAlgo.applyMove(partitionMove, info.beByTotalReplicaCount, info.partitionInfoBySkew);
+            TwoDimensionalGreedyRebalanceAlgo.PartitionMove partitionMove
+                    = new TwoDimensionalGreedyRebalanceAlgo.PartitionMove(
+                            meta.getPartitionId(), meta.getIndexId(), move.fromBe, move.toBe);
+            boolean st = TwoDimensionalGreedyRebalanceAlgo.applyMove(
+                    partitionMove, info.beByTotalReplicaCount, info.partitionInfoBySkew);
             if (!st) {
                 // Can't apply this move, mark it failed, continue to apply the next.
                 toDeleteKeys.add(move.tabletId);
@@ -208,7 +215,8 @@ public class PartitionRebalancer extends Rebalancer {
             if (moveIsComplete) {
                 toDeleteKeys.add(move.tabletId);
                 LOG.debug("Move {} is completed. The cur dist: {}", move,
-                        invertedIndex.getReplicasByTabletId(move.tabletId).stream().map(Replica::getBackendId).collect(Collectors.toList()));
+                        invertedIndex.getReplicasByTabletId(move.tabletId).stream()
+                                .map(Replica::getBackendId).collect(Collectors.toList()));
                 counterBalanceMoveSucceeded.incrementAndGet();
             }
         }
@@ -217,15 +225,18 @@ public class PartitionRebalancer extends Rebalancer {
     // Move completed: fromBe doesn't have a replica and toBe has a replica
     private boolean checkMoveCompleted(TabletMove move) {
         Long tabletId = move.tabletId;
-        List<Long> bes = invertedIndex.getReplicasByTabletId(tabletId).stream().map(Replica::getBackendId).collect(Collectors.toList());
+        List<Long> bes = invertedIndex.getReplicasByTabletId(tabletId).stream()
+                .map(Replica::getBackendId).collect(Collectors.toList());
         return !bes.contains(move.fromBe) && bes.contains(move.toBe);
     }
 
     @Override
     protected void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, TabletScheduler.PathSlot> backendsWorkingSlots)
             throws SchedException {
-        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(tabletCtx.getCluster(), tabletCtx.getTag(), tabletCtx.getStorageMedium());
-        Preconditions.checkNotNull(movesInProgress, "clusterStat is got from statisticMap, movesInProgressMap should have the same entry");
+        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(
+                tabletCtx.getCluster(), tabletCtx.getTag(), tabletCtx.getStorageMedium());
+        Preconditions.checkNotNull(movesInProgress,
+                "clusterStat is got from statisticMap, movesInProgressMap should have the same entry");
 
         try {
             Pair<TabletMove, Long> pair = movesInProgress.get().getIfPresent(tabletCtx.getTabletId());
@@ -242,7 +253,8 @@ public class PartitionRebalancer extends Rebalancer {
             if (slot.takeBalanceSlot(srcReplica.getPathHash()) != -1) {
                 tabletCtx.setSrc(srcReplica);
             } else {
-                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, "no slot for src replica " + srcReplica + ", pathHash " + srcReplica.getPathHash());
+                throw new SchedException(SchedException.Status.SCHEDULE_FAILED,
+                        "no slot for src replica " + srcReplica + ", pathHash " + srcReplica.getPathHash());
             }
 
             // Choose a path in destination
@@ -259,7 +271,8 @@ public class PartitionRebalancer extends Rebalancer {
                     .map(RootPathLoadStatistic::getPathHash).collect(Collectors.toSet());
             long pathHash = slot.takeAnAvailBalanceSlotFrom(availPath);
             if (pathHash == -1) {
-                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, "paths has no available balance slot: " + availPath);
+                throw new SchedException(SchedException.Status.SCHEDULE_FAILED,
+                        "paths has no available balance slot: " + availPath);
             } else {
                 tabletCtx.setDest(beStat.getBeId(), pathHash);
             }
@@ -280,7 +293,8 @@ public class PartitionRebalancer extends Rebalancer {
     private void checkMoveValidation(TabletMove move) throws IllegalStateException {
         boolean fromAvailable = infoService.checkBackendScheduleAvailable(move.fromBe);
         boolean toAvailable = infoService.checkBackendScheduleAvailable(move.toBe);
-        Preconditions.checkState(fromAvailable && toAvailable, move + "'s bes are not all available: from " + fromAvailable + ", to " + toAvailable);
+        Preconditions.checkState(fromAvailable && toAvailable,
+                move + "'s bes are not all available: from " + fromAvailable + ", to " + toAvailable);
         // To be improved
     }
 
@@ -333,7 +347,8 @@ public class PartitionRebalancer extends Rebalancer {
     // Balance information for a cluster(one medium), excluding decommissioned/dead bes and replicas on them.
     // Natural ordering, so the last key is the max key.
     public static class ClusterBalanceInfo {
-        TreeMultimap<Long, TabletInvertedIndex.PartitionBalanceInfo> partitionInfoBySkew = TreeMultimap.create(Ordering.natural(), Ordering.arbitrary());
+        TreeMultimap<Long, TabletInvertedIndex.PartitionBalanceInfo> partitionInfoBySkew
+                = TreeMultimap.create(Ordering.natural(), Ordering.arbitrary());
         TreeMultimap<Long, Long> beByTotalReplicaCount = TreeMultimap.create();
     }
 

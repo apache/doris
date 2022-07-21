@@ -17,40 +17,38 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.external.ExternalScanRange;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
+import lombok.Data;
+import org.apache.commons.lang.NotImplementedException;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-import java.util.Optional;
-import java.util.function.Function;
+import java.util.Map;
 
 /**
  * The abstract class for all types of external data sources.
  */
-public abstract class ExternalDataSource implements DataSourceIf, Writable {
+@Data
+public abstract class ExternalDataSource implements DataSourceIf<ExternalDatabase>, Writable {
     // Unique id of this data source, will be assigned after data source is loaded.
     @SerializedName(value = "id")
-    private long id;
+    protected long id;
     @SerializedName(value = "name")
-    private String name;
+    protected String name;
     @SerializedName(value = "type")
-    private String type;
+    protected String type;
     // save properties of this data source, such as hive meta store url.
     @SerializedName(value = "dsProperty")
-    private DataSourceProperty dsProperty = new DataSourceProperty();
+    protected DataSourceProperty dsProperty = new DataSourceProperty();
 
     /**
      * @return names of database in this data source.
@@ -72,21 +70,6 @@ public abstract class ExternalDataSource implements DataSourceIf, Writable {
      */
     public abstract boolean tableExist(SessionContext ctx, String dbName, String tblName);
 
-    /**
-     * get schema of the specified table
-     *
-     * @param dbName
-     * @param tblName
-     * @return list of columns as table's schema
-     */
-    public abstract List<Column> getSchema(SessionContext ctx, String dbName, String tblName);
-
-    /**
-     * @return list of ExternalScanRange
-     */
-    public abstract List<ExternalScanRange> getExternalScanRanges(SessionContext ctx);
-
-
     @Override
     public long getId() {
         return id;
@@ -104,74 +87,46 @@ public abstract class ExternalDataSource implements DataSourceIf, Writable {
 
     @Override
     public List<String> getDbNames() {
-        return null;
+        return listDatabaseNames(null);
     }
 
     @Nullable
     @Override
-    public DatabaseIf getDbNullable(String dbName) {
-        return null;
+    public ExternalDatabase getDbNullable(String dbName) {
+        throw new NotImplementedException();
     }
 
     @Nullable
     @Override
-    public DatabaseIf getDbNullable(long dbId) {
-        return null;
+    public ExternalDatabase getDbNullable(long dbId) {
+        throw new NotImplementedException();
     }
 
     @Override
-    public Optional<DatabaseIf> getDb(String dbName) {
-        return Optional.empty();
+    public Map<String, String> getProperties() {
+        return dsProperty.getProperties();
     }
 
     @Override
-    public Optional<DatabaseIf> getDb(long dbId) {
-        return Optional.empty();
+    public void modifyDatasourceName(String name) {
+        this.name = name;
     }
 
     @Override
-    public <E extends Exception> DatabaseIf getDbOrException(String dbName, Function<String, E> e) throws E {
-        return null;
-    }
-
-    @Override
-    public <E extends Exception> DatabaseIf getDbOrException(long dbId, Function<Long, E> e) throws E {
-        return null;
-    }
-
-    @Override
-    public DatabaseIf getDbOrMetaException(String dbName) throws MetaNotFoundException {
-        return null;
-    }
-
-    @Override
-    public DatabaseIf getDbOrMetaException(long dbId) throws MetaNotFoundException {
-        return null;
-    }
-
-    @Override
-    public DatabaseIf getDbOrDdlException(String dbName) throws DdlException {
-        return null;
-    }
-
-    @Override
-    public DatabaseIf getDbOrDdlException(long dbId) throws DdlException {
-        return null;
-    }
-
-    @Override
-    public DatabaseIf getDbOrAnalysisException(String dbName) throws AnalysisException {
-        return null;
-    }
-
-    @Override
-    public DatabaseIf getDbOrAnalysisException(long dbId) throws AnalysisException {
-        return null;
+    public void modifyDatasourceProps(Map<String, String> props) {
+        dsProperty.setProperties(props);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    /**
+     * External catalog has no cluster semantics.
+     */
+    protected static String getRealTableName(String tableName) {
+        return ClusterNamespace.getNameFromFullName(tableName);
     }
 
     public static ExternalDataSource read(DataInput in) throws IOException {

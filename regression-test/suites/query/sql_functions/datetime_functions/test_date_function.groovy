@@ -21,9 +21,9 @@ suite("test_date_function", "query") {
     def tableName = "test_date_function"
 
     sql """ SET enable_vectorized_engine = TRUE; """
-
+    sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
                 test_datetime datetime NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(test_datetime)
@@ -236,7 +236,8 @@ suite("test_date_function", "query") {
     qt_sql """ select week('2020-7-1',1) """
 
     // WEEKDAY
-    //TODO add WEEKDAY case
+    qt_sql """ select weekday('2019-06-25'); """
+    qt_sql """ select weekday(cast(20190625 as date)); """
 
     // WEEKOFYEAR
     qt_sql """ select weekofyear('2008-02-20 00:00:00') """
@@ -248,6 +249,8 @@ suite("test_date_function", "query") {
     // YEARWEEK
     qt_sql """ select yearweek('2021-1-1') """
     qt_sql """ select yearweek('2020-7-1') """
+
+    qt_sql """ select count(*) from (select * from numbers("200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
 
     sql """ drop table ${tableName} """
 }

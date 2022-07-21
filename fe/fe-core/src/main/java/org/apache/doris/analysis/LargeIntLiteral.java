@@ -39,7 +39,7 @@ import java.util.Objects;
 
 // large int for the num that native types can not
 public class LargeIntLiteral extends LiteralExpr {
-    private final static Logger LOG = LogManager.getLogger(LargeIntLiteral.class);
+    private static final Logger LOG = LogManager.getLogger(LargeIntLiteral.class);
 
     // -2^127
     public static final BigInteger LARGE_INT_MIN = new BigInteger("-170141183460469231731687303715884105728");
@@ -190,7 +190,7 @@ public class LargeIntLiteral extends LiteralExpr {
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isFloatingPointType()) {
             return new FloatLiteral(new Double(value.doubleValue()), targetType);
-        } else if (targetType.isDecimalV2()) {
+        } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
             return new DecimalLiteral(new BigDecimal(value));
         } else if (targetType.isNumericType()) {
             try {

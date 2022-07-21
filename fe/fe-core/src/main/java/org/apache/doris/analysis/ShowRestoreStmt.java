@@ -176,9 +176,11 @@ public class ShowRestoreStmt extends ShowStmt {
             return label -> true;
         }
         if (isAccurateMatch) {
-            return CaseSensibility.LABEL.getCaseSensibility() ? label -> label.equals(labelValue) : label -> label.equalsIgnoreCase(labelValue);
+            return CaseSensibility.LABEL.getCaseSensibility()
+                    ? label -> label.equals(labelValue) : label -> label.equalsIgnoreCase(labelValue);
         } else {
-            PatternMatcher patternMatcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+            PatternMatcher patternMatcher = PatternMatcher.createMysqlPattern(
+                    labelValue, CaseSensibility.LABEL.getCaseSensibility());
             return patternMatcher::match;
         }
     }

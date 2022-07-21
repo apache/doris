@@ -37,7 +37,7 @@ import java.util.List;
  * See Expr.substitute() and related functions for details on the actual substitution.
  */
 public final class ExprSubstitutionMap {
-    private final static Logger LOG = LoggerFactory.getLogger(ExprSubstitutionMap.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ExprSubstitutionMap.class);
 
     private boolean checkAnalyzed = true;
     private List<Expr> lhs; // left-hand side

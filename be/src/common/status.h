@@ -24,7 +24,7 @@ namespace doris {
 #define APPLY_FOR_ERROR_CODES(M)                                         \
     M(OLAP_SUCCESS, 0, "", false)                                        \
     M(OLAP_ERR_OTHER_ERROR, -1, "", true)                                \
-    M(OLAP_REQUEST_FAILED, -2, "", true)                                 \
+    M(OLAP_REQUEST_FAILED, -2, "", false)                                \
     M(OLAP_ERR_OS_ERROR, -100, "", true)                                 \
     M(OLAP_ERR_DIR_NOT_EXIST, -101, "", true)                            \
     M(OLAP_ERR_FILE_NOT_EXIST, -102, "", true)                           \
@@ -92,7 +92,7 @@ namespace doris {
     M(OLAP_ERR_CE_LOAD_TABLE_ERROR, -303, "", true)                      \
     M(OLAP_ERR_CE_NOT_FINISHED, -304, "", true)                          \
     M(OLAP_ERR_CE_TABLET_ID_EXIST, -305, "", true)                       \
-    M(OLAP_ERR_CE_TRY_CE_LOCK_ERROR, -306, "", true)                     \
+    M(OLAP_ERR_CE_TRY_CE_LOCK_ERROR, -306, "", false)                    \
     M(OLAP_ERR_TABLE_VERSION_DUPLICATE_ERROR, -400, "", true)            \
     M(OLAP_ERR_TABLE_VERSION_INDEX_MISMATCH_ERROR, -401, "", true)       \
     M(OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR, -402, "", true)               \
@@ -176,8 +176,8 @@ namespace doris {
     M(OLAP_ERR_HEADER_LOAD_JSON_HEADER, -1410, "", true)                 \
     M(OLAP_ERR_HEADER_INIT_FAILED, -1411, "", true)                      \
     M(OLAP_ERR_HEADER_PB_PARSE_FAILED, -1412, "", true)                  \
-    M(OLAP_ERR_HEADER_HAS_PENDING_DATA, -1413, "", true)                 \
-    M(OLAP_ERR_SCHEMA_SCHEMA_INVALID, -1500, "", true)                   \
+    M(OLAP_ERR_HEADER_HAS_PENDING_DATA, -1413, "", false)                \
+    M(OLAP_ERR_SCHEMA_SCHEMA_INVALID, -1500, "", false)                  \
     M(OLAP_ERR_SCHEMA_SCHEMA_FIELD_INVALID, -1501, "", true)             \
     M(OLAP_ERR_ALTER_MULTI_TABLE_ERR, -1600, "", true)                   \
     M(OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS, -1601, "", true)             \
@@ -279,102 +279,119 @@ public:
 
     static Status OK() { return Status(); }
 
-    static Status PublishTimeout(const Slice& msg, int16_t precise_code = 1,
-                                 const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::PUBLISH_TIMEOUT, msg, precise_code, msg2);
-    }
-    static Status MemoryAllocFailed(const Slice& msg, int16_t precise_code = 1,
-                                    const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::MEM_ALLOC_FAILED, msg, precise_code, msg2);
-    }
-    static Status BufferAllocFailed(const Slice& msg, int16_t precise_code = 1,
-                                    const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::BUFFER_ALLOCATION_FAILED, msg, precise_code, msg2);
-    }
-    static Status InvalidArgument(const Slice& msg, int16_t precise_code = 1,
-                                  const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::INVALID_ARGUMENT, msg, precise_code, msg2);
-    }
-    static Status MinimumReservationUnavailable(const Slice& msg, int16_t precise_code = 1,
-                                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::MINIMUM_RESERVATION_UNAVAILABLE, msg, precise_code, msg2);
-    }
-    static Status Corruption(const Slice& msg, int16_t precise_code = 1,
-                             const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::CORRUPTION, msg, precise_code, msg2);
-    }
-    static Status IOError(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::IO_ERROR, msg, precise_code, msg2);
-    }
-    static Status NotFound(const Slice& msg, int16_t precise_code = 1,
-                           const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::NOT_FOUND, msg, precise_code, msg2);
-    }
-    static Status AlreadyExist(const Slice& msg, int16_t precise_code = 1,
-                               const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::ALREADY_EXIST, msg, precise_code, msg2);
-    }
-    static Status NotSupported(const Slice& msg, int16_t precise_code = 1,
-                               const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::NOT_IMPLEMENTED_ERROR, msg, precise_code, msg2);
-    }
-    static Status EndOfFile(const Slice& msg, int16_t precise_code = 1,
-                            const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::END_OF_FILE, msg, precise_code, msg2);
-    }
-    static Status InternalError(const Slice& msg, int16_t precise_code = 1,
-                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, msg2);
-    }
-    static Status RuntimeError(const Slice& msg, int16_t precise_code = 1,
-                               const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::RUNTIME_ERROR, msg, precise_code, msg2);
-    }
-    static Status Cancelled(const Slice& msg, int16_t precise_code = 1,
-                            const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::CANCELLED, msg, precise_code, msg2);
-    }
-
-    static Status MemoryLimitExceeded(const Slice& msg, int16_t precise_code = 1,
-                                      const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::MEM_LIMIT_EXCEEDED, msg, precise_code, msg2);
-    }
-
-    static Status ThriftRpcError(const Slice& msg, int16_t precise_code = 1,
-                                 const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::THRIFT_RPC_ERROR, msg, precise_code, msg2);
-    }
-
-    static Status TimedOut(const Slice& msg, int16_t precise_code = 1,
-                           const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::TIMEOUT, msg, precise_code, msg2);
-    }
-
-    static Status TooManyTasks(const Slice& msg, int16_t precise_code = 1,
-                               const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::TOO_MANY_TASKS, msg, precise_code, msg2);
-    }
-    static Status ServiceUnavailable(const Slice& msg, int16_t precise_code = -1,
-                                     const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::SERVICE_UNAVAILABLE, msg, precise_code, msg2);
-    }
-    static Status Uninitialized(const Slice& msg, int16_t precise_code = -1,
-                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::UNINITIALIZED, msg, precise_code, msg2);
-    }
-    static Status Aborted(const Slice& msg, int16_t precise_code = -1,
-                          const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::ABORTED, msg, precise_code, msg2);
-    }
-
-    static Status DataQualityError(const Slice& msg, int16_t precise_code = -1,
-                                   const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::DATA_QUALITY_ERROR, msg, precise_code, msg2);
+    template <typename... Args>
+    static Status ErrorFmt(TStatusCode::type code, const std::string& fmt, Args&&... args) {
+        // In some cases, fmt contains '{}' but there are no args.
+        if (sizeof...(args) == 0) {
+            return Status(code, fmt);
+        }
+        return Status(code, fmt::format(fmt, std::forward<Args>(args)...));
     }
 
     template <typename... Args>
-    static Status OLAPInternalError(int16_t precise_code, const std::string& fmt, Args&&... args) {
-        return ConstructErrorStatus(precise_code, fmt::format(fmt, std::forward<Args>(args)...));
+    static Status PublishTimeout(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::PUBLISH_TIMEOUT, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status MemoryAllocFailed(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::MEM_ALLOC_FAILED, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status BufferAllocFailed(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::BUFFER_ALLOCATION_FAILED, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status InvalidArgument(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::INVALID_ARGUMENT, fmt, std::forward<Args>(args)...);
+    }
+    template <typename... Args>
+    static Status MinimumReservationUnavailable(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::MINIMUM_RESERVATION_UNAVAILABLE, fmt,
+                        std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status Corruption(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::CORRUPTION, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status IOError(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::IO_ERROR, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status NotFound(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::NOT_FOUND, fmt, std::forward<Args>(args)...);
+    }
+    template <typename... Args>
+    static Status AlreadyExist(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::ALREADY_EXIST, fmt, std::forward<Args>(args)...);
+    }
+    template <typename... Args>
+    static Status NotSupported(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::NOT_IMPLEMENTED_ERROR, fmt, std::forward<Args>(args)...);
+    }
+    template <typename... Args>
+    static Status EndOfFile(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::END_OF_FILE, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status InternalError(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::INTERNAL_ERROR, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status RuntimeError(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::RUNTIME_ERROR, fmt, std::forward<Args>(args)...);
+    }
+    template <typename... Args>
+    static Status Cancelled(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::CANCELLED, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status MemoryLimitExceeded(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::MEM_LIMIT_EXCEEDED, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status ThriftRpcError(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::THRIFT_RPC_ERROR, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status TimedOut(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::TIMEOUT, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status TooManyTasks(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::TOO_MANY_TASKS, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status ServiceUnavailable(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::SERVICE_UNAVAILABLE, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status Uninitialized(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::UNINITIALIZED, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status Aborted(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::ABORTED, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    static Status DataQualityError(const std::string& fmt, Args&&... args) {
+        return ErrorFmt(TStatusCode::DATA_QUALITY_ERROR, fmt, std::forward<Args>(args)...);
     }
 
     // A wrapper for ErrorCode
@@ -403,16 +420,16 @@ public:
                OLAP_ERR_TEST_FILE_ERROR == p_code || OLAP_ERR_ROWBLOCK_READ_INFO_ERROR == p_code;
     }
 
-    /// @return @c true iff the status indicates Uninitialized.
+    /// @return @c true if the status indicates Uninitialized.
     bool is_uninitialized() const { return code() == TStatusCode::UNINITIALIZED; }
 
-    // @return @c true iff the status indicates an Aborted error.
+    // @return @c true if the status indicates an Aborted error.
     bool is_aborted() const { return code() == TStatusCode::ABORTED; }
 
-    /// @return @c true iff the status indicates an InvalidArgument error.
+    /// @return @c true if the status indicates an InvalidArgument error.
     bool is_invalid_argument() const { return code() == TStatusCode::INVALID_ARGUMENT; }
 
-    // @return @c true iff the status indicates ServiceUnavailable.
+    // @return @c true if the status indicates ServiceUnavailable.
     bool is_service_unavailable() const { return code() == TStatusCode::SERVICE_UNAVAILABLE; }
 
     bool is_data_quality_error() const { return code() == TStatusCode::DATA_QUALITY_ERROR; }
@@ -535,7 +552,8 @@ private:
         }
     }
 
-    Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2) {
+    Status(TStatusCode::type code, const Slice& msg, int16_t precise_code = 1,
+           const Slice& msg2 = Slice()) {
         assemble_state(code, msg, precise_code, msg2);
     }
 
@@ -574,6 +592,19 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& param) {
         if (UNLIKELY(!_status_.ok())) {  \
             return _status_;             \
         }                                \
+    } while (false)
+
+// End _get_next_span after last call to get_next method
+#define RETURN_IF_ERROR_AND_CHECK_SPAN(stmt, get_next_span, done) \
+    do {                                                          \
+        const auto& _status_ = (stmt);                            \
+        auto _span = (get_next_span);                             \
+        if (UNLIKELY(_span && (!_status_.ok() || done))) {        \
+            _span->End();                                         \
+        }                                                         \
+        if (UNLIKELY(!_status_.ok())) {                           \
+            return _status_;                                      \
+        }                                                         \
     } while (false)
 
 #define RETURN_IF_STATUS_ERROR(status, stmt) \

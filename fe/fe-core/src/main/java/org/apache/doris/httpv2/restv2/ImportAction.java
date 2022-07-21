@@ -72,7 +72,8 @@ public class ImportAction {
      * }
      */
     @RequestMapping(path = "/api/import/file_review", method = RequestMethod.POST)
-    public Object fileReview(@RequestBody FileReviewRequestVo body, HttpServletRequest request, HttpServletResponse response) {
+    public Object fileReview(@RequestBody FileReviewRequestVo body,
+            HttpServletRequest request, HttpServletResponse response) {
         FileInfo fileInfo = body.getFileInfo();
         ConnectInfo connectInfo = body.getConnectInfo();
         BrokerDesc brokerDesc = new BrokerDesc(connectInfo.getBrokerName(), connectInfo.getBrokerProps());

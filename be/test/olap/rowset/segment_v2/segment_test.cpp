@@ -24,11 +24,11 @@
 #include <iostream>
 
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
 #include "olap/in_list_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/row_block.h"
@@ -43,6 +43,7 @@
 #include "runtime/mem_tracker.h"
 #include "testutil/test_util.h"
 #include "util/file_utils.h"
+
 namespace doris {
 namespace segment_v2 {
 
@@ -109,15 +110,16 @@ protected:
         static int seg_id = 0;
         // must use unique filename for each segment, otherwise page cache kicks in and produces
         // the wrong answer (it use (filename,offset) as cache key)
-        std::string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, seg_id++);
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions block_opts(filename);
-        std::string storage_name;
-        Status st = fs::fs_util::block_manager(storage_name)->create_block(block_opts, &wblock);
+        std::string filename = fmt::format("seg_{}.dat", seg_id++);
+        std::string path = fmt::format("{}/{}", kSegmentDir, filename);
+        auto fs = io::global_local_filesystem();
+
+        io::FileWriterPtr file_writer;
+        Status st = fs->create_file(path, &file_writer);
         EXPECT_TRUE(st.ok());
         DataDir data_dir(kSegmentDir);
         data_dir.init();
-        SegmentWriter writer(wblock.get(), 0, &build_schema, &data_dir, INT32_MAX, opts);
+        SegmentWriter writer(file_writer.get(), 0, &build_schema, &data_dir, INT32_MAX, opts);
         st = writer.init(10);
         EXPECT_TRUE(st.ok());
 
@@ -137,16 +139,14 @@ protected:
         uint64_t file_size, index_size;
         st = writer.finalize(&file_size, &index_size);
         EXPECT_TRUE(st.ok());
-        EXPECT_TRUE(wblock->close().ok());
+        EXPECT_TRUE(file_writer->close().ok());
 
-        FilePathDesc path_desc;
-        path_desc.filepath = filename;
-        st = Segment::open(path_desc, 0, &query_schema, res);
+        st = Segment::open(fs, path, 0, &query_schema, res);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(nrows, (*res)->num_rows());
     }
 
-private:
+public:
     const std::string kSegmentDir = "./ut_dir/segment_test";
 };
 
@@ -168,8 +168,9 @@ TEST_F(SegmentReaderWriterTest, normal) {
         {
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
 
@@ -223,9 +224,10 @@ TEST_F(SegmentReaderWriterTest, normal) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), true);
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 100);
             EXPECT_TRUE(iter->next_batch(&block).ok());
@@ -249,9 +251,10 @@ TEST_F(SegmentReaderWriterTest, normal) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 100);
             EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
@@ -278,9 +281,10 @@ TEST_F(SegmentReaderWriterTest, normal) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), false);
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 100);
             EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
@@ -315,9 +319,10 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             StorageReadOptions read_opts;
             read_opts.column_predicates = predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
-            EXPECT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
+            ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
 
             RowBlockV2 block(read_schema, 1024);
             EXPECT_TRUE(iter->next_batch(&block).ok());
@@ -339,9 +344,10 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             StorageReadOptions read_opts;
             read_opts.column_predicates = predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
-            EXPECT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
+            ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
 
             RowBlockV2 block(read_schema, 1024);
             EXPECT_TRUE(iter->next_batch(&block).ok());
@@ -359,9 +365,10 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
-            EXPECT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
+            ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
 
             RowBlockV2 block(read_schema, 1024);
             EXPECT_TRUE(iter->next_batch(&block).ok());
@@ -391,9 +398,10 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             StorageReadOptions read_opts;
             read_opts.column_predicates = predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
-            EXPECT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
+            ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
 
             RowBlockV2 block(read_schema, 1024);
             EXPECT_TRUE(iter->next_batch(&block).ok());
@@ -452,10 +460,11 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             read_opts.conditions = conditions.get();
 
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1);
 
@@ -475,10 +484,11 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             read_opts.conditions = conditions.get();
 
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
 
@@ -534,11 +544,12 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             read_opts.conditions = conditions.get();
             read_opts.delete_conditions.push_back(delete_conditions.get());
 
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
 
@@ -575,6 +586,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
         {
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             TCondition condition;
             condition.__set_column_name("2");
             condition.__set_condition_op("=");
@@ -586,7 +598,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
             read_opts.conditions = conditions.get();
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
             EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
@@ -608,23 +620,18 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     tablet_schema->_cols.push_back(create_int_key(3));
     tablet_schema->_cols.push_back(create_int_value(4));
 
-    // segment write
-    std::string dname = "./ut_dir/segment_write_size";
-    FileUtils::remove_all(dname);
-    FileUtils::create_dir(dname);
-
     SegmentWriterOptions opts;
     opts.num_rows_per_block = num_rows_per_block;
 
-    std::string fname = dname + "/int_case";
-    std::unique_ptr<fs::WritableBlock> wblock;
-    fs::CreateBlockOptions wblock_opts(fname);
-    std::string storage_name;
-    Status st = fs::fs_util::block_manager(storage_name)->create_block(wblock_opts, &wblock);
+    std::string fname = kSegmentDir + "/int_case";
+    auto fs = io::global_local_filesystem();
+
+    io::FileWriterPtr file_writer;
+    Status st = fs->create_file(fname, &file_writer);
     EXPECT_TRUE(st.ok()) << st.to_string();
-    DataDir data_dir(dname);
+    DataDir data_dir(kSegmentDir);
     data_dir.init();
-    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), &data_dir, INT32_MAX, opts);
+    SegmentWriter writer(file_writer.get(), 0, tablet_schema.get(), &data_dir, INT32_MAX, opts);
     st = writer.init(10);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
@@ -650,14 +657,12 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     uint64_t file_size = 0;
     uint64_t index_size;
     EXPECT_TRUE(writer.finalize(&file_size, &index_size).ok());
-    EXPECT_TRUE(wblock->close().ok());
+    EXPECT_TRUE(file_writer->close().ok());
 
     file_size = std::filesystem::file_size(fname);
     LOG(INFO) << "segment file size is:" << file_size;
 
     EXPECT_NE(segment_size, 0);
-
-    FileUtils::remove_all(dname);
 }
 
 TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
@@ -681,8 +686,9 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         {
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &query_schema;
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
 
@@ -731,8 +737,9 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         {
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &query_schema;
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
 
@@ -782,22 +789,18 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     tablet_schema->_cols.push_back(create_varchar_key(4));
     tablet_schema->init_field_index_for_test();
 
-    //    segment write
-    std::string dname = "./ut_dir/segment_test";
-    FileUtils::create_dir(dname);
-
     SegmentWriterOptions opts;
     opts.num_rows_per_block = num_rows_per_block;
 
-    std::string fname = dname + "/string_case";
-    std::unique_ptr<fs::WritableBlock> wblock;
-    fs::CreateBlockOptions wblock_opts(fname);
-    std::string storage_name;
-    Status st = fs::fs_util::block_manager(storage_name)->create_block(wblock_opts, &wblock);
+    std::string fname = kSegmentDir + "/string_case";
+    auto fs = io::global_local_filesystem();
+
+    io::FileWriterPtr file_writer;
+    Status st = fs->create_file(fname, &file_writer);
     EXPECT_TRUE(st.ok());
-    DataDir data_dir(dname);
+    DataDir data_dir(kSegmentDir);
     data_dir.init();
-    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), &data_dir, INT32_MAX, opts);
+    SegmentWriter writer(file_writer.get(), 0, tablet_schema.get(), &data_dir, INT32_MAX, opts);
     st = writer.init(10);
     EXPECT_TRUE(st.ok());
 
@@ -824,13 +827,11 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     uint64_t file_size = 0;
     uint64_t index_size;
     EXPECT_TRUE(writer.finalize(&file_size, &index_size).ok());
-    EXPECT_TRUE(wblock->close().ok());
+    EXPECT_TRUE(file_writer->close().ok());
 
     {
         std::shared_ptr<Segment> segment;
-        FilePathDesc path_desc;
-        path_desc.filepath = fname;
-        st = Segment::open(path_desc, 0, tablet_schema.get(), &segment);
+        st = Segment::open(fs, fname, 0, tablet_schema.get(), &segment);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(4096, segment->num_rows());
         Schema schema(*tablet_schema);
@@ -839,8 +840,9 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
         {
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = tablet_schema.get();
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
 
@@ -891,9 +893,10 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = tablet_schema.get();
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
@@ -924,9 +927,10 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = tablet_schema.get();
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), false);
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
@@ -947,10 +951,11 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = tablet_schema.get();
             read_opts.conditions = conditions.get();
 
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
             int left = 4 * 1024;
@@ -1004,10 +1009,11 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = tablet_schema.get();
             read_opts.conditions = conditions.get();
 
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
 
@@ -1016,8 +1022,6 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             EXPECT_EQ(0, block.num_rows());
         }
     }
-
-    FileUtils::remove_all(dname);
 }
 
 TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
@@ -1044,9 +1048,10 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             OlapReaderStatistics stats;
             read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
             EXPECT_TRUE(iter->next_batch(&block).ok());
@@ -1066,9 +1071,10 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             OlapReaderStatistics stats;
             read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
             EXPECT_TRUE(iter->next_batch(&block).ok());
@@ -1088,9 +1094,10 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             OlapReaderStatistics stats;
             read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
             EXPECT_FALSE(iter->next_batch(&block).ok());
@@ -1112,9 +1119,10 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             OlapReaderStatistics stats;
             read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
             EXPECT_TRUE(iter->next_batch(&block).ok());
@@ -1135,9 +1143,10 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             OlapReaderStatistics stats;
             read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
-            segment->new_iterator(schema, read_opts, &iter);
+            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
             RowBlockV2 block(schema, 1024);
 

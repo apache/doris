@@ -47,6 +47,7 @@ import java.util.Set;
 public class CreateReplicaTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(CreateReplicaTask.class);
 
+    private long replicaId;
     private short shortKeyColumnCount;
     private int schemaHash;
 
@@ -87,41 +88,12 @@ public class CreateReplicaTask extends AgentTask {
     private boolean isRecoverTask = false;
 
     private DataSortInfo dataSortInfo;
+    private static String storagePolicy;
+
+    private boolean enableUniqueKeyMergeOnWrite;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                             short shortKeyColumnCount, int schemaHash, long version,
-                             KeysType keysType, TStorageType storageType,
-                             TStorageMedium storageMedium, List<Column> columns,
-                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
-                             List<Index> indexes,
-                             boolean isInMemory,
-                             TTabletType tabletType, TCompressionType compressionType) {
-        super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
-
-        this.shortKeyColumnCount = shortKeyColumnCount;
-        this.schemaHash = schemaHash;
-
-        this.version = version;
-
-        this.keysType = keysType;
-        this.storageType = storageType;
-        this.storageMedium = storageMedium;
-        this.compressionType = compressionType;
-
-        this.columns = columns;
-
-        this.bfColumns = bfColumns;
-        this.indexes = indexes;
-        this.bfFpp = bfFpp;
-
-        this.latch = latch;
-
-        this.isInMemory = isInMemory;
-        this.tabletType = tabletType;
-    }
-
-    public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                             short shortKeyColumnCount, int schemaHash, long version,
+                             long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
                              Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
@@ -129,9 +101,12 @@ public class CreateReplicaTask extends AgentTask {
                              boolean isInMemory,
                              TTabletType tabletType,
                              DataSortInfo dataSortInfo,
-                             TCompressionType compressionType) {
+                             TCompressionType compressionType,
+                             boolean enableUniqueKeyMergeOnWrite,
+                             String storagePolicy) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
+        this.replicaId = replicaId;
         this.shortKeyColumnCount = shortKeyColumnCount;
         this.schemaHash = schemaHash;
 
@@ -153,6 +128,8 @@ public class CreateReplicaTask extends AgentTask {
         this.isInMemory = isInMemory;
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
+        this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
+        this.storagePolicy = storagePolicy;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -256,11 +233,13 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setVersion(version);
 
         createTabletReq.setStorageMedium(storageMedium);
+        createTabletReq.setStoragePolicy(storagePolicy);
         if (inRestoreMode) {
             createTabletReq.setInRestoreMode(true);
         }
         createTabletReq.setTableId(tableId);
         createTabletReq.setPartitionId(partitionId);
+        createTabletReq.setReplicaId(replicaId);
 
         if (baseTabletId != -1) {
             createTabletReq.setBaseTabletId(baseTabletId);
@@ -273,6 +252,7 @@ public class CreateReplicaTask extends AgentTask {
 
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
+        createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
         return createTabletReq;
     }
 }

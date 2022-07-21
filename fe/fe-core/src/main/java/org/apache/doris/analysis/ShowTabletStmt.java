@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -38,6 +39,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ShowTabletStmt extends ShowStmt {
+    private TableName dbTableName;
     private String dbName;
     private String tableName;
     private long tabletId;
@@ -60,6 +62,7 @@ public class ShowTabletStmt extends ShowStmt {
 
     public ShowTabletStmt(TableName dbTableName, long tabletId, PartitionNames partitionNames,
             Expr whereClause, List<OrderByElement> orderByElements, LimitElement limitElement) {
+        this.dbTableName = dbTableName;
         if (dbTableName == null) {
             this.dbName = null;
             this.tableName = null;
@@ -152,6 +155,11 @@ public class ShowTabletStmt extends ShowStmt {
         }
 
         super.analyze(analyzer);
+        if (dbTableName != null) {
+            dbTableName.analyze(analyzer);
+            // disallow external catalog
+            Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName());
+        }
         if (!isShowSingleTablet && Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {

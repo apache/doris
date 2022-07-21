@@ -91,7 +91,8 @@ public class Checkpoint extends MasterDaemon {
             imageVersion = storage.getLatestImageSeq();
             // get max finalized journal id
             checkPointVersion = editLog.getFinalizedJournalId();
-            LOG.info("last checkpoint journal id: {}, current finalized journal id: {}", imageVersion, checkPointVersion);
+            LOG.info("last checkpoint journal id: {}, current finalized journal id: {}",
+                    imageVersion, checkPointVersion);
             if (imageVersion >= checkPointVersion) {
                 return;
             }
@@ -122,8 +123,8 @@ public class Checkpoint extends MasterDaemon {
             catalog.loadImage(imageDir);
             catalog.replayJournal(checkPointVersion);
             if (catalog.getReplayedJournalId() != checkPointVersion) {
-                throw new CheckpointException(String.format("checkpoint version should be %d, actual replayed journal id is %d",
-                        checkPointVersion, catalog.getReplayedJournalId()));
+                throw new CheckpointException(String.format("checkpoint version should be %d,"
+                        + " actual replayed journal id is %d", checkPointVersion, catalog.getReplayedJournalId()));
             }
             catalog.fixBugAfterMetadataReplayed(false);
             latestImageFilePath = catalog.saveImage();
@@ -249,8 +250,8 @@ public class Checkpoint extends MasterDaemon {
                                 minOtherNodesJournalId = id;
                             }
                         } catch (Throwable e) {
-                            throw new CheckpointException(String.format("Exception when getting current replayed journal id. host=%s, port=%d",
-                                    host, port), e);
+                            throw new CheckpointException(String.format("Exception when getting current replayed"
+                                    + " journal id. host=%s, port=%d", host, port), e);
                         } finally {
                             if (conn != null) {
                                 conn.disconnect();

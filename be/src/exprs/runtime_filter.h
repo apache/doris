@@ -23,9 +23,8 @@
 #include <mutex>
 
 #include "exprs/expr_context.h"
-#include "gen_cpp/Exprs_types.h"
-#include "runtime/types.h"
 #include "util/runtime_profile.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -44,6 +43,11 @@ class PInFilter;
 class PMinMaxFilter;
 class HashJoinNode;
 class RuntimeProfile;
+
+namespace vectorized {
+class VExpr;
+class VExprContext;
+} // namespace vectorized
 
 enum class RuntimeFilterType {
     UNKNOWN_FILTER = -1,
@@ -122,7 +126,8 @@ public:
               _expr_order(-1),
               _always_true(false),
               _probe_ctx(nullptr),
-              _is_ignored(false) {}
+              _is_ignored(false),
+              registration_time_(MonotonicMillis()) {}
 
     ~IRuntimeFilter() = default;
 
@@ -156,6 +161,10 @@ public:
     Status get_prepared_context(std::vector<ExprContext*>* push_expr_ctxs,
                                 const RowDescriptor& desc,
                                 const std::shared_ptr<MemTracker>& tracker);
+
+    Status get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* push_vexprs,
+                               const RowDescriptor& desc,
+                               const std::shared_ptr<MemTracker>& tracker);
 
     bool is_broadcast_join() const { return _is_broadcast_join; }
 
@@ -269,6 +278,7 @@ protected:
     // it only used in consumer to generate runtime_filter expr_context
     // we don't have to prepare it or close it
     ExprContext* _probe_ctx;
+    doris::vectorized::VExprContext* _vprobe_ctx;
 
     // Indicate whether runtime filter expr has been ignored
     bool _is_ignored;
@@ -279,6 +289,7 @@ protected:
     // these context is called prepared by this,
     // consumer_close should be called before release
     std::vector<ExprContext*> _push_down_ctxs;
+    std::vector<doris::vectorized::VExpr*> _push_down_vexprs;
 
     struct rpc_context;
     std::shared_ptr<rpc_context> _rpc_context;
@@ -290,6 +301,9 @@ protected:
     RuntimeProfile::Counter* _await_time_cost = nullptr;
     RuntimeProfile::Counter* _effect_time_cost = nullptr;
     std::unique_ptr<ScopedTimer<MonotonicStopWatch>> _effect_timer;
+
+    /// Time in ms (from MonotonicMillis()), that the filter was registered.
+    const int64_t registration_time_;
 };
 
 // avoid expose RuntimePredicateWrapper

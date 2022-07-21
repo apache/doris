@@ -158,8 +158,8 @@ public:
     // Returns true if row_batch has reached capacity.
     bool is_full() const { return _num_rows == _capacity; }
 
-    // Returns true if uncommited rows has reached capacity.
-    bool is_full_uncommited() { return _num_uncommitted_rows == _capacity; }
+    // Returns true if uncommitted rows has reached capacity.
+    bool is_full_uncommitted() { return _num_uncommitted_rows == _capacity; }
 
     // Returns true if the row batch has accumulated enough external memory (in MemPools
     // and io buffers).  This would be a trigger to compact the row batch or reclaim

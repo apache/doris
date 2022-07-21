@@ -19,7 +19,6 @@
 
 #include "exec/scan_node.h"
 #include "exec/schema_scanner.h"
-#include "gen_cpp/Descriptors_types.h"
 #include "runtime/descriptors.h"
 
 namespace doris {

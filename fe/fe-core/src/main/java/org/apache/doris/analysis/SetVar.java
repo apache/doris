@@ -132,7 +132,8 @@ public class SetVar {
         if (getVariable().equalsIgnoreCase(SessionVariable.PREFER_JOIN_METHOD)) {
             String value = getValue().getStringValue();
             if (!value.equalsIgnoreCase("broadcast") && !value.equalsIgnoreCase("shuffle")) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.PREFER_JOIN_METHOD, value);
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR,
+                        SessionVariable.PREFER_JOIN_METHOD, value);
             }
         }
 

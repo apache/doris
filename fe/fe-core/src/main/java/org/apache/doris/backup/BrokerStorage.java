@@ -126,8 +126,8 @@ public class BrokerStorage extends BlobStorage {
         File localFile = new File(localFilePath);
         if (localFile.exists()) {
             try {
-                Files.walk(Paths.get(localFilePath),
-                    FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                Files.walk(Paths.get(localFilePath), FileVisitOption.FOLLOW_LINKS)
+                        .sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
             } catch (IOException e) {
                 return new Status(Status.ErrCode.COMMON_ERROR, "failed to delete exist local file: " + localFilePath);
             }
@@ -294,7 +294,8 @@ public class BrokerStorage extends BlobStorage {
             }
         } finally {
             Status closeStatus = closeWriter(client, address, fd);
-            if (closeStatus.getErrCode() == Status.ErrCode.BAD_CONNECTION || status.getErrCode() == Status.ErrCode.BAD_CONNECTION) {
+            if (closeStatus.getErrCode() == Status.ErrCode.BAD_CONNECTION
+                    || status.getErrCode() == Status.ErrCode.BAD_CONNECTION) {
                 ClientPool.brokerPool.invalidateObject(address, client);
             } else {
                 ClientPool.brokerPool.returnObject(address, client);
@@ -340,7 +341,8 @@ public class BrokerStorage extends BlobStorage {
                 int tryTimes = 0;
                 while (tryTimes < 3) {
                     try {
-                        TBrokerPWriteRequest req = new TBrokerPWriteRequest(TBrokerVersion.VERSION_ONE, fd, writeOffset, bb);
+                        TBrokerPWriteRequest req
+                                = new TBrokerPWriteRequest(TBrokerVersion.VERSION_ONE, fd, writeOffset, bb);
                         TBrokerOperationStatus opst = client.pwrite(req);
                         if (opst.getStatusCode() != TBrokerOperationStatusCode.OK) {
                             // pwrite return failure.

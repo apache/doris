@@ -143,6 +143,26 @@ PROPERTIES
 
 1. 创建支持sequence column的表
 
+创建unique模型的test_table数据表，并指定指定sequence列的类型为Date
+
+```sql
+CREATE TABLE test.test_table
+(
+    user_id bigint,
+    date date,
+    group_id bigint,
+    modify_date date,
+    keyword VARCHAR(128)
+)
+UNIQUE KEY(user_id, date, group_id)
+DISTRIBUTED BY HASH (user_id) BUCKETS 32
+PROPERTIES(
+    "function_column.sequence_type" = 'Date',
+    "replication_num" = "1",
+    "in_memory" = "false"
+);
+```
+
 表结构如下：
 
 ```sql
@@ -163,12 +183,12 @@ MySQL > desc test_table;
 导入如下数据
 
 ```text
-1       2020-02-22      1       2020-02-22      a
+1       2020-02-22      1       2020-02-21      a
 1       2020-02-22      1       2020-02-22      b
 1       2020-02-22      1       2020-03-05      c
 1       2020-02-22      1       2020-02-26      d
-1       2020-02-22      1       2020-02-22      e
-1       2020-02-22      1       2020-02-22      b
+1       2020-02-22      1       2020-02-23      e
+1       2020-02-22      1       2020-02-24      b
 ```
 
 此处以stream load为例， 将sequence column映射为modify_date列
@@ -209,8 +229,9 @@ MySQL [test]> select * from test_table;
 |       1 | 2020-02-22 |        1 | 2020-03-05  | c       |
 +---------+------------+----------+-------------+---------+
 ```
+在这次导入的数据中，会比较所有已导入数据的sequence column（也就是modify_date)，其中'2020-03-05'为最大值，所以keyword列中最终保留了c。
 
-由于新导入的数据的sequence column都小于表中已有的值，无法替换 再尝试导入如下数据
+再尝试导入如下数据
 
 ```text
 1       2020-02-22      1       2020-02-22      a
@@ -228,7 +249,7 @@ MySQL [test]> select * from test_table;
 +---------+------------+----------+-------------+---------+
 ```
 
-此时就可以替换表中原有的数据
+此时就可以替换表中原有的数据。综上，在导入过程中，会比较所有批次的sequence列值，选择值最大的记录导入Doris表中。
 
 
 

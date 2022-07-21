@@ -22,8 +22,6 @@
 
 #include <vector>
 
-#include "common/logging.h"
-#include "common/object_pool.h"
 #include "common/status.h"
 #include "util/hash_util.hpp"
 
@@ -73,6 +71,7 @@ class RuntimeState;
 // all the rows and then calls scan to find them.  Aggregation interleaves find() and
 // inserts().  We can want to optimize joins more heavily for inserts() (in particular
 // growing).
+
 class HashTable {
 private:
     struct Node;
@@ -151,13 +150,13 @@ public:
     Iterator find(TupleRow* probe_row, bool probe = true);
 
     // Returns number of elements in the hash table
-    int64_t size() { return _num_nodes; }
+    int64_t size() const { return _num_nodes; }
 
     // Returns the number of buckets
     int64_t num_buckets() { return _buckets.size(); }
 
     // Returns the number of filled buckets
-    int64_t num_filled_buckets() { return _num_filled_buckets; }
+    int64_t num_filled_buckets() const { return _num_filled_buckets; }
 
     // Check the hash table should be shrink
     bool should_be_shrink(int64_t valid_row) {
@@ -211,7 +210,51 @@ public:
         // from a Find, this will lazily evaluate that bucket, only returning
         // TupleRows that match the current scan row.
         template <bool check_match>
-        void next();
+        void next() {
+            if (_bucket_idx == -1) {
+                return;
+            }
+
+            // TODO: this should prefetch the next tuplerow
+            Node* node = _node;
+
+            // Iterator is not from a full table scan, evaluate equality now.  Only the current
+            // bucket needs to be scanned. '_expr_values_buffer' contains the results
+            // for the current probe row.
+            if (check_match) {
+                // TODO: this should prefetch the next node
+                Node* next_node = node->_next;
+
+                while (next_node != nullptr) {
+                    node = next_node;
+
+                    if (node->_hash == _scan_hash && _table->equals(node->data())) {
+                        _node = next_node;
+                        return;
+                    }
+
+                    next_node = node->_next;
+                }
+
+                *this = _table->end();
+            } else {
+                // Move onto the next chained node
+                if (node->_next != nullptr) {
+                    _node = node->_next;
+                    return;
+                }
+
+                // Move onto the next bucket
+                Bucket* bucket = _table->next_bucket(&_bucket_idx);
+
+                if (bucket == nullptr) {
+                    _bucket_idx = -1;
+                    _node = nullptr;
+                } else {
+                    _node = bucket->_node;
+                }
+            }
+        }
 
         // Returns the current row or nullptr if at end.
         TupleRow* get_row() {

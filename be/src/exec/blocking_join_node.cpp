@@ -22,10 +22,11 @@
 
 #include <sstream>
 
-#include "exprs/expr.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/tuple.h"
+#include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 
 namespace doris {

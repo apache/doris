@@ -153,8 +153,7 @@ module.exports = [
         directoryPath: "alter-table/",
         initialOpenGroupIndex: -1,
         children: [
-          "schema-change",
-          "replace-table"
+          "schema-change"
         ],
       },
       {
@@ -249,6 +248,7 @@ module.exports = [
           "spark-sink"
         ],
       },
+      "cloudcanal",
       {
         title: "UDF",
         directoryPath: "udf/",
@@ -442,6 +442,7 @@ module.exports = [
               "bitmap_xor",
               "to_bitmap",
               "bitmap_max",
+              "intersect_count",
               "orthogonal_bitmap_intersect",
               "orthogonal_bitmap_intersect_count",
               "orthogonal_bitmap_union_count",
@@ -519,7 +520,8 @@ module.exports = [
               "explode-bitmap",
               "explode-split",
               "explode-json-array",
-              "outer-combinator"
+              "outer-combinator",
+              "numbers"
             ],
           },
           {
@@ -607,6 +609,7 @@ module.exports = [
                   "ALTER-DATABASE",
                   "ALTER-RESOURCE",
                   "ALTER-SQL-BLOCK-RULE",
+                  "ALTER-TABLE-BITMAP",
                   "ALTER-TABLE-COLUMN",
                   "ALTER-TABLE-PARTITION",
                   "ALTER-TABLE-PROPERTY",
@@ -748,6 +751,7 @@ module.exports = [
               "SHOW-CREATE-TABLE",
               "SHOW-CREATE-MATERIALIZED-VIEW",
               "SHOW-DATA",
+              "SHOW-DATA-SKEW",
               "SHOW-DATABASE-ID",
               "SHOW-DATABASES",
               "SHOW-DELETE",
@@ -793,7 +797,7 @@ module.exports = [
               "SHOW-TRANSACTION",
               "SHOW-TRIGGERS",
               "SHOW-TRASH",
-              "SHOW-USER",
+              // "SHOW-USER",
               "SHOW-VARIABLES",
               "SHOW-VIEW",
               "SHOW-WARNING",
@@ -865,6 +869,7 @@ module.exports = [
       },
       "sql-interception",
       "query-profile",
+      "tracing",
       "optimization",
       {
         title: "Maintenance and Monitor",
@@ -883,6 +888,7 @@ module.exports = [
           "disk-capacity",
           "metadata-operation",
           "tablet-meta-tool",
+          "tablet-local-debug",
           "tablet-repair-and-balance",
           "tablet-restore-tool",
           "monitor-alert",
@@ -1001,7 +1007,8 @@ module.exports = [
     directoryPath: "benchmark/",
     initialOpenGroupIndex: -1,
     children: [
-      "ssb"
+      "ssb",
+      "tpch"
     ],
   }
 ];

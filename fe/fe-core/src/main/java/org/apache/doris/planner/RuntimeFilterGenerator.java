@@ -27,6 +27,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.util.BitUtil;
+import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterMode;
@@ -70,7 +71,7 @@ import java.util.Set;
  * to prune tuples of T2 that cannot be part of the join result.
  */
 public final class RuntimeFilterGenerator {
-    private final static Logger LOG = LogManager.getLogger(RuntimeFilterGenerator.class);
+    private static final Logger LOG = LogManager.getLogger(RuntimeFilterGenerator.class);
 
     // Map of base table tuple ids to a list of runtime filters that
     // can be applied at the corresponding scan nodes.
@@ -78,6 +79,8 @@ public final class RuntimeFilterGenerator {
 
     // Generator for filter ids
     private final IdGenerator<RuntimeFilterId> filterIdGenerator = RuntimeFilterId.createGenerator();
+
+    private HashSet<TupleId> tupleHasConjuncts = null;
 
     /**
      * Internal class that encapsulates the max, min and default sizes used for creating
@@ -121,6 +124,31 @@ public final class RuntimeFilterGenerator {
         bloomFilterSizeLimits = new FilterSizeLimits(sessionVariable);
     }
 
+    private void collectAllTupleIdsHavingConjunct(PlanNode node, HashSet<TupleId> tupleIds) {
+        // for simplicity, skip join node( which contains more than 1 tuple id )
+        // we only look for the node meets either of the 2 conditions:
+        // 1. The node itself has conjunct
+        // 2. Its descendant have conjuncts.
+        int tupleNumBeforeCheckingChildren = tupleIds.size();
+        for (PlanNode child : node.getChildren()) {
+            collectAllTupleIdsHavingConjunct(child, tupleIds);
+        }
+        if (node.getTupleIds().size() == 1
+                && (!node.conjuncts.isEmpty() || tupleIds.size() > tupleNumBeforeCheckingChildren)) {
+            // The node or its descendant has conjuncts
+            tupleIds.add(node.getTupleIds().get(0));
+        }
+    }
+
+    public void findAllTuplesHavingConjuncts(PlanNode node) {
+        if (tupleHasConjuncts == null) {
+            tupleHasConjuncts = new HashSet<>();
+        } else {
+            tupleHasConjuncts.clear();
+        }
+        collectAllTupleIdsHavingConjunct(node, tupleHasConjuncts);
+    }
+
     /**
      * Generates and assigns runtime filters to a query plan tree.
      */
@@ -131,9 +159,11 @@ public final class RuntimeFilterGenerator {
         Preconditions.checkState(maxNumBloomFilters >= 0);
         RuntimeFilterGenerator filterGenerator = new RuntimeFilterGenerator(analyzer);
         Preconditions.checkState(runtimeFilterType >= 0, "runtimeFilterType not expected");
-        Preconditions.checkState(runtimeFilterType
-                <= Arrays.stream(TRuntimeFilterType.values()).mapToInt(TRuntimeFilterType::getValue).sum()
-                , "runtimeFilterType not expected");
+        Preconditions.checkState(runtimeFilterType <= Arrays.stream(TRuntimeFilterType.values())
+                .mapToInt(TRuntimeFilterType::getValue).sum(), "runtimeFilterType not expected");
+        if (ConnectContext.get().getSessionVariable().enableRemoveNoConjunctsRuntimeFilterPolicy) {
+            filterGenerator.findAllTuplesHavingConjuncts(plan);
+        }
         filterGenerator.generateFilters(plan);
         List<RuntimeFilter> filters = filterGenerator.getRuntimeFilters();
         if (filters.size() > maxNumBloomFilters) {
@@ -217,7 +247,7 @@ public final class RuntimeFilterGenerator {
                 for (int i = 0; i < joinConjuncts.size(); i++) {
                     Expr conjunct = joinConjuncts.get(i);
                     RuntimeFilter filter = RuntimeFilter.create(filterIdGenerator,
-                            analyzer, conjunct, i, joinNode, type, bloomFilterSizeLimits);
+                            analyzer, conjunct, i, joinNode, type, bloomFilterSizeLimits, tupleHasConjuncts);
                     if (filter == null) {
                         continue;
                     }
@@ -292,7 +322,7 @@ public final class RuntimeFilterGenerator {
      * 2. Only olap scan nodes are supported:
      */
     private void assignRuntimeFilters(ScanNode scanNode) {
-        if (!(scanNode instanceof OlapScanNode)) {
+        if (!(scanNode instanceof OlapScanNode) && !(scanNode instanceof ExternalFileScanNode)) {
             return;
         }
         TupleId tid = scanNode.getTupleIds().get(0);

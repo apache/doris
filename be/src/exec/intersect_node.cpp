@@ -17,7 +17,7 @@
 
 #include "exec/intersect_node.h"
 
-#include "exec/hash_table.hpp"
+#include "exec/hash_table.h"
 #include "exprs/expr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -84,7 +84,6 @@ Status IntersectNode::open(RuntimeState* state) {
 }
 
 Status IntersectNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eos) {
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());

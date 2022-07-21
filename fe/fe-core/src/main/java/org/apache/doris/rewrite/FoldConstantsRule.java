@@ -231,9 +231,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
         }
     }
 
-    private void recursiveGetChildrenConstExpr(Expr expr, Map<String, TExpr> constExprMap, Map<String, Expr> oriConstMap,
-                                               Analyzer analyzer, Map<String, Expr> sysVarMap,
-                                               Map<String, Expr> infoFnMap)throws AnalysisException {
+    private void recursiveGetChildrenConstExpr(Expr expr, Map<String, TExpr> constExprMap,
+            Map<String, Expr> oriConstMap, Analyzer analyzer, Map<String, Expr> sysVarMap, Map<String, Expr> infoFnMap)
+            throws AnalysisException {
         for (int i = 0; i < expr.getChildren().size(); i++) {
             final Expr child = expr.getChildren().get(i);
             getConstExpr(child, constExprMap, oriConstMap, analyzer, sysVarMap, infoFnMap);
@@ -363,13 +363,16 @@ public class FoldConstantsRule implements ExprRewriteRule {
             TFoldConstantParams tParams = new TFoldConstantParams(map, queryGlobals);
             tParams.setVecExec(VectorizedUtil.isVectorized());
 
-            Future<InternalService.PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
+            Future<InternalService.PConstantExprResult> future
+                    = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
             InternalService.PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
 
             if (result.getStatus().getStatusCode() == 0) {
-                for (Map.Entry<String, InternalService.PExprResultMap> entry : result.getExprResultMapMap().entrySet()) {
+                for (Map.Entry<String, InternalService.PExprResultMap> entry
+                        : result.getExprResultMapMap().entrySet()) {
                     Map<String, Expr> tmp = new HashMap<>();
-                    for (Map.Entry<String, InternalService.PExprResult> entry1 : entry.getValue().getMapMap().entrySet()) {
+                    for (Map.Entry<String, InternalService.PExprResult> entry1
+                            : entry.getValue().getMapMap().entrySet()) {
                         TPrimitiveType type = TPrimitiveType.findByValue(entry1.getValue().getType().getType());
                         Expr retExpr = null;
                         if (entry1.getValue().getSuccess()) {

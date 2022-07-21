@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.qe.ConnectContext;
@@ -87,7 +88,8 @@ public class OutFileClause {
     public static final String LOCAL_FILE_PREFIX = "file:///";
     private static final String S3_FILE_PREFIX = "S3://";
     private static final String HDFS_FILE_PREFIX = "hdfs://";
-    private static final String HDFS_PROP_PREFIX = "hdfs.";
+    private static final String HADOOP_FS_PROP_PREFIX = "dfs.";
+    private static final String HADOOP_PROP_PREFIX = "hadoop.";
     private static final String BROKER_PROP_PREFIX = "broker.";
     private static final String PROP_BROKER_NAME = "broker.name";
     private static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -224,21 +226,23 @@ public class OutFileClause {
             switch (resultType.getPrimitiveType()) {
                 case BOOLEAN:
                     if (!type.equals("boolean")) {
-                        throw new AnalysisException("project field type is BOOLEAN, should use boolean, but the type of column "
-                                + i + " is " + type);
+                        throw new AnalysisException("project field type is BOOLEAN, should use boolean,"
+                                + " but the type of column " + i + " is " + type);
                     }
                     break;
                 case TINYINT:
                 case SMALLINT:
                 case INT:
+                case DATEV2:
                     if (!type.equals("int32")) {
-                        throw new AnalysisException("project field type is TINYINT/SMALLINT/INT, should use int32, "
-                                + "but the definition type of column " + i + " is " + type);
+                        throw new AnalysisException("project field type is TINYINT/SMALLINT/INT/DATEV2,"
+                                + "should use int32, " + "but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case BIGINT:
                 case DATE:
                 case DATETIME:
+                case DATETIMEV2:
                     if (!type.equals("int64")) {
                         throw new AnalysisException("project field type is BIGINT/DATE/DATETIME, should use int64, "
                                 + "but the definition type of column " + i + " is " + type);
@@ -246,38 +250,44 @@ public class OutFileClause {
                     break;
                 case FLOAT:
                     if (!type.equals("float")) {
-                        throw new AnalysisException("project field type is FLOAT, should use float, but the definition type of column "
-                                + i + " is " + type);
+                        throw new AnalysisException("project field type is FLOAT, should use float,"
+                                + " but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case DOUBLE:
                     if (!type.equals("double")) {
-                        throw new AnalysisException("project field type is DOUBLE, should use double, but the definition type of column "
-                                + i + " is " + type);
+                        throw new AnalysisException("project field type is DOUBLE, should use double,"
+                                + " but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case CHAR:
                 case VARCHAR:
                 case STRING:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
                 case DECIMALV2:
                     if (!type.equals("byte_array")) {
-                        throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL, should use byte_array, "
-                                + "but the definition type of column " + i + " is " + type);
+                        throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL,"
+                                + " should use byte_array, but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case HLL:
                 case BITMAP:
-                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReturnObjectDataAsBinary()) {
+                    if (ConnectContext.get() != null && ConnectContext.get()
+                            .getSessionVariable().isReturnObjectDataAsBinary()) {
                         if (!type.equals("byte_array")) {
                             throw new AnalysisException("project field type is HLL/BITMAP, should use byte_array, "
                                     + "but the definition type of column " + i + " is " + type);
                         }
                     } else {
-                        throw new AnalysisException("Parquet format does not support column type: " + resultType.getPrimitiveType());
+                        throw new AnalysisException("Parquet format does not support column type: "
+                                + resultType.getPrimitiveType());
                     }
                     break;
                 default:
-                    throw new AnalysisException("Parquet format does not support column type: " + resultType.getPrimitiveType());
+                    throw new AnalysisException("Parquet format does not support column type: "
+                            + resultType.getPrimitiveType());
             }
         }
     }
@@ -295,11 +305,13 @@ public class OutFileClause {
                 case TINYINT:
                 case SMALLINT:
                 case INT:
+                case DATEV2:
                     column.add("int32");
                     break;
                 case BIGINT:
                 case DATE:
                 case DATETIME:
+                case DATETIMEV2:
                     column.add("int64");
                     break;
                 case FLOAT:
@@ -312,16 +324,21 @@ public class OutFileClause {
                 case VARCHAR:
                 case STRING:
                 case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
                     column.add("byte_array");
                     break;
                 case HLL:
                 case BITMAP:
-                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReturnObjectDataAsBinary()) {
+                    if (ConnectContext.get() != null && ConnectContext.get()
+                            .getSessionVariable().isReturnObjectDataAsBinary()) {
                         column.add("byte_array");
                     }
                     break;
                 default:
-                    throw new AnalysisException("currently parquet do not support column type: " + expr.getType().getPrimitiveType());
+                    throw new AnalysisException("currently parquet do not support column type: "
+                            + expr.getType().getPrimitiveType());
             }
             column.add("col" + i);
             this.schema.add(column);
@@ -336,7 +353,8 @@ public class OutFileClause {
         if (filePath.startsWith(LOCAL_FILE_PREFIX)) {
             if (!Config.enable_outfile_to_local) {
                 throw new AnalysisException("Exporting results to local disk is not allowed."
-                    + " To enable this feature, you need to add `enable_outfile_to_local=true` in fe.conf and restart FE");
+                        + " To enable this feature, you need to add `enable_outfile_to_local=true`"
+                        + " in fe.conf and restart FE");
             }
             isLocalOutput = true;
             filePath = filePath.substring(LOCAL_FILE_PREFIX.length() - 1); // leave last '/'
@@ -430,9 +448,14 @@ public class OutFileClause {
             } else if (entry.getKey().toUpperCase().startsWith(S3Storage.S3_PROPERTIES_PREFIX)) {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().startsWith(HDFS_PROP_PREFIX)
+            } else if (entry.getKey().contains(BrokerUtil.HADOOP_FS_NAME)
                     && storageType == StorageBackend.StorageType.HDFS) {
-                brokerProps.put(entry.getKey().substring(HDFS_PROP_PREFIX.length()), entry.getValue());
+                brokerProps.put(entry.getKey(), entry.getValue());
+                processedPropKeys.add(entry.getKey());
+            } else if ((entry.getKey().startsWith(HADOOP_FS_PROP_PREFIX)
+                    || entry.getKey().startsWith(HADOOP_PROP_PREFIX))
+                    && storageType == StorageBackend.StorageType.HDFS) {
+                brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
             }
         }

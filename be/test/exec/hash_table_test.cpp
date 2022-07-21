@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/hash_table.hpp"
+#include "exec/hash_table.h"
 
 #include <gtest/gtest.h>
 #include <stdio.h>

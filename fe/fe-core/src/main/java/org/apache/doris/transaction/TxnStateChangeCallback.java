@@ -57,7 +57,8 @@ public interface TxnStateChangeCallback {
      *            maybe null
      * @return
      */
-    void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason) throws UserException;
+    void afterAborted(TransactionState txnState, boolean txnOperated,
+            String txnStatusChangeReason) throws UserException;
 
     void replayOnAborted(TransactionState txnState);
 

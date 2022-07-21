@@ -21,12 +21,8 @@
 
 #include <algorithm>
 
-#include "env/env.h"
 #include "exec/plain_text_line_reader.h"
-#include "exprs/expr.h"
 #include "exprs/json_functions.h"
-#include "gutil/strings/split.h"
-#include "io/buffered_reader.h"
 #include "io/file_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -296,12 +292,12 @@ Status JsonReader::_generate_json_paths(const std::string& jsonpath,
     rapidjson::Document jsonpaths_doc;
     if (!jsonpaths_doc.Parse(jsonpath.c_str(), jsonpath.length()).HasParseError()) {
         if (!jsonpaths_doc.IsArray()) {
-            return Status::InvalidArgument("Invalid json path: " + jsonpath);
+            return Status::InvalidArgument("Invalid json path: {}", jsonpath);
         } else {
             for (int i = 0; i < jsonpaths_doc.Size(); i++) {
                 const rapidjson::Value& path = jsonpaths_doc[i];
                 if (!path.IsString()) {
-                    return Status::InvalidArgument("Invalid json path: " + jsonpath);
+                    return Status::InvalidArgument("Invalid json path: {}", jsonpath);
                 }
                 std::vector<JsonPath> parsed_paths;
                 JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
@@ -310,7 +306,7 @@ Status JsonReader::_generate_json_paths(const std::string& jsonpath,
             return Status::OK();
         }
     } else {
-        return Status::InvalidArgument("Invalid json path: " + jsonpath);
+        return Status::InvalidArgument("Invalid json path: {}", jsonpath);
     }
 }
 

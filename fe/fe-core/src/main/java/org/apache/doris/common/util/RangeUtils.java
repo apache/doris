@@ -57,7 +57,8 @@ public class RangeUtils {
         }
         return false;
     }
-    /*
+
+    /**
      * Pass only if the 2 range lists are exactly same
      * What is "exactly same"?
      *      1. {[0, 10), [10, 20)} exactly same as {[0, 20)}
@@ -82,7 +83,8 @@ public class RangeUtils {
      *      4.2 upper bounds (20 and 20) are equal.
      *  5. Not more next ranges, so 2 lists are equal.
      */
-    public static void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
+    public static void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2)
+            throws DdlException {
         Collections.sort(list1, RangeUtils.RANGE_COMPARATOR);
         Collections.sort(list2, RangeUtils.RANGE_COMPARATOR);
 

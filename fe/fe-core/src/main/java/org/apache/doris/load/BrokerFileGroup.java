@@ -174,7 +174,8 @@ public class BrokerFileGroup implements Writable {
                 for (String pName : partitionNames.getPartitionNames()) {
                     Partition partition = olapTable.getPartition(pName, partitionNames.isTemp());
                     if (partition == null) {
-                        throw new DdlException("Unknown partition '" + pName + "' in table '" + olapTable.getName() + "'");
+                        throw new DdlException("Unknown partition '" + pName
+                                + "' in table '" + olapTable.getName() + "'");
                     }
                     partitionIds.add(partition.getId());
                 }
@@ -257,7 +258,8 @@ public class BrokerFileGroup implements Writable {
             jsonPaths = dataDescription.getJsonPaths();
             jsonRoot = dataDescription.getJsonRoot();
             fuzzyParse = dataDescription.isFuzzyParse();
-            // For broker load, we only support reading json format data line by line, so we set readJsonByLine to true here.
+            // For broker load, we only support reading json format data line by line,
+            // so we set readJsonByLine to true here.
             readJsonByLine = true;
             numAsString = dataDescription.isNumAsString();
         }

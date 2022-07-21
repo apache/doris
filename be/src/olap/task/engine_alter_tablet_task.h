@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_ALTER_TABLET_TASK_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_ALTER_TABLET_TASK_H
+#pragma once
 
 #include "gen_cpp/AgentService_types.h"
 #include "olap/olap_define.h"
@@ -28,11 +27,11 @@ namespace doris {
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineAlterTabletTask : public EngineTask {
 public:
-    virtual Status execute();
+    Status execute() override;
 
 public:
     EngineAlterTabletTask(const TAlterTabletReqV2& alter_tablet_request);
-    ~EngineAlterTabletTask() {}
+    ~EngineAlterTabletTask() = default;
 
 private:
     const TAlterTabletReqV2& _alter_tablet_req;
@@ -41,4 +40,3 @@ private:
 }; // EngineTask
 
 } // namespace doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_ALTER_TABLET_TASK_H

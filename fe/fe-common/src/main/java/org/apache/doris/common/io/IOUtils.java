@@ -34,7 +34,7 @@ import java.net.Socket;
 public class IOUtils {
     public static long copyBytes(InputStream in, OutputStream out,
             int buffSize, long len) throws IOException {
-        byte buf[] = new byte[buffSize];
+        byte[] buf = new byte[buffSize];
         int totalRead = 0;
         int toRead = 0;
         int bytesRead = 0;
@@ -76,7 +76,7 @@ public class IOUtils {
             int buffSize, int speed, boolean close) throws IOException {
 
         PrintStream ps = out instanceof PrintStream ? (PrintStream) out : null;
-        byte buf[] = new byte[buffSize];
+        byte[] buf = new byte[buffSize];
         long bytesReadTotal = 0;
         long startTime = 0;
         long sleepTime = 0;
@@ -133,7 +133,7 @@ public class IOUtils {
             int buffSize, boolean close) throws IOException {
 
         PrintStream ps = out instanceof PrintStream ? (PrintStream) out : null;
-        byte buf[] = new byte[buffSize];
+        byte[] buf = new byte[buffSize];
         long totalBytes = 0;
         try {
             int bytesRead = in.read(buf);
@@ -169,7 +169,7 @@ public class IOUtils {
      *             if it could not read requested number of bytes for any reason
      *             (including EOF)
      */
-    public static void readFully(InputStream in, byte buf[], int off, int len)
+    public static void readFully(InputStream in, byte[] buf, int off, int len)
             throws IOException {
         int toRead = len;
         int tmpOff = off;
@@ -263,6 +263,7 @@ public class IOUtils {
             Text.writeString(output, value);
         }
     }
+
     public static String readOptionStringOrNull(DataInput input) throws IOException {
         if (input.readBoolean()) {
             return Text.readString(input);

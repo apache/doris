@@ -18,36 +18,42 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.logical.LogicalUnaryOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all logical plan that have one child.
  */
-public class LogicalUnary<OP_TYPE extends LogicalUnaryOperator, CHILD_TYPE extends Plan>
-        extends AbstractLogicalPlan<LogicalUnary<OP_TYPE, CHILD_TYPE>, OP_TYPE>
-        implements UnaryPlan<LogicalUnary<OP_TYPE, CHILD_TYPE>, OP_TYPE, CHILD_TYPE> {
+public abstract class LogicalUnary<CHILD_TYPE extends Plan>
+        extends AbstractLogicalPlan
+        implements UnaryPlan<CHILD_TYPE> {
 
-    public LogicalUnary(OP_TYPE operator, CHILD_TYPE child) {
-        super(NodeType.LOGICAL, operator, child);
+    public LogicalUnary(PlanType type, CHILD_TYPE child) {
+        super(type, child);
     }
 
-    public LogicalUnary(OP_TYPE operator, GroupExpression groupExpression, LogicalProperties logicalProperties,
-            CHILD_TYPE child) {
-        super(NodeType.LOGICAL, operator, groupExpression, logicalProperties, child);
+    public LogicalUnary(PlanType type, Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        super(type, logicalProperties, child);
     }
+
+    public LogicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
+                            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        super(type, groupExpression, logicalProperties, child);
+    }
+
+    public abstract List<Slot> computeOutput(Plan input);
 
     @Override
-    public LogicalUnary newChildren(List<TreeNode> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new LogicalUnary(operator, groupExpression, logicalProperties, (Plan) children.get(0));
+    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+        Preconditions.checkArgument(inputs.length == 1);
+        return new LogicalProperties(() -> computeOutput(inputs[0]));
     }
 }
