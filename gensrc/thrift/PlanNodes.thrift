@@ -237,6 +237,8 @@ struct TFileScanRangeParams {
 
   6: optional THdfsParams hdfs_params;
   7: optional TFileTextScanRangeParams text_params;
+  // properties for file such as s3 information
+  8: optional map<string, string> properties;
 }
 
 struct TFileRangeDesc {
