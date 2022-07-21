@@ -115,23 +115,6 @@ public class Group {
     }
 
     /**
-     * remove all logical and physical expressions
-     * if this group is merged with other group, all the expressions should be removed.
-     */
-    public void removeAllExpressions() {
-        Iterator<GroupExpression> iter = logicalExpressions.iterator();
-        while (iter.hasNext()) {
-            iter.next().setOwnerGroup(null);
-            iter.remove();
-        }
-        iter = physicalExpressions.iterator();
-        while (iter.hasNext()) {
-            iter.next().setOwnerGroup(null);
-            iter.remove();
-        }
-    }
-
-    /**
      * Rewrite the logical group expression to the new logical group expression.
      *
      * @param newExpression new logical group expression

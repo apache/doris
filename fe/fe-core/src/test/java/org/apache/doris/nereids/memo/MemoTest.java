@@ -60,23 +60,27 @@ public class MemoTest {
 
     @Test
     public void testMergeGroup() {
-
-        UnboundRelation rel1 = new UnboundRelation(Lists.newArrayList("test"));
-        LogicalProject proj1 = new LogicalProject(
+        UnboundRelation relation1 = new UnboundRelation(Lists.newArrayList("test"));
+        LogicalProject project1 = new LogicalProject(
                 ImmutableList.of(new SlotReference(new ExprId(1), "name", StringType.INSTANCE, true, ImmutableList.of("test"))),
-                rel1
+                relation1
         );
 
-        Memo memo = new Memo(proj1);
+        Memo memo = new Memo(project1);
 
-        UnboundRelation rel2 = new UnboundRelation(Lists.newArrayList("test2"));
-        LogicalProject proj2 = new LogicalProject(
+        UnboundRelation relation2 = new UnboundRelation(Lists.newArrayList("test2"));
+        LogicalProject project2 = new LogicalProject(
                 ImmutableList.of(new SlotReference(new ExprId(1), "name", StringType.INSTANCE, true, ImmutableList.of("test"))),
-                rel2
+                relation2
         );
-        memo.copyIn(proj2, null, false);
-
-        memo.copyIn(rel1, memo.getGroups().get(2), true);
+        memo.copyIn(project2, null, false);
+        Assert.assertEquals(4, memo.getGroups().size());
+        memo.copyIn(relation1, memo.getGroups().get(2), true);
         Assert.assertEquals(2, memo.getGroups().size());
+        Group root = memo.getRoot();
+        Assert.assertEquals(PlanType.LOGICAL_PROJECT,
+                root.logicalExpressionsAt(0).getPlan().getType());
+        Assert.assertEquals(PlanType.LOGICAL_UNBOUND_RELATION,
+                root.logicalExpressionsAt(0).child(0).logicalExpressionsAt(0).getPlan().getType());
     }
 }
