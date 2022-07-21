@@ -81,11 +81,6 @@ public class UnboundSlot extends Slot implements Unbound {
 
     @Override
     public int hashCode() {
-        return Objects.hash(nameParts);
-    }
-
-    @Override
-    public int hashCode() {
         return Objects.hash(nameParts.toArray());
     }
 
