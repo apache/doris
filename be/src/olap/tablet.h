@@ -273,8 +273,6 @@ public:
         return _cumulative_compaction_policy;
     }
 
-    MemTrackerLimiter* get_compaction_mem_tracker(CompactionType compaction_type);
-
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->all_beta();

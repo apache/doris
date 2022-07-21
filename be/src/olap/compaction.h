@@ -54,8 +54,6 @@ public:
     Status execute_compact();
     virtual Status execute_compact_impl() = 0;
 
-    MemTrackerLimiter* get_mem_tracker() { return _mem_tracker.get(); }
-
 protected:
     virtual Status pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;

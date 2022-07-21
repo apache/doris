@@ -48,7 +48,7 @@ MemTrackerLimiter::MemTrackerLimiter(int64_t byte_limit, const std::string& labe
 MemTrackerLimiter::~MemTrackerLimiter() {
     // TCMalloc hook will be triggered during destructor memtracker, may cause crash.
     if (_label == "Process") doris::thread_context_ptr._init = false;
-    DCHECK(child_count() == 0 || _label == "Process");
+    DCHECK(remain_child_count() == 0 || _label == "Process");
     if (_parent) _parent->remove_child(this);
 }
 
@@ -56,11 +56,13 @@ void MemTrackerLimiter::add_child(MemTrackerLimiter* tracker) {
     std::lock_guard<std::mutex> l(_child_tracker_limiter_lock);
     tracker->_child_tracker_it =
             _child_tracker_limiters.insert(_child_tracker_limiters.end(), tracker);
+    _had_child_count++;
 }
 
 void MemTrackerLimiter::add_child(MemTracker* tracker) {
     std::lock_guard<std::mutex> l(_child_tracker_lock);
     tracker->_child_tracker_it = _child_trackers.insert(_child_trackers.end(), tracker);
+    _had_child_count++;
 }
 
 void MemTrackerLimiter::remove_child(MemTrackerLimiter* tracker) {
@@ -83,7 +85,7 @@ void MemTrackerLimiter::make_snapshot(std::vector<MemTracker::Snapshot>* snapsho
                                       size_t cur_level, size_t upper_level) const {
     Snapshot snapshot = MemTracker::make_snapshot(cur_level);
     snapshot.limit = _limit;
-    snapshot.child_count = child_count();
+    snapshot.child_count = remain_child_count();
     (*snapshots).emplace_back(snapshot);
     if (cur_level < upper_level) {
         {

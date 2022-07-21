@@ -29,21 +29,10 @@
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
 
-// Switch thread mem tracker during task execution.
-// After the non-query thread switches the mem tracker, if the thread will not switch the mem
-// tracker again in the short term, can consider manually clear_untracked_mems.
-// The query thread will automatically clear_untracked_mems when detach_task.
-//
-// `detach task/~switch bthread` will clear cached trackers and unconsumed tracks.
-// Used after `attach task/switch bthread` to avoid cached trackers not being destroyed in time.
-//
-// After the non-query thread switches the mem tracker, if the thread will not switch the mem
-// tracker again in the short term, can consider manually clear_untracked_mems.
-// The query thread will automatically clear_untracked_mems when detach_task.
+// Add thread mem tracker consumer during query execution.
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
 
-//
 #define SCOPED_UPDATE_MEM_EXCEED_CALL_BACK(cancel_msg, ...) \
     auto VARNAME_LINENUM(update_exceed_cb) =                \
             doris::UpdateMemExceedCallBack(cancel_msg, ##__VA_ARGS__)
@@ -211,11 +200,6 @@ public:
                         const ThreadContext::TaskType& type = ThreadContext::TaskType::UNKNOWN,
                         const std::string& task_id = "",
                         const TUniqueId& fragment_instance_id = TUniqueId());
-
-    // explicit AttachTask(const TQueryType::type& query_type, MemTrackerLimiter* mem_tracker);
-
-    // explicit AttachTask(const TQueryType::type& query_type, MemTrackerLimiter* mem_tracker,
-    //                           const std::string& task_id, const TUniqueId& fragment_instance_id);
 
     explicit AttachTask(RuntimeState* runtime_state);
 

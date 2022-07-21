@@ -25,16 +25,17 @@ namespace doris {
 
 class MemTrackerLimiter;
 
-// A MemTracker tracks memory consumption.
+// Used to track memory usage.
+//
+// MemTracker can be consumed manually by consume()/release(), or put into SCOPED_CONSUME_MEM_TRACKER,
+// which will automatically track all memory usage of the code segment where it is located.
+//
+// MemTracker's father can only be MemTrackerLimiter, which is only used to print tree-like statistics.
+// Consuming MemTracker will not consume its father synchronously.
+// Usually, it is not necessary to specify the father. by default, the MemTrackerLimiter in the thread context
+// is used as the parent, which is specified when the thread starts.
+//
 // This class is thread-safe.
-// Used to manually track memory usage at specified locations, including all exec node trackers.
-//
-// The following func, for execution logic that requires memory size to participate in control.
-// this does not change the value of process tracker.
-//
-// There is no parent-child relationship between MemTrackers. Both fathers are fragment instance trakcers,
-// but their consumption will not consume fragment instance trakcers synchronously. Therefore, errors in statistics
-// will not affect the memory tracking and restrictions of processes and Query.
 class MemTracker {
 public:
     struct Snapshot {
@@ -47,7 +48,7 @@ public:
         size_t child_count = 0;
     };
 
-    // Creates and adds the tracker to the tree
+    // Creates and adds the tracker to the tree.
     MemTracker(const std::string& label = std::string(), MemTrackerLimiter* parent = nullptr,
                RuntimeProfile* profile = nullptr, bool is_limiter = false);
 

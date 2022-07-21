@@ -128,7 +128,7 @@ SwitchBthread::SwitchBthread() {
         DCHECK(_bthread_context->type() == ThreadContext::TaskType::UNKNOWN);
         _bthread_context->_thread_mem_tracker_mgr->flush_untracked_mem<false>();
     }
-    _bthread_context->init();
+    _bthread_context->_thread_mem_tracker_mgr->init();
     _bthread_context->set_type(ThreadContext::TaskType::BRPC);
     bthread_context_key = btls_key;
     bthread_context = _bthread_context;

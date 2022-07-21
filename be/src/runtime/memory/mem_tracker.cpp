@@ -45,9 +45,10 @@ MemTracker::MemTracker(const std::string& label, MemTrackerLimiter* parent, Runt
     STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     _parent = parent ? parent : thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker();
     DCHECK(_parent || label == "Process");
-    if (_parent && _parent->label().find_first_of("#") != _parent->label().npos) {
+    if (_parent && _parent->label().find("queryId=") != _parent->label().npos) {
+        // Add the queryId suffix to the tracker below the query.
         _label = fmt::format("{}#{}", label,
-                             _parent->label().substr(_parent->label().find_first_of("#"), -1));
+                             _parent->label().substr(_parent->label().find("queryId="), -1));
     } else {
         _label = label;
     }
@@ -76,8 +77,6 @@ MemTracker::~MemTracker() {
 // Count the memory in the scope to a temporary tracker with the specified label name.
 // This is very useful when debugging. You can find the position where the tracker statistics are
 // inaccurate through the temporary tracker layer by layer. As well as finding memory hotspots.
-// TODO(zxy) track specifies the memory for each line in the code segment, instead of manually adding
-// a switch temporary tracker to each line. Maybe there are open source tools to do this?
 MemTracker* MemTracker::get_static_mem_tracker(const std::string& label) {
     // First time this label registered, make a new object, otherwise do nothing.
     // Avoid using locks to resolve erase conflicts.

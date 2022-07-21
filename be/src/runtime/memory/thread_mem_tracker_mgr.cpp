@@ -29,7 +29,6 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(const std::string& cancel_msg,
                                                  const TUniqueId& fragment_instance_id,
                                                  MemTrackerLimiter* mem_tracker) {
     DCHECK(mem_tracker);
-    DCHECK(_consumer_tracker_stack.empty());
     _task_id = task_id;
     _fragment_instance_id = fragment_instance_id;
     _exceed_cb.cancel_msg = cancel_msg;
@@ -37,9 +36,11 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(const std::string& cancel_msg,
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker() {
-    _fragment_instance_id = TUniqueId();
     flush_untracked_mem<false>();
-    init();
+    _task_id = "";
+    _fragment_instance_id = TUniqueId();
+    _exceed_cb.cancel_msg = "";
+    _limiter_tracker = ExecEnv::GetInstance()->process_mem_tracker();
 }
 
 void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details) {

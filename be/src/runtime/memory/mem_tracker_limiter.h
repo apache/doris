@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "common/config.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -27,26 +29,16 @@ namespace doris {
 
 class RuntimeState;
 
-// Tracker contains an limit, and can be arranged into a tree structure such that the consumption
-// tracked by a MemTracker is also tracked by its ancestors.
-// Used for:
-// 1. Track and limit the memory usage of process and query.
-//    Automatic memory consume based on system memory allocation (Currently, based on TCMlloc hook).
-// 2. Execution logic that requires memory size to participate in control.
-//    Manual consumption, but will not affect the overall statistics of the process.
+// Track and limit the memory usage of process and query.
+// Contains an limit, arranged into a tree structure, the consumption also tracked by its ancestors.
 //
-// We use a five-level hierarchy of mem trackers: process, query pool, query, instance,
-// node. Specific parts of the fragment (exec nodes, sinks, etc) will add a
-// fifth level when they are initialized.
+// Automatically track every once malloc/free of the system memory allocator (Currently, based on TCMlloc hook).
+// Put Query MemTrackerLimiter into SCOPED_ATTACH_TASK when the thread starts,all memory used by this thread
+// will be recorded on this Query, otherwise it will be recorded in Process Tracker by default.
 //
-// GcFunctions can be attached to a MemTracker in order to free up memory if the limit is
-// reached. If limit_exceeded() is called and the limit is exceeded, it will first call
-// the GcFunctions to try to free memory and recheck the limit. For example, the process
-// tracker has a GcFunction that releases any unused memory still held by tcmalloc, so
-// this will be called before the process limit is reported as exceeded. GcFunctions are
-// called in the order they are added, so expensive functions should be added last.
-// GcFunctions are called with a global lock held, so should be non-blocking and not
-// call back into MemTrackers, except to release memory.
+// We use a five-level hierarchy of mem trackers: process, query pool, query, instance, node.
+// The first four layers are MemTrackerLimiter with limit, and the fifth layer is MemTracker without limit.
+// Specific parts of the fragment (exec nodes, sinks, etc) will add a fifth level when they are initialized.
 class MemTrackerLimiter final : public MemTracker {
 public:
     // Creates and adds the tracker limiter to the tree
@@ -61,7 +53,10 @@ public:
     void remove_child(MemTracker* tracker);
 
     // Leaf tracker, without any child
-    size_t child_count() const { return _child_tracker_limiters.size() + _child_trackers.size(); }
+    size_t remain_child_count() const {
+        return _child_tracker_limiters.size() + _child_trackers.size();
+    }
+    size_t had_child_count() const { return _had_child_count; }
 
     // Returns a list of all the valid tracker snapshots.
     void make_snapshot(std::vector<MemTracker::Snapshot>* snapshots, size_t cur_level,
@@ -179,6 +174,11 @@ private:
     // Limit on memory consumption, in bytes. If limit_ == -1, there is no consumption limit. Used in log_usage。
     int64_t _limit;
 
+    // this tracker limiter plus all of its ancestors
+    std::vector<MemTrackerLimiter*> _all_ancestors;
+    // _all_ancestors with valid limits
+    std::vector<MemTrackerLimiter*> _limited_ancestors;
+
     // Child trackers of this tracker limiter. Used for error reporting and
     // listing only (i.e. updating the consumption of a parent tracker limiter does not
     // update that of its children).
@@ -188,17 +188,23 @@ private:
     mutable std::mutex _child_tracker_lock;
     std::list<MemTracker*> _child_trackers;
 
+    // The number of child trackers that have been added.
+    std::atomic_size_t _had_child_count = 0;
+
     // Iterator into parent_->_child_tracker_limiters for this object. Stored to have O(1) remove.
     std::list<MemTrackerLimiter*>::iterator _child_tracker_it;
-
-    // this tracker limiter plus all of its ancestors
-    std::vector<MemTrackerLimiter*> _all_ancestors;
-    // _all_ancestors with valid limits
-    std::vector<MemTrackerLimiter*> _limited_ancestors;
 
     // Lock to protect gc_memory(). This prevents many GCs from occurring at once.
     std::mutex _gc_lock;
     // Functions to call after the limit is reached to free memory.
+    // GcFunctions can be attached to a MemTracker in order to free up memory if the limit is
+    // reached. If limit_exceeded() is called and the limit is exceeded, it will first call
+    // the GcFunctions to try to free memory and recheck the limit. For example, the process
+    // tracker has a GcFunction that releases any unused memory still held by tcmalloc, so
+    // this will be called before the process limit is reported as exceeded. GcFunctions are
+    // called in the order they are added, so expensive functions should be added last.
+    // GcFunctions are called with a global lock held, so should be non-blocking and not
+    // call back into MemTrackers, except to release memory.
     std::vector<GcFunction> _gc_functions;
 };
 

@@ -59,7 +59,7 @@ MemTrackerLimiter* MemTrackerTaskPool::register_load_mem_tracker(const std::stri
                                                                  int64_t mem_limit) {
     // In load, the query id of the fragment is executed, which is the same as the load id of the load channel.
     return register_task_mem_tracker_impl(load_id, mem_limit,
-                                          fmt::format("Load#loadId={}", load_id),
+                                          fmt::format("Load#queryId={}", load_id),
                                           ExecEnv::GetInstance()->load_pool_mem_tracker());
 }
 
@@ -77,7 +77,7 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
         if (!it->second) {
             // https://github.com/apache/incubator-doris/issues/10006
             expired_tasks.emplace_back(it->first);
-        } else if (it->second->child_count() == 0 && it->second->peak_consumption() > 0) {
+        } else if (it->second->remain_child_count() == 0 && it->second->had_child_count() != 0) {
             // No RuntimeState uses this task MemTracker, it is only referenced by this map,
             // and tracker was not created soon, delete it.
             if (QUERY_MEMORY_LEAK_DETECTION && it->second->consumption() != 0) {

@@ -48,8 +48,7 @@ struct MemExceedCallBackInfo {
 // In the original design, the MemTracker consume method is called before the memory is allocated.
 // If the consume succeeds, the memory is actually allocated, otherwise an exception is thrown.
 // But the statistics of memory through TCMalloc new/delete Hook are after the memory is actually allocated,
-// which is different from the previous behavior. Therefore, when alloc for some large memory,
-// need to manually call consume after stop_mem_tracker, and then start_mem_tracker.
+// which is different from the previous behavior. Therefore, when alloc for some large memory.
 class ThreadMemTrackerMgr {
 public:
     ThreadMemTrackerMgr() {}
@@ -116,26 +115,15 @@ public:
     void set_check_limit(bool check_limit) { _check_limit = check_limit; }
 
     std::string print_debug_string() {
-        // fmt::memory_buffer mem_trackers_buf;
-        // for (const auto& [key, value] : _mem_trackers) {
-        //     fmt::format_to(mem_trackers_buf, "{}_{},", std::to_string(key), value->log_usage(1));
-        // }
-        // fmt::memory_buffer untracked_mems_buf;
-        // for (const auto& [key, value] : _untracked_mems) {
-        //     fmt::format_to(untracked_mems_buf, "{}_{},", std::to_string(key),
-        //                    std::to_string(value));
-        // }
-        // fmt::memory_buffer mem_tracker_labels_buf;
-        // for (const auto& [key, value] : _mem_tracker_labels) {
-        //     fmt::format_to(mem_tracker_labels_buf, "{}_{},", std::to_string(key), value);
-        // }
-        // return fmt::format(
-        //         "ThreadMemTrackerMgr debug string, _tracker_id:{}, _untracked_mem:{}, _task_id:{}, "
-        //         "_mem_trackers:<{}>, _untracked_mems:<{}>, _mem_tracker_labels:<{}>",
-        //         std::to_string(_tracker_id), std::to_string(_untracked_mem), _task_id,
-        //         fmt::to_string(mem_trackers_buf), fmt::to_string(untracked_mems_buf),
-        //         fmt::to_string(mem_tracker_labels_buf));
-        return "";
+        fmt::memory_buffer consumer_tracker_buf;
+        for (const auto& v : _consumer_tracker_stack) {
+            fmt::format_to(consumer_tracker_buf, "{}, ", v->log_usage());
+        }
+        return fmt::format(
+                "ThreadMemTrackerMgr debug, _untracked_mem:{}, _task_id:{}, "
+                "_limiter_tracker:<{}>, _consumer_tracker_stack:<{}>",
+                std::to_string(_untracked_mem), _task_id, _limiter_tracker->log_usage(1),
+                fmt::to_string(consumer_tracker_buf));
     }
 
 private:
@@ -148,23 +136,8 @@ private:
     // Cache untracked mem, only update to _untracked_mems when switching mem tracker.
     // Frequent calls to unordered_map _untracked_mems[] in consume will degrade performance.
     int64_t _untracked_mem = 0;
-    MemTrackerLimiter* _limiter_tracker;
 
-    // May switch back and forth between multiple trackers frequently. If you use a pointer to save the
-    // current tracker, and consume the current untracked mem each time you switch, there is a performance problem:
-    //  1. The frequent change of the use-count of shared_ptr has a huge cost; (it can also be solved by using
-    //  raw pointers, which requires uniform replacement of the pointers of all mem trackers in doris)
-    //  2. The cost of calling consume for the current untracked mem is huge;
-    // In order to reduce the cost, during an attach task, the untracked mem of all switched trackers is cached,
-    // and the untracked mem is consumed only after the upper limit is reached or when the task is detached.
-    // NOTE: flat_hash_map, int replaces string as key, all to improve the speed of map find,
-    //  the expected speed is increased by more than 10 times.
-    // phmap::flat_hash_map<int64_t, MemTracker*> _observe_trackers_history;
-    // phmap::flat_hash_map<int64_t, int64_t> _observe_untracked_mems_history;
-    // After the tracker is added to _mem_trackers, if tracker = null is found when using it,
-    // we can confirm the tracker label that was added through _mem_tracker_labels.
-    // Because for performance, all map keys are tracker id.
-    // phmap::flat_hash_map<int64_t, std::string> _observe_tracker_labels_history;
+    MemTrackerLimiter* _limiter_tracker;
     std::vector<MemTracker*> _consumer_tracker_stack;
 
     // If true, call memtracker try_consume, otherwise call consume.
@@ -204,10 +177,6 @@ inline void ThreadMemTrackerMgr::consume(int64_t size) {
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
     // and some threads `_untracked_mem <= -config::mem_tracker_consume_min_size_bytes` trigger consumption(),
     // it will cause tracker->consumption to be temporarily less than 0.
-    //
-    // Temporary memory may be allocated during the consumption of the mem tracker (in the processing logic of
-    // the exceeded limit), which will lead to entering the TCMalloc Hook again, so suspend consumption to avoid
-    // falling into an infinite loop.
     if ((_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
          _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) &&
         !_stop_consume) {
@@ -221,6 +190,8 @@ inline void ThreadMemTrackerMgr::consume(int64_t size) {
 
 template <bool CheckLimit>
 inline void ThreadMemTrackerMgr::flush_untracked_mem() {
+    // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
+    // the TCMalloc Hook again, so suspend consumption to avoid falling into an infinite loop.
     _stop_consume = true;
     DCHECK(_limiter_tracker);
     if (CheckLimit) {
