@@ -87,8 +87,8 @@ public class ProjectPlannerFunctionTest {
         String queryStr = "desc verbose select a.k2 from test.t1 a inner join test.t1 b on a.k1=b.k1 "
                 + "inner join test.t1 c on a.k1=c.k1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(explainString.contains("output slot ids: 3"));
-        Assert.assertTrue(explainString.contains("output slot ids: 0 3"));
+        Assert.assertTrue(explainString.contains("output slot ids: 8"));
+        Assert.assertTrue(explainString.contains("output slot ids: 4 5"));
     }
 
     // keep a.k2 after a join b
