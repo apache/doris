@@ -55,11 +55,11 @@ Doris mainly integrates the technology of [Google Mesa](https://research.google/
 
 ## Compile and install
 
-See [Compilation](https://doris.apache.org/docs/install/source-install/compilation-with-ldb-toolchain.html)
+See [Compilation](https://doris.apache.org/docs/install/source-install/compilation-with-ldb-toolchain)
 
 ## Getting start
 
-See [Basic Usage](https://doris.apache.org/docs/data-table/basic-usage.html)
+See [Basic Usage](https://doris.apache.org/docs/data-table/basic-usage)
 
 ## Doris Connector
 
@@ -69,7 +69,7 @@ Doris provides support for Spark/Flink to read data stored in Doris through Conn
 
 [apache/doris-spark-connector](https://github.com/apache/doris-spark-connector)
 
-## Doris Manager 
+## Doris Manager
 
 Doris provides one-click visual automatic installation and deployment, cluster management and monitoring tools for clusters.
 
