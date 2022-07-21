@@ -433,4 +433,11 @@ public class CaseExpr extends Expr {
         }
         return false;
     }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        // nereids do not have CaseExpr, and nereids will unify the types,
+        // so just use the first then type
+        type = children.get(1).getType();
+    }
 }

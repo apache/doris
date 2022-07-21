@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 
@@ -183,6 +185,14 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitMod(Mod mod, C context) {
         return visitArithmetic(mod, context);
+    }
+
+    public R visitWhenClause(WhenClause whenClause, C context) {
+        return visit(whenClause, context);
+    }
+
+    public R visitCaseWhen(CaseWhen caseWhen, C context) {
+        return visit(caseWhen, context);
     }
 
     /* ********************************************************************************************

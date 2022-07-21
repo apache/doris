@@ -21,6 +21,8 @@ import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CaseExpr;
+import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -33,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -47,11 +50,13 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Used to translate expression of new optimizer to stale expr.
@@ -211,6 +216,23 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return new org.apache.doris.analysis.LikePredicate(staleOp,
                 stringRegexPredicate.left().accept(this, context),
                 stringRegexPredicate.right().accept(this, context));
+    }
+
+    @Override
+    public Expr visitCaseWhen(CaseWhen caseWhen, PlanTranslatorContext context) {
+        List<CaseWhenClause> caseWhenClauses = new ArrayList<>();
+        for (WhenClause whenClause : caseWhen.getWhenClauses()) {
+            caseWhenClauses.add(new CaseWhenClause(
+                    whenClause.left().accept(this, context),
+                    whenClause.right().accept(this, context)
+            ));
+        }
+        Expr elseExpr = null;
+        Optional<Expression> defaultValue = caseWhen.getDefaultValue();
+        if (defaultValue.isPresent()) {
+            elseExpr = defaultValue.get().accept(this, context);
+        }
+        return new CaseExpr(null, caseWhenClauses, elseExpr);
     }
 
     // TODO: Supports for `distinct`
