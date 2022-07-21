@@ -191,7 +191,11 @@ public class Memo {
             }
             GroupExpression that = groupExpressions.get(groupExpression);
             if (that != null) {
-                mergeGroup(groupExpression.getOwnerGroup(), that.getOwnerGroup());
+                // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
+                // that.getOwnerGroup() already has this groupExpression.
+                Group ownerGroup = groupExpression.getOwnerGroup();
+                groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
+                mergeGroup(ownerGroup, that.getOwnerGroup());
             } else {
                 groupExpressions.put(groupExpression, groupExpression);
             }
