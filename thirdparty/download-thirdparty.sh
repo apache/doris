@@ -308,6 +308,17 @@ if [ $OPENTELEMETRY_SOURCE == "opentelemetry-cpp-1.4.0" ]; then
 fi
 echo "Finished patching $OPENTELEMETRY_SOURCE"
 
+# arrow patch is used to get the raw orc reader for filter prune.
+if [ $ARROW_SOURCE == "apache-arrow-7.0.0" ]; then
+    cd $TP_SOURCE_DIR/$ARROW_SOURCE
+    if [ ! -f $PATCHED_MARK ]; then
+        patch -p1 < $TP_PATCH_DIR/apache-arrow-7.0.0.patch
+        touch $PATCHED_MARK
+    fi
+    cd -
+fi
+echo "Finished patching $ARROW_SOURCE"
+
 # patch librdkafka to avoid crash
 if [ $LIBRDKAFKA_SOURCE = "librdkafka-1.8.2" ]; then
     cd $TP_SOURCE_DIR/$LIBRDKAFKA_SOURCE
