@@ -27,8 +27,10 @@
 
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
+#include "common/config.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
+#include "util/time_lut.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -142,8 +144,8 @@ static constexpr const char* s_day_name[] = {"Monday", "Tuesday",  "Wednesday", 
 static constexpr size_t MAX_DAY_NAME_LEN = max_char_length(s_day_name, std::size(s_day_name));
 static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::size(s_month_name));
 
-const uint32_t MAX_DATE_V2 = 31 | (12 << 8) | (9999 << 16);
-const uint32_t MIN_DATE_V2 = 1 | (1 << 8) | (1000 << 16);
+const uint32_t MAX_DATE_V2 = 31 | (12 << 5) | (9999 << 9);
+const uint32_t MIN_DATE_V2 = 1 | (1 << 5) | (1000 << 9);
 
 const uint32_t MAX_YEAR = 9999;
 const uint32_t MIN_YEAR = 1000;
@@ -151,38 +153,6 @@ const uint32_t MIN_YEAR = 1000;
 static RE2 time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 
 uint8_t mysql_week_mode(uint32_t mode);
-bool is_leap(uint32_t year);
-uint32_t calc_days_in_year(uint32_t year);
-
-// Calculate how many days since 0000-01-01
-// 0000-01-01 is 1st B.C.
-static uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day) {
-    uint32_t delsum = 0;
-    int y = year;
-
-    if (year == 0 && month == 0) {
-        return 0;
-    }
-
-    /* Cast to int to be able to handle month == 0 */
-    delsum = 365 * y + 31 * (month - 1) + day;
-    if (month <= 2) {
-        // No leap year
-        y--;
-    } else {
-        // This is great!!!
-        // 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
-        // 0, 0, 3, 3, 4, 4, 5, 5, 5,  6,  7,  8
-        delsum -= (month * 4 + 23) / 10;
-    }
-    // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.
-    return delsum + y / 4 - y / 100 + y / 400;
-}
-
-//W = (D + M*2 + 3*(M+1)/5 + Y + Y/4 -Y/100 + Y/400)%7
-static uint8_t calc_weekday(uint64_t day_nr, bool is_sunday_first_day) {
-    return (day_nr + 5L + (is_sunday_first_day ? 1L : 0L)) % 7;
-}
 
 class DateV2Value;
 
@@ -199,10 +169,6 @@ public:
               _month(0), // so this is a difference between Vectorization mode and Rowbatch mode with DateTimeValue;
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
-    // import week_table, week_of_year_table, year_week_table, from 19500101 to 20291230
-#include "vec/runtime/week.data"
-#include "vec/runtime/week_of_year.data"
-#include "vec/runtime/year_week.data"
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use diffrent creator to get data from value.
     // We should use create_from_olap_xxx only at binary data scaned from storage engine and convert to typed data.
@@ -391,7 +357,7 @@ public:
     void to_datetime() { _type = TIME_DATETIME; }
 
     // Weekday, from 0(Mon) to 6(Sun)
-    uint8_t weekday() const { return calc_weekday(daynr(), false); }
+    uint8_t weekday() const { return doris::calc_weekday(daynr(), false); }
     auto day_of_week() const { return (weekday() + 1) % 7 + 1; }
 
     // The bits in week_format has the following meaning:
@@ -665,9 +631,9 @@ private:
 };
 
 struct DateV2ValueType {
-    uint32_t day_ : 8;
-    uint32_t month_ : 8;
-    uint32_t year_ : 16;
+    uint32_t day_ : 5;
+    uint32_t month_ : 4;
+    uint32_t year_ : 23;
 
     DateV2ValueType(uint16_t year, uint8_t month, uint8_t day)
             : day_(day), month_(month), year_(year) {}
@@ -761,7 +727,7 @@ public:
     uint8_t day() const { return date_v2_value_.day_; }
 
     // Weekday, from 0(Mon) to 6(Sun)
-    uint8_t weekday() const { return calc_weekday(daynr(), false); }
+    uint8_t weekday() const { return doris::calc_weekday(daynr(), false); }
     auto day_of_week() const { return (weekday() + 1) % 7 + 1; }
 
     // The bits in week_format has the following meaning:
@@ -933,6 +899,16 @@ public:
     uint32_t set_date_uint32(uint32_t int_val);
 
     bool get_date_from_daynr(uint64_t);
+
+    void to_datev2_val(doris_udf::DateV2Val* tv) const {
+        tv->datev2_value = this->to_date_uint32();
+    }
+
+    static DateV2Value from_datev2_val(const doris_udf::DateV2Val& tv) {
+        DateV2Value value;
+        value.from_date(tv.datev2_value);
+        return value;
+    }
 
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,

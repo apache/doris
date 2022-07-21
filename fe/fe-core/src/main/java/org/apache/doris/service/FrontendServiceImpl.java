@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -47,6 +48,9 @@ import org.apache.doris.master.MasterImpl;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.StreamLoadPlanner;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -69,6 +73,7 @@ import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetStoragePolicy;
 import org.apache.doris.thrift.TGetStoragePolicyResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
@@ -90,6 +95,7 @@ import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
+import org.apache.doris.thrift.TS3StorageParam;
 import org.apache.doris.thrift.TShowVariableRequest;
 import org.apache.doris.thrift.TShowVariableResult;
 import org.apache.doris.thrift.TSnapshotLoaderReportRequest;
@@ -118,6 +124,7 @@ import org.apache.thrift.TException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -211,8 +218,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db != null) {
             for (String tableName : db.getTableNamesWithLock()) {
                 LOG.debug("get table: {}, wait to check", tableName);
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
-                        tableName, PrivPredicate.SHOW)) {
+                if (!Catalog.getCurrentCatalog().getAuth()
+                        .checkTblPriv(currentUser, params.db, tableName, PrivPredicate.SHOW)) {
                     continue;
                 }
 
@@ -270,14 +277,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
                 for (TableIf table : tables) {
-                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
-                            table.getName(), PrivPredicate.SHOW)) {
+                    if (!Catalog.getCurrentCatalog().getAuth()
+                            .checkTblPriv(currentUser, params.db, table.getName(), PrivPredicate.SHOW)) {
                         continue;
                     }
                     table.readLock();
                     try {
-                        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
-                                table.getName(), PrivPredicate.SHOW)) {
+                        if (!Catalog.getCurrentCatalog().getAuth()
+                                .checkTblPriv(currentUser, params.db, table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
 
@@ -386,8 +393,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
-                params.getTableName(), PrivPredicate.SHOW)) {
+        if (!Catalog.getCurrentCatalog().getAuth()
+                .checkTblPriv(currentUser, params.db, params.getTableName(), PrivPredicate.SHOW)) {
             return result;
         }
 
@@ -504,7 +511,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
-                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
+            String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
@@ -533,8 +540,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId());
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
-            LOG.warn("duplicate request for stream load. request id: {}, txn: {}",
-                    e.getDuplicatedRequestId(), e.getTxnId());
+            LOG.warn("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(),
+                    e.getTxnId());
             result.setTxnId(e.getTxnId());
         } catch (LabelAlreadyUsedException e) {
             status.setStatusCode(TStatusCode.LABEL_ALREADY_EXISTS);
@@ -560,8 +567,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         if (Strings.isNullOrEmpty(request.getAuthCodeUuid())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+                    request.getUserIp(), PrivPredicate.LOAD);
         }
 
         // check label
@@ -584,10 +591,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
         MetricRepo.COUNTER_LOAD_ADD.increase(1L);
-        long txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
-                new TxnCoordinator(TxnSourceType.BE, clientIp),
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
+        long txnId = Catalog.getCurrentGlobalTransactionMgr()
+                .beginTransaction(db.getId(), Lists.newArrayList(table.getId()), request.getLabel(),
+                        request.getRequestId(), new TxnCoordinator(TxnSourceType.BE, clientIp),
+                        TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
         if (!Strings.isNullOrEmpty(request.getAuthCodeUuid())) {
             Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId)
                     .setAuthCode(request.getAuthCodeUuid());
@@ -631,8 +638,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
         } else {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+                    request.getUserIp(), PrivPredicate.LOAD);
         }
 
         // get database
@@ -713,8 +720,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Table> tableList = database.getTablesOnIdOrderOrThrowException(tableIdList);
         for (Table table : tableList) {
             // check auth
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    table.getName(), request.getUserIp(), PrivPredicate.LOAD);
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), table.getName(),
+                    request.getUserIp(), PrivPredicate.LOAD);
         }
 
         String txnOperation = request.getOperation().trim();
@@ -767,8 +774,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
         } else {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+                    request.getUserIp(), PrivPredicate.LOAD);
         }
 
         // get database
@@ -835,8 +842,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
         } else {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+                    request.getUserIp(), PrivPredicate.LOAD);
         }
         String dbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db;
@@ -896,8 +903,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
-            throw new UserException("get table read lock timeout, database="
-                    + fullDbName + ",table=" + table.getName());
+            throw new UserException(
+                    "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
@@ -918,8 +925,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TStatus snapshotLoaderReport(TSnapshotLoaderReportRequest request) throws TException {
-        if (Catalog.getCurrentCatalog().getBackupHandler().report(request.getTaskType(), request.getJobId(),
-                request.getTaskId(), request.getFinishedNum(), request.getTotalNum())) {
+        if (Catalog.getCurrentCatalog().getBackupHandler()
+                .report(request.getTaskType(), request.getJobId(), request.getTaskId(), request.getFinishedNum(),
+                        request.getTotalNum())) {
             return new TStatus(TStatusCode.OK);
         }
         return new TStatus(TStatusCode.CANCELLED);
@@ -992,6 +1000,57 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TGetStoragePolicyResult refreshStoragePolicy() throws TException {
-        throw new TException("not implement");
+        LOG.debug("refresh storage policy request");
+        TGetStoragePolicyResult result = new TGetStoragePolicyResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+
+        List<Policy> policyList = Catalog.getCurrentCatalog().getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
+        policyList.stream().filter(p -> p instanceof StoragePolicy).map(p -> (StoragePolicy) p).forEach(
+                iter -> {
+                    // default policy not init.
+                    if (iter.getStorageResource() == null) {
+                        return;
+                    }
+                    TGetStoragePolicy rEntry = new TGetStoragePolicy();
+                    rEntry.setPolicyName(iter.getPolicyName());
+                    //java 8 not support ifPresentOrElse
+                    final long[] ttlCoolDown = {-1};
+                    Optional.ofNullable(iter.getCooldownTtl())
+                        .ifPresent(ttl -> ttlCoolDown[0] = Integer.parseInt(ttl));
+                    rEntry.setCooldownTtl(ttlCoolDown[0]);
+
+                    final long[] secondTimestamp = {-1};
+                    Optional.ofNullable(iter.getCooldownDatetime())
+                        .ifPresent(date -> secondTimestamp[0] = date.getTime() / 1000);
+                    rEntry.setCooldownDatetime(secondTimestamp[0]);
+
+                    Optional.ofNullable(iter.getMd5Checksum()).ifPresent(rEntry::setMd5Checksum);
+
+                    TS3StorageParam s3Info = new TS3StorageParam();
+                    Optional.ofNullable(iter.getStorageResource()).ifPresent(resource -> {
+                        Map<String, String> storagePolicyProperties = Catalog.getCurrentCatalog().getResourceMgr()
+                                .getResource(resource).getCopiedProperties();
+                        s3Info.setS3Endpoint(storagePolicyProperties.get(S3Resource.S3_ENDPOINT));
+                        s3Info.setS3Region(storagePolicyProperties.get(S3Resource.S3_REGION));
+                        s3Info.setRootPath(storagePolicyProperties.get(S3Resource.S3_ROOT_PATH));
+                        s3Info.setS3Ak(storagePolicyProperties.get(S3Resource.S3_ACCESS_KEY));
+                        s3Info.setS3Sk(storagePolicyProperties.get(S3Resource.S3_SECRET_KEY));
+                        s3Info.setBucket(storagePolicyProperties.get(S3Resource.S3_BUCKET));
+                        s3Info.setS3MaxConn(
+                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_MAX_CONNECTIONS)));
+                        s3Info.setS3RequestTimeoutMs(
+                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
+                        s3Info.setS3ConnTimeoutMs(
+                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
+                    });
+
+                    rEntry.setS3StorageParam(s3Info);
+                    result.addToResultEntrys(rEntry);
+                }
+        );
+
+        LOG.info("refresh storage policy request: {}", result);
+        return result;
     }
 }

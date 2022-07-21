@@ -80,7 +80,7 @@ public:
 
 private:
     const TabletSchema& _tablet_schema;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _tracker;
     size_t _row_len;
     size_t _memory_limitation;
 };
@@ -244,14 +244,15 @@ private:
     const RowBlockChanger& _changer;
     size_t _memory_limitation;
     Version _temp_delta_versions;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 };
 
 class SchemaChangeHandler {
 public:
     static Status schema_version_convert(TabletSharedPtr base_tablet, TabletSharedPtr new_tablet,
                                          RowsetSharedPtr* base_rowset, RowsetSharedPtr* new_rowset,
-                                         DescriptorTbl desc_tbl);
+                                         DescriptorTbl desc_tbl,
+                                         const TabletSchema* base_schema_change);
 
     // schema change v2, it will not set alter task in base tablet
     static Status process_alter_tablet_v2(const TAlterTabletReqV2& request);
@@ -305,6 +306,7 @@ private:
         AlterTabletType alter_tablet_type;
         TabletSharedPtr base_tablet;
         TabletSharedPtr new_tablet;
+        TabletSchema* base_tablet_schema = nullptr;
         std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
         DeleteHandler* delete_handler = nullptr;
         std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
@@ -323,7 +325,7 @@ private:
                                  RowBlockChanger* rb_changer, bool* sc_sorting, bool* sc_directly,
                                  const std::unordered_map<std::string, AlterMaterializedViewParam>&
                                          materialized_function_map,
-                                 DescriptorTbl desc_tbl);
+                                 DescriptorTbl desc_tbl, const TabletSchema* base_tablet_schema);
 
     // Initialization Settings for creating a default value
     static Status _init_column_mapping(ColumnMapping* column_mapping,

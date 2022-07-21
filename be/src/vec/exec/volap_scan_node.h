@@ -20,6 +20,7 @@
 #include "exec/olap_common.h"
 #include "exec/scan_node.h"
 #include "exprs/bloomfilter_predicate.h"
+#include "exprs/function_filter.h"
 #include "exprs/in_predicate.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -65,10 +66,13 @@ private:
     // only key column conjuncts will be remove as idle conjunct
     bool is_key_column(const std::string& key_name);
     void remove_pushed_conjuncts(RuntimeState* state);
+
     Status start_scan(RuntimeState* state);
     void eval_const_conjuncts();
     Status normalize_conjuncts();
     Status build_key_ranges_and_filters();
+    Status build_function_filters();
+
     template <PrimitiveType T>
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
 
@@ -144,6 +148,15 @@ private:
     std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>
             _bloom_filters_push_down;
 
+    // push down functions to storage engine
+    // only support scalar functions, now just support like / not like
+    std::vector<FunctionFilter> _push_down_functions;
+    // functions conjunct's index which already be push down storage engine
+    std::set<uint32_t> _pushed_func_conjuncts_index;
+    // need keep these conjunct to the end of scan node,
+    // since some memory referenced by pushed function filters
+    std::vector<ExprContext*> _pushed_func_conjunct_ctxs;
+
     // Pool for storing allocated scanner objects.  We don't want to use the
     // runtime pool to ensure that the scanner objects are deleted before this
     // object is.
@@ -206,7 +219,7 @@ private:
 
     int64_t _buffered_bytes;
     // Count the memory consumption of Rowset Reader and Tablet Reader in OlapScanner.
-    std::shared_ptr<MemTracker> _scanner_mem_tracker;
+    std::unique_ptr<MemTracker> _scanner_mem_tracker;
     EvalConjunctsFn _eval_conjuncts_fn;
 
     bool _need_agg_finalize = true;
@@ -319,8 +332,6 @@ private:
 
     std::list<VOlapScanner*> _volap_scanners;
     std::mutex _volap_scanners_lock;
-
-    std::shared_ptr<MemTracker> _block_mem_tracker;
 
     int _max_materialized_blocks;
 

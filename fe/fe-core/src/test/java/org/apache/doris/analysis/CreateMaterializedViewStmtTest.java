@@ -1255,7 +1255,7 @@ public class CreateMaterializedViewStmtTest {
                 slotDescriptor2.getColumn();
                 result = column2;
                 column2.getOriginType();
-                result = ScalarType.createDecimalV2Type(10, 1);
+                result = ScalarType.createDecimalType(10, 1);
             }
         };
         MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr2);

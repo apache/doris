@@ -19,13 +19,16 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.logical.GroupPlanOperator;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -35,11 +38,11 @@ import java.util.Optional;
  * Used in {@link org.apache.doris.nereids.pattern.GroupExpressionMatching.GroupExpressionIterator},
  * as a place-holder when do match root.
  */
-public class GroupPlan extends LogicalLeafPlan<GroupPlanOperator> {
+public class GroupPlan extends LogicalLeaf {
     private final Group group;
 
     public GroupPlan(Group group) {
-        super(new GroupPlanOperator(), Optional.empty(), Optional.of(group.getLogicalProperties()));
+        super(PlanType.GROUP_PLAN, Optional.empty(), Optional.of(group.getLogicalProperties()));
         this.group = group;
     }
 
@@ -48,13 +51,13 @@ public class GroupPlan extends LogicalLeafPlan<GroupPlanOperator> {
         return Optional.empty();
     }
 
-    @Override
-    public NodeType getType() {
-        return NodeType.GROUP;
-    }
-
     public Group getGroup() {
         return group;
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return ImmutableList.of();
     }
 
     @Override
@@ -69,36 +72,58 @@ public class GroupPlan extends LogicalLeafPlan<GroupPlanOperator> {
 
     @Override
     public List<StatsDeriveResult> getChildrenStats() {
-        throw new RuntimeException("GroupPlan can not invoke getChildrenStats()");
+        throw new IllegalStateException("GroupPlan can not invoke getChildrenStats()");
     }
 
     @Override
     public StatsDeriveResult getStatsDeriveResult() {
-        throw new RuntimeException("GroupPlan can not invoke getStatsDeriveResult()");
+        throw new IllegalStateException("GroupPlan can not invoke getStatsDeriveResult()");
     }
 
     @Override
     public StatisticalType getStatisticalType() {
-        throw new RuntimeException("GroupPlan can not invoke getStatisticalType()");
+        throw new IllegalStateException("GroupPlan can not invoke getStatisticalType()");
     }
 
     @Override
     public void setStatsDeriveResult(StatsDeriveResult result) {
-        throw new RuntimeException("GroupPlan can not invoke setStatsDeriveResult()");
+        throw new IllegalStateException("GroupPlan can not invoke setStatsDeriveResult()");
     }
 
     @Override
     public long getLimit() {
-        throw new RuntimeException("GroupPlan can not invoke getLimit()");
+        throw new IllegalStateException("GroupPlan can not invoke getLimit()");
     }
 
     @Override
     public List<? extends ExprStats> getConjuncts() {
-        throw new RuntimeException("GroupPlan can not invoke getConjuncts()");
+        throw new IllegalStateException("GroupPlan can not invoke getConjuncts()");
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        throw new RuntimeException("GroupPlan can not invoke withGroupExpression()");
+        throw new IllegalStateException("GroupPlan can not invoke withGroupExpression()");
+    }
+
+    @Override
+    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        throw new IllegalStateException("GroupPlan can not invoke withLogicalProperties()");
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        throw new IllegalStateException("GroupPlan can not compute output."
+            + " You should invoke GroupPlan.getOutput()");
+    }
+
+    @Override
+    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+        throw new IllegalStateException("GroupPlan can not compute logical properties."
+            + " You should invoke GroupPlan.getLogicalProperties()");
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitGroupPlan(this, context);
     }
 }

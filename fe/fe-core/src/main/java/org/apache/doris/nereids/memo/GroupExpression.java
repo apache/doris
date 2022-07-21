@@ -18,10 +18,10 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.operators.Operator;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -36,9 +36,9 @@ import java.util.Objects;
  * Representation for group expression in cascades optimizer.
  */
 public class GroupExpression {
-    private Group parent;
+    private Group ownerGroup;
     private List<Group> children;
-    private final Operator op;
+    private final Plan plan;
     private final BitSet ruleMasks;
     private boolean statDerived;
 
@@ -47,18 +47,18 @@ public class GroupExpression {
     // Each physical group expression maintains mapping incoming requests to the corresponding child requests.
     private final Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap;
 
-    public GroupExpression(Operator op) {
-        this(op, Lists.newArrayList());
+    public GroupExpression(Plan plan) {
+        this(plan, Lists.newArrayList());
     }
 
     /**
      * Constructor for GroupExpression.
      *
-     * @param op {@link Operator} to reference
+     * @param plan {@link Plan} to reference
      * @param children children groups in memo
      */
-    public GroupExpression(Operator op, List<Group> children) {
-        this.op = Objects.requireNonNull(op);
+    public GroupExpression(Plan plan, List<Group> children) {
+        this.plan = Objects.requireNonNull(plan, "plan can not be null");
         this.children = Objects.requireNonNull(children);
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
@@ -81,16 +81,16 @@ public class GroupExpression {
         children.add(child);
     }
 
-    public Group getParent() {
-        return parent;
+    public Group getOwnerGroup() {
+        return ownerGroup;
     }
 
-    public void setParent(Group parent) {
-        this.parent = parent;
+    public void setOwnerGroup(Group ownerGroup) {
+        this.ownerGroup = ownerGroup;
     }
 
-    public Operator getOperator() {
-        return op;
+    public Plan getPlan() {
+        return plan;
     }
 
     public Group child(int i) {
@@ -167,11 +167,11 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
-        return children.equals(that.children) && op.equals(that.op);
+        return children.equals(that.children) && plan.equals(that.plan);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(children, op);
+        return Objects.hash(children, plan);
     }
 }

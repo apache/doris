@@ -714,8 +714,8 @@ public class TabletScheduler extends MasterDaemon {
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()) {
-                Short num = currentAllocMap.getOrDefault(be.getTag(), (short) 0);
-                currentAllocMap.put(be.getTag(), (short) (num + 1));
+                Short num = currentAllocMap.getOrDefault(be.getLocationTag(), (short) 0);
+                currentAllocMap.put(be.getLocationTag(), (short) (num + 1));
             }
         }
 
@@ -979,7 +979,7 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, Short> allocMap = tabletCtx.getReplicaAlloc().getAllocMap();
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
-            if (!allocMap.containsKey(be.getTag())) {
+            if (!allocMap.containsKey(be.getLocationTag())) {
                 deleteReplicaInternal(tabletCtx, replica, "not in valid tag", force);
                 return true;
             }
@@ -1071,9 +1071,7 @@ public class TabletScheduler extends MasterDaemon {
      */
     private void handleReplicaTooSlow(TabletSchedCtx tabletCtx) throws SchedException {
         Replica chosenReplica = null;
-        Replica minReplica = null;
         long maxVersionCount = -1;
-        long minVersionCount = Integer.MAX_VALUE;
         int normalReplicaCount = 0;
         for (Replica replica : tabletCtx.getReplicas()) {
             if (replica.isAlive() && !replica.tooSlow()) {
@@ -1083,20 +1081,16 @@ public class TabletScheduler extends MasterDaemon {
                 maxVersionCount = replica.getVersionCount();
                 chosenReplica = replica;
             }
-            if (replica.getVersionCount() < minVersionCount) {
-                minVersionCount = replica.getVersionCount();
-                minReplica = replica;
-            }
         }
-
-        if (chosenReplica != null && !chosenReplica.equals(minReplica) && minReplica.isAlive() && !minReplica.tooSlow()
-                && normalReplicaCount >= 1) {
+        if (chosenReplica != null && chosenReplica.isAlive() && !chosenReplica.tooSlow()
+                && chosenReplica.getVersionCount() > Config.min_version_count_indicate_replica_compaction_too_slow
+                && normalReplicaCount - 1 >= tabletCtx.getReplicas().size() / 2 + 1) {
             chosenReplica.setState(ReplicaState.COMPACTION_TOO_SLOW);
             LOG.info("set replica id :{} tablet id: {}, backend id: {} to COMPACTION_TOO_SLOW",
                     chosenReplica.getId(), tabletCtx.getTablet().getId(), chosenReplica.getBackendId());
             throw new SchedException(Status.FINISHED, "set replica to COMPACTION_TOO_SLOW");
         }
-        throw new SchedException(Status.FINISHED, "No replica too slow");
+        throw new SchedException(Status.FINISHED, "No replica set to COMPACTION_TOO_SLOW");
     }
 
     private void deleteReplicaInternal(TabletSchedCtx tabletCtx,
@@ -1165,7 +1159,7 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     private void sendDeleteReplicaTask(long backendId, long tabletId, long replicaId, int schemaHash) {
-        DropReplicaTask task = new DropReplicaTask(backendId, tabletId, replicaId, schemaHash);
+        DropReplicaTask task = new DropReplicaTask(backendId, tabletId, replicaId, schemaHash, false);
         AgentBatchTask batchTask = new AgentBatchTask();
         batchTask.addTask(task);
         AgentTaskExecutor.submit(batchTask);

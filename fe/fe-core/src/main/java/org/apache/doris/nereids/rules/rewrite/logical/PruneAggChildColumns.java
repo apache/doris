@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
@@ -25,8 +24,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -52,17 +52,17 @@ import java.util.stream.Collectors;
 public class PruneAggChildColumns extends OneRewriteRuleFactory {
 
     @Override
-    public Rule<Plan> build() {
+    public Rule build() {
         return RuleType.COLUMN_PRUNE_AGGREGATION_CHILD.build(logicalAggregate().then(agg -> {
             List<Expression> slots = Lists.newArrayList();
-            slots.addAll(agg.operator.getExpressions());
+            slots.addAll(agg.getExpressions());
             Set<Slot> outputs = SlotExtractor.extractSlot(slots);
             List<NamedExpression> prunedOutputs = agg.child().getOutput().stream().filter(outputs::contains)
                     .collect(Collectors.toList());
             if (prunedOutputs.size() == agg.child().getOutput().size()) {
                 return agg;
             }
-            return plan(agg.operator, plan(new LogicalProject(prunedOutputs), agg.child()));
+            return agg.withChildren(ImmutableList.of(new LogicalProject<>(prunedOutputs, agg.child())));
         }));
     }
 }

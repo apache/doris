@@ -132,6 +132,8 @@ Expr::Expr(const TypeDescriptor& type)
 
     case TYPE_DATE:
     case TYPE_DATETIME:
+    case TYPE_DATEV2:
+    case TYPE_DATETIMEV2:
         _node_type = (TExprNodeType::DATE_LITERAL);
         break;
 
@@ -191,6 +193,8 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref)
             break;
 
         case TYPE_DATETIME:
+        case TYPE_DATEV2:
+        case TYPE_DATETIMEV2:
             _node_type = (TExprNodeType::DATE_LITERAL);
             break;
 
@@ -506,9 +510,9 @@ int Expr::compute_results_layout(const std::vector<ExprContext*>& ctxs, std::vec
 }
 
 Status Expr::prepare(const std::vector<ExprContext*>& ctxs, RuntimeState* state,
-                     const RowDescriptor& row_desc, const std::shared_ptr<MemTracker>& tracker) {
+                     const RowDescriptor& row_desc) {
     for (int i = 0; i < ctxs.size(); ++i) {
-        RETURN_IF_ERROR(ctxs[i]->prepare(state, row_desc, tracker));
+        RETURN_IF_ERROR(ctxs[i]->prepare(state, row_desc));
     }
     return Status::OK();
 }
@@ -692,13 +696,31 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         break;
     }
     case TYPE_DATE:
-    case TYPE_DATETIME: {
+    case TYPE_DATETIME:
+    case TYPE_DATETIMEV2: {
         _constant_val.reset(new DateTimeVal(get_datetime_val(context, nullptr)));
+        break;
+    }
+
+    case TYPE_DATEV2: {
+        _constant_val.reset(new DateV2Val(get_datev2_val(context, nullptr)));
         break;
     }
 
     case TYPE_DECIMALV2: {
         _constant_val.reset(new DecimalV2Val(get_decimalv2_val(context, nullptr)));
+        break;
+    }
+    case TYPE_DECIMAL32: {
+        _constant_val.reset(new Decimal32Val(get_decimal32_val(context, nullptr)));
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        _constant_val.reset(new Decimal64Val(get_decimal64_val(context, nullptr)));
+        break;
+    }
+    case TYPE_DECIMAL128: {
+        _constant_val.reset(new Decimal128Val(get_decimal128_val(context, nullptr)));
         break;
     }
     case TYPE_NULL: {
@@ -760,6 +782,18 @@ LargeIntVal Expr::get_large_int_val(ExprContext* context, TupleRow* row) {
     return LargeIntVal::null(); // (*(int64_t*)get_value(row));
 }
 
+Decimal32Val Expr::get_decimal32_val(ExprContext* context, TupleRow* row) {
+    return Decimal32Val::null(); // (*(int32_t*)get_value(row));
+}
+
+Decimal64Val Expr::get_decimal64_val(ExprContext* context, TupleRow* row) {
+    return Decimal64Val::null();
+}
+
+Decimal128Val Expr::get_decimal128_val(ExprContext* context, TupleRow* row) {
+    return Decimal128Val::null();
+}
+
 FloatVal Expr::get_float_val(ExprContext* context, TupleRow* row) {
     return FloatVal::null(); // (*(float*)get_value(row));
 }
@@ -779,6 +813,11 @@ StringVal Expr::get_string_val(ExprContext* context, TupleRow* row) {
 DateTimeVal Expr::get_datetime_val(ExprContext* context, TupleRow* row) {
     DateTimeVal val;
     // ((DateTimeValue*)get_value(row))->to_datetime_val(&val);
+    return val;
+}
+
+DateV2Val Expr::get_datev2_val(ExprContext* context, TupleRow* row) {
+    DateV2Val val;
     return val;
 }
 

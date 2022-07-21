@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "olap/column_predicate.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
@@ -111,7 +110,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema&
           _bitmap_index_iterators(_schema.num_columns(), nullptr),
           _cur_rowid(0),
           _lazy_materialization_read(false),
-          _inited(false) {}
+          _inited(false),
+          _estimate_row_size(true) {}
 
 SegmentIterator::~SegmentIterator() {
     for (auto iter : _column_iterators) {
@@ -136,14 +136,13 @@ Status SegmentIterator::_init(bool is_vec) {
     SCOPED_RAW_TIMER(&_opts.stats->block_init_ns);
     DorisMetrics::instance()->segment_read_total->increment(1);
     // get file handle from file descriptor of segment
-    auto fs = _segment->_fs;
-    RETURN_IF_ERROR(fs->open_file(_segment->_path, &_file_reader));
+    _file_reader = _segment->_file_reader;
 
     _row_bitmap.addRange(0, _segment->num_rows());
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
     // z-order can not use prefix index
-    if (_segment->_tablet_schema->sort_type() != SortType::ZORDER) {
+    if (_segment->_tablet_schema.sort_type() != SortType::ZORDER) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
@@ -217,7 +216,8 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
+            RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
+                                                          &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.file_reader = _file_reader.get();
@@ -345,7 +345,8 @@ Status SegmentIterator::_init_return_column_iterators() {
     }
     for (auto cid : _schema.column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
+            RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
+                                                          &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
@@ -362,8 +363,8 @@ Status SegmentIterator::_init_bitmap_index_iterators() {
     }
     for (auto cid : _schema.column_ids()) {
         if (_bitmap_index_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(
-                    _segment->new_bitmap_index_iterator(cid, &_bitmap_index_iterators[cid]));
+            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(_opts.tablet_schema->column(cid),
+                                                                &_bitmap_index_iterators[cid]));
         }
     }
     return Status::OK();
@@ -812,6 +813,8 @@ void SegmentIterator::_init_current_block(
                 current_columns[cid]->set_datetime_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DATEV2) {
                 current_columns[cid]->set_date_v2_type();
+            } else if (column_desc->type() == OLAP_FIELD_TYPE_DECIMAL) {
+                current_columns[cid]->set_decimalv2_type();
             }
             current_columns[cid]->reserve(_opts.block_row_max);
         }
@@ -999,6 +1002,10 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
     uint32_t nrows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
+    if (UNLIKELY(_estimate_row_size)) {
+        // read 100 rows to estimate average row size
+        nrows_read_limit = 100;
+    }
     _read_columns_by_index(nrows_read_limit, nrows_read, _lazy_materialization_read);
 
     _opts.stats->blocks_load += 1;
@@ -1040,6 +1047,10 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             }
             // shrink char_type suffix zero data
             block->shrink_char_type_column_suffix_zero(_char_type_idx);
+
+            if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
+                _update_max_row(block);
+            }
             return ret;
         }
 
@@ -1063,7 +1074,18 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
 
+    if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
+        _update_max_row(block);
+    }
     return Status::OK();
+}
+
+void SegmentIterator::_update_max_row(const vectorized::Block* block) {
+    _estimate_row_size = false;
+    auto avg_row_size = block->bytes() / block->rows();
+
+    int block_row_max = config::doris_scan_block_max_mb / avg_row_size;
+    _opts.block_row_max = std::min(block_row_max, _opts.block_row_max);
 }
 
 } // namespace segment_v2

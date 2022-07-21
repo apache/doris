@@ -109,7 +109,7 @@ private:
     SegmentFooterPB _footer;
     std::unique_ptr<ShortKeyIndexBuilder> _index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
     uint32_t _row_count = 0;
 
     vectorized::OlapBlockDataConvertor _olap_data_convertor;

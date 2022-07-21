@@ -33,6 +33,7 @@ package-lock.json
 # ignore project file
 .cproject
 .project
+.cache
 .settings/
 **/.idea/
 **/.vscode/
@@ -44,7 +45,6 @@ docs/.temp
 
 # output, thirdparty, extension
 output/
-conf/
 rpc_data/
 thirdparty/src
 thirdparty/installed
@@ -57,6 +57,7 @@ fs_brokers/apache_hdfs_broker/src/main/thrift/
 
 # regression-test
 regression-test/framework/dependency-reduced-pom.xml
+regression-test/realdata/*
 
 samples/doris-demo/remote-udf-python-demo/*_pb2.py
 samples/doris-demo/remote-udf-python-demo/*_pb2_grpc.py

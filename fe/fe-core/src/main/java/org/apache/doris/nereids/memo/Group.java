@@ -19,10 +19,10 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -60,13 +60,13 @@ public class Group {
      */
     public Group(GroupId groupId, GroupExpression groupExpression, LogicalProperties logicalProperties) {
         this.groupId = groupId;
-        if (groupExpression.getOperator() instanceof LogicalOperator) {
+        if (groupExpression.getPlan() instanceof LogicalPlan) {
             this.logicalExpressions.add(groupExpression);
         } else {
             this.physicalExpressions.add(groupExpression);
         }
         this.logicalProperties = logicalProperties;
-        groupExpression.setParent(this);
+        groupExpression.setOwnerGroup(this);
     }
 
     public GroupId getGroupId() {
@@ -88,12 +88,12 @@ public class Group {
      * @return added {@link GroupExpression}
      */
     public GroupExpression addGroupExpression(GroupExpression groupExpression) {
-        if (groupExpression.getOperator() instanceof LogicalOperator) {
+        if (groupExpression.getPlan() instanceof LogicalPlan) {
             logicalExpressions.add(groupExpression);
         } else {
             physicalExpressions.add(groupExpression);
         }
-        groupExpression.setParent(this);
+        groupExpression.setOwnerGroup(this);
         return groupExpression;
     }
 
@@ -104,12 +104,12 @@ public class Group {
      * @return removed {@link GroupExpression}
      */
     public GroupExpression removeGroupExpression(GroupExpression groupExpression) {
-        if (groupExpression.getOperator() instanceof LogicalOperator) {
+        if (groupExpression.getPlan() instanceof LogicalPlan) {
             logicalExpressions.remove(groupExpression);
         } else {
             physicalExpressions.remove(groupExpression);
         }
-        groupExpression.setParent(null);
+        groupExpression.setOwnerGroup(null);
         return groupExpression;
     }
 
@@ -121,7 +121,7 @@ public class Group {
      */
     public GroupExpression rewriteLogicalExpression(GroupExpression newExpression,
             LogicalProperties logicalProperties) {
-        newExpression.setParent(this);
+        newExpression.setOwnerGroup(this);
         this.logicalProperties = logicalProperties;
         GroupExpression oldExpression = getLogicalExpression();
         logicalExpressions.clear();
@@ -233,8 +233,9 @@ public class Group {
             planChildren.add(groupExpression.child(i).extractPlan());
         }
 
-        Plan plan = ((PhysicalPlan) groupExpression.getOperator().toTreeNode(groupExpression)).withChildren(
-                planChildren);
+        Plan plan = groupExpression.getPlan()
+                .withChildren(planChildren)
+                .withGroupExpression(Optional.of(groupExpression));
         if (!(plan instanceof PhysicalPlan)) {
             throw new AnalysisException("generate logical plan");
         }

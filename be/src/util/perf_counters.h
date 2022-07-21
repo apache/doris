@@ -41,6 +41,8 @@
 //  <do your work>
 //  counters.snapshot("After Work");
 //  counters.PrettyPrint(cout);
+//
+// TODO: Expect PerfCounters to be refactored to ProcessState.
 
 namespace doris {
 
@@ -94,6 +96,26 @@ public:
 
     PerfCounters();
     ~PerfCounters();
+
+    // Refactor
+
+    struct ProcStatus {
+        int64_t vm_size = 0;
+        int64_t vm_peak = 0;
+        int64_t vm_rss = 0;
+    };
+
+    static int parse_int(const std::string& state_key);
+    static int64_t parse_int64(const std::string& state_key);
+    static std::string parse_string(const std::string& state_key);
+    // Original data's unit is B or KB.
+    static int64_t parse_bytes(const std::string& state_key);
+
+    // Flush cached process status info from `/proc/self/status`.
+    static void refresh_proc_status();
+    static void get_proc_status(ProcStatus* out);
+    // Return the process actual physical memory in bytes.
+    static inline int64_t get_vm_rss() { return parse_bytes("status/VmRSS"); }
 
 private:
     // Copy constructor and assignment not allowed

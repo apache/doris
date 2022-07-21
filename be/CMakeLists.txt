@@ -473,6 +473,15 @@ if (USE_JEMALLOC)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC")
 endif()
 
+# STRICT_MEMORY_USE=ON` expects BE to use less memory, and gives priority to ensuring stability
+# when the cluster memory is limited.
+# TODO In the future, expect a dynamic soft memory limit, combined with real-time memory usage of the cluster,
+# to control the main memory consumers, including HashTable, LRU Cache elimination strategy,
+# ChunkAllocator cache strategy, Disk IO buffer cache strategy, etc.
+if (STRICT_MEMORY_USE)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DSTRICT_MEMORY_USE")
+endif()
+
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
 endif()
@@ -603,7 +612,6 @@ set(DORIS_LINK_LIBS
     IO
     Olap
     Rowset
-    OlapFs
     Runtime
     Service
     Udf
@@ -815,6 +823,7 @@ install(FILES
 install(FILES
     ${BASE_DIR}/../conf/be.conf
     ${BASE_DIR}/../conf/odbcinst.ini
+    ${BASE_DIR}/../conf/asan_suppr.conf
     DESTINATION ${OUTPUT_DIR}/conf)
 
 get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)

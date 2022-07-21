@@ -68,15 +68,19 @@ class SuiteContext implements Closeable {
 
         def path = new File(config.suitePath).relativePath(file)
         def realPath = new File(config.suitePath).relativePath(file)
+        def sf1DataPath = config.sf1DataPath
         def outputRelativePath = path.substring(0, path.lastIndexOf(".")) + ".out"
         def realOutputRelativePath = path.substring(0, realPath.lastIndexOf(".")) + ".out"
         this.outputFile = new File(new File(config.dataPath), outputRelativePath)
         this.realOutputFile = new File(new File(config.realDataPath), realOutputRelativePath)
         this.dataPath = this.outputFile.getParentFile().getCanonicalFile()
+        // - flowName: tpcds_sf1.sql.q47.q47, flowId: tpcds_sf1/sql/q47.sql#q47
+        log.info("flowName: ${flowName}, flowId: ${flowId}".toString())
     }
 
     String getPackageName() {
         String packageName = scriptContext.name
+        log.info("packageName: ${packageName}".toString())
         int dirSplitPos = packageName.lastIndexOf(File.separator)
         if (dirSplitPos != -1) {
             packageName = packageName.substring(0, dirSplitPos)
@@ -87,6 +91,7 @@ class SuiteContext implements Closeable {
 
     String getClassName() {
         String scriptFileName = scriptContext.file.name
+        log.info("scriptFileName: ${scriptFileName}".toString())
         int suffixPos = scriptFileName.lastIndexOf(".")
         String className = scriptFileName
         if (suffixPos != -1) {
@@ -103,7 +108,8 @@ class SuiteContext implements Closeable {
     Connection getConnection() {
         def threadConn = threadLocalConn.get()
         if (threadConn == null) {
-            threadConn = config.getConnection()
+            def groupList = group.split(',')
+            threadConn = config.getConnection(groupList[groupList.length - 1].replace(File.separator, '_'))
             threadLocalConn.set(threadConn)
         }
         return threadConn

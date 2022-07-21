@@ -19,7 +19,7 @@
 
 #include "gen_cpp/PlanNodes_types.h"
 #include "gutil/strings/substitute.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
 #include "vec/core/materialize_block.h"
@@ -60,7 +60,6 @@ struct ProcessHashTableBuild {
         Defer defer {[&]() {
             int64_t bucket_size = hash_table_ctx.hash_table.get_buffer_size_in_cells();
             int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
-            _join_node->_hash_table_mem_tracker->consume(bucket_bytes - old_bucket_bytes);
             _join_node->_mem_used += bucket_bytes - old_bucket_bytes;
             COUNTER_SET(_join_node->_build_buckets_counter, bucket_size);
         }};
@@ -70,6 +69,7 @@ struct ProcessHashTableBuild {
         SCOPED_TIMER(_join_node->_build_table_insert_timer);
         // only not build_unique, we need expanse hash table before insert data
         if constexpr (!build_unique) {
+            // _rows contains null row, which will cause hash table resize to be large.
             hash_table_ctx.hash_table.expanse_for_add_elem(_rows);
         }
         hash_table_ctx.hash_table.reset_resize_timer();
@@ -781,8 +781,7 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
-    _hash_table_mem_tracker = MemTracker::create_virtual_tracker(-1, "VSetOperationNode:HashTable");
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     // Build phase
     auto build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
@@ -808,16 +807,13 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
 
-    RETURN_IF_ERROR(
-            VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc(), expr_mem_tracker()));
-    RETURN_IF_ERROR(
-            VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc(), expr_mem_tracker()));
+    RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
+    RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
 
     // _vother_join_conjuncts are evaluated in the context of the rows produced by this node
     if (_vother_join_conjunct_ptr) {
         RETURN_IF_ERROR(
-                (*_vother_join_conjunct_ptr)
-                        ->prepare(state, _row_desc_for_other_join_conjunt, expr_mem_tracker()));
+                (*_vother_join_conjunct_ptr)->prepare(state, _row_desc_for_other_join_conjunt));
     }
     // right table data types
     _right_table_data_types = VectorizedUtils::get_data_types(child(1)->row_desc());
@@ -842,8 +838,6 @@ Status HashJoinNode::close(RuntimeState* state) {
     if (_vother_join_conjunct_ptr) {
         (*_vother_join_conjunct_ptr)->close(state);
     }
-
-    _hash_table_mem_tracker->release(_mem_used);
 
     return ExecNode::close(state);
 }
@@ -988,8 +982,8 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
 Status HashJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
 
     RETURN_IF_ERROR(VExpr::open(_build_expr_ctxs, state));
@@ -1018,13 +1012,13 @@ Status HashJoinNode::open(RuntimeState* state) {
 
 void HashJoinNode::_hash_table_build_thread(RuntimeState* state, std::promise<Status>* status) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::_hash_table_build_thread");
-    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
+    SCOPED_ATTACH_TASK(state);
     status->set_value(_hash_table_build(state));
 }
 
 Status HashJoinNode::_hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(1)->open(state));
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Hash join, while constructing the hash table.");
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Hash join, while constructing the hash table.");
     SCOPED_TIMER(_build_timer);
     MutableBlock mutable_block(child(1)->row_desc().tuple_descriptors());
 
@@ -1042,7 +1036,6 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
 
         RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next(state, &block, &eos),
                                        child(1)->get_next_span(), eos);
-        _hash_table_mem_tracker->consume(block.allocated_bytes());
         _mem_used += block.allocated_bytes();
 
         if (block.rows() != 0) {
@@ -1249,8 +1242,25 @@ void HashJoinNode::_hash_table_init() {
             break;
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
-            _hash_table_variants.emplace<I128HashTableContext>();
+        case TYPE_DECIMAL32:
+        case TYPE_DECIMAL64:
+        case TYPE_DECIMAL128: {
+            DataTypePtr& type_ptr = _build_expr_ctxs[0]->root()->data_type();
+            TypeIndex idx = _build_expr_ctxs[0]->root()->is_nullable()
+                                    ? assert_cast<const DataTypeNullable&>(*type_ptr)
+                                              .get_nested_type()
+                                              ->get_type_id()
+                                    : type_ptr->get_type_id();
+            WhichDataType which(idx);
+            if (which.is_decimal32()) {
+                _hash_table_variants.emplace<I32HashTableContext>();
+            } else if (which.is_decimal64()) {
+                _hash_table_variants.emplace<I64HashTableContext>();
+            } else {
+                _hash_table_variants.emplace<I128HashTableContext>();
+            }
             break;
+        }
         default:
             _hash_table_variants.emplace<SerializedHashTableContext>();
         }

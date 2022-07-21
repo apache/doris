@@ -18,15 +18,14 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 
@@ -38,21 +37,19 @@ import java.util.stream.Collectors;
  */
 public class BindFunction implements AnalysisRuleFactory {
     @Override
-    public List<Rule<Plan>> buildRules() {
+    public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.BINDING_PROJECT_FUNCTION.build(
                 logicalProject().then(project -> {
-                    List<NamedExpression> boundExpr = bind(project.operator.getProjects());
-                    LogicalProject op = new LogicalProject(boundExpr);
-                    return plan(op, project.child());
+                    List<NamedExpression> boundExpr = bind(project.getProjects());
+                    return new LogicalProject<>(boundExpr, project.child());
                 })
             ),
             RuleType.BINDING_AGGREGATE_FUNCTION.build(
                 logicalAggregate().then(agg -> {
-                    List<Expression> groupBy = bind(agg.operator.getGroupByExpressionList());
-                    List<NamedExpression> output = bind(agg.operator.getOutputExpressionList());
-                    LogicalAggregate op = agg.operator.withGroupByAndOutput(groupBy, output);
-                    return plan(op, agg.child());
+                    List<Expression> groupBy = bind(agg.getGroupByExpressionList());
+                    List<NamedExpression> output = bind(agg.getOutputExpressionList());
+                    return agg.withGroupByAndOutput(groupBy, output);
                 })
             )
         );
@@ -75,15 +72,25 @@ public class BindFunction implements AnalysisRuleFactory {
         public Expression visitUnboundFunction(UnboundFunction unboundFunction, Void context) {
             String name = unboundFunction.getName();
             // TODO: lookup function in the function registry
-            if (!name.equalsIgnoreCase("sum")) {
-                return unboundFunction;
-            }
+            if (name.equalsIgnoreCase("sum")) {
+                List<Expression> arguments = unboundFunction.getArguments();
+                if (arguments.size() != 1) {
+                    return unboundFunction;
+                }
+                return new Sum(unboundFunction.getArguments().get(0));
+            } else if (name.equalsIgnoreCase("substr") || name.equalsIgnoreCase("substring")) {
 
-            List<Expression> arguments = unboundFunction.getArguments();
-            if (arguments.size() != 1) {
+                List<Expression> arguments = unboundFunction.getArguments();
+                if (arguments.size() == 2) {
+                    return new Substring(unboundFunction.getArguments().get(0),
+                            unboundFunction.getArguments().get(1));
+                } else if (arguments.size() == 3) {
+                    return new Substring(unboundFunction.getArguments().get(0), unboundFunction.getArguments().get(1),
+                            unboundFunction.getArguments().get(2));
+                }
                 return unboundFunction;
             }
-            return new Sum(unboundFunction.getArguments().get(0));
+            return unboundFunction;
         }
     }
 }

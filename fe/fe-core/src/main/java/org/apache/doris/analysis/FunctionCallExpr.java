@@ -63,7 +63,28 @@ import java.util.Set;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
+    private static final ImmutableSet<String> STDDEV_FUNCTION_SET =
+            new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+                    .add("stddev").add("stddev_val").add("stddev_samp").add("stddev_pop")
+                    .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
+    private static final ImmutableSet<String> DECIMAL_SAME_TYPE_SET =
+            new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+                    .add("min").add("max").add("lead").add("lag")
+                    .add("first_value").add("last_value").add("abs")
+                    .add("positive").add("negative").build();
+    private static final ImmutableSet<String> DECIMAL_WIDER_TYPE_SET =
+            new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+                    .add("sum").add("avg").add("multi_distinct_sum").build();
+    private static final  ImmutableSet<String> DECIMAL_FUNCTION_SET =
+            new ImmutableSortedSet.Builder<>(String.CASE_INSENSITIVE_ORDER)
+                    .addAll(DECIMAL_SAME_TYPE_SET)
+                    .addAll(DECIMAL_WIDER_TYPE_SET)
+                    .addAll(STDDEV_FUNCTION_SET).build();
+    private static final int STDDEV_DECIMAL_SCALE = 9;
+    private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
+
     private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
+
     private FunctionName fnName;
     // private BuiltinAggregateFunction.Operator aggOp;
     private FunctionParams fnParams;
@@ -80,12 +101,6 @@ public class FunctionCallExpr extends Expr {
     // instead of the update symbol. This flag also affects the behavior of
     // resetAnalysisState() which is used during expr substitution.
     private boolean isMergeAggFn;
-
-    private static final ImmutableSet<String> STDDEV_FUNCTION_SET =
-            new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
-                    .add("stddev").add("stddev_val").add("stddev_samp")
-                    .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
-    private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
     // use to record the num of json_object parameters
     private int originChildSize;
@@ -202,7 +217,7 @@ public class FunctionCallExpr extends Expr {
                 sb.append("1");
             } else if (type.isFixedPointType()) {
                 sb.append("2");
-            } else if (type.isFloatingPointType() || type.isDecimalV2()) {
+            } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
                 sb.append("3");
             } else if (type.isTime()) {
                 sb.append("4");
@@ -680,7 +695,7 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException("topn requires second parameter must be a constant Integer Type: "
                         + this.toSql());
             }
-            if (getChild(1).getType() != ScalarType.INT) {
+            if (!getChild(1).getType().equals(ScalarType.INT)) {
                 Expr e = getChild(1).castTo(ScalarType.INT);
                 setChild(1, e);
             }
@@ -689,7 +704,7 @@ public class FunctionCallExpr extends Expr {
                     throw new AnalysisException("topn requires the third parameter must be a constant Integer Type: "
                             + this.toSql());
                 }
-                if (getChild(2).getType() != ScalarType.INT) {
+                if (!getChild(2).getType().equals(ScalarType.INT)) {
                     Expr e = getChild(2).castTo(ScalarType.INT);
                     setChild(2, e);
                 }
@@ -1059,6 +1074,22 @@ public class FunctionCallExpr extends Expr {
         } else {
             this.type = fn.getReturnType();
         }
+
+        if (this.type.isDecimalV3()) {
+            // DECIMAL need to pass precision and scale to be
+            if (DECIMAL_FUNCTION_SET.contains(fn.getFunctionName().getFunction())
+                    && (this.type.isDecimalV2() || this.type.isDecimalV3())) {
+                if (DECIMAL_SAME_TYPE_SET.contains(fnName.getFunction())) {
+                    this.type = argTypes[0];
+                } else if (DECIMAL_WIDER_TYPE_SET.contains(fnName.getFunction())) {
+                    this.type = ScalarType.createDecimalType(ScalarType.MAX_DECIMAL128_PRECISION,
+                            ((ScalarType) argTypes[0]).getScalarScale());
+                } else if (STDDEV_FUNCTION_SET.contains(fnName.getFunction())) {
+                    // for all stddev function, use decimal(38,9) as computing result
+                    this.type = ScalarType.createDecimalType(ScalarType.MAX_DECIMAL128_PRECISION, STDDEV_DECIMAL_SCALE);
+                }
+            }
+        }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
     }
@@ -1268,11 +1299,16 @@ public class FunctionCallExpr extends Expr {
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
         // TODO: support other functions
+        // TODO: Supports type conversion to match the type of the function's parameters
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             // Prevent the cast type in vector exec engine
             Type childType = getChild(0).type.getMaxResolutionType();
             fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            type = fn.getReturnType();
+        } else if (fnName.getFunction().equalsIgnoreCase("substring")) {
+            Type[] childTypes = getChildren().stream().map(t -> t.type).toArray(Type[]::new);
+            fn = getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
         }
     }

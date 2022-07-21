@@ -21,6 +21,7 @@
 #include "fmt/ranges.h"
 #include "runtime/descriptors.h"
 #include "vec/aggregate_functions/aggregate_function_java_udaf.h"
+#include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/materialize_block.h"
@@ -67,15 +68,14 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluato
 
 Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, MemPool* pool,
                                const SlotDescriptor* intermediate_slot_desc,
-                               const SlotDescriptor* output_slot_desc,
-                               const std::shared_ptr<MemTracker>& mem_tracker) {
+                               const SlotDescriptor* output_slot_desc) {
     DCHECK(pool != nullptr);
     DCHECK(intermediate_slot_desc != nullptr);
     DCHECK(_intermediate_slot_desc == nullptr);
     _output_slot_desc = output_slot_desc;
     _intermediate_slot_desc = intermediate_slot_desc;
 
-    Status status = VExpr::prepare(_input_exprs_ctxs, state, desc, mem_tracker);
+    Status status = VExpr::prepare(_input_exprs_ctxs, state, desc);
     RETURN_IF_ERROR(status);
 
     std::vector<std::string_view> child_expr_name;
@@ -87,10 +87,12 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
 
     if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
 #ifdef LIBJVM
-        _function = AggregateJavaUdaf::create(_fn, argument_types, params, _data_type);
+        _function = AggregateJavaUdaf::create(_fn, _argument_types, {}, _data_type);
 #else
         return Status::InternalError("Java UDAF is disabled since no libjvm is found!");
 #endif
+    } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
+        _function = AggregateRpcUdaf::create(_fn, _argument_types, {}, _data_type);
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
                 _fn.name.function_name, _argument_types, {}, _data_type->is_nullable());

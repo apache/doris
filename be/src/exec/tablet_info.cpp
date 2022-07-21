@@ -31,6 +31,9 @@ void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     for (auto slot : slots) {
         pindex->add_columns(slot->col_name());
     }
+    for (auto column : columns) {
+        column->to_schema_pb(pindex->add_columns_desc());
+    }
 }
 
 Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
@@ -56,6 +59,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
                 return Status::InternalError("unknown index column, column={}", col);
             }
             index->slots.emplace_back(it->second);
+        }
+        for (auto& pcolumn_desc : p_index.columns_desc()) {
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_pb(pcolumn_desc);
+            index->columns.emplace_back(tc);
         }
         _indexes.emplace_back(index);
     }
@@ -89,6 +97,11 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 return Status::InternalError("unknown index column, column={}", col);
             }
             index->slots.emplace_back(it->second);
+        }
+        for (auto& tcolumn_desc : t_index.columns_desc) {
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_thrift(tcolumn_desc);
+            index->columns.emplace_back(tc);
         }
         _indexes.emplace_back(index);
     }
@@ -155,7 +168,7 @@ std::string OlapTablePartition::debug_string(TupleDescriptor* tuple_desc) const 
 
 OlapTablePartitionParam::OlapTablePartitionParam(std::shared_ptr<OlapTableSchemaParam> schema,
                                                  const TOlapTablePartitionParam& t_param)
-        : _schema(schema), _t_param(t_param), _mem_pool(new MemPool("OlapTablePartitionParam")) {}
+        : _schema(schema), _t_param(t_param), _mem_pool(new MemPool()) {}
 
 OlapTablePartitionParam::~OlapTablePartitionParam() {}
 
@@ -406,7 +419,7 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
         : _schema(schema),
           _t_param(t_param),
           _slots(_schema->tuple_desc()->slots()),
-          _mem_tracker(MemTracker::create_virtual_tracker(-1, "OlapTablePartitionParam")) {
+          _mem_tracker(std::make_unique<MemTracker>("OlapTablePartitionParam")) {
     for (auto slot : _slots) {
         _partition_block.insert(
                 {slot->get_empty_mutable_column(), slot->get_data_type_ptr(), slot->col_name()});

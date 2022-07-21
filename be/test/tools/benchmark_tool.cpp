@@ -38,8 +38,6 @@
 #include "io/fs/local_file_system.h"
 #include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
 #include "olap/in_list_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/row_block2.h"
@@ -54,7 +52,6 @@
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "testutil/test_util.h"
 #include "util/debug_util.h"
 #include "util/file_utils.h"
@@ -192,8 +189,7 @@ public:
             //check values
             size_t num = page_start_ids[slice_index + 1] - page_start_ids[slice_index];
 
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(num, false, type_info, nullptr, &cvb);
@@ -271,9 +267,7 @@ private:
 class SegmentBenchmark : public BaseBenchmark {
 public:
     SegmentBenchmark(const std::string& name, int iterations, const std::string& column_type)
-            : BaseBenchmark(name, iterations),
-              _tracker(std::make_shared<MemTracker>()),
-              _pool(_tracker.get()) {
+            : BaseBenchmark(name, iterations), _pool() {
         if (FileUtils::check_exist(kSegmentDir)) {
             FileUtils::remove_all(kSegmentDir);
         }
@@ -282,9 +276,7 @@ public:
         init_schema(column_type);
     }
     SegmentBenchmark(const std::string& name, int iterations)
-            : BaseBenchmark(name, iterations),
-              _tracker(std::make_shared<MemTracker>()),
-              _pool(_tracker.get()) {
+            : BaseBenchmark(name, iterations), _pool() {
         if (FileUtils::check_exist(kSegmentDir)) {
             FileUtils::remove_all(kSegmentDir);
         }
@@ -347,7 +339,7 @@ public:
         std::string path = fmt::format("{}/{}", kSegmentDir, filename);
         auto fs = io::global_local_filesystem();
 
-        std::unique_ptr<io::FileWriter> file_writer;
+        io::FileWriterPtr file_writer;
         fs->create_file(path, &file_writer);
         SegmentWriterOptions opts;
         DataDir data_dir(kSegmentDir);
@@ -407,7 +399,6 @@ private:
     }
 
 private:
-    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
     TabletSchema _tablet_schema;
     std::shared_ptr<Schema> _schema;

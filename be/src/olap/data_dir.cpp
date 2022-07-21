@@ -40,7 +40,6 @@
 #include "io/fs/path.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
-#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta_manager.h"
@@ -48,8 +47,6 @@
 #include "service/backend_options.h"
 #include "util/errno.h"
 #include "util/file_utils.h"
-#include "util/storage_backend.h"
-#include "util/storage_backend_mgr.h"
 #include "util/string_util.h"
 
 using strings::Substitute;
@@ -368,7 +365,7 @@ Status DataDir::load() {
     auto load_rowset_func = [&dir_rowset_metas, &local_fs = fs()](
                                     TabletUid tablet_uid, RowsetId rowset_id,
                                     const std::string& meta_str) -> bool {
-        RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
@@ -442,6 +439,14 @@ Status DataDir::load() {
                   << ", error tablet: " << failed_tablet_ids.size() << ", path: " << _path;
     }
 
+    for (int64_t tablet_id : tablet_ids) {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet && tablet->set_tablet_schema_into_rowset_meta()) {
+            TabletMetaManager::save(this, tablet->tablet_id(), tablet->schema_hash(),
+                                    tablet->tablet_meta());
+        }
+    }
+
     // traverse rowset
     // 1. add committed rowset to txn map
     // 2. add visible rowset to tablet
@@ -469,6 +474,11 @@ Status DataDir::load() {
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED &&
             rowset_meta->tablet_uid() == tablet->tablet_uid()) {
+            if (!rowset_meta->get_rowset_pb().has_tablet_schema()) {
+                rowset_meta->set_tablet_schema(&tablet->tablet_schema());
+                RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(),
+                                        rowset_meta->get_rowset_pb());
+            }
             Status commit_txn_status = _txn_manager->commit_txn(
                     _meta, rowset_meta->partition_id(), rowset_meta->txn_id(),
                     rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
@@ -487,6 +497,11 @@ Status DataDir::load() {
             }
         } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
                    rowset_meta->tablet_uid() == tablet->tablet_uid()) {
+            if (!rowset_meta->get_rowset_pb().has_tablet_schema()) {
+                rowset_meta->set_tablet_schema(&tablet->tablet_schema());
+                RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(),
+                                        rowset_meta->get_rowset_pb());
+            }
             Status publish_status = tablet->add_rowset(rowset);
             if (!publish_status &&
                 publish_status.precise_code() != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
@@ -506,6 +521,7 @@ Status DataDir::load() {
             ++invalid_rowset_counter;
         }
     }
+
     // At startup, we only count these invalid rowset, but do not actually delete it.
     // The actual delete operation is in StorageEngine::_clean_unused_rowset_metas,
     // which is cleaned up uniformly by the background cleanup thread.

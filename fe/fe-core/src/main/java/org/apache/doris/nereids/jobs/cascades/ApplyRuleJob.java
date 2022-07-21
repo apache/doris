@@ -32,9 +32,9 @@ import java.util.List;
 /**
  * Job to apply rule on {@link GroupExpression}.
  */
-public class ApplyRuleJob extends Job<Plan> {
+public class ApplyRuleJob extends Job {
     private final GroupExpression groupExpression;
-    private final Rule<Plan> rule;
+    private final Rule rule;
     private final boolean exploredOnly;
 
     /**
@@ -44,7 +44,7 @@ public class ApplyRuleJob extends Job<Plan> {
      * @param rule rule to be applied
      * @param context context of current job
      */
-    public ApplyRuleJob(GroupExpression groupExpression, Rule<Plan> rule, JobContext context) {
+    public ApplyRuleJob(GroupExpression groupExpression, Rule rule, JobContext context) {
         super(JobType.APPLY_RULE, context);
         this.groupExpression = groupExpression;
         this.rule = rule;
@@ -63,7 +63,7 @@ public class ApplyRuleJob extends Job<Plan> {
             List<Plan> newPlans = rule.transform(plan, context.getPlannerContext());
             for (Plan newPlan : newPlans) {
                 GroupExpression newGroupExpression = context.getPlannerContext().getMemo()
-                        .copyIn(newPlan, groupExpression.getParent(), rule.isRewrite());
+                        .copyIn(newPlan, groupExpression.getOwnerGroup(), rule.isRewrite());
                 if (newPlan instanceof LogicalPlan) {
                     pushTask(new DeriveStatsJob(newGroupExpression, context));
                     if (exploredOnly) {

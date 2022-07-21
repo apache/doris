@@ -219,33 +219,11 @@ void DiskIoMgr::BufferDescriptor::reset(RequestContext* reader, ScanRange* range
     _len = 0;
     _eosr = false;
     _status = Status::OK();
-    // Consume in the tls mem tracker when the buffer is allocated.
-    _buffer_mem_tracker = tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get();
 }
 
 void DiskIoMgr::BufferDescriptor::return_buffer() {
     DCHECK(_io_mgr != nullptr);
     _io_mgr->return_buffer(this);
-}
-
-void DiskIoMgr::BufferDescriptor::update_mem_tracker(MemTracker* tracker) {
-    // Cached buffers don't count towards mem usage.
-    if (_scan_range->_cached_buffer != nullptr) {
-        return;
-    }
-    if (_buffer_mem_tracker == tracker) {
-        return;
-    }
-    // Only when the current tracker of desc and the parameter tracker are not null,
-    // the memory ownership will be transferred.
-    DCHECK(_buffer_mem_tracker && tracker);
-    _buffer_mem_tracker->transfer_to(tracker, _buffer_len);
-    _buffer_mem_tracker = std::move(tracker);
-}
-
-void DiskIoMgr::BufferDescriptor::set_mem_tracker(MemTracker* tracker) {
-    DCHECK(!_buffer_mem_tracker);
-    _buffer_mem_tracker = std::move(tracker);
 }
 
 DiskIoMgr::WriteRange::WriteRange(const string& file, int64_t file_offset, int disk_id,
@@ -284,8 +262,6 @@ DiskIoMgr::DiskIoMgr()
 //         std::min((uint64_t)config::max_cached_file_handles, FileSystemUtil::max_num_file_handles()),
 //         &HdfsCachedFileHandle::release) {
 {
-    _mem_tracker = MemTracker::create_tracker(-1, "DiskIO", nullptr, MemTrackerLevel::OVERVIEW);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t max_buffer_size_scaled = bit_ceil(_max_buffer_size, _min_buffer_size);
     _free_buffers.resize(bit_log2(max_buffer_size_scaled) + 1);
     int num_local_disks = (config::num_disks == 0 ? DiskInfo::num_disks() : config::num_disks);
@@ -306,8 +282,6 @@ DiskIoMgr::DiskIoMgr(int num_local_disks, int threads_per_disk, int min_buffer_s
 // _file_handle_cache(::min(config::max_cached_file_handles,
 //             FileSystemUtil::max_num_file_handles()), &HdfsCachedFileHandle::release) {
 {
-    _mem_tracker = MemTracker::create_tracker(-1, "DiskIO", nullptr, MemTrackerLevel::OVERVIEW);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t max_buffer_size_scaled = bit_ceil(_max_buffer_size, _min_buffer_size);
     _free_buffers.resize(bit_log2(max_buffer_size_scaled) + 1);
     if (num_local_disks == 0) {
@@ -373,13 +347,12 @@ DiskIoMgr::~DiskIoMgr() {
 }
 
 Status DiskIoMgr::init(const int64_t mem_limit) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    _mem_tracker->set_limit(mem_limit);
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(mem_limit, "DiskIO");
     // If we hit the process limit, see if we can reclaim some memory by removing
     // previously allocated (but unused) io buffers.
     // TODO(zxy) After clearing the free buffer, how much impact will it have on subsequent
     // queries may need to be verified.
-    MemTracker::get_process_tracker()->add_gc_function(
+    ExecEnv::GetInstance()->process_mem_tracker()->add_gc_function(
             std::bind<void>(&DiskIoMgr::gc_io_buffers, this, std::placeholders::_1));
 
     for (int i = 0; i < _disk_queues.size(); ++i) {
@@ -401,7 +374,7 @@ Status DiskIoMgr::init(const int64_t mem_limit) {
             // _disk_thread_group.AddThread(new Thread("disk-io-mgr", ss.str(),
             //             &DiskIoMgr::work_loop, this, _disk_queues[i]));
             _disk_thread_group.add_thread(new std::thread(
-                    std::bind(&DiskIoMgr::work_loop, this, _disk_queues[i], _mem_tracker)));
+                    std::bind(&DiskIoMgr::work_loop, this, _disk_queues[i], _mem_tracker.get())));
         }
     }
     _request_context_cache.reset(new RequestContextCache(this));
@@ -418,11 +391,10 @@ Status DiskIoMgr::init(const int64_t mem_limit) {
     return Status::OK();
 }
 
-Status DiskIoMgr::register_context(RequestContext** request_context,
-                                   std::shared_ptr<MemTracker> mem_tracker) {
+Status DiskIoMgr::register_context(RequestContext** request_context) {
     DCHECK(_request_context_cache) << "Must call init() first.";
     *request_context = _request_context_cache->get_new_context();
-    (*request_context)->reset(std::move(mem_tracker));
+    (*request_context)->reset();
     return Status::OK();
 }
 
@@ -460,7 +432,6 @@ void DiskIoMgr::unregister_context(RequestContext* reader) {
 // is on.
 // If wait_for_disks_completion is true, wait for the number of active disks to become 0.
 void DiskIoMgr::cancel_context(RequestContext* context, bool wait_for_disks_completion) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     context->cancel(Status::Cancelled("Cancelled"));
 
     if (wait_for_disks_completion) {
@@ -541,7 +512,6 @@ Status DiskIoMgr::add_scan_ranges(RequestContext* reader, const vector<ScanRange
     if (ranges.empty()) {
         return Status::OK();
     }
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     // Validate and initialize all ranges
     for (int i = 0; i < ranges.size(); ++i) {
@@ -590,7 +560,6 @@ Status DiskIoMgr::add_scan_ranges(RequestContext* reader, const vector<ScanRange
 Status DiskIoMgr::get_next_range(RequestContext* reader, ScanRange** range) {
     DCHECK(reader != nullptr);
     DCHECK(range != nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     *range = nullptr;
     Status status = Status::OK();
 
@@ -645,7 +614,6 @@ Status DiskIoMgr::get_next_range(RequestContext* reader, ScanRange** range) {
 Status DiskIoMgr::read(RequestContext* reader, ScanRange* range, BufferDescriptor** buffer) {
     DCHECK(range != nullptr);
     DCHECK(buffer != nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     *buffer = nullptr;
 
     if (range->len() > _max_buffer_size) {
@@ -664,7 +632,6 @@ Status DiskIoMgr::read(RequestContext* reader, ScanRange* range, BufferDescripto
 
 void DiskIoMgr::return_buffer(BufferDescriptor* buffer_desc) {
     DCHECK(buffer_desc != nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     if (!buffer_desc->_status.ok()) {
         DCHECK(buffer_desc->_buffer == nullptr);
     }
@@ -713,9 +680,6 @@ DiskIoMgr::BufferDescriptor* DiskIoMgr::get_buffer_desc(RequestContext* reader, 
         }
     }
     buffer_desc->reset(reader, range, buffer, buffer_size);
-    // The buffer is consumed in the tls mem tracker, and we want to be recorded in the reader->_mem_tracker,
-    // so if the two trackers are different, transfer memory ownership.
-    buffer_desc->update_mem_tracker(reader->_mem_tracker.get());
     return buffer_desc;
 }
 
@@ -735,8 +699,7 @@ char* DiskIoMgr::get_free_buffer(int64_t* buffer_size) {
         buffer = new char[*buffer_size];
     } else {
         // This means the buffer's memory ownership is transferred from DiskIoMgr to tls tracker.
-        _mem_tracker->transfer_to(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get(),
-                                  *buffer_size);
+        THREAD_MEM_TRACKER_TRANSFER_FROM(*buffer_size, _mem_tracker.get());
         buffer = _free_buffers[idx].front();
         _free_buffers[idx].pop_front();
     }
@@ -764,16 +727,14 @@ void DiskIoMgr::gc_io_buffers(int64_t bytes_to_free) {
     // The deleted buffer is released in the tls mem tracker, the deleted buffer belongs to DiskIoMgr,
     // so the freed memory should be recorded in the DiskIoMgr mem tracker. So if the tls mem tracker
     // and the DiskIoMgr tracker are different, transfer memory ownership.
-    _mem_tracker->transfer_to(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get(), bytes_freed);
+    THREAD_MEM_TRACKER_TRANSFER_FROM(bytes_freed, _mem_tracker.get());
 }
 
 void DiskIoMgr::return_free_buffer(BufferDescriptor* desc) {
-    return_free_buffer(desc->_buffer, desc->_buffer_len, desc->buffer_mem_tracker());
-    // The buffer in the delete above has been released in the desc mem tracker, reset it to nullptr here.
-    desc->set_mem_tracker(nullptr);
+    return_free_buffer(desc->_buffer, desc->_buffer_len);
 }
 
-void DiskIoMgr::return_free_buffer(char* buffer, int64_t buffer_size, MemTracker* tracker) {
+void DiskIoMgr::return_free_buffer(char* buffer, int64_t buffer_size) {
     DCHECK(buffer != nullptr);
     int idx = free_buffers_idx(buffer_size);
     DCHECK_EQ(bit_ceil(buffer_size, _min_buffer_size) & ~(1 << idx), 0)
@@ -782,15 +743,11 @@ void DiskIoMgr::return_free_buffer(char* buffer, int64_t buffer_size, MemTracker
     unique_lock<mutex> lock(_free_buffers_lock);
     if (!config::disable_mem_pools && _free_buffers[idx].size() < config::max_free_io_buffers) {
         // The buffer's memory ownership is transferred from desc->buffer_mem_tracker to DiskIoMgr tracker.
-        tracker->transfer_to(_mem_tracker.get(), buffer_size);
+        THREAD_MEM_TRACKER_TRANSFER_TO(buffer_size, _mem_tracker.get());
         _free_buffers[idx].push_back(buffer);
     } else {
         --_num_allocated_buffers;
         delete[] buffer;
-        // The deleted buffer is released in the tls mem tracker. When the buffer was allocated,
-        // it was consumed in BufferDescriptor->buffer_mem_tracker, so if the tls mem tracker and
-        // the tracker in the parameters are different, transfer memory ownership.
-        tracker->transfer_to(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get(), buffer_size);
     }
 }
 
@@ -841,15 +798,6 @@ bool DiskIoMgr::get_next_request_range(DiskQueue* disk_queue, RequestRange** ran
         // There are some invariants here.  Only one disk thread can have the
         // same reader here (the reader is removed from the queue).  There can be
         // other disk threads operating on this reader in other functions though.
-
-        // We just picked a reader, check the mem limits.
-        // TODO: we can do a lot better here.  The reader can likely make progress
-        // with fewer io buffers.
-        if ((*request_context)->_mem_tracker != nullptr
-                    ? (*request_context)->_mem_tracker->any_limit_exceeded()
-                    : false) {
-            (*request_context)->cancel(Status::MemoryLimitExceeded("Memory limit exceeded"));
-        }
 
         unique_lock<mutex> request_lock((*request_context)->_lock);
         VLOG_FILE << "Disk (id=" << disk_id << ") reading for "
@@ -999,7 +947,7 @@ void DiskIoMgr::handle_read_finished(DiskQueue* disk_queue, RequestContext* read
     state.decrement_request_thread();
 }
 
-void DiskIoMgr::work_loop(DiskQueue* disk_queue, const std::shared_ptr<MemTracker>& mem_tracker) {
+void DiskIoMgr::work_loop(DiskQueue* disk_queue, MemTrackerLimiter* mem_tracker) {
     // The thread waits until there is work or the entire system is being shut down.
     // If there is work, performs the read or write requested and re-enqueues the
     // requesting context.
@@ -1011,7 +959,9 @@ void DiskIoMgr::work_loop(DiskQueue* disk_queue, const std::shared_ptr<MemTracke
     //      re-enqueues the request.
     //   3. Perform the read or write as specified.
     // Cancellation checking needs to happen in both steps 1 and 3.
-    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::LOAD, mem_tracker);
+
+    // tracked in the process tracker
+    // SCOPED_ATTACH_TASK(ThreadContext::TaskType::STORAGE, mem_tracker);
     while (!_shut_down) {
         RequestContext* worker_context = nullptr;
         ;
@@ -1040,14 +990,11 @@ void DiskIoMgr::read_range(DiskQueue* disk_queue, RequestContext* reader, ScanRa
     int64_t bytes_remaining = range->_len - range->_bytes_read;
     DCHECK_GT(bytes_remaining, 0);
     int64_t buffer_size = std::min(bytes_remaining, static_cast<int64_t>(_max_buffer_size));
-    bool enough_memory = true;
-    if (reader->_mem_tracker != nullptr) {
-        enough_memory = reader->_mem_tracker->spare_capacity() > LOW_MEMORY;
-        if (!enough_memory) {
-            // Low memory, GC and try again.
-            gc_io_buffers();
-            enough_memory = reader->_mem_tracker->spare_capacity() > LOW_MEMORY;
-        }
+    bool enough_memory = _mem_tracker->spare_capacity() > LOW_MEMORY;
+    if (!enough_memory) {
+        // Low memory, GC and try again.
+        gc_io_buffers();
+        enough_memory = _mem_tracker->spare_capacity() > LOW_MEMORY;
     }
 
     if (!enough_memory) {
@@ -1171,7 +1118,6 @@ int DiskIoMgr::free_buffers_idx(int64_t buffer_size) {
 Status DiskIoMgr::add_write_range(RequestContext* writer, WriteRange* write_range) {
     DCHECK_LE(write_range->len(), _max_buffer_size);
     unique_lock<mutex> writer_lock(writer->_lock);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     if (writer->_state == RequestContext::Cancelled) {
         DCHECK(!writer->_status.ok());

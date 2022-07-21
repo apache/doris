@@ -21,7 +21,6 @@
 #include "olap/data_dir.h"
 #include "util/doris_metrics.h"
 #include "util/path_util.h"
-#include "util/storage_backend_mgr.h"
 
 namespace doris {
 
@@ -29,11 +28,9 @@ extern MetricPrototype METRIC_query_scan_bytes;
 extern MetricPrototype METRIC_query_scan_rows;
 extern MetricPrototype METRIC_query_scan_count;
 
-BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param,
-                       DataDir* data_dir)
+BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
         : _state(tablet_meta->tablet_state()),
           _tablet_meta(tablet_meta),
-          _storage_param(storage_param),
           _schema(tablet_meta->tablet_schema()),
           _data_dir(data_dir) {
     _gen_tablet_path();
@@ -70,6 +67,17 @@ void BaseTablet::_gen_tablet_path() {
         _tablet_path = fmt::format("{}/{}/{}/{}/{}", _data_dir->path(), DATA_PREFIX, shard_id(),
                                    tablet_id(), schema_hash());
     }
+}
+
+bool BaseTablet::set_tablet_schema_into_rowset_meta() {
+    bool flag = false;
+    for (RowsetMetaSharedPtr rowset_meta : _tablet_meta->all_mutable_rs_metas()) {
+        if (!rowset_meta->get_rowset_pb().has_tablet_schema()) {
+            rowset_meta->set_tablet_schema(&_schema);
+            flag = true;
+        }
+    }
+    return flag;
 }
 
 } /* namespace doris */

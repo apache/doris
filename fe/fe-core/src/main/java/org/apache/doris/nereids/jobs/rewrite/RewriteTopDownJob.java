@@ -36,11 +36,11 @@ import java.util.stream.Collectors;
 /**
  * Top down job for rewrite, use pattern match.
  */
-public class RewriteTopDownJob extends Job<Plan> {
+public class RewriteTopDownJob extends Job {
     private final Group group;
-    private final List<Rule<Plan>> rules;
+    private final List<Rule> rules;
 
-    public RewriteTopDownJob(Group group, JobContext context, List<RuleFactory<Plan>> factories) {
+    public RewriteTopDownJob(Group group, JobContext context, List<RuleFactory> factories) {
         this(group, factories.stream()
                 .flatMap(factory -> factory.buildRules().stream())
                 .collect(Collectors.toList()), context);
@@ -53,7 +53,7 @@ public class RewriteTopDownJob extends Job<Plan> {
      * @param rules rewrite rules
      * @param context planner context
      */
-    public RewriteTopDownJob(Group group, List<Rule<Plan>> rules, JobContext context) {
+    public RewriteTopDownJob(Group group, List<Rule> rules, JobContext context) {
         super(JobType.TOP_DOWN_REWRITE, context);
         this.group = Objects.requireNonNull(group, "group cannot be null");
         this.rules = Objects.requireNonNull(rules, "rules cannot be null");
@@ -63,8 +63,8 @@ public class RewriteTopDownJob extends Job<Plan> {
     public void execute() {
         GroupExpression logicalExpression = group.getLogicalExpression();
 
-        List<Rule<Plan>> validRules = getValidRules(logicalExpression, rules);
-        for (Rule<Plan> rule : validRules) {
+        List<Rule> validRules = getValidRules(logicalExpression, rules);
+        for (Rule rule : validRules) {
             GroupExpressionMatching groupExpressionMatching
                     = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
             for (Plan before : groupExpressionMatching) {

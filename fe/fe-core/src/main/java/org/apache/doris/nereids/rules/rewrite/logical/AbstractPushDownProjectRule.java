@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -36,22 +37,22 @@ import java.util.Set;
  */
 public abstract class AbstractPushDownProjectRule<C extends Plan> extends OneRewriteRuleFactory {
 
-    PatternDescriptor<C, Plan> target;
+    PatternDescriptor<C> target;
     RuleType ruleType;
 
     @Override
-    public Rule<Plan> build() {
+    public Rule build() {
         return logicalProject(target).then(project -> {
             List<Expression> projects = Lists.newArrayList();
-            projects.addAll(project.operator.getProjects());
+            projects.addAll(project.getProjects());
             Set<Slot> projectSlots = SlotExtractor.extractSlot(projects);
-            return plan(project.operator, pushDownProject(project.child(), projectSlots));
+            return project.withChildren(ImmutableList.of(pushDownProject(project.child(), projectSlots)));
         }).toRule(ruleType);
     }
 
     protected abstract Plan pushDownProject(C plan, Set<Slot> references);
 
-    public void setTarget(PatternDescriptor<C, Plan> target) {
+    public void setTarget(PatternDescriptor<C> target) {
         this.target = target;
     }
 

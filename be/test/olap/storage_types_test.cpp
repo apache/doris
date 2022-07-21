@@ -20,7 +20,6 @@
 #include "olap/field.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -39,8 +38,7 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
     EXPECT_EQ(sizeof(src_val), type->size());
     {
         typename TypeTraits<field_type>::CppType dst_val;
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
+        MemPool pool;
         type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         EXPECT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
         EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
@@ -79,8 +77,7 @@ void test_char(Slice src_val) {
     {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
+        MemPool pool;
         type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         EXPECT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
         EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
@@ -140,7 +137,7 @@ TEST(TypesTest, copy_and_equal) {
     common_test<OLAP_FIELD_TYPE_DATE>((1988 << 9) | (2 << 5) | 1);
     common_test<OLAP_FIELD_TYPE_DATETIME>(19880201010203L);
 
-    common_test<OLAP_FIELD_TYPE_DATEV2>((1988 << 16) | (2 << 8) | 1);
+    common_test<OLAP_FIELD_TYPE_DATEV2>((1988 << 9) | (2 << 5) | 1);
 
     Slice slice("12345abcde");
     common_test<OLAP_FIELD_TYPE_CHAR>(slice);
@@ -163,8 +160,7 @@ void common_test_array(CollectionValue src_val) {
 
     { // test deep copy
         CollectionValue dst_val;
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
+        MemPool pool;
         array_type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         EXPECT_TRUE(array_type->equal((char*)&src_val, (char*)&dst_val));
         EXPECT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
@@ -215,8 +211,8 @@ TEST(ArrayTypeTest, copy_and_equal) {
                               (2008 << 9) | (2 << 5) | 1};
     common_test_array<OLAP_FIELD_TYPE_DATE>(CollectionValue(date_array, 3, null_signs));
 
-    uint32_t date_v2_array[3] = {(1988 << 16) | (2 << 8) | 1, (1998 << 16) | (2 << 8) | 1,
-                                 (2008 << 16) | (2 << 8) | 1};
+    uint32_t date_v2_array[3] = {(1988 << 9) | (2 << 5) | 1, (1998 << 9) | (2 << 5) | 1,
+                                 (2008 << 9) | (2 << 5) | 1};
     common_test_array<OLAP_FIELD_TYPE_DATEV2>(CollectionValue(date_v2_array, 3, null_signs));
 
     int64_t datetime_array[3] = {19880201010203L, 19980201010203L, 20080204010203L};

@@ -81,7 +81,7 @@ public class Table extends MetaObject implements Writable, TableIf {
      * Schema change (c3 to bigint)
      * When OlapTable is changing schema, the fullSchema is (c1 int, c2 int, c3 int, SHADOW_NAME_PRFIX_c3 bigint)
      * The fullSchema of OlapTable is mainly used by Scanner of Load job.
-     *
+     * <p>
      * If you want to get the mv columns, you should call getIndexToSchema in Subclass OlapTable.
      */
     protected List<Column> fullSchema;

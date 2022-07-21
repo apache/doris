@@ -40,22 +40,22 @@ struct TypeDescriptor {
     PrimitiveType type;
     /// Only set if type == TYPE_CHAR or type == TYPE_VARCHAR
     int len;
-    static const int MAX_VARCHAR_LENGTH = OLAP_VARCHAR_MAX_LENGTH;
-    static const int MAX_CHAR_LENGTH = 255;
-    static const int MAX_CHAR_INLINE_LENGTH = 128;
+    static constexpr int MAX_VARCHAR_LENGTH = OLAP_VARCHAR_MAX_LENGTH;
+    static constexpr int MAX_CHAR_LENGTH = 255;
+    static constexpr int MAX_CHAR_INLINE_LENGTH = 128;
 
     /// Only set if type == TYPE_DECIMAL
     int precision;
     int scale;
 
     /// Must be kept in sync with FE's max precision/scale.
-    static const int MAX_PRECISION = 38;
-    static const int MAX_SCALE = MAX_PRECISION;
+    static constexpr int MAX_PRECISION = 38;
+    static constexpr int MAX_SCALE = MAX_PRECISION;
 
     /// The maximum precision representable by a 4-byte decimal (Decimal4Value)
-    static const int MAX_DECIMAL4_PRECISION = 9;
+    static constexpr int MAX_DECIMAL4_PRECISION = 9;
     /// The maximum precision representable by a 8-byte decimal (Decimal8Value)
-    static const int MAX_DECIMAL8_PRECISION = 18;
+    static constexpr int MAX_DECIMAL8_PRECISION = 18;
 
     // Empty for scalar types
     std::vector<TypeDescriptor> children;
@@ -218,6 +218,6 @@ private:
 
 std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type);
 
-TTypeDesc create_type_desc(PrimitiveType type);
+TTypeDesc create_type_desc(PrimitiveType type, int precision = 0, int scale = 0);
 
 } // namespace doris

@@ -55,9 +55,9 @@ Status CollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
 // then merged with the base rowset.
 void CollectIterator::build_heap(const std::vector<RowsetReaderSharedPtr>& rs_readers) {
     DCHECK(rs_readers.size() == _children.size());
-    _reverse = _reader->_tablet->tablet_schema().keys_type() == KeysType::UNIQUE_KEYS;
-    SortType sort_type = _reader->_tablet->tablet_schema().sort_type();
-    int sort_col_num = _reader->_tablet->tablet_schema().sort_col_num();
+    _reverse = _reader->_tablet_schema->keys_type() == KeysType::UNIQUE_KEYS;
+    SortType sort_type = _reader->_tablet_schema->sort_type();
+    int sort_col_num = _reader->_tablet_schema->sort_col_num();
     if (_children.empty()) {
         _inner_iter.reset(nullptr);
         return;
@@ -200,7 +200,7 @@ CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
 CollectIterator::Level0Iterator::~Level0Iterator() = default;
 
 Status CollectIterator::Level0Iterator::init() {
-    RETURN_NOT_OK_LOG(_row_cursor.init(_reader->_tablet->tablet_schema(), _reader->_seek_columns),
+    RETURN_NOT_OK_LOG(_row_cursor.init(*_reader->_tablet_schema, _reader->_seek_columns),
                       "failed to init row cursor");
     return (this->*_refresh_current_row)();
 }

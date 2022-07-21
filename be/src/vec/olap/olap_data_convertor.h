@@ -178,7 +178,6 @@ private:
         }
         const void* get_data() const override { return _values.data(); }
         const void* get_data_at(size_t offset) const override {
-            assert(offset < _num_rows && _num_rows == _values.size());
             UInt8 null_flag = 0;
             if (_nullmap) {
                 null_flag = _nullmap[offset];
@@ -246,7 +245,7 @@ private:
             return Status::OK();
         }
 
-    private:
+    protected:
         const T* _values = nullptr;
     };
 
@@ -298,7 +297,7 @@ private:
                 const VecDateTimeValue* datetime_end = datetime_cur + _num_rows;
                 uint32_t* value = const_cast<uint32_t*>(values_);
                 if (_nullmap) {
-                    const UInt8* nullmap_cur = _nullmap;
+                    const UInt8* nullmap_cur = _nullmap + _row_pos;
                     while (datetime_cur != datetime_end) {
                         if (!*nullmap_cur) {
                             *value = datetime_cur->to_date_v2();
@@ -338,6 +337,33 @@ private:
     private:
         const uint32_t* values_ = nullptr;
         bool from_date_to_date_v2_;
+    };
+
+    // decimalv3 don't need to do any convert
+    template <typename T>
+    class OlapColumnDataConvertorDecimalV3
+            : public OlapColumnDataConvertorSimple<typename T::NativeType> {
+    public:
+        using FieldType = typename T::NativeType;
+        OlapColumnDataConvertorDecimalV3() = default;
+        ~OlapColumnDataConvertorDecimalV3() override = default;
+
+        Status convert_to_olap() override {
+            const vectorized::ColumnDecimal<T>* column_data = nullptr;
+            if (this->_nullmap) {
+                auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(
+                        this->_typed_column.column.get());
+                column_data = assert_cast<const vectorized::ColumnDecimal<T>*>(
+                        nullable_column->get_nested_column_ptr().get());
+            } else {
+                column_data = assert_cast<const vectorized::ColumnDecimal<T>*>(
+                        this->_typed_column.column.get());
+            }
+
+            assert(column_data);
+            this->_values = (const FieldType*)(column_data->get_data().data()) + this->_row_pos;
+            return Status::OK();
+        }
     };
 
     class OlapColumnDataConvertorArray

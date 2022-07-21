@@ -181,9 +181,6 @@ private:
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 
-    Status _get_storage_param(DataDir* data_dir, const std::string& storage_name,
-                              StorageParamPB* storage_param);
-
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 
@@ -202,7 +199,7 @@ private:
     };
 
     // trace the memory use by meta of tablet
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     const int32_t _tablets_shards_size;
     const int32_t _tablets_shards_mask;

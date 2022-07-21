@@ -22,7 +22,6 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 
 add_subdirectory(rowset)
-add_subdirectory(fs)
 
 add_library(Olap STATIC
     aggregate_func.cpp
@@ -43,6 +42,7 @@ add_library(Olap STATIC
     generic_iterators.cpp
     hll.cpp
     bloom_filter_predicate.cpp
+    like_column_predicate.cpp
     key_coder.cpp
     lru_cache.cpp
     memtable.cpp

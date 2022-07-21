@@ -253,7 +253,8 @@ public class CreateFunctionStmt extends DdlStmt {
                 .hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType())
                 .location(URI.create(userFile));
         String initFnSymbol = properties.get(INIT_KEY);
-        if (initFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF)) {
+        if (initFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF
+                || binaryType == TFunctionBinaryType.RPC)) {
             throw new AnalysisException("No 'init_fn' in properties");
         }
         String updateFnSymbol = properties.get(UPDATE_KEY);
@@ -270,7 +271,9 @@ public class CreateFunctionStmt extends DdlStmt {
         String removeFnSymbol = properties.get(REMOVE_KEY);
         String symbol = properties.get(SYMBOL_KEY);
         if (binaryType == TFunctionBinaryType.RPC && !userFile.contains("://")) {
-            checkRPCUdf(initFnSymbol);
+            if (initFnSymbol != null) {
+                checkRPCUdf(initFnSymbol);
+            }
             checkRPCUdf(updateFnSymbol);
             checkRPCUdf(mergeFnSymbol);
             if (serializeFnSymbol != null) {
@@ -528,6 +531,9 @@ public class CreateFunctionStmt extends DdlStmt {
                     .put(PrimitiveType.DATETIMEV2, Sets.newHashSet(LocalDateTime.class))
                     .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
                     .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
+                    .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))
+                    .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
+                    .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
                     .build();
 
     private void checkUdfType(Class clazz, Method method, Type expType, Class pType, String pname)
@@ -633,7 +639,20 @@ public class CreateFunctionStmt extends DdlStmt {
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIMEV2);
                 break;
             case DECIMALV2:
+            case DECIMAL128:
                 typeBuilder.setId(Types.PGenericType.TypeId.DECIMAL128)
+                        .getDecimalTypeBuilder()
+                        .setPrecision(((ScalarType) arg).getScalarPrecision())
+                        .setScale(((ScalarType) arg).getScalarScale());
+                break;
+            case DECIMAL32:
+                typeBuilder.setId(Types.PGenericType.TypeId.DECIMAL32)
+                        .getDecimalTypeBuilder()
+                        .setPrecision(((ScalarType) arg).getScalarPrecision())
+                        .setScale(((ScalarType) arg).getScalarScale());
+                break;
+            case DECIMAL64:
+                typeBuilder.setId(Types.PGenericType.TypeId.DECIMAL64)
                         .getDecimalTypeBuilder()
                         .setPrecision(((ScalarType) arg).getScalarPrecision())
                         .setScale(((ScalarType) arg).getScalarScale());

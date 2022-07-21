@@ -33,6 +33,7 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/rowset_tree.h"
 #include "olap/tablet_meta.h"
 #include "olap/tuple.h"
 #include "olap/utils.h"
@@ -55,10 +56,9 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-                                                   const StorageParamPB& storage_param,
                                                    DataDir* data_dir = nullptr);
 
-    Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param, DataDir* data_dir,
+    Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
            const std::string& cumulative_compaction_type = "");
 
     Status init();
@@ -90,6 +90,7 @@ public:
     int version_count() const;
     Version max_version() const;
     CumulativeCompactionPolicy* cumulative_compaction_policy();
+    bool enable_unique_key_merge_on_write() const;
 
     // properties encapsulated in TabletSchema
     KeysType keys_type() const;
@@ -120,6 +121,9 @@ public:
 
     const RowsetSharedPtr rowset_with_max_version() const;
 
+    static const RowsetMetaSharedPtr rowset_meta_with_max_schema_version(
+            const std::vector<RowsetMetaSharedPtr>& rowset_metas);
+
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
     /// Delete stale rowset by timing. This delete policy uses now() minutes
     /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset
@@ -146,7 +150,9 @@ public:
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowsetReaderSharedPtr>* rs_readers) const;
 
-    DelPredicateArray delete_predicates() { return _tablet_meta->delete_predicates(); }
+    const std::vector<DeletePredicatePB>& delete_predicates() {
+        return _tablet_meta->delete_predicates();
+    }
     void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     bool version_for_delete_predicate(const Version& version);
     bool version_for_load_deletion(const Version& version);
@@ -267,20 +273,21 @@ public:
         return _cumulative_compaction_policy;
     }
 
-    std::shared_ptr<MemTracker>& get_compaction_mem_tracker(CompactionType compaction_type);
-
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->all_beta();
     }
 
+    const TabletSchema& tablet_schema() const override;
+
     Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                const SegmentsOverlapPB& overlap, int64_t oldest_write_timestamp,
-                                int64_t newest_write_timestamp,
+                                const SegmentsOverlapPB& overlap, const TabletSchema* tablet_schema,
+                                int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
                                 const RowsetStatePB& rowset_state, const SegmentsOverlapPB& overlap,
+                                const TabletSchema* tablet_schema,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
@@ -295,6 +302,11 @@ public:
 
     // Physically remove remote rowsets.
     void remove_all_remote_rowsets();
+
+    // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
+    // NOTE: the method only works in unique key model with primary key index, you will got a
+    //       not supported error in other data model.
+    Status lookup_row_key(const Slice& encoded_key, RowLocation* row_location, uint32_t version);
 
 private:
     Status _init_once_action();
@@ -349,6 +361,9 @@ private:
     // These _stale rowsets are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
+    // RowsetTree is used to locate rowsets containing a key or a key range quickly.
+    // It's only used in UNIQUE_KEYS data model.
+    std::unique_ptr<RowsetTree> _rowset_tree;
     // if this tablet is broken, set to true. default is false
     std::atomic<bool> _is_bad;
     // timestamp of last cumu compaction failure
@@ -422,6 +437,10 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
             << "Unexpected cumulative point: " << new_point
             << ", origin: " << _cumulative_point.load();
     _cumulative_point = new_point;
+}
+
+inline bool Tablet::enable_unique_key_merge_on_write() const {
+    return _tablet_meta->enable_unique_key_merge_on_write();
 }
 
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta

@@ -31,6 +31,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -103,9 +104,16 @@ public class CatalogTestUtil {
         Backend backend1 = createBackend(testBackendId1, "host1", 123, 124, 125);
         Backend backend2 = createBackend(testBackendId2, "host2", 123, 124, 125);
         Backend backend3 = createBackend(testBackendId3, "host3", 123, 124, 125);
+        DiskInfo diskInfo = new DiskInfo("/path/to/disk1/");
+        diskInfo.setAvailableCapacityB(2 << 40); // 1TB
+        diskInfo.setTotalCapacityB(2 << 40);
+        diskInfo.setDataUsedCapacityB(2 << 10);
         backend1.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        backend1.setDisks(ImmutableMap.of("disk1", diskInfo));
         backend2.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        backend2.setDisks(ImmutableMap.of("disk1", diskInfo));
         backend3.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        backend3.setDisks(ImmutableMap.of("disk1", diskInfo));
         Catalog.getCurrentSystemInfo().addBackend(backend1);
         Catalog.getCurrentSystemInfo().addBackend(backend2);
         Catalog.getCurrentSystemInfo().addBackend(backend3);
@@ -171,11 +179,11 @@ public class CatalogTestUtil {
         Catalog.getCurrentInvertedIndex().clear();
 
         // replica
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L,
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, 0, 0L, 0L,
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, 0, 0L, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, 0, 0L, 0L,
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, 0, 0L, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
 
         // tablet
@@ -242,7 +250,7 @@ public class CatalogTestUtil {
     public static void createDupTable(Database db) {
 
         // replica
-        Replica replica = new Replica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L,
+        Replica replica = new Replica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0);
 
         // tablet

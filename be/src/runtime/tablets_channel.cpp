@@ -36,7 +36,6 @@ TabletsChannel::TabletsChannel(const TabletsChannelKey& key, bool is_high_priori
           _closed_senders(64),
           _is_high_priority(is_high_priority),
           _is_vec(is_vec) {
-    _mem_tracker = MemTracker::create_tracker(-1, "TabletsChannel:" + std::to_string(key.index_id));
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
@@ -208,6 +207,14 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     return Status::OK();
 }
 
+int64_t TabletsChannel::mem_consumption() {
+    int64_t mem_usage = 0;
+    for (auto& it : _tablet_writers) {
+        mem_usage += it.second->mem_consumption();
+    }
+    return mem_usage;
+}
+
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
@@ -225,6 +232,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
     }
     for (auto& tablet : request.tablets()) {
         WriteRequest wrequest;
+        wrequest.index_id = request.index_id();
         wrequest.tablet_id = tablet.tablet_id();
         wrequest.schema_hash = schema_hash;
         wrequest.write_type = WriteType::LOAD;
@@ -234,6 +242,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.tuple_desc = _tuple_desc;
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
+        wrequest.ptable_schema_param = request.schema();
 
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&wrequest, &writer, _is_vec);

@@ -32,6 +32,9 @@
 
 namespace doris::vectorized {
 
+// Here is an empirical value.
+static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
+
 /// The minimum reduction factor (input rows divided by output rows) to grow hash tables
 /// in a streaming preaggregation, given that the hash tables are currently the given
 /// size or above. The sizes roughly correspond to hash table sizes where the bucket
@@ -65,9 +68,11 @@ static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
         // Expand up to L2 cache always.
         {0, 0.0},
         // Expand into L3 cache if we look like we're getting some reduction.
-        {256 * 1024, 1.1},
+        // At present, The L2 cache is generally 1024k or more
+        {1024 * 1024, 1.1},
         // Expand into main memory if we're getting a significant reduction.
-        {2 * 1024 * 1024, 2.0},
+        // The L3 cache is generally 16MB or more
+        {16 * 1024 * 1024, 2.0},
 };
 
 static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
@@ -147,8 +152,30 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
             return;
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
-            _agg_data.init(AggregatedDataVariants::Type::int128_key, is_nullable);
+        case TYPE_DECIMAL32:
+        case TYPE_DECIMAL64:
+        case TYPE_DECIMAL128: {
+            DataTypePtr& type_ptr = probe_exprs[0]->root()->data_type();
+            TypeIndex idx = is_nullable ? assert_cast<const DataTypeNullable&>(*type_ptr)
+                                                  .get_nested_type()
+                                                  ->get_type_id()
+                                        : type_ptr->get_type_id();
+            WhichDataType which(idx);
+            if (which.is_decimal32()) {
+                _agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
+            } else if (which.is_decimal64()) {
+                _agg_data.init(AggregatedDataVariants::Type::int64_key, is_nullable);
+            } else {
+                _agg_data.init(AggregatedDataVariants::Type::int128_key, is_nullable);
+            }
             return;
+        }
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
+            _agg_data.init(AggregatedDataVariants::Type::string_key, is_nullable);
+            break;
+        }
         default:
             _agg_data.init(AggregatedDataVariants::Type::serialized);
         }
@@ -200,25 +227,23 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
             _agg_data.init(AggregatedDataVariants::Type::serialized);
         }
     }
-}
+} // namespace doris::vectorized
 
 Status AggregationNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _serialize_key_timer = ADD_TIMER(runtime_profile(), "SerializeKeyTimer");
     _exec_timer = ADD_TIMER(runtime_profile(), "ExecTime");
     _merge_timer = ADD_TIMER(runtime_profile(), "MergeTime");
     _expr_timer = ADD_TIMER(runtime_profile(), "ExprTime");
     _get_results_timer = ADD_TIMER(runtime_profile(), "GetResultsTime");
-    _data_mem_tracker =
-            MemTracker::create_virtual_tracker(-1, "AggregationNode:Data", mem_tracker());
+    _data_mem_tracker = std::make_unique<MemTracker>("AggregationNode:Data");
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
-    RETURN_IF_ERROR(
-            VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc(), expr_mem_tracker()));
+    RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
 
     _mem_pool = std::make_unique<MemPool>();
 
@@ -236,7 +261,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(state, child(0)->row_desc(),
                                                           _mem_pool.get(), intermediate_slot_desc,
-                                                          output_slot_desc, mem_tracker()));
+                                                          output_slot_desc));
     }
 
     // set profile timer to evaluators
@@ -334,9 +359,9 @@ Status AggregationNode::prepare(RuntimeState* state) {
 Status AggregationNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("aggregator, while execute open.");
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("aggregator, while execute open.");
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
 
@@ -378,8 +403,8 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
 Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "AggregationNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("aggregator, while execute get_next.");
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("aggregator, while execute get_next.");
 
     if (_is_streaming_preagg) {
         bool child_eos = false;
@@ -760,17 +785,38 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
         std::visit(
                 [&](auto&& agg_method) -> void {
                     using HashMethodType = std::decay_t<decltype(agg_method)>;
+                    using HashTableType = std::decay_t<decltype(agg_method.data)>;
                     using AggState = typename HashMethodType::State;
                     AggState state(key_columns, _probe_key_sz, nullptr);
 
                     _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
 
+                    std::vector<size_t> hash_values;
+
+                    if constexpr (IsPhmapTraits<HashTableType>::value) {
+                        if (hash_values.size() < rows) hash_values.resize(rows);
+                        for (size_t i = 0; i < rows; ++i) {
+                            hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                        }
+                    }
+
                     /// For all rows.
                     for (size_t i = 0; i < rows; ++i) {
                         AggregateDataPtr aggregate_data = nullptr;
 
-                        auto emplace_result =
-                                state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                        auto emplace_result = [&]() {
+                            if constexpr (IsPhmapTraits<HashTableType>::value) {
+                                if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
+                                    agg_method.data.prefetch_by_hash(
+                                            hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                                }
+
+                                return state.emplace_key(agg_method.data, hash_values[i], i,
+                                                         _agg_arena_pool);
+                            } else {
+                                return state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                            }
+                        }();
 
                         /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
                         if (emplace_result.is_inserted()) {
@@ -824,16 +870,38 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
     std::visit(
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
+                using HashTableType = std::decay_t<decltype(agg_method.data)>;
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
                 _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
 
+                std::vector<size_t> hash_values;
+
+                if constexpr (IsPhmapTraits<HashTableType>::value) {
+                    if (hash_values.size() < rows) hash_values.resize(rows);
+                    for (size_t i = 0; i < rows; ++i) {
+                        hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                    }
+                }
+
                 /// For all rows.
                 for (size_t i = 0; i < rows; ++i) {
                     AggregateDataPtr aggregate_data = nullptr;
 
-                    auto emplace_result = state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                    auto emplace_result = [&]() {
+                        if constexpr (IsPhmapTraits<HashTableType>::value) {
+                            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
+                                agg_method.data.prefetch_by_hash(
+                                        hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                            }
+
+                            return state.emplace_key(agg_method.data, hash_values[i], i,
+                                                     _agg_arena_pool);
+                        } else {
+                            return state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                        }
+                    }();
 
                     /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
                     if (emplace_result.is_inserted()) {
@@ -1046,16 +1114,38 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
     std::visit(
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
+                using HashTableType = std::decay_t<decltype(agg_method.data)>;
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
                 _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
 
+                std::vector<size_t> hash_values;
+
+                if constexpr (IsPhmapTraits<HashTableType>::value) {
+                    if (hash_values.size() < rows) hash_values.resize(rows);
+                    for (size_t i = 0; i < rows; ++i) {
+                        hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                    }
+                }
+
                 /// For all rows.
                 for (size_t i = 0; i < rows; ++i) {
                     AggregateDataPtr aggregate_data = nullptr;
 
-                    auto emplace_result = state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                    auto emplace_result = [&]() {
+                        if constexpr (IsPhmapTraits<HashTableType>::value) {
+                            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
+                                agg_method.data.prefetch_by_hash(
+                                        hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                            }
+
+                            return state.emplace_key(agg_method.data, hash_values[i], i,
+                                                     _agg_arena_pool);
+                        } else {
+                            return state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                        }
+                    }();
 
                     /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
                     if (emplace_result.is_inserted()) {

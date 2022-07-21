@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import java.util.List;
@@ -28,7 +27,7 @@ import java.util.Objects;
  * Compound predicate expression.
  * Such as &&,||,AND,OR.
  */
-public class CompoundPredicate extends Expression implements BinaryExpression {
+public abstract class CompoundPredicate extends Expression implements BinaryExpression {
 
     /**
      * Desc: Constructor for CompoundPredicate.
@@ -37,7 +36,7 @@ public class CompoundPredicate extends Expression implements BinaryExpression {
      * @param left  left child of comparison predicate
      * @param right right child of comparison predicate
      */
-    public CompoundPredicate(NodeType type, Expression left, Expression right) {
+    public CompoundPredicate(ExpressionType type, Expression left, Expression right) {
         super(type, left, right);
     }
 
@@ -59,7 +58,7 @@ public class CompoundPredicate extends Expression implements BinaryExpression {
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        return new CompoundPredicate(getType(), children.get(0), children.get(1));
+        throw  new RuntimeException("The withChildren() method is not implemented");
     }
 
     @Override
@@ -76,16 +75,20 @@ public class CompoundPredicate extends Expression implements BinaryExpression {
     }
 
     @Override
-    public String toString() {
-        String nodeType = getType().toString();
-        return nodeType + "(" + left() + ", " + right() + ")";
+    public int hashCode() {
+        return Objects.hash(getType(), left(), right());
     }
 
-    public NodeType flip() {
-        if (getType() == NodeType.AND) {
-            return NodeType.OR;
+    @Override
+    public String toString() {
+        return "(" + left().toString() + " " + getType().toString() + " " + right().toString() + ")";
+    }
+
+    public ExpressionType flip() {
+        if (getType() == ExpressionType.AND) {
+            return ExpressionType.OR;
         }
-        return NodeType.AND;
+        return ExpressionType.AND;
     }
 }
 

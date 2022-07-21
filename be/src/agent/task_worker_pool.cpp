@@ -437,15 +437,16 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
                 LOG(WARNING) << "drop table failed! signature: " << agent_task_req.signature;
                 error_msgs.push_back("drop table failed!");
                 status_code = TStatusCode::RUNTIME_ERROR;
-            }
-            // if tablet is dropped by fe, then the related txn should also be removed
-            StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
-                    dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
-                    drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
-            // We remove remote rowset directly.
-            // TODO(cyx): do remove in background
-            if (drop_tablet_req.is_drop_table_or_partition) {
-                dropped_tablet->remove_all_remote_rowsets();
+            } else {
+                // if tablet is dropped by fe, then the related txn should also be removed
+                StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
+                        dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
+                        drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
+                // We remove remote rowset directly.
+                // TODO(cyx): do remove in background
+                if (drop_tablet_req.is_drop_table_or_partition) {
+                    dropped_tablet->remove_all_remote_rowsets();
+                }
             }
         } else {
             status_code = TStatusCode::NOT_FOUND;
@@ -1656,8 +1657,6 @@ void TaskWorkerPool::_random_sleep(int second) {
 }
 
 void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
-    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::COMPACTION,
-                              StorageEngine::instance()->compaction_mem_tracker());
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
         TCompactionReq compaction_req;
@@ -1734,11 +1733,7 @@ void TaskWorkerPool::_storage_refresh_storage_policy_worker_thread_callback() {
 
         TGetStoragePolicyResult result;
         Status status = _master_client->refresh_storage_policy(&result);
-        if (!status.ok()) {
-            LOG(WARNING) << "refresh storage policy status not ok";
-        } else if (result.status.status_code != TStatusCode::OK) {
-            LOG(WARNING) << "refresh storage policy result status status_code not ok";
-        } else {
+        if (status.ok() && result.status.status_code == TStatusCode::OK) {
             // update storage policy mgr.
             StoragePolicyMgr* spm = ExecEnv::GetInstance()->storage_policy_mgr();
             for (const auto& iter : result.result_entrys) {
@@ -1757,7 +1752,7 @@ void TaskWorkerPool::_storage_refresh_storage_policy_worker_thread_callback() {
                 policy_ptr->s3_request_timeout_ms = iter.s3_storage_param.s3_request_timeout_ms;
                 policy_ptr->md5_sum = iter.md5_checksum;
 
-                LOG(INFO) << "refresh storage policy task, policy " << *policy_ptr;
+                LOG_EVERY_N(INFO, 12) << "refresh storage policy task, policy " << *policy_ptr;
                 spm->periodic_put(iter.policy_name, std::move(policy_ptr));
             }
         }

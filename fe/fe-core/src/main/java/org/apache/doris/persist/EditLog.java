@@ -48,6 +48,7 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.BDBJEJournal;
 import org.apache.doris.journal.bdbje.Timestamp;
+import org.apache.doris.journal.local.LocalJournal;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
@@ -66,6 +67,7 @@ import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -94,7 +96,14 @@ public class EditLog {
     private Journal journal;
 
     public EditLog(String nodeName) {
-        journal = new BDBJEJournal(nodeName);
+        String journalType = Config.edit_log_type;
+        if (journalType.equalsIgnoreCase("bdb")) {
+            journal = new BDBJEJournal(nodeName);
+        } else if (journalType.equalsIgnoreCase("local")) {
+            journal = new LocalJournal(Catalog.getCurrentCatalog().getImageDir());
+        } else {
+            throw new IllegalArgumentException("Unknown edit log type: " + journalType);
+        }
     }
 
     public long getMaxJournalId() {
@@ -180,47 +189,45 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_TABLE: {
                     CreateTableInfo info = (CreateTableInfo) journal.getData();
-                    LOG.info("Begin to unprotect create table. db = "
-                            + info.getDbName() + " table = " + info.getTable().getId());
+                    LOG.info("Begin to unprotect create table. db = " + info.getDbName() + " table = " + info.getTable()
+                            .getId());
                     catalog.replayCreateTable(info.getDbName(), info.getTable());
                     break;
                 }
                 case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
                     RefreshExternalTableInfo info = (RefreshExternalTableInfo) journal.getData();
-                    LOG.info("Begin to unprotect alter external table schema. db = "
-                            + info.getDbName() + " table = " + info.getTableName());
+                    LOG.info("Begin to unprotect alter external table schema. db = " + info.getDbName() + " table = "
+                            + info.getTableName());
                     catalog.replayAlterExternalTableSchema(info.getDbName(), info.getTableName(), info.getNewSchema());
                     break;
                 }
                 case OperationType.OP_DROP_TABLE: {
                     DropInfo info = (DropInfo) journal.getData();
-                    Database db =
-                            Catalog.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
-                    LOG.info("Begin to unprotect drop table. db = "
-                            + db.getFullName() + " table = " + info.getTableId());
+                    Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
+                    LOG.info("Begin to unprotect drop table. db = " + db.getFullName() + " table = "
+                            + info.getTableId());
                     catalog.replayDropTable(db, info.getTableId(), info.isForceDrop());
                     break;
                 }
                 case OperationType.OP_ADD_PARTITION: {
                     PartitionPersistInfo info = (PartitionPersistInfo) journal.getData();
-                    LOG.info("Begin to unprotect add partition. db = " + info.getDbId()
-                            + " table = " + info.getTableId()
-                            + " partitionName = " + info.getPartition().getName());
+                    LOG.info(
+                            "Begin to unprotect add partition. db = " + info.getDbId() + " table = " + info.getTableId()
+                                    + " partitionName = " + info.getPartition().getName());
                     catalog.replayAddPartition(info);
                     break;
                 }
                 case OperationType.OP_DROP_PARTITION: {
                     DropPartitionInfo info = (DropPartitionInfo) journal.getData();
-                    LOG.info("Begin to unprotect drop partition. db = " + info.getDbId()
-                            + " table = " + info.getTableId()
-                            + " partitionName = " + info.getPartitionName());
+                    LOG.info("Begin to unprotect drop partition. db = " + info.getDbId() + " table = "
+                            + info.getTableId() + " partitionName = " + info.getPartitionName());
                     catalog.replayDropPartition(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_PARTITION: {
                     ModifyPartitionInfo info = (ModifyPartitionInfo) journal.getData();
-                    LOG.info("Begin to unprotect modify partition. db = " + info.getDbId()
-                            + " table = " + info.getTableId() + " partitionId = " + info.getPartitionId());
+                    LOG.info("Begin to unprotect modify partition. db = " + info.getDbId() + " table = "
+                            + info.getTableId() + " partitionId = " + info.getPartitionId());
                     catalog.getAlterInstance().replayModifyPartition(info);
                     break;
                 }
@@ -285,8 +292,9 @@ public class EditLog {
                 case OperationType.OP_BATCH_DROP_ROLLUP: {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
-                        catalog.getMaterializedViewHandler().replayDropRollup(new DropInfo(batchDropInfo.getDbId(),
-                                batchDropInfo.getTableId(), indexId, false), catalog);
+                        catalog.getMaterializedViewHandler().replayDropRollup(
+                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false),
+                                catalog);
                     }
                     break;
                 }
@@ -467,7 +475,7 @@ public class EditLog {
                     if (version > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
                                 + "please update FeConstants.meta_version and restart.",
-                                MetaContext.get().getMetaVersion(), FeConstants.meta_version);
+                                version, FeConstants.meta_version);
                         System.exit(-1);
                     }
                     MetaContext.get().setMetaVersion(version);
@@ -826,6 +834,11 @@ public class EditLog {
                     catalog.getPolicyMgr().replayDrop(log);
                     break;
                 }
+                case OperationType.OP_ALTER_STORAGE_POLICY: {
+                    StoragePolicy log = (StoragePolicy) journal.getData();
+                    catalog.getPolicyMgr().replayStoragePolicyAlter(log);
+                    break;
+                }
                 case OperationType.OP_CREATE_DS: {
                     CatalogLog log = (CatalogLog) journal.getData();
                     catalog.getDataSourceMgr().replayCreateCatalog(log);
@@ -844,6 +857,11 @@ public class EditLog {
                 case OperationType.OP_ALTER_DS_PROPS: {
                     CatalogLog log = (CatalogLog) journal.getData();
                     catalog.getDataSourceMgr().replayAlterCatalogProps(log);
+                    break;
+                }
+                case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
+                    final TableAddOrDropColumnsInfo info = (TableAddOrDropColumnsInfo) journal.getData();
+                    catalog.getSchemaChangeHandler().replayModifyTableAddOrDropColumns(info);
                     break;
                 }
                 default: {
@@ -935,13 +953,13 @@ public class EditLog {
         }
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {}",
-                    txId, numTransactions, totalTimeTransactions, op);
+            LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {}", txId, numTransactions,
+                    totalTimeTransactions, op);
         }
 
         if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.",
-                    txId, Config.edit_log_roll_num);
+            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
+                    Config.edit_log_roll_num);
             rollEditLog();
             txId = 0;
         }
@@ -1365,6 +1383,10 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_RESOURCE, resource);
     }
 
+    public void logAlterStoragePolicy(StoragePolicy storagePolicy) {
+        logEdit(OperationType.OP_ALTER_STORAGE_POLICY, storagePolicy);
+    }
+
     public void logCreateSmallFile(SmallFile info) {
         logEdit(OperationType.OP_CREATE_SMALL_FILE, info);
     }
@@ -1471,5 +1493,9 @@ public class EditLog {
 
     public Journal getJournal() {
         return this.journal;
+    }
+
+    public void logModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info) {
+        logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS, info);
     }
 }

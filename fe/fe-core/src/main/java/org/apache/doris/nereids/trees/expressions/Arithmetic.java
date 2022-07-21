@@ -21,7 +21,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
@@ -116,28 +115,28 @@ public abstract class Arithmetic extends Expression {
         return op;
     }
 
-    private static NodeType genNodeType(ArithmeticOperator op) {
+    private static ExpressionType genNodeType(ArithmeticOperator op) {
         switch (op) {
             case MULTIPLY:
-                return NodeType.MULTIPLY;
+                return ExpressionType.MULTIPLY;
             case DIVIDE:
-                return NodeType.DIVIDE;
+                return ExpressionType.DIVIDE;
             case MOD:
-                return NodeType.MOD;
+                return ExpressionType.MOD;
             case ADD:
-                return NodeType.ADD;
+                return ExpressionType.ADD;
             case SUBTRACT:
-                return NodeType.SUBTRACT;
+                return ExpressionType.SUBTRACT;
             case BITAND:
-                return NodeType.BITAND;
+                return ExpressionType.BITAND;
             case BITOR:
-                return NodeType.BITOR;
+                return ExpressionType.BITOR;
             case BITXOR:
-                return NodeType.BITXOR;
+                return ExpressionType.BITXOR;
             case BITNOT:
-                return NodeType.NOT;
+                return ExpressionType.NOT;
             default:
-                return null;
+                throw new RuntimeException("Not support arithmetic type: " + op.getName());
         }
     }
 
@@ -180,12 +179,12 @@ public abstract class Arithmetic extends Expression {
             return false;
         }
         Arithmetic that = (Arithmetic) o;
-        return op == that.op;
+        return op == that.op && Objects.equals(this.children(), that.children());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(op);
+        return Objects.hash(op, children());
     }
 
     @Override

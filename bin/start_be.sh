@@ -31,10 +31,15 @@ OPTS=$(getopt \
 eval set -- "$OPTS"
 
 RUN_DAEMON=0
+RUN_IN_AWS=0
 while true; do
     case "$1" in
     --daemon)
         RUN_DAEMON=1
+        shift
+        ;;
+    --aws)
+        RUN_IN_AWS=1
         shift
         ;;
     --)
@@ -125,6 +130,9 @@ export ODBCSYSINI=$DORIS_HOME/conf
 # support utf8 for oracle database
 export NLS_LANG=AMERICAN_AMERICA.AL32UTF8
 
+#filter known leak for lsan.
+export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
+
 while read line; do
     envline=$(echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
     envline=$(eval "echo $envline")
@@ -165,6 +173,11 @@ if [ ! -f /bin/limit3 ]; then
     LIMIT=
 else
     LIMIT="/bin/limit3 -c 0 -n 65536"
+fi
+
+## If you are not running in aws cloud, disable this env since https://github.com/aws/aws-sdk-cpp/issues/1410.
+if [ ${RUN_IN_AWS} -eq 0 ]; then
+    export AWS_EC2_METADATA_DISABLED=true
 fi
 
 if [ ${RUN_DAEMON} -eq 1 ]; then

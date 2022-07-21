@@ -29,7 +29,6 @@ import org.apache.doris.nereids.properties.ChildrenOutputPropertyDeriver;
 import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
 import org.apache.doris.nereids.properties.ParentRequiredPropertyDeriver;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Lists;
 
@@ -39,7 +38,7 @@ import java.util.Optional;
 /**
  * Job to compute cost and add enforcer.
  */
-public class CostAndEnforcerJob extends Job<Plan> {
+public class CostAndEnforcerJob extends Job {
     // GroupExpression to optimize
     private final GroupExpression groupExpression;
     // Current total cost
@@ -83,11 +82,11 @@ public class CostAndEnforcerJob extends Job<Plan> {
      * execute.
      */
     public void execute1() {
-        // Do init logic of root operator/groupExpr of `subplan`, only run once per task.
+        // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
         if (curChildIndex != -1) {
             curTotalCost = 0;
 
-            // Get property from groupExpression operator (it's root of subplan).
+            // Get property from groupExpression plan (it's root of subplan).
             ParentRequiredPropertyDeriver parentRequiredPropertyDeriver = new ParentRequiredPropertyDeriver(context);
             propertiesListList = parentRequiredPropertyDeriver.getRequiredPropertyListList(groupExpression);
 
@@ -163,7 +162,7 @@ public class CostAndEnforcerJob extends Job<Plan> {
                 }
                 PlanContext planContext = new PlanContext(groupExpression);
                 // TODO: calculate stats.
-                groupExpression.getParent().setStatistics(planContext.getStatistics());
+                groupExpression.getOwnerGroup().setStatistics(planContext.getStatistics());
 
                 enforce(outputProperty, childrenInputProperties);
             }
@@ -194,7 +193,7 @@ public class CostAndEnforcerJob extends Job<Plan> {
 
             // enforcedProperty is superset of requiredProperty
             if (!addEnforcedProperty.equals(requiredProperties)) {
-                putProperty(groupExpression.getParent().getBestExpression(addEnforcedProperty),
+                putProperty(groupExpression.getOwnerGroup().getBestExpression(addEnforcedProperty),
                         requiredProperties, requiredProperties, Lists.newArrayList(outputProperty));
             }
         } else {
@@ -218,7 +217,7 @@ public class CostAndEnforcerJob extends Job<Plan> {
             // and shuffle join two types outputProperty.
             groupExpression.putOutputPropertiesMap(outputProperty, requiredProperty);
         }
-        this.groupExpression.getParent().setBestPlan(groupExpression,
+        this.groupExpression.getOwnerGroup().setBestPlan(groupExpression,
                 curTotalCost, requiredProperty);
     }
 
