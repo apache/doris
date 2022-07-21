@@ -26,7 +26,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -257,7 +256,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
     /** BoundStar is used to wrap list of slots for temporary. */
     private class BoundStar extends NamedExpression {
         public BoundStar(List<Slot> children) {
-            super(ExpressionType.BOUND_STAR, children.toArray(new Slot[0]));
+            super(children.toArray(new Slot[0]));
             Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),
                     "BoundStar can not wrap UnboundSlot"
             );

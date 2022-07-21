@@ -44,7 +44,7 @@ public class DistinctPredicatesRule extends AbstractExpressionRewriteRule {
         List<Expression> extractExpressions = ExpressionUtils.extract(expr);
         Set<Expression> distinctExpressions = new LinkedHashSet<>(extractExpressions);
         if (distinctExpressions.size() != extractExpressions.size()) {
-            return ExpressionUtils.combine(expr.getType(), Lists.newArrayList(distinctExpressions));
+            return ExpressionUtils.combine(expr.getClass(), Lists.newArrayList(distinctExpressions));
         }
         return expr;
     }
