@@ -85,8 +85,7 @@ Status SetOperationNode::refresh_hash_table(int child_id) {
     SCOPED_TIMER(_build_timer);
     std::unique_ptr<HashTable> temp_tbl(new HashTable(
             _child_expr_lists[0], _child_expr_lists[child_id], _build_tuple_size, true, _find_nulls,
-            id(), mem_tracker(),
-            _valid_element_in_hash_tbl / HashTable::MAX_BUCKET_OCCUPANCY_FRACTION + 1));
+            id(), _valid_element_in_hash_tbl / HashTable::MAX_BUCKET_OCCUPANCY_FRACTION + 1));
     _hash_tbl_iterator = _hash_tbl->begin();
     while (_hash_tbl_iterator.has_next()) {
         if constexpr (keep_matched) {

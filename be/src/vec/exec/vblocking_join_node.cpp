@@ -41,9 +41,9 @@ Status VBlockingJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VBlockingJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
-    _build_pool.reset(new MemPool(mem_tracker().get()));
+    _build_pool.reset(new MemPool(mem_tracker()));
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _left_child_timer = ADD_TIMER(runtime_profile(), "LeftChildTime");
     _build_row_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
@@ -71,7 +71,7 @@ Status VBlockingJoinNode::close(RuntimeState* state) {
 }
 
 void VBlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
-    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
+    SCOPED_ATTACH_TASK(state);
     status->set_value(construct_build_side(state));
     // Release the thread token as soon as possible (before the main thread joins
     // on it).  This way, if we had a chain of 10 joins using 1 additional thread,
@@ -81,8 +81,8 @@ void VBlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Stat
 Status VBlockingJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VBlockingJoinNode::open")
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     RETURN_IF_CANCELLED(state);
 
