@@ -48,6 +48,16 @@ public:
                                      const TBrokerRangeDesc& range, int64_t start_offset,
                                      std::shared_ptr<FileReader>& file_reader);
 
+    static Status create_file_reader(ExecEnv* env, RuntimeProfile* profile,
+                                     const TFileScanRangeParams& params,
+                                     const TFileRangeDesc& range,
+                                     std::unique_ptr<FileReader>& file_reader);
+
+    static Status create_file_reader(ExecEnv* env, RuntimeProfile* profile,
+                                     const TFileScanRangeParams& params,
+                                     const TFileRangeDesc& range,
+                                     std::shared_ptr<FileReader>& file_reader);
+
     static TFileType::type convert_storage_type(TStorageBackendType::type type) {
         switch (type) {
         case TStorageBackendType::LOCAL:
@@ -71,6 +81,10 @@ private:
                                    const std::vector<TNetworkAddress>& broker_addresses,
                                    const std::map<std::string, std::string>& properties,
                                    const TBrokerRangeDesc& range, int64_t start_offset,
+                                   FileReader*& file_reader);
+
+    static Status _new_file_reader(ExecEnv* env, RuntimeProfile* profile,
+                                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
                                    FileReader*& file_reader);
 };
 
