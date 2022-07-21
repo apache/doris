@@ -270,7 +270,7 @@ public class Catalog {
     private static final int STATE_CHANGE_CHECK_INTERVAL_MS = 100;
     private static final int REPLAY_INTERVAL_MS = 1;
     private static final String BDB_DIR = "/bdb";
-    private static final String IMAGE_DIR = "/image";
+    public static final String IMAGE_DIR = "/image";
 
     private String metaDir;
     private String bdbDir;
@@ -802,13 +802,10 @@ public class Catalog {
             if (!bdbDir.exists()) {
                 bdbDir.mkdirs();
             }
-
-            File imageDir = new File(this.imageDir);
-            if (!imageDir.exists()) {
-                imageDir.mkdirs();
-            }
-        } else {
-            throw new Exception("Invalid edit log type: " + Config.edit_log_type);
+        }
+        File imageDir = new File(this.imageDir);
+        if (!imageDir.exists()) {
+            imageDir.mkdirs();
         }
 
         // init plugin manager
@@ -834,18 +831,27 @@ public class Catalog {
         // 6. start state listener thread
         createStateListener();
         listener.start();
+
+        if (!Config.edit_log_type.equalsIgnoreCase("bdb")) {
+            // If not using bdb, we need to notify the FE type transfer manually.
+            notifyNewFETypeTransfer(FrontendNodeType.MASTER);
+        }
     }
 
     // wait until FE is ready.
     public void waitForReady() throws InterruptedException {
+        long counter = 0;
         while (true) {
             if (isReady()) {
                 LOG.info("catalog is ready. FE type: {}", feType);
                 break;
             }
 
-            Thread.sleep(2000);
-            LOG.info("wait catalog to be ready. FE type: {}. is ready: {}", feType, isReady.get());
+            Thread.sleep(100);
+            if (counter++ % 20 == 0) {
+                LOG.info("wait catalog to be ready. FE type: {}. is ready: {}, counter: {}", feType, isReady.get(),
+                        counter);
+            }
         }
     }
 
@@ -1224,9 +1230,11 @@ public class Catalog {
 
         editLog.open();
 
-        if (!haProtocol.fencing()) {
-            LOG.error("fencing failed. will exit.");
-            System.exit(-1);
+        if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
+            if (!haProtocol.fencing()) {
+                LOG.error("fencing failed. will exit.");
+                System.exit(-1);
+            }
         }
 
         long replayStartTime = System.currentTimeMillis();
@@ -1285,7 +1293,6 @@ public class Catalog {
 
         canRead.set(true);
         isReady.set(true);
-
         checkLowerCaseTableNames();
 
         String msg = "master finished to replay journal, can write now.";
@@ -1404,7 +1411,7 @@ public class Catalog {
         // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
 
         // add helper sockets
-        if (Config.edit_log_type.equalsIgnoreCase("BDB")) {
+        if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
             for (Frontend fe : frontends.values()) {
                 if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                     ((BDBHA) getHaProtocol()).addHelperSocket(fe.getHost(), fe.getEditLogPort());

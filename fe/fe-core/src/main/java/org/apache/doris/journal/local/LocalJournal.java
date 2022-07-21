@@ -25,6 +25,7 @@ import org.apache.doris.persist.EditLogFileOutputStream;
 import org.apache.doris.persist.EditLogOutputStream;
 import org.apache.doris.persist.Storage;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -54,10 +55,18 @@ public class LocalJournal implements Journal {
                 this.journalId.set(getCurrentJournalId(storage.getEditsFileSequenceNumbers()));
 
                 long id = journalId.get();
-                if (id == storage.getEditsSeq()) {
+                if (storage.getEditsSeq() == 0) {
+                    // there is no edits file, create first one
+                    Preconditions.checkState(id == 1, id);
+                    currentEditFile = new File(imageDir, "edits.1");
+                    currentEditFile.createNewFile();
+                    outputStream = new EditLogFileOutputStream(currentEditFile);
+                } else if (id == storage.getEditsSeq()) {
+                    // there exist edits files, point to the latest one and set position to the end of file.
                     this.currentEditFile = storage.getEditsFile(id);
                     this.outputStream = new EditLogFileOutputStream(currentEditFile);
                 } else {
+                    // create next edits file
                     currentEditFile = new File(imageDir, "edits." + (id + 1));
                     currentEditFile.createNewFile();
                     outputStream = new EditLogFileOutputStream(currentEditFile);
@@ -78,6 +87,7 @@ public class LocalJournal implements Journal {
                 return;
             }
             if (outputStream != null) {
+                outputStream.flush();
                 outputStream.close();
             }
             currentEditFile = new File(imageDir, "edits." + journalId.get());

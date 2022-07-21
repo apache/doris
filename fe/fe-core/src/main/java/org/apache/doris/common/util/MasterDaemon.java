@@ -49,7 +49,7 @@ public class MasterDaemon extends Daemon {
             try {
                 // not return, but sleep a while. to avoid some thread with large running interval will
                 // wait for a long time to start again.
-                Thread.sleep(10 * 1000);
+                Thread.sleep(100);
             } catch (InterruptedException e) {
                 LOG.warn("interrupted exception. thread: {}", getName(), e);
             }

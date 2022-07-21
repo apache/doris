@@ -18,6 +18,7 @@
 package org.apache.doris.system;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.BDBHA;
@@ -106,7 +107,7 @@ public class Frontend implements Writable {
     public boolean handleHbResponse(FrontendHbResponse hbResponse, boolean isReplay) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
-            if (!isAlive && !isReplay) {
+            if (!isAlive && !isReplay && Config.edit_log_type.equalsIgnoreCase("bdb")) {
                 BDBHA bdbha = (BDBHA) Catalog.getCurrentCatalog().getHaProtocol();
                 bdbha.removeUnReadyElectableNode(nodeName, Catalog.getCurrentCatalog().getFollowerCount());
             }

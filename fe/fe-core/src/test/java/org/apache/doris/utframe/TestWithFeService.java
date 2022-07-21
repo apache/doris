@@ -58,6 +58,7 @@ import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
+import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
@@ -204,6 +205,7 @@ public abstract class TestWithFeService {
         }
         Config.plugin_dir = dorisHome + "/plugins";
         Config.custom_config_dir = dorisHome + "/conf";
+        Config.edit_log_type = "local";
         File file = new File(Config.custom_config_dir);
         if (!file.exists()) {
             file.mkdir();
@@ -237,10 +239,29 @@ public abstract class TestWithFeService {
             throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
             InterruptedException {
         int feRpcPort = startFEServer(runningDir);
+        List<Backend> bes = Lists.newArrayList();
+        System.out.println("start create backend");
         for (int i = 0; i < backendNum; i++) {
-            createBackend("127.0.0.1", feRpcPort);
-            // sleep to wait first heartbeat
-            Thread.sleep(6000);
+            bes.add(createBackend("127.0.0.1", feRpcPort));
+        }
+        System.out.println("after create backend");
+        checkBEHeartbeat(bes);
+        // Thread.sleep(2000);
+        System.out.println("after create backend2");
+    }
+
+    private void checkBEHeartbeat(List<Backend> bes) throws InterruptedException {
+        int maxTry = 10;
+        boolean allAlive = false;
+        while (maxTry-- > 0 && !allAlive) {
+            Thread.sleep(1000);
+            boolean hasDead = false;
+            for (Backend be : bes) {
+                if (!be.isAlive()) {
+                    hasDead = true;
+                }
+            }
+            allAlive = !hasDead;
         }
     }
 
@@ -253,31 +274,30 @@ public abstract class TestWithFeService {
         // to make cluster running well.
         FeConstants.runningUnitTest = true;
         int feRpcPort = startFEServer(runningDir);
+        List<Backend> bes = Lists.newArrayList();
         for (int i = 0; i < backendNum; i++) {
             String host = "127.0.0." + (i + 1);
-            createBackend(host, feRpcPort);
+            bes.add(createBackend(host, feRpcPort));
         }
-        // sleep to wait first heartbeat
-        Thread.sleep(6000);
+        checkBEHeartbeat(bes);
     }
 
-    protected void createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
+    protected Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
         int beHeartbeatPort = findValidPort();
         int beThriftPort = findValidPort();
         int beBrpcPort = findValidPort();
         int beHttpPort = findValidPort();
 
         // start be
-        MockedBackend backend =
-                MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort, beHttpPort,
-                        new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
-                        new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
+        MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
+                beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
+                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
         // add be
-        Backend be =
-                new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(), backend.getHeartbeatPort());
+        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(),
+                backend.getHeartbeatPort());
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setTotalCapacityB(1000000);
         diskInfo1.setAvailableCapacityB(500000);
@@ -285,12 +305,13 @@ public abstract class TestWithFeService {
         Map<String, DiskInfo> disks = Maps.newHashMap();
         disks.put(diskInfo1.getRootPath(), diskInfo1);
         be.setDisks(ImmutableMap.copyOf(disks));
-        be.setAlive(true);
+        be.setAlive(false);
         be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         be.setBePort(beThriftPort);
         be.setHttpPort(beHttpPort);
         be.setBrpcPort(beBrpcPort);
         Catalog.getCurrentSystemInfo().addBackend(be);
+        return be;
     }
 
     protected void cleanDorisFeDir(String baseDir) {

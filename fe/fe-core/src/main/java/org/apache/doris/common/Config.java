@@ -188,10 +188,10 @@ public class Config extends ConfigBase {
     /**
      * Edit log type.
      * BDB: write log to bdbje
-     * LOCAL: deprecated.
+     * LOCAL: use local file to save edit log, only used for unit test
      */
     @ConfField
-    public static String edit_log_type = "BDB";
+    public static String edit_log_type = "bdb";
 
     /**
      * bdbje port

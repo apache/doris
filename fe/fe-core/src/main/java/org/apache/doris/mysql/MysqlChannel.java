@@ -76,7 +76,7 @@ public class MysqlChannel {
                     // avoid calling getHostName() which may trigger a name service reverse lookup
                     remoteHostPortString = address.getHostString() + ":" + address.getPort();
                     remoteIp = address.getAddress().getHostAddress();
-                } else {
+                } else if (channel.getRemoteAddress() != null) {
                     // Reach here, what's it?
                     remoteHostPortString = channel.getRemoteAddress().toString();
                     remoteIp = channel.getRemoteAddress().toString();
