@@ -50,26 +50,26 @@ import java.util.stream.Stream;
  */
 public class BindSlotReference implements AnalysisRuleFactory {
     @Override
-    public List<Rule<Plan>> buildRules() {
+    public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.BINDING_PROJECT_SLOT.build(
                 logicalProject().then(project -> {
                     List<NamedExpression> boundSlots =
                             bind(project.getProjects(), project.children(), project);
-                    return new LogicalProject(flatBoundStar(boundSlots), project.child());
+                    return new LogicalProject<>(flatBoundStar(boundSlots), project.child());
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
                 logicalFilter().then(filter -> {
                     Expression boundPredicates = bind(filter.getPredicates(), filter.children(), filter);
-                    return new LogicalFilter(boundPredicates, filter.child());
+                    return new LogicalFilter<>(boundPredicates, filter.child());
                 })
             ),
             RuleType.BINDING_JOIN_SLOT.build(
                 logicalJoin().then(join -> {
                     Optional<Expression> cond = join.getCondition()
                             .map(expr -> bind(expr, join.children(), join));
-                    return new LogicalJoin(join.getJoinType(), cond, join.left(), join.right());
+                    return new LogicalJoin<>(join.getJoinType(), cond, join.left(), join.right());
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
@@ -88,7 +88,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                                 return new OrderKey(item, orderKey.isAsc(), orderKey.isNullFirst());
                             }).collect(Collectors.toList());
 
-                    return new LogicalSort(sortItemList, sort.child());
+                    return new LogicalSort<>(sortItemList, sort.child());
                 })
             )
         );
@@ -120,8 +120,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
     }
 
     private class SlotBinder extends DefaultExpressionRewriter<Void> {
-        private List<Slot> boundSlots;
-        private Plan plan;
+        private final List<Slot> boundSlots;
+        private final Plan plan;
 
         public SlotBinder(List<Slot> boundSlots, Plan plan) {
             this.boundSlots = boundSlots;
@@ -229,18 +229,22 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     case 2:
                         // Unbound slot name is `table`.`column`
                         List<String> qualifier = boundSlot.getQualifier();
+                        String name = boundSlot.getName();
                         switch (qualifier.size()) {
                             case 2:
                                 // qualifier is `db`.`table`
                                 return nameParts.get(0).equalsIgnoreCase(qualifier.get(1))
-                                    && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
+                                        && nameParts.get(1).equalsIgnoreCase(name);
                             case 1:
                                 // qualifier is `table`
                                 return nameParts.get(0).equalsIgnoreCase(qualifier.get(0))
-                                    && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
+                                        && nameParts.get(1).equalsIgnoreCase(name);
+                            case 0:
+                                // has no qualifiers
+                                return nameParts.get(1).equalsIgnoreCase(name);
                             default:
                                 throw new AnalysisException("Not supported qualifier: "
-                                    + StringUtils.join(qualifier, "."));
+                                        + StringUtils.join(qualifier, "."));
                         }
                     default:
                         throw new AnalysisException("Not supported name: "
