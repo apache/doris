@@ -48,7 +48,7 @@ rm -rf ./user_files/tables.sql
 #reference tables to create tables.sql
 for table in $(awk -F '\n' '{print $1}' ./conf/tables)
         do
-        sed -i "/${table}view/d" ./files/tables
+        sed -i "/${table}view/d" ./conf/tables
         echo "use $d_mysql; show create table ${table};" |mysql -h$mysql -uroot -p$mysql_password 2>/dev/null >> ./user_files/tables.sql
         echo "输出${table}建表语句到当前user_file目录的tables.sql文件中"
 done
@@ -102,7 +102,7 @@ sed -i 's/AUTO_INCREMENT//g' ./user_files/tables.sql
 sed -i 's/unsigned//g' ./user_files/tables.sql
 sed -i 's/zerofill//g' ./user_files/tables.sql
 sed -i 's/json/string/g' ./user_files/tables.sql
-sed -i 's/enum([^)]*)/string/g' ./files/tables.sql
+sed -i 's/enum([^)]*)/string/g' ./user_files/tables.sql
 sed -i 's/set/string/g' ./user_files/tables.sql
 sed -i 's/bit/string/g' ./user_files/tables.sql
 sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci//g'  ./user_files/tables.sql
