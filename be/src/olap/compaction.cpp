@@ -34,11 +34,10 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
           _input_row_num(0),
           _state(CompactionState::INITED) {
 #ifndef BE_TEST
-    _mem_tracker = MemTracker::create_tracker(-1, label,
-                                              StorageEngine::instance()->compaction_mem_tracker(),
-                                              MemTrackerLevel::INSTANCE);
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(
+            -1, label, StorageEngine::instance()->compaction_mem_tracker());
 #else
-    _mem_tracker = MemTracker::get_process_tracker();
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(-1, label);
 #endif
 }
 

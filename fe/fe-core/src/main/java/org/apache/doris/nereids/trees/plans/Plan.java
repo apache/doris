@@ -35,7 +35,9 @@ public interface Plan extends TreeNode<Plan>, PlanStats {
 
     PlanType getType();
 
-    <R, C> R accept(PlanVisitor<R, C> visitor, C context);
+    default <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        throw new RuntimeException("accept() is not implemented by plan " + this.getClass().getSimpleName());
+    }
 
     List<Expression> getExpressions();
 

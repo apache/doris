@@ -283,11 +283,9 @@ public:
 
     // Create a block manager with the specified mem_limit. If a block mgr with the
     // same query id has already been created, that block mgr is returned.
-    // - mem_limit: maximum memory that will be used by the block mgr.
     // - buffer_size: maximum size of each buffer.
     static Status create(RuntimeState* state, RuntimeProfile* profile, TmpFileMgr* tmp_file_mgr,
-                         int64_t mem_limit, int64_t buffer_size,
-                         std::shared_ptr<BufferedBlockMgr2>* block_mgr);
+                         int64_t buffer_size, std::shared_ptr<BufferedBlockMgr2>* block_mgr);
 
     ~BufferedBlockMgr2();
 
@@ -301,8 +299,7 @@ public:
     // Buffers used by this client are reflected in tracker.
     // TODO: The fact that we allow oversubscription is problematic.
     // as the code expects the reservations to always be granted (currently not the case).
-    Status register_client(int num_reserved_buffers, const std::shared_ptr<MemTracker>& tracker,
-                           RuntimeState* state, Client** client);
+    Status register_client(int num_reserved_buffers, RuntimeState* state, Client** client);
 
     // Clears all reservations for this client.
     void clear_reservations(Client* client);
@@ -342,20 +339,6 @@ public:
     // Dumps block mgr state. Grabs lock. If client is not nullptr, also dumps its state.
     std::string debug_string(Client* client = nullptr);
 
-    // Consumes 'size' bytes from the buffered block mgr. This is used by callers that want
-    // the memory to come from the block mgr pool (and therefore trigger spilling) but need
-    // the allocation to be more flexible than blocks. Buffer space reserved with
-    // try_acquire_tmp_reservation() may be used to fulfill the request if available. If the
-    // request is unsuccessful, that temporary buffer space is not consumed.
-    // Returns false if there was not enough memory.
-    // TODO: this is added specifically to support the Buckets structure in the hash table
-    // which does not map well to Blocks. Revisit this.
-    bool consume_memory(Client* client, int64_t size);
-
-    // All successful allocates bytes from consume_memory() must have a corresponding
-    // release_memory() call.
-    void release_memory(Client* client, int64_t size);
-
     // The number of buffers available for client. That is, if all other clients were
     // stopped, the number of buffers this client could get.
     int64_t available_buffers(Client* client) const;
@@ -373,7 +356,8 @@ public:
 
     int num_pinned_buffers(Client* client) const;
     int num_reserved_buffers_remaining(Client* client) const;
-    std::shared_ptr<MemTracker> get_tracker(Client* client) const;
+    MemTracker* get_tracker(Client* client) const;
+    MemTracker* mem_tracker() const { return _mem_tracker.get(); }
     int64_t max_block_size() const {
         { return _max_block_size; }
     }
@@ -408,7 +392,7 @@ private:
     BufferedBlockMgr2(RuntimeState* state, TmpFileMgr* tmp_file_mgr, int64_t block_size);
 
     // Initializes the block mgr. Idempotent and thread-safe.
-    void init(DiskIoMgr* io_mgr, RuntimeProfile* profile, int64_t mem_limit);
+    void init(DiskIoMgr* io_mgr, RuntimeProfile* profile);
 
     // Initializes _tmp_files. This is initialized the first time we need to write to disk.
     // Must be called with _lock taken.
@@ -509,7 +493,7 @@ private:
     ObjectPool _obj_pool;
 
     // Track buffers allocated by the block manager.
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     // The temporary file manager used to allocate temporary file space.
     TmpFileMgr* _tmp_file_mgr;

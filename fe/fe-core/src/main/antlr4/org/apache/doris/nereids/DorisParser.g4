@@ -190,10 +190,13 @@ valueExpression
     ;
 
 primaryExpression
-    : constant                                                                                 #constantDefault
+    : CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
+    | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
+    | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | identifier '(' DISTINCT? arguments+=expression* ')'                                      #functionCall
+    | identifier LEFT_PAREN DISTINCT? arguments+=expression
+      (COMMA arguments+=expression)* RIGHT_PAREN                                                #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
@@ -219,6 +222,9 @@ booleanValue
     : TRUE | FALSE
     ;
 
+whenClause
+    : WHEN condition=expression THEN result=expression
+    ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
 // replace identifier with errorCapturingIdentifier where the immediate follow symbol is not an expression, otherwise

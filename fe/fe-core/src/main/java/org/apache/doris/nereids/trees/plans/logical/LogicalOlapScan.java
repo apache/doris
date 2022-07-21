@@ -24,9 +24,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
-import org.apache.commons.lang3.StringUtils;
-
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -42,7 +41,7 @@ public class LogicalOlapScan extends LogicalRelation  {
      * Constructor for LogicalOlapScan.
      *
      * @param table Doris table
-     * @param qualifier qualified relation name
+     * @param qualifier table name qualifier
      */
     public LogicalOlapScan(Table table, List<String> qualifier,
                            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
@@ -51,7 +50,23 @@ public class LogicalOlapScan extends LogicalRelation  {
 
     @Override
     public String toString() {
-        return "ScanOlapTable([" + StringUtils.join(qualifier, ".") + "." + table.getName() + "])";
+        return "ScanOlapTable (" + qualifiedName() + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode());
     }
 
     @Override

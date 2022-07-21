@@ -510,9 +510,9 @@ int Expr::compute_results_layout(const std::vector<ExprContext*>& ctxs, std::vec
 }
 
 Status Expr::prepare(const std::vector<ExprContext*>& ctxs, RuntimeState* state,
-                     const RowDescriptor& row_desc, const std::shared_ptr<MemTracker>& tracker) {
+                     const RowDescriptor& row_desc) {
     for (int i = 0; i < ctxs.size(); ++i) {
-        RETURN_IF_ERROR(ctxs[i]->prepare(state, row_desc, tracker));
+        RETURN_IF_ERROR(ctxs[i]->prepare(state, row_desc));
     }
     return Status::OK();
 }

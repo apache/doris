@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.ExpressionType;
-import org.apache.doris.nereids.trees.expressions.Literal;
+import org.apache.doris.nereids.trees.expressions.Or;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -35,10 +37,6 @@ import java.util.Optional;
  * Expression rewrite helper class.
  */
 public class ExpressionUtils {
-
-    public static boolean isConstant(Expression expr) {
-        return expr.isConstant();
-    }
 
     public static List<Expression> extractConjunct(Expression expr) {
         return extract(ExpressionType.AND, expr);
@@ -91,8 +89,8 @@ public class ExpressionUtils {
         Preconditions.checkArgument(op == ExpressionType.AND || op == ExpressionType.OR);
         Objects.requireNonNull(expressions, "expressions is null");
 
-        Expression shortCircuit = (op == ExpressionType.AND ? Literal.FALSE_LITERAL : Literal.TRUE_LITERAL);
-        Expression skip = (op == ExpressionType.AND ? Literal.TRUE_LITERAL : Literal.FALSE_LITERAL);
+        Expression shortCircuit = (op == ExpressionType.AND ? BooleanLiteral.FALSE : BooleanLiteral.TRUE);
+        Expression skip = (op == ExpressionType.AND ? BooleanLiteral.TRUE : BooleanLiteral.FALSE);
         LinkedHashSet<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
             if (expression.equals(shortCircuit)) {
@@ -102,8 +100,8 @@ public class ExpressionUtils {
             }
         }
 
-        Optional<Expression> result =
-                distinctExpressions.stream().reduce((left, right) -> new CompoundPredicate(op, left, right));
-        return result.orElse(new Literal(op == ExpressionType.AND));
+        Optional<Expression> result = distinctExpressions.stream()
+                .reduce(op == ExpressionType.AND ? And::new : Or::new);
+        return result.orElse(new BooleanLiteral(op == ExpressionType.AND));
     }
 }

@@ -54,8 +54,6 @@ public:
     Status execute_compact();
     virtual Status execute_compact_impl() = 0;
 
-    std::shared_ptr<MemTracker>& get_mem_tracker() { return _mem_tracker; }
-
 protected:
     virtual Status pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
@@ -78,7 +76,7 @@ protected:
 
 protected:
     // the root tracker for this compaction
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
 
     TabletSharedPtr _tablet;
 

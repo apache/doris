@@ -106,6 +106,9 @@ public class ExpressionParserTest {
 
         String sumAndAvg = "select sum(a),avg(b) from test1";
         assertSql(sumAndAvg);
+
+        String substring = "select substr(a, 1, 2), substring(b ,3 ,4) from test1";
+        assertSql(substring);
     }
 
     @Test
@@ -133,5 +136,14 @@ public class ExpressionParserTest {
 
         String sort1 = "select a from test order by 1";
         assertSql(sort1);
+    }
+
+    @Test
+    public void testCaseWhen() throws Exception {
+        String caseWhen = "select case a when 1 then 2 else 3 end from test";
+        assertSql(caseWhen);
+
+        String caseWhen2 = "select case when a = 1 then 2 else 3 end from test";
+        assertSql(caseWhen2);
     }
 }

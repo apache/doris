@@ -695,7 +695,7 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException("topn requires second parameter must be a constant Integer Type: "
                         + this.toSql());
             }
-            if (getChild(1).getType() != ScalarType.INT) {
+            if (!getChild(1).getType().equals(ScalarType.INT)) {
                 Expr e = getChild(1).castTo(ScalarType.INT);
                 setChild(1, e);
             }
@@ -704,7 +704,7 @@ public class FunctionCallExpr extends Expr {
                     throw new AnalysisException("topn requires the third parameter must be a constant Integer Type: "
                             + this.toSql());
                 }
-                if (getChild(2).getType() != ScalarType.INT) {
+                if (!getChild(2).getType().equals(ScalarType.INT)) {
                     Expr e = getChild(2).castTo(ScalarType.INT);
                     setChild(2, e);
                 }
@@ -1299,11 +1299,16 @@ public class FunctionCallExpr extends Expr {
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
         // TODO: support other functions
+        // TODO: Supports type conversion to match the type of the function's parameters
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             // Prevent the cast type in vector exec engine
             Type childType = getChild(0).type.getMaxResolutionType();
             fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            type = fn.getReturnType();
+        } else if (fnName.getFunction().equalsIgnoreCase("substring")) {
+            Type[] childTypes = getChildren().stream().map(t -> t.type).toArray(Type[]::new);
+            fn = getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
         }
     }

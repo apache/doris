@@ -19,7 +19,10 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.statistics.StatisticsTaskResult.TaskResult;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,23 +52,16 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
 
     protected long id = Catalog.getCurrentCatalog().getNextId();
     protected long jobId;
-    protected StatsGranularityDesc granularityDesc;
-    protected StatsCategoryDesc categoryDesc;
-    protected List<StatsType> statsTypeList;
+    protected List<StatisticsDesc> statsDescs;
     protected TaskState taskState = TaskState.PENDING;
 
     protected final long createTime = System.currentTimeMillis();
     protected long startTime = -1L;
     protected long finishTime = -1L;
 
-    public StatisticsTask(long jobId,
-                          StatsGranularityDesc granularityDesc,
-                          StatsCategoryDesc categoryDesc,
-                          List<StatsType> statsTypeList) {
+    public StatisticsTask(long jobId, List<StatisticsDesc> statsDescs) {
         this.jobId = jobId;
-        this.granularityDesc = granularityDesc;
-        this.categoryDesc = categoryDesc;
-        this.statsTypeList = statsTypeList;
+        this.statsDescs = statsDescs;
     }
 
     public long getId() {
@@ -80,16 +76,8 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
         return jobId;
     }
 
-    public StatsGranularityDesc getGranularityDesc() {
-        return granularityDesc;
-    }
-
-    public StatsCategoryDesc getCategoryDesc() {
-        return categoryDesc;
-    }
-
-    public List<StatsType> getStatsTypeList() {
-        return statsTypeList;
+    public List<StatisticsDesc> getStatsDescs() {
+        return statsDescs;
     }
 
     public TaskState getTaskState() {
@@ -149,5 +137,36 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
 
         LOG.info("Statistics job(id={}) state changed from {} to {}", id, taskState, newState);
         taskState = newState;
+    }
+
+    protected void checkStatisticsDesc() throws DdlException {
+        for (StatisticsDesc statsDesc : statsDescs) {
+            if (statsDesc == null) {
+                throw new DdlException("StatisticsDesc is null.");
+            }
+
+            if (statsDesc.getStatsCategory() == null) {
+                throw new DdlException("Category is null.");
+            }
+
+            if (statsDesc.getStatsGranularity() == null) {
+                throw new DdlException("Granularity is null.");
+            }
+
+            Preconditions.checkState(statsDesc.getStatsCategory().getDbId() > 0L);
+            Preconditions.checkState(statsDesc.getStatsCategory().getTableId() > 0L);
+        }
+    }
+
+    protected TaskResult createNewTaskResult(StatsCategory category, StatsGranularity granularity) {
+        TaskResult result = new TaskResult();
+        result.setDbId(category.getDbId());
+        result.setTableId(category.getTableId());
+        result.setPartitionName(category.getPartitionName());
+        result.setColumnName(category.getColumnName());
+        result.setCategory(category.getCategory());
+        result.setGranularity(granularity.getGranularity());
+        result.setStatsTypeToValue(Maps.newHashMap());
+        return result;
     }
 }

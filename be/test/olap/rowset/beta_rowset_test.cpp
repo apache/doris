@@ -38,7 +38,7 @@
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "util/file_utils.h"
 #include "util/slice.h"
 
@@ -192,7 +192,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         // k2 := k1 * 10
         // k3 := 4096 * i + rid
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool("BetaRowsetTest");
+            MemPool mem_pool;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 10 + i;
                 uint32_t k2 = k1 * 10;
@@ -432,8 +432,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
             std::make_shared<io::S3FileSystem>(properties, "bucket", "test prefix", resource_id);
     Aws::SDKOptions aws_options = Aws::SDKOptions {};
     Aws::InitAPI(aws_options);
-
-    TabletSchema dummy_schema;
     // failed to head object
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
@@ -447,7 +445,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        Status st = rowset.load_segments(&segments, &dummy_schema);
+        Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
 
@@ -462,7 +460,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        Status st = rowset.load_segments(&segments, &dummy_schema);
+        Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
 
@@ -477,7 +475,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        Status st = rowset.load_segments(&segments, &dummy_schema);
+        Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
 

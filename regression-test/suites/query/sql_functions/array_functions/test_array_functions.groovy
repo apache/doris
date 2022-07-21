@@ -43,10 +43,12 @@ suite("test_array_functions", "query") {
     sql """ INSERT INTO ${tableName} VALUES(4, [1, 2, 3, 4, 5, 4, 3, 2, 1], [], []) """
     sql """ INSERT INTO ${tableName} VALUES(5, [], ["a", "b", "c", "d", "c", "b", "a"], NULL) """
     sql """ INSERT INTO ${tableName} VALUES(6, [1, 2, 3, 4, 5, 4, 3, 2, 1], ["a", "b", "c", "d", "c", "b", "a"], NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(7, [8, 9, NULL, 10, NULL], ["f", NULL, "g", NULL, "h"], NULL) """
 
     qt_select "SELECT k1, size(k2), size(k3) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, cardinality(k2), cardinality(k3) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, arrays_overlap(k2, k4) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_distinct(k2), array_distinct(k3) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT array_remove(k2, k1), k1 FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_sort(k2), array_sort(k3), array_sort(k4) FROM ${tableName} ORDER BY k1"
 }

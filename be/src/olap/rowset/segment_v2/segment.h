@@ -27,6 +27,7 @@
 #include "gutil/macros.h"
 #include "io/fs/file_system.h"
 #include "olap/iterators.h"
+#include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -72,9 +73,9 @@ public:
 
     uint32_t num_rows() const { return _footer.num_rows(); }
 
-    Status new_column_iterator(uint32_t cid, ColumnIterator** iter);
+    Status new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter);
 
-    Status new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter);
+    Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
 
     size_t num_short_keys() const { return _tablet_schema.num_short_key_columns(); }
 
@@ -123,9 +124,7 @@ private:
     uint32_t _segment_id;
     TabletSchema _tablet_schema;
 
-    // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
-    // The memory consumed by querying is tracked in segment iterator.
-    std::shared_ptr<MemTracker> _mem_tracker;
+    int64_t _meta_mem_usage;
     SegmentFooterPB _footer;
 
     // Map from column unique id to column ordinal in footer's ColumnMetaPB
@@ -133,10 +132,11 @@ private:
     // with an old schema.
     std::unordered_map<uint32_t, uint32_t> _column_id_to_footer_ordinal;
 
+    // map column unique id ---> column reader
     // ColumnReader for each column in TabletSchema. If ColumnReader is nullptr,
     // This means that this segment has no data for that column, which may be added
     // after this segment is generated.
-    std::vector<std::unique_ptr<ColumnReader>> _column_readers;
+    std::map<int32_t, std::unique_ptr<ColumnReader>> _column_readers;
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
@@ -144,6 +144,8 @@ private:
     PageHandle _sk_index_handle;
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
+    // primary key index reader
+    std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
 };
 
 } // namespace segment_v2

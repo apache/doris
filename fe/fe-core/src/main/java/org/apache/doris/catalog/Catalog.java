@@ -270,7 +270,7 @@ public class Catalog {
     private static final int STATE_CHANGE_CHECK_INTERVAL_MS = 100;
     private static final int REPLAY_INTERVAL_MS = 1;
     private static final String BDB_DIR = "/bdb";
-    private static final String IMAGE_DIR = "/image";
+    public static final String IMAGE_DIR = "/image";
 
     private String metaDir;
     private String bdbDir;
@@ -802,13 +802,10 @@ public class Catalog {
             if (!bdbDir.exists()) {
                 bdbDir.mkdirs();
             }
-
-            File imageDir = new File(this.imageDir);
-            if (!imageDir.exists()) {
-                imageDir.mkdirs();
-            }
-        } else {
-            throw new Exception("Invalid edit log type: " + Config.edit_log_type);
+        }
+        File imageDir = new File(this.imageDir);
+        if (!imageDir.exists()) {
+            imageDir.mkdirs();
         }
 
         // init plugin manager
@@ -834,18 +831,27 @@ public class Catalog {
         // 6. start state listener thread
         createStateListener();
         listener.start();
+
+        if (!Config.edit_log_type.equalsIgnoreCase("bdb")) {
+            // If not using bdb, we need to notify the FE type transfer manually.
+            notifyNewFETypeTransfer(FrontendNodeType.MASTER);
+        }
     }
 
     // wait until FE is ready.
     public void waitForReady() throws InterruptedException {
+        long counter = 0;
         while (true) {
             if (isReady()) {
                 LOG.info("catalog is ready. FE type: {}", feType);
                 break;
             }
 
-            Thread.sleep(2000);
-            LOG.info("wait catalog to be ready. FE type: {}. is ready: {}", feType, isReady.get());
+            Thread.sleep(100);
+            if (counter++ % 20 == 0) {
+                LOG.info("wait catalog to be ready. FE type: {}. is ready: {}, counter: {}", feType, isReady.get(),
+                        counter);
+            }
         }
     }
 
@@ -1224,9 +1230,11 @@ public class Catalog {
 
         editLog.open();
 
-        if (!haProtocol.fencing()) {
-            LOG.error("fencing failed. will exit.");
-            System.exit(-1);
+        if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
+            if (!haProtocol.fencing()) {
+                LOG.error("fencing failed. will exit.");
+                System.exit(-1);
+            }
         }
 
         long replayStartTime = System.currentTimeMillis();
@@ -1261,6 +1269,8 @@ public class Catalog {
             initDefaultCluster();
         }
 
+        getPolicyMgr().createDefaultStoragePolicy();
+
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
         this.masterIp = FrontendOptions.getLocalHostAddress();
@@ -1283,7 +1293,6 @@ public class Catalog {
 
         canRead.set(true);
         isReady.set(true);
-
         checkLowerCaseTableNames();
 
         String msg = "master finished to replay journal, can write now.";
@@ -1402,7 +1411,7 @@ public class Catalog {
         // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
 
         // add helper sockets
-        if (Config.edit_log_type.equalsIgnoreCase("BDB")) {
+        if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
             for (Frontend fe : frontends.values()) {
                 if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                     ((BDBHA) getHaProtocol()).addHelperSocket(fe.getHost(), fe.getEditLogPort());
@@ -1515,6 +1524,9 @@ public class Catalog {
                 File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
                 MetaHelper.complete(filename, dir);
+            } else {
+                LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
+                         localImageVersion, version);
             }
         } catch (Exception e) {
             throw new IOException(e);
@@ -2869,7 +2881,7 @@ public class Catalog {
             }
 
             // storage policy
-            if (!olapTable.getStoragePolicy().equals("")) {
+            if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
                 sb.append(olapTable.getStoragePolicy()).append("\"");
             }
@@ -2967,7 +2979,6 @@ public class Catalog {
             if (esTable.getMappingType() != null) {
                 sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\",\n");
             }
-            sb.append("\"transport\" = \"").append(esTable.getTransport()).append("\",\n");
             sb.append("\"enable_docvalue_scan\" = \"").append(esTable.isDocValueScanEnable()).append("\",\n");
             sb.append("\"max_docvalue_fields\" = \"").append(esTable.maxDocValueFields()).append("\",\n");
             sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isKeywordSniffEnable()).append("\",\n");
@@ -3933,13 +3944,13 @@ public class Catalog {
         Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
-            DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties);
+            DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties, db);
         } else {
             // Merge the new properties with origin properties, and then analyze them
             Map<String, String> origDynamicProperties = tableProperty.getOriginDynamicPartitionProperty();
             origDynamicProperties.putAll(properties);
             Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(
-                    origDynamicProperties, table.getPartitionInfo());
+                    origDynamicProperties, table, db);
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
             tableProperty.buildDynamicProperty();
         }

@@ -24,7 +24,6 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Lists;
 
@@ -34,7 +33,7 @@ import java.util.List;
 /**
  * Job to explore {@link GroupExpression} in {@link org.apache.doris.nereids.memo.Memo}.
  */
-public class ExploreGroupExpressionJob extends Job<Plan> {
+public class ExploreGroupExpressionJob extends Job {
     private final GroupExpression groupExpression;
 
     /**
@@ -52,11 +51,11 @@ public class ExploreGroupExpressionJob extends Job<Plan> {
     public void execute() {
         // TODO: enable exploration job after we test it
         // List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
-        List<Rule<Plan>> explorationRules = Lists.newArrayList();
-        List<Rule<Plan>> validRules = getValidRules(groupExpression, explorationRules);
+        List<Rule> explorationRules = Lists.newArrayList();
+        List<Rule> validRules = getValidRules(groupExpression, explorationRules);
         validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
-        for (Rule<Plan> rule : validRules) {
+        for (Rule rule : validRules) {
             pushTask(new ApplyRuleJob(groupExpression, rule, context));
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);

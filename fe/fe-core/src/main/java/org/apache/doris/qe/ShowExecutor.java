@@ -2118,14 +2118,14 @@ public class ShowExecutor {
     private void handleShowTableStats() throws AnalysisException {
         ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
         List<List<String>> results = Catalog.getCurrentCatalog().getStatisticsManager()
-                .showTableStatsList(showTableStatsStmt.getDbName(), showTableStatsStmt.getTableName());
+                .showTableStatsList(showTableStatsStmt);
         resultSet = new ShowResultSet(showTableStatsStmt.getMetaData(), results);
     }
 
     private void handleShowColumnStats() throws AnalysisException {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
         List<List<String>> results = Catalog.getCurrentCatalog().getStatisticsManager()
-                .showColumnStatsList(showColumnStatsStmt.getTableName());
+                .showColumnStatsList(showColumnStatsStmt);
         resultSet = new ShowResultSet(showColumnStatsStmt.getMetaData(), results);
     }
 

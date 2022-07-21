@@ -77,7 +77,7 @@ public:
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
-        return is_null_at(n) ? 0 : nested_column->get_bool(n);
+        return is_null_at(n) ? false : nested_column->get_bool(n);
     }
     UInt64 get64(size_t n) const override { return nested_column->get64(n); }
     StringRef get_data_at(size_t n) const override;
@@ -165,8 +165,9 @@ public:
     }
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (auto rhs_nullable = typeid_cast<const ColumnNullable*>(&rhs))
+        if (auto rhs_nullable = typeid_cast<const ColumnNullable*>(&rhs)) {
             return nested_column->structure_equals(*rhs_nullable->nested_column);
+        }
         return false;
     }
 
