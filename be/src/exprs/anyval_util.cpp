@@ -22,7 +22,7 @@
 
 #include "common/object_pool.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 
 namespace doris {
 using doris_udf::BooleanVal;
@@ -47,7 +47,8 @@ Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor
     *result = reinterpret_cast<AnyVal*>(
             pool->try_allocate_aligned(anyval_size, anyval_alignment, &rst));
     if (*result == nullptr) {
-        RETURN_LIMIT_EXCEEDED(pool->mem_tracker(), state, mem_limit_exceeded_msg, anyval_size, rst);
+        RETURN_LIMIT_EXCEEDED(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(),
+                              state, mem_limit_exceeded_msg, anyval_size, rst);
     }
     memset(static_cast<void*>(*result), 0, anyval_size);
     return Status::OK();

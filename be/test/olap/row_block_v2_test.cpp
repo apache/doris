@@ -89,8 +89,7 @@ TEST_F(TestRowBlockV2, test_convert) {
     block_info.row_num = 1024;
     block_info.null_supported = true;
     output_block.init(block_info);
-    auto tracker = std::make_shared<MemTracker>();
-    MemPool pool(tracker.get());
+    MemPool pool;
     for (int i = 0; i < input_block.capacity(); ++i) {
         RowBlockRow row = input_block.row(i);
 

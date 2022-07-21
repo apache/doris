@@ -112,20 +112,16 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _index_stream_lru_cache(nullptr),
           _file_cache(nullptr),
-          _compaction_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::AutoCompaction",
-                                                             nullptr, MemTrackerLevel::OVERVIEW)),
-          _tablet_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::TabletHeader", nullptr,
-                                                         MemTrackerLevel::OVERVIEW)),
-          _schema_change_mem_tracker(MemTracker::create_tracker(
-                  -1, "StorageEngine::SchemaChange", nullptr, MemTrackerLevel::OVERVIEW)),
-          _storage_migration_mem_tracker(MemTracker::create_tracker(
-                  -1, "StorageEngine::StorageMigration", nullptr, MemTrackerLevel::OVERVIEW)),
-          _clone_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::Clone", nullptr,
-                                                        MemTrackerLevel::OVERVIEW)),
-          _batch_load_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::BatchLoad",
-                                                             nullptr, MemTrackerLevel::OVERVIEW)),
-          _consistency_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::Consistency",
-                                                              nullptr, MemTrackerLevel::OVERVIEW)),
+          _compaction_mem_tracker(
+                  std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::AutoCompaction")),
+          _segment_meta_mem_tracker(std::make_unique<MemTracker>("StorageEngine::SegmentMeta")),
+          _schema_change_mem_tracker(
+                  std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::SchemaChange")),
+          _clone_mem_tracker(std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::Clone")),
+          _batch_load_mem_tracker(
+                  std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::BatchLoad")),
+          _consistency_mem_tracker(
+                  std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::Consistency")),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),

@@ -102,10 +102,7 @@ static std::string to_datetime_string(uint64_t& datetime_value) {
 
 class TestInListPredicate : public testing::Test {
 public:
-    TestInListPredicate() : _row_block(nullptr) {
-        _mem_tracker.reset(new MemTracker(-1));
-        _mem_pool.reset(new MemPool(_mem_tracker.get()));
-    }
+    TestInListPredicate() : _row_block(nullptr) { _mem_pool.reset(new MemPool()); }
 
     ~TestInListPredicate() {}
 
@@ -134,7 +131,6 @@ public:
         _row_block.reset(new RowBlockV2(*_schema, size));
     }
 
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::unique_ptr<RowBlockV2> _row_block;
     std::unique_ptr<Schema> _schema;
