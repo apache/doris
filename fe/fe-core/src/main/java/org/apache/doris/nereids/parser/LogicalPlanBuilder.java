@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
@@ -203,7 +204,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             alias = aliasCtx.strictIdentifier().getText();
         }
-        return new LogicalSubQueryAlias<>(alias, visitQuery(ctx.query()));
+        LogicalPlan query = visitQuery(ctx.query());
+        return new LogicalSubQueryAlias<>(alias, query);
     }
 
 

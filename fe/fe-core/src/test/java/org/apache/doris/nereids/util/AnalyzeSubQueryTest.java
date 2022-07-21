@@ -12,6 +12,7 @@ import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
+import org.apache.doris.nereids.rules.analysis.BindSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -20,6 +21,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -28,23 +30,42 @@ import java.util.List;
 public class AnalyzeSubQueryTest extends TestWithFeService {
     private final NereidsParser parser = new NereidsParser();
 
-    private final String testSql = "SELECT * FROM (SELECT * FROM T1) T";
-//    private final String testSql = "SELECT X.ID FROM (SELECT * FROM (T1) A JOIN T1 AS B ON T1.ID = T2.ID) X WHERE X.SCORE < 20";
+    private final List<String> testSql = Lists.newArrayList(
+            "SELECT * FROM T1",
+            "SELECT * FROM T1 JOIN T2 ON T1.ID = T2.ID",
+            "SELECT * FROM T1 T",
+            "SELECT * FROM (SELECT * FROM T1) T",
+            "SELECT T1.ID ID FROM T1",
+            "SELECT T.ID FROM T1 T",
+            "SELECT X.ID FROM (SELECT * FROM (T1) A JOIN T1 AS B ON T1.ID = T2.ID) X WHERE X.SCORE < 20"
+    );
+    //    private final String testSql = "SELECT X.ID FROM (SELECT * FROM (T1) A JOIN T1 AS B ON T1.ID = T2.ID) X WHERE X.SCORE < 20";
 
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("default_cluster:test");
 
-        createTables("CREATE TABLE IF NOT EXISTS T1 (\n"
-                + "    id bigint,\n"
-                + "    score bigint\n"
-                + ")\n"
-                + "DUPLICATE KEY(id)\n"
-                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                + "PROPERTIES (\n"
-                + "  \"replication_num\" = \"1\"\n"
-                + ")\n");
+        createTables(
+                "CREATE TABLE IF NOT EXISTS T1 (\n"
+                        + "    id bigint,\n"
+                        + "    score bigint\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id)\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "  \"replication_num\" = \"1\"\n"
+                        + ")\n",
+                "CREATE TABLE IF NOT EXISTS T2 (\n"
+                        + "    id bigint,\n"
+                        + "    score bigint\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id)\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "  \"replication_num\" = \"1\"\n"
+                        + ")\n"
+        );
     }
 
     /**
@@ -52,14 +73,12 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
      */
     @Test
     public void testAnalyze() {
-        checkAnalyze(testSql);
+        checkAnalyze(testSql.get(0));
     }
 
     @Test
     public void testParse() {
-        LogicalPlan plan = parser.parseSingle(testSql);
-        String planStr = plan.treeString();
-        System.out.println(planStr);
+        System.out.println(parser.parseSingle(testSql.get(3)).treeString());
     }
 
     private void checkAnalyze(String sql) {
@@ -71,6 +90,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     private LogicalPlan analyze(String sql) {
         try {
             LogicalPlan parsed = parser.parseSingle(sql);
+            System.out.println(parsed.treeString());
             return analyze(parsed, connectContext);
         } catch (Throwable t) {
             throw new IllegalStateException("Analyze failed", t);
@@ -78,24 +98,25 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     }
 
     private LogicalPlan analyze(LogicalPlan inputPlan, ConnectContext connectContext) {
-        Memo memo = new Memo();
-        memo.initialize(inputPlan);
+        Memo memo = new Memo(inputPlan);
 
         PlannerContext plannerContext = new PlannerContext(memo, connectContext);
         JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
         plannerContext.setCurrentJobContext(jobContext);
 
-        executeRewriteBottomUpJob(plannerContext, new BindFunction());
-        executeRewriteBottomUpJob(plannerContext, new BindRelation());
-        executeRewriteBottomUpJob(plannerContext, new BindSlotReference());
-        executeRewriteBottomUpJob(plannerContext, new ProjectToGlobalAggregate());
+        executeRewriteBottomUpJob(plannerContext,
+                new BindFunction(),
+                new BindRelation(),
+                new BindSubQueryAlias(),
+                new BindSlotReference(),
+                new ProjectToGlobalAggregate());
         return (LogicalPlan) memo.copyOut();
     }
 
-    private void executeRewriteBottomUpJob(PlannerContext plannerContext, RuleFactory ruleFactory) {
+    private void executeRewriteBottomUpJob(PlannerContext plannerContext, RuleFactory... ruleFactory) {
         Group rootGroup = plannerContext.getMemo().getRoot();
         RewriteBottomUpJob job = new RewriteBottomUpJob(rootGroup,
-                plannerContext.getCurrentJobContext(), ImmutableList.of(ruleFactory));
+                plannerContext.getCurrentJobContext(), Lists.newArrayList(ruleFactory));
         plannerContext.pushJob(job);
         plannerContext.getJobScheduler().executeJobPool(plannerContext);
     }

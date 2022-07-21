@@ -8,6 +8,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -16,12 +17,14 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
-    private final String tableAlias;
+    private final String alias;
 
     public LogicalSubQueryAlias(String tableAlias, CHILD_TYPE child) {
         this(tableAlias, Optional.empty(), Optional.empty(), child);
@@ -30,16 +33,25 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     public LogicalSubQueryAlias(String tableAlias, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
-        this.tableAlias = tableAlias;
+        this.alias = tableAlias;
+
     }
 
     public List<Slot> computeOutput(Plan input) {
-        return input.getOutput();
+        List<Slot> collect = input.getOutput().stream()
+                .map(slot -> new SlotReference(slot.getName(), slot.getDataType(), slot.nullable(),
+                        Lists.newArrayList(alias)))
+                .collect(Collectors.toList());
+        return collect;
+    }
+
+    public String getAlias() {
+        return alias;
     }
 
     @Override
     public String toString() {
-        return "LogicalSubQueryAlias (" + tableAlias + ")";
+        return "LogicalSubQueryAlias (" + alias.toString() + ")";
     }
 
     @Override
@@ -51,18 +63,18 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             return false;
         }
         LogicalSubQueryAlias that = (LogicalSubQueryAlias) o;
-        return tableAlias.equals(that.tableAlias);
+        return alias.equals(that.alias);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(tableAlias);
+        return Objects.hash(alias);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalSubQueryAlias<>(tableAlias, children.get(0));
+        return new LogicalSubQueryAlias<>(alias, children.get(0));
     }
 
     @Override
@@ -72,16 +84,16 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public List<Expression> getExpressions() {
-        return null;
+        return Collections.emptyList();
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalSubQueryAlias<>(tableAlias, groupExpression, Optional.of(logicalProperties), child());
+        return new LogicalSubQueryAlias<>(alias, groupExpression, Optional.of(logicalProperties), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalSubQueryAlias<>(tableAlias, Optional.empty(), logicalProperties, child());
+        return new LogicalSubQueryAlias<>(alias, Optional.empty(), logicalProperties, child());
     }
 }
