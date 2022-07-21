@@ -43,8 +43,8 @@ Status IntersectNode::init(const TPlanNode& tnode, RuntimeState* state) {
 // 2 probe with child(1), then filter the hash table and find the matched item, use them to rebuild a hash table
 // repeat [2] this for all the rest child
 Status IntersectNode::open(RuntimeState* state) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Intersect Node, while probing the hash table.");
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Intersect Node, while probing the hash table.");
     RETURN_IF_ERROR(SetOperationNode::open(state));
     // if a table is empty, the result must be empty
     if (_hash_tbl->size() == 0) {
@@ -86,7 +86,7 @@ Status IntersectNode::open(RuntimeState* state) {
 Status IntersectNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eos) {
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     *eos = true;
     if (reached_limit()) {
         return Status::OK();

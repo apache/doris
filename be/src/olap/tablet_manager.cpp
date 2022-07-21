@@ -73,8 +73,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTE
                                    mem_consumption, Labels({{"type", "tablet_meta"}}));
 
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
-        : _mem_tracker(MemTracker::create_tracker(-1, "TabletManager", nullptr,
-                                                  MemTrackerLevel::OVERVIEW)),
+        : _mem_tracker(std::make_unique<MemTracker>("TabletManager")),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
@@ -225,7 +224,7 @@ bool TabletManager::_check_tablet_id_exist_unlocked(TTabletId tablet_id) {
 }
 
 Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
 
     int64_t tablet_id = request.tablet_id;
@@ -433,7 +432,7 @@ Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bo
         LOG(INFO) << "tablet " << tablet_id << " is under clone, skip drop task";
         return Status::Aborted("aborted");
     }
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     return _drop_tablet_unlocked(tablet_id, replica_id, keep_files);
 }
 
@@ -486,7 +485,7 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
 
 Status TabletManager::drop_tablets_on_error_root_path(
         const std::vector<TabletInfo>& tablet_info_vec) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status res = Status::OK();
     if (tablet_info_vec.empty()) { // This is a high probability event
         return res;
@@ -698,7 +697,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
                                             TSchemaHash schema_hash, const string& meta_binary,
                                             bool update_meta, bool force, bool restore,
                                             bool check_path) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     Status status = tablet_meta->deserialize(meta_binary);
     if (!status.ok()) {
@@ -781,7 +780,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
 Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
                                            SchemaHash schema_hash, const string& schema_hash_path,
                                            bool force, bool restore) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     LOG(INFO) << "begin to load tablet from dir. "
               << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash
               << " path = " << schema_hash_path << " force = " << force << " restore = " << restore;
@@ -890,7 +889,7 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
 }
 
 Status TabletManager::start_trash_sweep() {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     {
         std::vector<TabletSharedPtr>
                 all_tablets; // we use this vector to save all tablet ptr for saving lock time.
@@ -1009,7 +1008,7 @@ void TabletManager::unregister_clone_tablet(int64_t tablet_id) {
 void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
                                                   SchemaHash schema_hash,
                                                   const string& schema_hash_path) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     // acquire the read lock, so that there is no creating tablet or load tablet from meta tasks
     // create tablet and load tablet task should check whether the dir exists
     tablets_shard& shard = _get_tablets_shard(tablet_id);
@@ -1071,7 +1070,7 @@ void TabletManager::get_partition_related_tablets(int64_t partition_id,
 }
 
 void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     std::vector<TabletSharedPtr> related_tablets;
     {
         for (auto& tablets_shard : _tablets_shards) {

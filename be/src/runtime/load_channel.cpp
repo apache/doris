@@ -19,17 +19,17 @@
 
 #include "olap/lru_cache.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 #include "runtime/thread_context.h"
 
 namespace doris {
 
-LoadChannel::LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTracker>& mem_tracker,
+LoadChannel::LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTrackerLimiter> mem_tracker,
                          int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
                          bool is_vec)
         : _load_id(load_id),
-          _mem_tracker(mem_tracker),
+          _mem_tracker(std::move(mem_tracker)),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
           _sender_ip(sender_ip),
@@ -45,9 +45,12 @@ LoadChannel::~LoadChannel() {
               << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id
               << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip
               << ", is_vec=" << _is_vec;
+    // Load channel tracker cannot be completely accurate, offsetting the impact on the load channel mgr tracker.
+    _mem_tracker->parent()->consumption_revise(-_mem_tracker->consumption());
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
+    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
     int64_t index_id = params.index_id();
     std::shared_ptr<TabletsChannel> channel;
     {
@@ -134,6 +137,7 @@ bool LoadChannel::is_finished() {
 
 Status LoadChannel::cancel() {
     std::lock_guard<std::mutex> l(_lock);
+    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
     for (auto& it : _tablets_channels) {
         it.second->cancel();
     }

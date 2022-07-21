@@ -24,7 +24,6 @@
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/logging.h"
 #include "util/types.h"
 
@@ -262,16 +261,12 @@ void set_tablet_schema_for_cmp_and_aggregate(TabletSchema* tablet_schema) {
 
 class TestRowCursor : public testing::Test {
 public:
-    TestRowCursor() {
-        _mem_tracker.reset(new MemTracker(-1));
-        _mem_pool.reset(new MemPool(_mem_tracker.get()));
-    }
+    TestRowCursor() { _mem_pool.reset(new MemPool()); }
 
     virtual void SetUp() {}
 
     virtual void TearDown() {}
 
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
 };
 
@@ -486,8 +481,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     left.set_field_content(4, reinterpret_cast<char*>(&l_decimal), _mem_pool.get());
     left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
 
-    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool());
     ObjectPool agg_object_pool;
     init_row_with_others(&row, left, mem_pool.get(), &agg_object_pool);
 
@@ -547,8 +541,7 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     left.set_null(4);
     left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
 
-    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool());
     ObjectPool agg_object_pool;
     init_row_with_others(&row, left, mem_pool.get(), &agg_object_pool);
 

@@ -23,7 +23,6 @@
 #include "exec/exec_node.h"
 #include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
@@ -44,15 +43,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _counter(counter),
           _src_tuple(nullptr),
           _src_tuple_row(nullptr),
-#if BE_TEST
-          _mem_tracker(new MemTracker()),
-#else
-          _mem_tracker(MemTracker::create_tracker(
-                  -1, state->query_type() == TQueryType::LOAD
-                              ? "BaseScanner:" + std::to_string(state->load_job_id())
-                              : "BaseScanner:Select")),
-#endif
-          _mem_pool(std::make_unique<MemPool>(_mem_tracker.get())),
+          _mem_pool(std::make_unique<MemPool>()),
           _dest_tuple_desc(nullptr),
           _pre_filter_texprs(pre_filter_texprs),
           _strict_mode(false),
@@ -62,8 +53,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _read_timer(nullptr),
           _materialize_timer(nullptr),
           _success(false),
-          _scanner_eof(false) {
-}
+          _scanner_eof(false) {}
 
 Status BaseScanner::open() {
     RETURN_IF_ERROR(init_expr_ctxes());
@@ -137,12 +127,12 @@ Status BaseScanner::init_expr_ctxes() {
             _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
                     _state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
-            RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc, _mem_tracker));
+            RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc));
             RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
         } else {
             RETURN_IF_ERROR(Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs,
                                                     &_pre_filter_ctxs));
-            RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
+            RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc));
             RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
         }
     }
@@ -169,13 +159,13 @@ Status BaseScanner::init_expr_ctxes() {
             vectorized::VExprContext* ctx = nullptr;
             RETURN_IF_ERROR(
                     vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get()));
             RETURN_IF_ERROR(ctx->open(_state));
             _dest_vexpr_ctx.emplace_back(ctx);
         } else {
             ExprContext* ctx = nullptr;
             RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get()));
             RETURN_IF_ERROR(ctx->open(_state));
             _dest_expr_ctx.emplace_back(ctx);
         }
