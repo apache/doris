@@ -71,7 +71,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         throw new RuntimeException();
     }
 
-    public Expression withChildren(Expression... children) {
+    public final Expression withChildren(Expression... children) {
         return withChildren(ImmutableList.copyOf(children));
     }
 
