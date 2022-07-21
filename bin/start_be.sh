@@ -58,6 +58,12 @@ export DORIS_HOME=$(
     pwd
 )
 
+MAX_MAP_COUNT=`sysctl -n vm.max_map_count`
+if [ $MAX_MAP_COUNT -lt 2000000 ]; then
+    echo "Please set vm.max_map_count to be 2000000. sysctl -w vm.max_map_count=2000000"
+    exit 1
+fi
+
 # add libs to CLASSPATH
 for f in $DORIS_HOME/lib/*.jar; do
   if [ ! -n "${DORIS_JNI_CLASSPATH_PARAMETER}" ]; then
