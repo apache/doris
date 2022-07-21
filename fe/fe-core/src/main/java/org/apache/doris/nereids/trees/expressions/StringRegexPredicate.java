@@ -53,7 +53,7 @@ public abstract class StringRegexPredicate extends Expression implements BinaryE
 
     @Override
     public String toSql() {
-        return left().toSql() + ' ' + symbol + ' ' + right().toSql();
+        return '(' + left().toSql() + ' ' + symbol + ' ' + right().toSql() + ')';
     }
 
     @Override
