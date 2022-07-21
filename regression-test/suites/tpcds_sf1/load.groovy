@@ -19,7 +19,6 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/tpcds
 // and modified by Doris.
 suite("load") {
-    def url = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com"
     def tables=["store", "store_returns", "customer", "date_dim", "web_sales",
                 "catalog_sales", "store_sales", "item", "web_returns", "catalog_returns",
                 "catalog_page", "web_site", "customer_address", "customer_demographics",
@@ -59,13 +58,6 @@ suite("load") {
     sql "set global exec_mem_limit=8G;"
 
     for (String tableName in tables) {
-        String fileName = """${context.sf1DataPath}/tpcds/sf1/${tableName}.dat.gz"""
-        if (!new File(fileName).isAbsolute()) {
-            fileName = new File(context.dataPath, fileName).getAbsolutePath()
-        }
-        if (!new File(fileName).exists()) {
-            fileName  = """${url}/tpcds/sf1/${tableName}.dat.gz"""
-        }
         streamLoad {
             // you can skip db declaration, because a default db has already been
             // specified in ${DORIS_HOME}/conf/regression-conf.groovy
@@ -86,7 +78,7 @@ suite("load") {
 
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file fileName
+            file """${context.sf1DataPath}/tpcds/sf1/${tableName}.dat.gz"""
 
             time 10000 // limit inflight 10s
 

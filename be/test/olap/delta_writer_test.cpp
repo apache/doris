@@ -34,7 +34,6 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/tuple.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
@@ -433,8 +432,7 @@ TEST_F(TestDeltaWriter, write) {
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
 
-    auto tracker = std::make_shared<MemTracker>();
-    MemPool pool(tracker.get());
+    MemPool pool;
     // Tuple 1
     {
         Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
@@ -554,8 +552,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     DeltaWriter::open(&write_req, &delta_writer, true);
     ASSERT_NE(delta_writer, nullptr);
 
-    auto tracker = std::make_shared<MemTracker>();
-    MemPool pool(tracker.get());
+    MemPool pool;
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -701,8 +698,7 @@ TEST_F(TestDeltaWriter, sequence_col) {
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
 
-    MemTracker tracker;
-    MemPool pool(&tracker);
+    MemPool pool;
     // Tuple 1
     {
         Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
@@ -769,8 +765,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     DeltaWriter::open(&write_req, &delta_writer, true);
     ASSERT_NE(delta_writer, nullptr);
 
-    MemTracker tracker;
-    MemPool pool(&tracker);
+    MemPool pool;
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {

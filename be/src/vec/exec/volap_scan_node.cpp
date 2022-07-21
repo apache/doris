@@ -186,7 +186,7 @@ void VOlapScanNode::_init_counter(RuntimeState* state) {
 Status VOlapScanNode::prepare(RuntimeState* state) {
     init_scan_profile();
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // create scanner profile
     // create timer
     _tablet_counter = ADD_COUNTER(runtime_profile(), "TabletCount ", TUnit::UNIT);
@@ -197,8 +197,7 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
     _init_counter(state);
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
-    _scanner_mem_tracker = MemTracker::create_tracker(state->instance_mem_tracker()->limit(),
-                                                      "Scanners", mem_tracker());
+    _scanner_mem_tracker = std::make_unique<MemTracker>("OlapScanners");
 
     if (_tuple_desc == nullptr) {
         // TODO: make sure we print all available diagnostic output to our error log
@@ -236,9 +235,9 @@ Status VOlapScanNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::open");
     VLOG_CRITICAL << "VOlapScanNode::Open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     _resource_info = ResourceTls::get_resource_tls();
 
@@ -264,7 +263,7 @@ Status VOlapScanNode::open(RuntimeState* state) {
             _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
 
             for (auto ctx : expr_context) {
-                ctx->prepare(state, row_desc(), _expr_mem_tracker);
+                ctx->prepare(state, row_desc());
                 ctx->open(state);
                 int index = _conjunct_ctxs.size();
                 _conjunct_ctxs.push_back(ctx);
@@ -280,7 +279,7 @@ Status VOlapScanNode::open(RuntimeState* state) {
 void VOlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::transfer_thread");
-    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
+    SCOPED_ATTACH_TASK(state);
     Status status = Status::OK();
 
     if (_vconjunct_ctx_ptr) {
@@ -323,8 +322,6 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
         _free_blocks.emplace_back(block);
         _buffered_bytes += block->allocated_bytes();
     }
-
-    _block_mem_tracker->consume(_buffered_bytes);
 
     // read from scanner
     while (LIKELY(status.ok())) {
@@ -387,8 +384,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     START_AND_SCOPE_SPAN(scanner->runtime_state()->get_tracer(), span,
                          "VOlapScanNode::scanner_thread");
-    SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
-    ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
+    SCOPED_ATTACH_TASK(_runtime_state);
     Thread::set_self_name("volap_scanner");
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
@@ -432,7 +428,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             DCHECK(runtime_filter != nullptr);
             bool ready = runtime_filter->is_ready();
             if (ready) {
-                runtime_filter->get_prepared_vexprs(&vexprs, row_desc(), _expr_mem_tracker);
+                runtime_filter->get_prepared_vexprs(&vexprs, row_desc());
                 scanner_filter_apply_marks[i] = true;
                 if (!_runtime_filter_ready_flag[i] && !vexprs.empty()) {
                     std::unique_lock<std::mutex> l(*(_rf_locks[i]));
@@ -456,8 +452,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                             _rf_vexpr_set.insert(vexprs[j]);
                         }
                         auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
-                        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc(),
-                                                                          expr_mem_tracker());
+                        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc());
                         // If error occurs in `prepare` or `open` phase, discard these runtime
                         // filters directly.
                         if (UNLIKELY(!expr_status.OK())) {
@@ -1554,7 +1549,6 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
         return Status::OK();
     }
     auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
-    _block_mem_tracker = MemTracker::create_virtual_tracker(-1, "VOlapScanNode:Block");
 
     // ranges constructed from scan keys
     std::vector<std::unique_ptr<OlapScanRange>> cond_ranges;
@@ -1616,7 +1610,7 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
             }
             VOlapScanner* scanner =
                     new VOlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                     _need_agg_finalize, *scan_range, _scanner_mem_tracker);
+                                     _need_agg_finalize, *scan_range, _scanner_mem_tracker.get());
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
@@ -1675,7 +1669,6 @@ Status VOlapScanNode::close(RuntimeState* state) {
     std::for_each(_scan_blocks.begin(), _scan_blocks.end(), std::default_delete<Block>());
     _scan_row_batches_bytes = 0;
     std::for_each(_free_blocks.begin(), _free_blocks.end(), std::default_delete<Block>());
-    _block_mem_tracker->release(_buffered_bytes);
 
     // OlapScanNode terminate by exception
     // so that initiative close the Scanner
@@ -1703,7 +1696,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
 Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VOlapScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     // check if Canceled.
     if (state->is_cancelled()) {

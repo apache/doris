@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <mutex>
 #include <shared_mutex>
@@ -245,7 +246,7 @@ private:
     // which can avoid the merging cost in read stage, and accelerate the aggregation
     // query performance significantly.
     bool _enable_unique_key_merge_on_write = false;
-    std::unique_ptr<DeleteBitmap> _delete_bitmap;
+    std::shared_ptr<DeleteBitmap> _delete_bitmap;
 
     mutable std::shared_mutex _meta_lock;
 };
@@ -276,7 +277,11 @@ public:
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
 
-    DeleteBitmap();
+    /**
+     * 
+     * @param tablet_id the tablet which this delete bitmap associates with
+     */
+    DeleteBitmap(int64_t tablet_id);
 
     /**
      * Copy c-tor for making delete bitmap snapshot on read path
@@ -357,6 +362,52 @@ public:
      * @param other
      */
     void merge(const DeleteBitmap& other);
+
+    /**
+     * Checks if the given row is marked deleted in bitmap with the condition:
+     * all the bitmaps that
+     * RowsetId and SegmentId are the same as the given ones,
+     * and Version <= the given Version
+     *
+     * Note: aggregation cache may be used.
+     *
+     * @return true if marked deleted
+     */
+    bool contains_agg(const BitmapKey& bitmap, uint32_t row_id) const;
+
+    /**
+     * Gets aggregated delete_bitmap on rowset_id and version, the same effect:
+     * `select sum(roaring::Roaring) where RowsetId=rowset_id and SegmentId=seg_id and Version <= version`
+     *
+     * @return shared_ptr to a bitmap, which may be empty
+     */
+    std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
+
+    class AggCache {
+    public:
+        struct Value {
+            roaring::Roaring bitmap;
+        };
+
+        AggCache(size_t size_in_bytes) {
+            static std::once_flag once;
+            std::call_once(once, [size_in_bytes] {
+                auto tmp = new ShardedLRUCache("DeleteBitmap AggCache", size_in_bytes,
+                                               LRUCacheType::SIZE, 2048);
+                AggCache::s_repr.store(tmp, std::memory_order_release);
+            });
+
+            while (!s_repr.load(std::memory_order_acquire)) {
+            }
+        }
+
+        static ShardedLRUCache* repr() { return s_repr.load(std::memory_order_acquire); }
+        static std::atomic<ShardedLRUCache*> s_repr;
+    };
+
+private:
+    mutable std::shared_ptr<AggCache> _agg_cache;
+    int64_t _tablet_id;
 };
 
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";

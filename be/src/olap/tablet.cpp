@@ -1683,14 +1683,6 @@ Status Tablet::create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* r
     return RowsetFactory::create_rowset(&tablet_schema(), tablet_path(), rowset_meta, rowset);
 }
 
-std::shared_ptr<MemTracker>& Tablet::get_compaction_mem_tracker(CompactionType compaction_type) {
-    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-        return _cumulative_compaction->get_mem_tracker();
-    } else {
-        return _base_compaction->get_mem_tracker();
-    }
-}
-
 Status Tablet::cooldown() {
     std::unique_lock schema_change_lock(_schema_change_lock, std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {

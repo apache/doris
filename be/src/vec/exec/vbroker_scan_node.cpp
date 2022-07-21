@@ -18,7 +18,7 @@
 #include "vec/exec/vbroker_scan_node.h"
 
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple.h"
@@ -59,7 +59,7 @@ Status VBrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VBrokerScanNode::prepare(RuntimeState* state) {
     VLOG_QUERY << "VBrokerScanNode prepare";
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // get tuple desc
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -84,8 +84,8 @@ Status VBrokerScanNode::prepare(RuntimeState* state) {
 Status VBrokerScanNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VBrokerScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
 
     RETURN_IF_ERROR(start_scanners());
@@ -246,7 +246,10 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
                // 1. too many batches in queue, or
                // 2. at least one batch in queue and memory exceed limit.
                (_block_queue.size() >= _max_buffered_batches ||
-                (mem_tracker()->any_limit_exceeded() && !_block_queue.empty()))) {
+                (thread_context()
+                         ->_thread_mem_tracker_mgr->limiter_mem_tracker()
+                         ->any_limit_exceeded() &&
+                 !_block_queue.empty()))) {
             _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
         }
         // Process already set failed, so we just return OK

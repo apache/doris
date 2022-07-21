@@ -80,7 +80,7 @@ public:
 
 private:
     const TabletSchema& _tablet_schema;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _tracker;
     size_t _row_len;
     size_t _memory_limitation;
 };
@@ -244,7 +244,7 @@ private:
     const RowBlockChanger& _changer;
     size_t _memory_limitation;
     Version _temp_delta_versions;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 };
 
 class SchemaChangeHandler {

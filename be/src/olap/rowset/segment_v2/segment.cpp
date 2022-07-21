@@ -46,17 +46,10 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segme
 }
 
 Segment::Segment(uint32_t segment_id, const TabletSchema* tablet_schema)
-        : _segment_id(segment_id), _tablet_schema(*tablet_schema) {
-#ifndef BE_TEST
-    _mem_tracker = MemTracker::create_virtual_tracker(
-            -1, "Segment", StorageEngine::instance()->tablet_mem_tracker());
-#else
-    _mem_tracker = MemTracker::create_virtual_tracker(-1, "Segment");
-#endif
-}
+        : _segment_id(segment_id), _tablet_schema(*tablet_schema), _meta_mem_usage(0) {}
 
 Segment::~Segment() {
-    _mem_tracker->release(_mem_tracker->consumption());
+    StorageEngine::instance()->segment_meta_mem_tracker()->release(_meta_mem_usage);
 }
 
 Status Segment::_open() {
@@ -116,7 +109,8 @@ Status Segment::_parse_footer() {
         return Status::Corruption("Bad segment file {}: file size {} < {}",
                                   _file_reader->path().native(), file_size, 12 + footer_length);
     }
-    _mem_tracker->consume(footer_length);
+    _meta_mem_usage += footer_length;
+    StorageEngine::instance()->segment_meta_mem_tracker()->consume(footer_length);
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
@@ -162,7 +156,8 @@ Status Segment::_load_index() {
             DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
             DCHECK(footer.has_short_key_page_footer());
 
-            _mem_tracker->consume(body.get_size());
+            _meta_mem_usage += body.get_size();
+            StorageEngine::instance()->segment_meta_mem_tracker()->consume(body.get_size());
             _sk_index_decoder.reset(new ShortKeyIndexDecoder);
             return _sk_index_decoder->parse(body, footer.short_key_page_footer());
         }

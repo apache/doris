@@ -27,7 +27,7 @@
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/schema.h"
 #include "olap/short_key_index.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "util/crc32c.h"
 #include "util/faststring.h"
 
@@ -46,8 +46,8 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
           _max_row_per_segment(max_row_per_segment),
           _opts(opts),
           _file_writer(file_writer),
-          _mem_tracker(MemTracker::create_virtual_tracker(
-                  -1, "SegmentWriter:Segment-" + std::to_string(segment_id))),
+          _mem_tracker(std::make_unique<MemTracker>("SegmentWriter:Segment-" +
+                                                    std::to_string(segment_id))),
           _olap_data_convertor(tablet_schema) {
     CHECK_NOTNULL(file_writer);
     size_t num_short_key_column = _tablet_schema->num_short_key_columns();
