@@ -9,11 +9,6 @@ jobs:
         type: [build, ut]
     runs-on: ubuntu-20.04
     steps:
-      - name: Set timezone
-        uses: szenius/set-timezone@v1.0
-        with:
-          timezoneLinux: "Asia/Shanghai"
-
       - name: Checkout
         uses: actions/checkout@v3
 
@@ -35,7 +30,13 @@ jobs:
 
           sudo apt update
           sudo apt upgrade
-          sudo apt install --yes ccache byacc
+          sudo apt install --yes tzdata ccache byacc
+
+          # set timezone
+          sudo ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+          sudo dpkg-reconfigure --frontend noninteractive tzdata
+
+          date
 
           if [[ "${{ matrix.type }}" == 'build' ]]; then
             DORIS_TOOLCHAIN=clang ./build.sh -j "$(nproc)" --be --clean
