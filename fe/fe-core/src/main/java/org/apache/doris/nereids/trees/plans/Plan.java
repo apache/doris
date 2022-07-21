@@ -62,4 +62,6 @@ public interface Plan extends TreeNode<Plan> {
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 
     Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties);
+
+    long getLimit();
 }

@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import java.util.Collections;
 import java.util.List;
 
-public interface ScanOperator {
+public interface Scan {
     List<Expression> getExpressions();
     default Table getTable(){
         throw new RuntimeException("Unimplemented");

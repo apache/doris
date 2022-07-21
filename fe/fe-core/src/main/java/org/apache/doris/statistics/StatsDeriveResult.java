@@ -41,6 +41,9 @@ public class StatsDeriveResult {
 
     private Map<Slot, ColumnStats> slotRefToColumnStatsMap;
 
+    public StatsDeriveResult() {
+    }
+
     public StatsDeriveResult(long rowCount, Map<Id, Float> columnToDataSize, Map<Id, Long> columnToNdv) {
         this.rowCount = rowCount;
         this.columnToDataSize.putAll(columnToDataSize);
@@ -120,5 +123,9 @@ public class StatsDeriveResult {
             this.slotRefToColumnStatsMap.put(entry.getKey(), entry.getValue().copy());
         }
         return this;
+    }
+
+    public StatsDeriveResult copy() {
+        return new StatsDeriveResult(this);
     }
 }

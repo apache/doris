@@ -20,14 +20,11 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.statistics.ExprStats;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -38,7 +35,7 @@ import java.util.Optional;
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
 
     protected StatsDeriveResult statsDeriveResult;
-    protected long limit;
+    protected long limit = -1;
 
     protected final PlanType type;
     protected final LogicalProperties logicalProperties;

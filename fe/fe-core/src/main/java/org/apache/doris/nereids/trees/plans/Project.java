@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 
 import java.util.List;
 
-public interface AggregateOperator {
-    List<Expression> getGroupByExprList();
+public interface Project {
+    List<NamedExpression> getProjects();
 }

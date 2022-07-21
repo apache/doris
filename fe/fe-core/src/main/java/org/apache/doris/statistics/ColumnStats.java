@@ -85,6 +85,9 @@ public class ColumnStats {
         this.maxValue = (LiteralExpr) other.maxValue.clone();
     }
 
+    public ColumnStats() {
+    }
+
     public long getNdv() {
         return ndv;
     }
@@ -240,7 +243,6 @@ public class ColumnStats {
 
     public ColumnStats multiplyDouble(double selectivity) {
         ndv *= selectivity;
-        avgSize *= selectivity;
         numNulls *= selectivity;
         return this;
     }

@@ -179,6 +179,6 @@ public class GroupExpression {
     public StatsDeriveResult getChildStats(int idx) {
         // TODO: is this preconditions check really necessary?
         Preconditions.checkState(idx > 0 && idx < children.size());
-        return child(idx).getStatistics();
+        return child(idx).getStatistics().copy();
     }
 }

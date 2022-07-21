@@ -48,7 +48,7 @@ public class HashJoinEstimation {
         } else if (joinType.isInnerJoin() || joinType.isOuterJoin()) {
             rowCount = getJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);
         } else {
-            Preconditions.checkState(false, "joinType is not supported");
+           throw new RuntimeException("joinType is not supported");
         }
         statsDeriveResult.setRowCount(rowCount);
         return statsDeriveResult;

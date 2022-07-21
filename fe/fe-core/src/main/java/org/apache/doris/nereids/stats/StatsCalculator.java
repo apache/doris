@@ -21,12 +21,16 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.Filter;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Aggregate;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.ScanOperator;
+import org.apache.doris.nereids.trees.plans.Project;
+import org.apache.doris.nereids.trees.plans.Scan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -46,8 +50,8 @@ import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
 
-
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -67,36 +71,38 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     public void estimate() {
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
         groupExpression.getParent().setStatistics(stats);
+        Plan plan = groupExpression.getPlan();
+        long limit = plan.getLimit();
+        if (limit != -1) {
+            stats.setRowCount(Math.min(limit, stats.getRowCount()));
+        }
+        groupExpression.setStatDerived(true);
     }
 
     @Override
     public StatsDeriveResult visitLogicalAggregate(LogicalAggregate<Plan> agg, Void context) {
-        List<Expression> expressionList = agg.getGroupByExpressionList();
-        for (Expression expression : expressionList) {
-
-        }
-        return super.visitLogicalAggregate(agg, context);
+        return computeAggregate(agg);
     }
 
     @Override
     public StatsDeriveResult visitLogicalFilter(LogicalFilter<Plan> filter, Void context) {
-        return super.visitLogicalFilter(filter, context);
+        return computeFilter(filter);
     }
 
     @Override
     public StatsDeriveResult visitLogicalOlapScan(LogicalOlapScan olapScan, Void context) {
         olapScan.getExpressions();
-        return computeOlapScan(olapScan);
+        return computeScan(olapScan);
     }
 
     @Override
     public StatsDeriveResult visitLogicalProject(LogicalProject<Plan> project, Void context) {
-        return super.visitLogicalProject(project, context);
+        return computeProject(project);
     }
 
     @Override
     public StatsDeriveResult visitLogicalSort(LogicalSort<Plan> sort, Void context) {
-        return super.visitLogicalSort(sort, context);
+        return groupExpression.getChildStats(0);
     }
 
     @Override
@@ -112,17 +118,17 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitPhysicalAggregate(PhysicalAggregate<Plan> agg, Void context) {
-        return super.visitPhysicalAggregate(agg, context);
+        return computeAggregate(agg);
     }
 
     @Override
     public StatsDeriveResult visitPhysicalOlapScan(PhysicalOlapScan olapScan, Void context) {
-        return computeOlapScan(olapScan);
+        return computeScan(olapScan);
     }
 
     @Override
     public StatsDeriveResult visitPhysicalHeapSort(PhysicalHeapSort<Plan> sort, Void context) {
-        return super.visitPhysicalHeapSort(sort, context);
+        return groupExpression.getChildStats(0);
     }
 
     @Override
@@ -134,21 +140,12 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     // TODO: We should subtract those pruned column, and consider the expression transformations in the node.
     @Override
     public StatsDeriveResult visitPhysicalProject(PhysicalProject<Plan> project, Void context) {
-        return groupExpression.getChildStats(0);
+        return computeProject(project);
     }
 
     @Override
     public StatsDeriveResult visitPhysicalFilter(PhysicalFilter<Plan> filter, Void context) {
-        StatsDeriveResult childStats = groupExpression.getChildStats(0);
-        StatsDeriveResult stats = new StatsDeriveResult(childStats);
-        FilterSelectivityCalculator selectivityCalculator =
-                new FilterSelectivityCalculator(childStats.getSlotRefToColumnStatsMap());
-        double selectivity = selectivityCalculator.estimate(filter.getPredicates());
-        stats.multiplyDouble(selectivity);
-        // TODO: It's very likely to write wrong code in this way, we need to find a graceful way to pass the
-        //  slotRefToColStatsMap between stats of each operator.
-        stats.setSlotRefToColumnStatsMap(childStats.getSlotRefToColumnStatsMap());
-        return stats;
+        return computeFilter(filter);
     }
 
     @Override
@@ -157,16 +154,25 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         return groupExpression.getChildStats(0);
     }
 
+    private StatsDeriveResult computeFilter(Filter filter) {
+        StatsDeriveResult stats = groupExpression.getChildStats(0);
+        FilterSelectivityCalculator selectivityCalculator =
+                new FilterSelectivityCalculator(stats.getSlotRefToColumnStatsMap());
+        double selectivity = selectivityCalculator.estimate(filter.getPredicates());
+        stats.multiplyDouble(selectivity);
+        return stats;
+    }
+
     // TODO: 1. Subtract the pruned partition
     //       2. Consider the influence of runtime filter
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
-    private StatsDeriveResult computeOlapScan(ScanOperator scanOperator) {
-        Table table = scanOperator.getTable();
+    private StatsDeriveResult computeScan(Scan scan) {
+        Table table = scan.getTable();
         TableStats tableStats = Utils.execWithReturnVal(() ->
                 Catalog.getCurrentCatalog().getStatisticsManager().getStatistics().getTableStats(table.getId())
         );
         Map<Slot, ColumnStats> slotToColumnStats = new HashMap<>();
-        Set<SlotReference> slotSet = scanOperator.getOutput().stream().filter(SlotReference.class::isInstance)
+        Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());
         for (SlotReference slotReference : slotSet) {
             Column column = slotReference.getColumn();
@@ -175,7 +181,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 continue;
             }
             String columnName = column.getName();
-            ColumnStats columnStats = tableStats.getColumnStats(columnName).copy();
+            ColumnStats columnStats = tableStats.getColumnStats(columnName);
             slotToColumnStats.put(slotReference, columnStats);
         }
         long rowCount = tableStats.getRowCount();
@@ -185,6 +191,53 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         return stats;
     }
 
-    private StatsDeriveResult computeAggregate()
+    private StatsDeriveResult computeAggregate(Aggregate aggregate) {
+        List<Expression> groupByExprList = aggregate.getGroupByExpressionList();
+        StatsDeriveResult childStats = groupExpression.getChildStats(0);
+        Map<Slot, ColumnStats> childSlotColumnStatsMap = childStats.getSlotRefToColumnStatsMap();
+        long resultSetCount = -1;
+        for (Expression expression : groupByExprList) {
+            List<SlotReference> slotRefList = expression.collect(SlotReference.class::isInstance);
+            // TODO: Need to discuss this.
+            if (slotRefList.size() != 1) {
+                continue;
+            }
+            SlotReference slotRef = slotRefList.get(0);
+            ColumnStats columnStats = childSlotColumnStatsMap.get(slotRef);
+            if (resultSetCount == -1) {
+                resultSetCount = 1;
+                resultSetCount *= columnStats.getNdv();
+            } else if (resultSetCount == 0) {
+                break;
+            }
+        }
+        Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
+        List<NamedExpression> namedExpressionList = aggregate.getOutputExpressionList();
+        // TODO: 1. Should estimate the output unit size by the type of corresponding AggregateFunction
+        //       2. Should handle alias, literal of the output expression
+        for (NamedExpression namedExpression : namedExpressionList) {
+            if (namedExpression instanceof SlotReference) {
+                slotColumnStatsMap.put((SlotReference) namedExpression, new ColumnStats());
+            }
+        }
+        StatsDeriveResult statsDeriveResult = new StatsDeriveResult();
+        statsDeriveResult.setRowCount(resultSetCount);
+
+        // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
+        return new StatsDeriveResult(resultSetCount, new HashMap<>(), new HashMap<>());
+    }
+
+    private StatsDeriveResult computeProject(Project project) {
+        List<NamedExpression> namedExpressionList = project.getProjects();
+        Set<Slot> slotSet = new HashSet<>();
+        for (NamedExpression namedExpression : namedExpressionList) {
+            List<SlotReference> slotReferenceList = namedExpression.collect(SlotReference.class::isInstance);
+            slotSet.addAll(slotReferenceList);
+        }
+        StatsDeriveResult stat = groupExpression.getChildStats(0);
+        Map<Slot, ColumnStats> slotColumnStatsMap = stat.getSlotRefToColumnStatsMap();
+        slotColumnStatsMap.entrySet().removeIf(entry -> !slotSet.contains(entry.getKey()));
+        return stat;
+    }
 
 }
