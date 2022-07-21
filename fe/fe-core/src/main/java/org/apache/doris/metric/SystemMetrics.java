@@ -105,7 +105,7 @@ public class SystemMetrics {
             tcpOutSegs = Long.valueOf(parts[headerMap.get("OutSegs")]);
 
         } catch (Exception e) {
-            LOG.warn("failed to get /proc/net/snmp", e);
+            LOG.warn("failed to get /proc/net/snmp: ", e.getMessage());
         }
     }
 
@@ -141,7 +141,7 @@ public class SystemMetrics {
             buffers = memInfoMap.getOrDefault("Buffers", -1L);
             cached = memInfoMap.getOrDefault("Cached", -1L);
         } catch (Exception e) {
-            LOG.warn("failed to get /proc/meminfo", e);
+            LOG.warn("failed to get /proc/meminfo: ", e.getMessage());
         }
     }
 
