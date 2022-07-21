@@ -16,19 +16,20 @@
 // under the License.
 
 #include "exec/arrow/orc_stripe_reader.h"
-#include "exec/arrow/arrow_range.h"
 
-#include <exprs/expr_context.h>
 #include <arrow/io/memory.h>
 #include <arrow/status.h>
+#include <exprs/expr_context.h>
 #include <parquet/file_reader.h>
+
 #include <memory>
 #include <orc/Statistics.hh>
 
+#include "exec/arrow/arrow_range.h"
+
 namespace doris {
 
-StripeReader::StripeReader(const std::vector<ExprContext*>& conjunct_ctxs,
-                           ORCReaderWrap* parent)
+StripeReader::StripeReader(const std::vector<ExprContext*>& conjunct_ctxs, ORCReaderWrap* parent)
         : _conjunct_ctxs(conjunct_ctxs), _parent(parent) {}
 
 StripeReader::~StripeReader() {
@@ -37,12 +38,11 @@ StripeReader::~StripeReader() {
 }
 
 Status StripeReader::init_filter_groups(const TupleDescriptor* tuple_desc,
-                                          const std::map<std::string, int>& map_column,
-                                          const std::vector<int>& include_column_ids) {
-    std::unordered_set<int> column_ids(include_column_ids.begin(),
-                                               include_column_ids.end());
+                                        const std::map<std::string, int>& map_column,
+                                        const std::vector<int>& include_column_ids) {
+    std::unordered_set<int> column_ids(include_column_ids.begin(), include_column_ids.end());
     _init_conjuncts(tuple_desc, map_column, column_ids);
-    auto * raw_reader = _parent->getReader()->GetRawORCReader();
+    auto* raw_reader = _parent->getReader()->GetRawORCReader();
 
     int total_group = _parent->getReader()->NumberOfStripes();
     int num_rows = _parent->getReader()->NumberOfRows();
@@ -55,7 +55,7 @@ Status StripeReader::init_filter_groups(const TupleDescriptor* tuple_desc,
     bool update_statistics = false;
     for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
         auto stripe_stats = raw_reader->getStripeStatistics(row_group_id);
-        const orc::Statistics * statistics = stripe_stats.get();
+        const orc::Statistics* statistics = stripe_stats.get();
         if (!statistics) {
             continue;
         }
@@ -74,24 +74,31 @@ Status StripeReader::init_filter_groups(const TupleDescriptor* tuple_desc,
             if (slot_iter == _slot_conjuncts.end()) {
                 continue;
             }
-            const orc::ColumnStatistics * col_stats = statistics->getColumnStatistics(parquet_col_id + 1);
+            const orc::ColumnStatistics* col_stats =
+                    statistics->getColumnStatistics(parquet_col_id + 1);
             if (!col_stats || col_stats->hasNull()) {
                 continue;
             }
-            bool need_filter= false;
-            if (const auto * int_stats = dynamic_cast<const orc::IntegerColumnStatistics *>(col_stats)) {
+            bool need_filter = false;
+            if (const auto* int_stats =
+                        dynamic_cast<const orc::IntegerColumnStatistics*>(col_stats)) {
                 IntegerArrowRange range(int_stats->getMinimum(), int_stats->getMaximum());
                 need_filter = range.determine_filter_row_group(slot_iter->second);
-            } else if (const auto * double_stats = dynamic_cast<const orc::DoubleColumnStatistics *>(col_stats)) {
+            } else if (const auto* double_stats =
+                               dynamic_cast<const orc::DoubleColumnStatistics*>(col_stats)) {
                 DoubleArrowRange range(double_stats->getMinimum(), double_stats->getMaximum());
                 need_filter = range.determine_filter_row_group(slot_iter->second);
-            } else if (const auto * string_stats = dynamic_cast<const orc::StringColumnStatistics *>(col_stats)) {
+            } else if (const auto* string_stats =
+                               dynamic_cast<const orc::StringColumnStatistics*>(col_stats)) {
                 StringArrowRange range(string_stats->getMinimum(), string_stats->getMaximum());
                 need_filter = range.determine_filter_row_group(slot_iter->second);
-            } else if (const auto * timestamp_stats = dynamic_cast<const orc::TimestampColumnStatistics *>(col_stats)) {
-                DateTimeArrowRange range(timestamp_stats->getMinimum(), timestamp_stats->getMaximum());
+            } else if (const auto* timestamp_stats =
+                               dynamic_cast<const orc::TimestampColumnStatistics*>(col_stats)) {
+                DateTimeArrowRange range(timestamp_stats->getMinimum(),
+                                         timestamp_stats->getMaximum());
                 need_filter = range.determine_filter_row_group(slot_iter->second);
-            } else if (const auto * date_stats = dynamic_cast<const orc::DateColumnStatistics *>(col_stats)) {
+            } else if (const auto* date_stats =
+                               dynamic_cast<const orc::DateColumnStatistics*>(col_stats)) {
                 DateArrowRange range(date_stats->getMinimum(), date_stats->getMaximum());
                 need_filter = range.determine_filter_row_group(slot_iter->second);
             }
@@ -119,8 +126,8 @@ Status StripeReader::init_filter_groups(const TupleDescriptor* tuple_desc,
 }
 
 void StripeReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
-                                     const std::map<std::string, int>& map_column,
-                                     const std::unordered_set<int>& include_column_ids) {
+                                   const std::map<std::string, int>& map_column,
+                                   const std::unordered_set<int>& include_column_ids) {
     if (tuple_desc->slots().empty()) {
         return;
     }

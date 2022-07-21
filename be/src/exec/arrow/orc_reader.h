@@ -44,9 +44,7 @@ public:
                        const std::string& timezone) override;
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
 
-    std::shared_ptr<arrow::adapters::orc::ORCFileReader> getReader() {
-        return _reader;
-    }
+    std::shared_ptr<arrow::adapters::orc::ORCFileReader> getReader() { return _reader; }
 
 private:
     Status _next_stripe_reader(bool* eof);

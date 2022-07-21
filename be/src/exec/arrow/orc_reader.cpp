@@ -75,7 +75,7 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
     if (eof) {
         return Status::EndOfFile("end of file");
     }
-        
+
     return Status::OK();
 }
 
@@ -109,7 +109,7 @@ Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
         }
         _rb_reader = maybe_rb_reader.ValueOrDie();
         _current_group++;
-    } while(skip_current_group);
+    } while (skip_current_group);
 
     return Status::OK();
 }

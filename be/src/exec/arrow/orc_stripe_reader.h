@@ -15,18 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 #pragma once
 
 #include <arrow/type_fwd.h>
 #include <exprs/expr.h>
+#include <exprs/expr_context.h>
 
 #include <unordered_set>
-#include "common/status.h"
 
 #include "common/status.h"
 #include "exec/arrow/orc_reader.h"
-#include <exprs/expr_context.h>
 
 namespace doris {
 
@@ -34,8 +32,7 @@ class ORCReaderWrap;
 
 class StripeReader {
 public:
-    StripeReader(const std::vector<ExprContext*>& conjunct_ctxs,
-                 ORCReaderWrap* parent);
+    StripeReader(const std::vector<ExprContext*>& conjunct_ctxs, ORCReaderWrap* parent);
     ~StripeReader();
 
     Status init_filter_groups(const TupleDescriptor* tuple_desc,
@@ -48,7 +45,6 @@ private:
     void _init_conjuncts(const TupleDescriptor* tuple_desc,
                          const std::map<std::string, int>& _map_column,
                          const std::unordered_set<int>& include_column_ids);
-
 
 private:
     std::map<int, std::vector<ExprContext*>> _slot_conjuncts;

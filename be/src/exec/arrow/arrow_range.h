@@ -15,19 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 #pragma once
 
 #include <arrow/type_fwd.h>
-
-#include <cstdint>
-#include <unordered_set>
-#include "common/status.h"
-
 #include <exprs/expr.h>
 #include <exprs/expr_context.h>
 #include <exprs/in_predicate.h>
 #include <runtime/datetime_value.h>
+
+#include <cstdint>
+#include <unordered_set>
+
+#include "common/status.h"
 
 namespace doris {
 template <typename ArrowType>
@@ -36,7 +35,7 @@ class ArrowRange {
     ArrowType _max;
 
 public:
-    ArrowRange(ArrowType min, ArrowType max): _min(min), _max(max) {}
+    ArrowRange(ArrowType min, ArrowType max) : _min(min), _max(max) {}
 
     bool determine_filter_row_group(const std::vector<ExprContext*>& conjuncts) {
         bool need_filter = false;
@@ -65,56 +64,56 @@ private:
         // use is_match var to help understand the compare logic
         bool is_match = false;
         switch (conjunct->op()) {
-            case TExprOpcode::EQ:
-                //  _min      value   _max    
-                //  --|---------^-------|----
-                if (largeEqual(value, _min) && largeEqual(_max, value)) {
-                    is_match = true;
-                }
-                break;
-            case TExprOpcode::NE:
-                //   value _min         _max  value(or)
-                //  ---^-----|------------|-----^------
-                if (large(_min, value) || large(value, _max)) {
-                    is_match = true;
-                }
-                break;
-            case TExprOpcode::GT:
-                //   value _min  value  _max  value
-                //  ---^-----|-----^------|-----^----
-                //     Y           Y            N
-                if (large(_max, value)) {
-                    is_match = true;
-                }
-                break;
-            case TExprOpcode::GE:
-                //   value _min  value  _max  value
-                //  ---^-----|-----^------|-----^----
-                //     Y           Y            N
-                if (largeEqual(_max, value)) {
-                    is_match = true;
-                }
-                break;
-            case TExprOpcode::LT:
-                //   value _min  value  _max  value
-                //  ---^-----|-----^------|-----^----
-                //     N           Y            Y
-                if (large(value, _min)) {
-                    is_match = true;
-                }
-                break;
-            case TExprOpcode::LE:
-                //   value _min  value  _max  value
-                //  ---^-----|-----^------|-----^----
-                //     N           Y            Y
-                if (large(value, _min)) {
-                    is_match = true;
-                }
-                break;
-            default:
-                // Treat nonsupport predict as match.
+        case TExprOpcode::EQ:
+            //  _min      value   _max
+            //  --|---------^-------|----
+            if (largeEqual(value, _min) && largeEqual(_max, value)) {
                 is_match = true;
-                break;
+            }
+            break;
+        case TExprOpcode::NE:
+            //   value _min         _max  value(or)
+            //  ---^-----|------------|-----^------
+            if (large(_min, value) || large(value, _max)) {
+                is_match = true;
+            }
+            break;
+        case TExprOpcode::GT:
+            //   value _min  value  _max  value
+            //  ---^-----|-----^------|-----^----
+            //     Y           Y            N
+            if (large(_max, value)) {
+                is_match = true;
+            }
+            break;
+        case TExprOpcode::GE:
+            //   value _min  value  _max  value
+            //  ---^-----|-----^------|-----^----
+            //     Y           Y            N
+            if (largeEqual(_max, value)) {
+                is_match = true;
+            }
+            break;
+        case TExprOpcode::LT:
+            //   value _min  value  _max  value
+            //  ---^-----|-----^------|-----^----
+            //     N           Y            Y
+            if (large(value, _min)) {
+                is_match = true;
+            }
+            break;
+        case TExprOpcode::LE:
+            //   value _min  value  _max  value
+            //  ---^-----|-----^------|-----^----
+            //     N           Y            Y
+            if (large(value, _min)) {
+                is_match = true;
+            }
+            break;
+        default:
+            // Treat nonsupport predict as match.
+            is_match = true;
+            break;
         }
         need_filter = !is_match;
     }
@@ -134,27 +133,27 @@ private:
             iter->next();
         }
         std::sort(in_pred_values.begin(), in_pred_values.end());
-        ArrowType in_min = in_pred_values.front();                                    \
+        ArrowType in_min = in_pred_values.front();
         ArrowType in_max = in_pred_values.back();
         // use is_match var to help understand the compare logic
         bool is_match = false;
         switch (conjunct->op()) {
-            case TExprOpcode::FILTER_IN:
-                //  _min  in_min    in_max _max
-                //  --|-----^---------^------|---
-                if (largeEqual(in_min, _min) && largeEqual(_max, in_max)) {
-                    is_match = true;
-                }
-                break;
-            case TExprOpcode::FILTER_NOT_IN:
-                //   in_max _min      _max   in_min(or)
-                //  ---^------|---------|------^-------
-                if (large(_min, in_max) || large(in_min, _max)) {
-                    is_match = true;
-                }
-                break;
-            default:
+        case TExprOpcode::FILTER_IN:
+            //  _min  in_min    in_max _max
+            //  --|-----^---------^------|---
+            if (largeEqual(in_min, _min) && largeEqual(_max, in_max)) {
                 is_match = true;
+            }
+            break;
+        case TExprOpcode::FILTER_NOT_IN:
+            //   in_max _min      _max   in_min(or)
+            //  ---^------|---------|------^-------
+            if (large(_min, in_max) || large(in_min, _max)) {
+                is_match = true;
+            }
+            break;
+        default:
+            is_match = true;
         }
         need_filter = !is_match;
     }
@@ -167,111 +166,102 @@ protected:
     virtual bool large(ArrowType one, ArrowType another) = 0;
 };
 
-struct IntegerArrowRange: public ArrowRange<int64_t> {
+struct IntegerArrowRange : public ArrowRange<int64_t> {
 public:
-    IntegerArrowRange(int64_t min, int64_t max): ArrowRange(min, max) {}
+    IntegerArrowRange(int64_t min, int64_t max) : ArrowRange(min, max) {}
 
     int64_t convertToArrowType(PrimitiveType conjunct_type, const void* data) override {
         int64_t out_value = 0;
         TExprNode node;
         switch (conjunct_type) {
-            case TYPE_TINYINT: {
-                create_texpr_literal_node<int8_t>(data, &node);
-                break;
-            }
-            case TYPE_SMALLINT: {
-                create_texpr_literal_node<int16_t>(data, &node);
-                break;
-            }
-            case TYPE_INT: {
-                create_texpr_literal_node<int32_t>(data, &node);
-                break;
-            }
-            case TYPE_BIGINT: {
-                create_texpr_literal_node<int128_t>(data, &node);
-                break;
-            }
-            default:
-                // never go into here.
-                VLOG_CRITICAL << conjunct_type << "go to DoubleArrowRange forbid area.";
-                DCHECK(0);
-                break;
+        case TYPE_TINYINT: {
+            create_texpr_literal_node<int8_t>(data, &node);
+            break;
+        }
+        case TYPE_SMALLINT: {
+            create_texpr_literal_node<int16_t>(data, &node);
+            break;
+        }
+        case TYPE_INT: {
+            create_texpr_literal_node<int32_t>(data, &node);
+            break;
+        }
+        case TYPE_BIGINT: {
+            create_texpr_literal_node<int128_t>(data, &node);
+            break;
+        }
+        default:
+            // never go into here.
+            VLOG_CRITICAL << conjunct_type << "go to DoubleArrowRange forbid area.";
+            DCHECK(0);
+            break;
         }
         out_value = node.int_literal.value;
 
         return out_value;
     }
 
-    bool largeEqual(int64_t one, int64_t another) override {
-        return one >= another;
-    }
+    bool largeEqual(int64_t one, int64_t another) override { return one >= another; }
 
-    bool large(int64_t one, int64_t another) override {
-        return one > another;
-    }
+    bool large(int64_t one, int64_t another) override { return one > another; }
 };
 
-struct DoubleArrowRange: public ArrowRange<double> {
+struct DoubleArrowRange : public ArrowRange<double> {
 public:
-    DoubleArrowRange(double min, double max): ArrowRange(min, max) {}
+    DoubleArrowRange(double min, double max) : ArrowRange(min, max) {}
 
     double convertToArrowType(PrimitiveType conjunct_type, const void* data) override {
         double out_value = 0;
         TExprNode node;
         switch (conjunct_type) {
-            case TYPE_FLOAT: {
-                create_texpr_literal_node<float>(data, &node);
-                break;
-            }
-            case TYPE_DOUBLE: {
-                create_texpr_literal_node<double>(data, &node);
-                break;
-            }
+        case TYPE_FLOAT: {
+            create_texpr_literal_node<float>(data, &node);
+            break;
+        }
+        case TYPE_DOUBLE: {
+            create_texpr_literal_node<double>(data, &node);
+            break;
+        }
 
-            default:
-                // never go into here.
-                VLOG_CRITICAL << conjunct_type << "go to DoubleArrowRange forbid area.";
-                DCHECK(0);
-                break;
+        default:
+            // never go into here.
+            VLOG_CRITICAL << conjunct_type << "go to DoubleArrowRange forbid area.";
+            DCHECK(0);
+            break;
         }
         out_value = node.float_literal.value;
 
         return out_value;
     }
 
-    bool largeEqual(double one, double another) override {
-        return one >= another;
-    }
+    bool largeEqual(double one, double another) override { return one >= another; }
 
-    bool large(double one, double another) override {
-        return one > another;
-    }
+    bool large(double one, double another) override { return one > another; }
 };
 
-struct StringArrowRange: public ArrowRange<std::string> {
+struct StringArrowRange : public ArrowRange<std::string> {
 public:
-    StringArrowRange(std::string min, std::string max): ArrowRange(min, max) {}
+    StringArrowRange(std::string min, std::string max) : ArrowRange(min, max) {}
 
     std::string convertToArrowType(PrimitiveType conjunct_type, const void* data) override {
         std::string out_value;
         TExprNode node;
         switch (conjunct_type) {
-            case TYPE_VARCHAR:
-            case TYPE_STRING: {
-                create_texpr_literal_node<StringValue>(data, &node);
-                break;
-            }
-            default:
-                // never go into here.
-                VLOG_CRITICAL << conjunct_type << "go to DoubleArrowRange forbid area.";
-                DCHECK(0);
-                break;
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
+            create_texpr_literal_node<StringValue>(data, &node);
+            break;
+        }
+        default:
+            // never go into here.
+            VLOG_CRITICAL << conjunct_type << "go to DoubleArrowRange forbid area.";
+            DCHECK(0);
+            break;
         }
         out_value = node.string_literal.value;
 
         return out_value;
     }
-
 
     bool largeEqual(std::string one, std::string another) override {
         return strcmp(one.c_str(), another.c_str()) >= 0;
@@ -282,79 +272,71 @@ public:
     }
 };
 
-struct DateTimeArrowRange: public ArrowRange<int64_t> {
+struct DateTimeArrowRange : public ArrowRange<int64_t> {
 public:
-    DateTimeArrowRange(int64_t min, int64_t max): ArrowRange(min, max) {}
+    DateTimeArrowRange(int64_t min, int64_t max) : ArrowRange(min, max) {}
 
     int64_t convertToArrowType(PrimitiveType conjunct_type, const void* data) override {
         int64_t out_value = 0;
         TExprNode node;
         switch (conjunct_type) {
-            case TYPE_DATETIME:
-            case TYPE_DATETIMEV2: {
-                auto origin_value = reinterpret_cast<const doris::DateTimeValue*>(data);
-                origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
-                break;
-            }
+        case TYPE_DATETIME:
+        case TYPE_DATETIMEV2: {
+            auto origin_value = reinterpret_cast<const doris::DateTimeValue*>(data);
+            origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
+            break;
+        }
 
-            case TYPE_DATE:
-            case TYPE_DATEV2: {
-                auto origin_value = reinterpret_cast<const doris::vectorized::DateV2Value*>(data);
-                origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
-                break;
-            }
+        case TYPE_DATE:
+        case TYPE_DATEV2: {
+            auto origin_value = reinterpret_cast<const doris::vectorized::DateV2Value*>(data);
+            origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
+            break;
+        }
 
-            default:
-                // never go into here.
-                VLOG_CRITICAL << conjunct_type << "go to DataTimeArrowRange forbid area.";
-                DCHECK(0);
-                break;
+        default:
+            // never go into here.
+            VLOG_CRITICAL << conjunct_type << "go to DataTimeArrowRange forbid area.";
+            DCHECK(0);
+            break;
         }
         // second to micro second
         return out_value * 1000;
     }
 
-    bool largeEqual(int64_t one, int64_t another) override {
-        return one >= another;
-    }
+    bool largeEqual(int64_t one, int64_t another) override { return one >= another; }
 
-    bool large(int64_t one, int64_t another) override {
-        return one > another;
-    }
+    bool large(int64_t one, int64_t another) override { return one > another; }
 };
 
-struct DateArrowRange: public ArrowRange<int32_t> {
+struct DateArrowRange : public ArrowRange<int32_t> {
 public:
-    DateArrowRange(int32_t min, int32_t max): ArrowRange(min, max) {}
+    DateArrowRange(int32_t min, int32_t max) : ArrowRange(min, max) {}
 
     int32_t convertToArrowType(PrimitiveType conjunct_type, const void* data) override {
         int64_t out_value = 0;
         TExprNode node;
         switch (conjunct_type) {
-            case TYPE_DATE:
-            case TYPE_DATEV2: {
-                auto origin_value = reinterpret_cast<const doris::vectorized::DateV2Value*>(data);
-                origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
-                break;
-            }
+        case TYPE_DATE:
+        case TYPE_DATEV2: {
+            auto origin_value = reinterpret_cast<const doris::vectorized::DateV2Value*>(data);
+            origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
+            break;
+        }
 
-            default:
-                // never go into here.
-                VLOG_CRITICAL << conjunct_type << "go to DataTimeArrowRange forbid area.";
-                DCHECK(0);
-                break;
+        default:
+            // never go into here.
+            VLOG_CRITICAL << conjunct_type << "go to DataTimeArrowRange forbid area.";
+            DCHECK(0);
+            break;
         }
         // second to micro second
         return (int32_t)out_value;
     }
 
-    bool largeEqual(int32_t one, int32_t another) override {
-        return one >= another;
-    }
+    bool largeEqual(int32_t one, int32_t another) override { return one >= another; }
 
-    bool large(int32_t one, int32_t another) override {
-        return one > another;
-    }
+    bool large(int32_t one, int32_t another) override { return one > another; }
 };
 
 } // namespace doris
