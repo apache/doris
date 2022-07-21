@@ -31,7 +31,7 @@
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
@@ -43,7 +43,7 @@ class RuntimeState;
 class EsPredicateTest : public testing::Test {
 public:
     EsPredicateTest() : _runtime_state(TQueryGlobals()) {
-        _runtime_state._instance_mem_tracker.reset(new MemTracker());
+        _runtime_state.init_instance_mem_tracker();
         TDescriptorTable t_desc_table;
 
         // table descriptors

@@ -39,8 +39,8 @@
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
-#include "runtime/mem_tracker.h"
-#include "runtime/mem_tracker_task_pool.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/memory/mem_tracker_task_pool.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
@@ -59,6 +59,11 @@
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
 #include "vec/runtime/vdata_stream_mgr.h"
+
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+#include "runtime/memory/tcmalloc_hook.h"
+#endif
 
 namespace doris {
 
@@ -94,7 +99,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
-    _task_pool_mem_tracker_registry.reset(new MemTrackerTaskPool());
+    _task_pool_mem_tracker_registry = new MemTrackerTaskPool();
     _thread_mgr = new ThreadResourceMgr();
     if (config::doris_enable_scanner_thread_pool_per_disk &&
         config::doris_scanner_thread_pool_thread_num >= store_paths.size() &&
@@ -156,7 +161,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr->init();
     _init_mem_tracker();
 
-    RETURN_IF_ERROR(_load_channel_mgr->init(MemTracker::get_process_tracker()->limit()));
+    RETURN_IF_ERROR(
+            _load_channel_mgr->init(ExecEnv::GetInstance()->process_mem_tracker()->limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
     _is_init = true;
@@ -183,12 +189,19 @@ Status ExecEnv::_init_mem_tracker() {
                      << ". Using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
-    _query_pool_mem_tracker = MemTracker::create_tracker(
-            -1, "QueryPool", MemTracker::get_process_tracker(), MemTrackerLevel::OVERVIEW);
+    _process_mem_tracker = new MemTrackerLimiter(global_memory_limit_bytes, "Process");
+    thread_context()->_thread_mem_tracker_mgr->init();
+#if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
+        !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+    if (doris::config::enable_tcmalloc_hook) {
+        init_hook();
+    }
+#endif
+
+    _query_pool_mem_tracker = new MemTrackerLimiter(-1, "QueryPool", _process_mem_tracker);
     REGISTER_HOOK_METRIC(query_mem_consumption,
                          [this]() { return _query_pool_mem_tracker->consumption(); });
-    _load_pool_mem_tracker = MemTracker::create_tracker(
-            -1, "LoadPool", MemTracker::get_process_tracker(), MemTrackerLevel::OVERVIEW);
+    _load_pool_mem_tracker = new MemTrackerLimiter(-1, "LoadPool", _process_mem_tracker);
     REGISTER_HOOK_METRIC(load_mem_consumption,
                          [this]() { return _load_pool_mem_tracker->consumption(); });
     LOG(INFO) << "Using global memory limit: "
@@ -281,9 +294,6 @@ Status ExecEnv::_init_mem_tracker() {
     LOG(INFO) << "Chunk allocator memory limit: "
               << PrettyPrinter::print(chunk_reserved_bytes_limit, TUnit::BYTES)
               << ", origin config value: " << config::chunk_reserved_bytes_limit;
-
-    // TODO(zc): The current memory usage configuration is a bit confusing,
-    // we need to sort out the use of memory
     return Status::OK();
 }
 
@@ -347,6 +357,10 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
+    SAFE_DELETE(_process_mem_tracker);
+    SAFE_DELETE(_query_pool_mem_tracker);
+    SAFE_DELETE(_load_pool_mem_tracker);
+    SAFE_DELETE(_task_pool_mem_tracker_registry);
 
     DEREGISTER_HOOK_METRIC(query_mem_consumption);
     DEREGISTER_HOOK_METRIC(load_mem_consumption);

@@ -115,13 +115,12 @@ BufferPool::BufferPool(int64_t min_buffer_len, int64_t buffer_bytes_limit,
 BufferPool::~BufferPool() {}
 
 Status BufferPool::RegisterClient(const string& name, ReservationTracker* parent_reservation,
-                                  const std::shared_ptr<MemTracker>& mem_tracker,
                                   int64_t reservation_limit, RuntimeProfile* profile,
                                   ClientHandle* client) {
     DCHECK(!client->is_registered());
     DCHECK(parent_reservation != nullptr);
     client->impl_ = new Client(this, //file_group,
-                               name, parent_reservation, mem_tracker, reservation_limit, profile);
+                               name, parent_reservation, reservation_limit, profile);
     return Status::OK();
 }
 
@@ -347,7 +346,7 @@ bool BufferPool::ClientHandle::has_unpinned_pages() const {
 
 BufferPool::SubReservation::SubReservation(ClientHandle* client) {
     tracker_.reset(new ReservationTracker);
-    tracker_->InitChildTracker(nullptr, client->impl_->reservation(), nullptr,
+    tracker_->InitChildTracker(nullptr, client->impl_->reservation(),
                                numeric_limits<int64_t>::max());
 }
 
@@ -368,7 +367,6 @@ void BufferPool::SubReservation::Close() {
 
 BufferPool::Client::Client(BufferPool* pool, //TmpFileMgr::FileGroup* file_group,
                            const string& name, ReservationTracker* parent_reservation,
-                           const std::shared_ptr<MemTracker>& mem_tracker,
                            int64_t reservation_limit, RuntimeProfile* profile)
         : pool_(pool),
           //file_group_(file_group),
@@ -378,7 +376,7 @@ BufferPool::Client::Client(BufferPool* pool, //TmpFileMgr::FileGroup* file_group
           buffers_allocated_bytes_(0) {
     // Set up a child profile with buffer pool info.
     RuntimeProfile* child_profile = profile->create_child("Buffer pool", true, true);
-    reservation_.InitChildTracker(child_profile, parent_reservation, nullptr, reservation_limit);
+    reservation_.InitChildTracker(child_profile, parent_reservation, reservation_limit);
     counters_.alloc_time = ADD_TIMER(child_profile, "AllocTime");
     counters_.cumulative_allocations =
             ADD_COUNTER(child_profile, "CumulativeAllocations", TUnit::UNIT);

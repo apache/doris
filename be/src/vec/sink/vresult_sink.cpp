@@ -47,7 +47,7 @@ Status VResultSink::prepare_exprs(RuntimeState* state) {
     RETURN_IF_ERROR(
             VExpr::create_expr_trees(state->obj_pool(), _t_output_expr, &_output_vexpr_ctxs));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc, _expr_mem_tracker));
+    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     return Status::OK();
 }
 Status VResultSink::prepare(RuntimeState* state) {
@@ -91,7 +91,7 @@ Status VResultSink::send(RuntimeState* state, Block* block) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultSink::send");
     // The memory consumption in the process of sending the results is not check query memory limit.
     // Avoid the query being cancelled when the memory limit is reached after the query result comes out.
-    STOP_CHECK_LIMIT_THREAD_LOCAL_MEM_TRACKER();
+    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     return _writer->append_block(*block);
 }
 

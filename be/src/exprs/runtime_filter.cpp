@@ -1047,8 +1047,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctx
 }
 
 Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr_ctxs,
-                                            const RowDescriptor& desc,
-                                            const std::shared_ptr<MemTracker>& tracker) {
+                                            const RowDescriptor& desc) {
     if (_is_ignored) {
         return Status::OK();
     }
@@ -1058,7 +1057,7 @@ Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr
 
     if (_push_down_ctxs.empty()) {
         RETURN_IF_ERROR(_wrapper->get_push_context(&_push_down_ctxs, _state, _probe_ctx));
-        RETURN_IF_ERROR(Expr::prepare(_push_down_ctxs, _state, desc, tracker));
+        RETURN_IF_ERROR(Expr::prepare(_push_down_ctxs, _state, desc));
         RETURN_IF_ERROR(Expr::open(_push_down_ctxs, _state));
     }
     // push expr
@@ -1067,8 +1066,7 @@ Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr
 }
 
 Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* vexprs,
-                                           const RowDescriptor& desc,
-                                           const std::shared_ptr<MemTracker>& tracker) {
+                                           const RowDescriptor& desc) {
     if (_is_ignored) {
         return Status::OK();
     }
