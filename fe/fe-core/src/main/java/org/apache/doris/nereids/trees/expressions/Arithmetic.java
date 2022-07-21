@@ -136,7 +136,7 @@ public abstract class Arithmetic extends Expression {
             case BITNOT:
                 return ExpressionType.NOT;
             default:
-                return null;
+                throw new RuntimeException("Not support arithmetic type: " + op.getName());
         }
     }
 
@@ -179,12 +179,12 @@ public abstract class Arithmetic extends Expression {
             return false;
         }
         Arithmetic that = (Arithmetic) o;
-        return op == that.op;
+        return op == that.op && Objects.equals(this.children(), that.children());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(op);
+        return Objects.hash(op, children());
     }
 
     @Override

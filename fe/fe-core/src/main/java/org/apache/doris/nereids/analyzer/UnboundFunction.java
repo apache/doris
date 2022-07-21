@@ -77,4 +77,24 @@ public class UnboundFunction extends Expression implements Unbound {
     public Expression withChildren(List<Expression> children) {
         return new UnboundFunction(name, isDistinct, children);
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        UnboundFunction that = (UnboundFunction) o;
+        return isDistinct == that.isDistinct && name.equals(that.name);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(name, isDistinct);
+    }
 }
