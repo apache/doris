@@ -40,6 +40,7 @@ public abstract class StringRegexPredicate extends Expression implements BinaryE
      *
      * @param left     left child of string regex
      * @param right    right child of string regex
+     * @param symbol   operator symbol
      */
     public StringRegexPredicate(Expression left, Expression right, String symbol) {
         super(left, right);
