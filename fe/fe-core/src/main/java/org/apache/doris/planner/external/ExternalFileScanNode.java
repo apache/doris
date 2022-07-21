@@ -74,7 +74,8 @@ import java.util.Random;
 import java.util.Set;
 
 /**
- * ExternalFileScanNode for the file access type of datasource, now only support hive,hudi and iceberg.
+ * ExternalFileScanNode for the file access type of datasource, now only support
+ * hive,hudi and iceberg.
  */
 public class ExternalFileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(ExternalFileScanNode.class);
@@ -219,9 +220,11 @@ public class ExternalFileScanNode extends ExternalScanNode {
         if (scanProvider.getTableFormatType().equals(TFileFormatType.FORMAT_CSV_PLAIN)) {
             Map<String, String> serDeInfoParams = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
             String columnSeparator = Strings.isNullOrEmpty(serDeInfoParams.get("field.delim"))
-                    ? HIVE_DEFAULT_COLUMN_SEPARATOR : serDeInfoParams.get("field.delim");
+                    ? HIVE_DEFAULT_COLUMN_SEPARATOR
+                    : serDeInfoParams.get("field.delim");
             String lineDelimiter = Strings.isNullOrEmpty(serDeInfoParams.get("line.delim"))
-                    ? HIVE_DEFAULT_LINE_DELIMITER : serDeInfoParams.get("line.delim");
+                    ? HIVE_DEFAULT_LINE_DELIMITER
+                    : serDeInfoParams.get("line.delim");
 
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             textParams.setLineDelimiterStr(lineDelimiter);
@@ -246,7 +249,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
             slotDescByName.put(column.getName(), slotDesc);
         }
 
-        // Hive table must extract partition value from path and hudi/iceberg table keep partition field in file.
+        // Hive table must extract partition value from path and hudi/iceberg table keep
+        // partition field in file.
         partitionKeys.addAll(scanProvider.getPathPartitionKeys());
         context.params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
         for (SlotDescriptor slot : desc.getSlots()) {
@@ -276,14 +280,14 @@ public class ExternalFileScanNode extends ExternalScanNode {
     // If fileFormat is not null, we use fileFormat instead of check file's suffix
     private void buildScanRange() throws UserException, IOException {
         scanRangeLocations = Lists.newArrayList();
-        InputSplit[] inputSplits = scanProvider.getSplits(conjuncts);
-        if (0 == inputSplits.length) {
+        List<InputSplit> inputSplits = scanProvider.getSplits(conjuncts);
+        if (inputSplits.isEmpty()) {
             return;
         }
-        inputSplitsNum = inputSplits.length;
+        inputSplitsNum = inputSplits.size();
 
-        String fullPath = ((FileSplit) inputSplits[0]).getPath().toUri().toString();
-        String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
+        String fullPath = ((FileSplit) inputSplits.get(0)).getPath().toUri().toString();
+        String filePath = ((FileSplit) inputSplits.get(0)).getPath().toUri().getPath();
         String fsName = fullPath.replace(filePath, "");
         context.params.setFileType(scanProvider.getTableFileType());
         context.params.setFormatType(scanProvider.getTableFormatType());
@@ -292,6 +296,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
             THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(scanProvider.getTableProperties());
             tHdfsParams.setFsName(fsName);
             context.params.setHdfsParams(tHdfsParams);
+        } else if (scanProvider.getTableFileType() == TFileType.FILE_S3) {
+            context.params.setProperties(hmsTable.getS3Properties());
         }
 
         TScanRangeLocations curLocations = newLocations(context.params);
@@ -311,6 +317,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             LOG.info("Assign to backend " + curLocations.getLocations().get(0).getBackendId() + " with table split: "
                     + fileSplit.getPath() + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")"
                     + " loaction: " + Joiner.on("|").join(split.getLocations()));
+
 
             fileSplitStrategy.update(fileSplit);
             // Add a new location when it's can be split
@@ -353,10 +360,15 @@ public class ExternalFileScanNode extends ExternalScanNode {
             FileSplit fileSplit,
             List<String> columnsFromPath) throws DdlException, MetaNotFoundException {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
-        rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
         rangeDesc.setStartOffset(fileSplit.getStart());
         rangeDesc.setSize(fileSplit.getLength());
         rangeDesc.setColumnsFromPath(columnsFromPath);
+
+        if (scanProvider.getTableFileType() == TFileType.FILE_HDFS) {
+            rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
+        } else if (scanProvider.getTableFileType() == TFileType.FILE_S3) {
+            rangeDesc.setPath(fileSplit.getPath().toString());
+        }
         return rangeDesc;
     }
 
@@ -417,4 +429,3 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return output.toString();
     }
 }
-
