@@ -59,7 +59,7 @@ The following figure shows the main flow of Stream load, omitting some import de
 
 In Stream load, Doris selects a node as the Coordinator node. This node is responsible for receiving data and distributing data to other data nodes.
 
-Users submit import commands through HTTP protocol. If submitted to FE, FE forwards the request to a BE via the HTTP redirect instruction. Users can also submit import commands directly to a specified BE.Therefore, when submitting the stream load command to FE, you need to add "--location-trusted", while it is not necessary to submit it directly to BE.
+Users submit import commands through HTTP protocol. If submitted to FE, FE forwards the request to a BE via the HTTP redirect instruction. Users can also submit import commands directly to a specified BE.
 
 The final result of the import is returned to the user by Coordinator BE.
 
@@ -216,7 +216,7 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
       "status": "Success",
       "msg": "transaction [18037] abort successfully."
   }
-   ```
+  ```
 
 ### Return results
 
@@ -297,6 +297,12 @@ The following main explanations are given for the Stream load import result para
 ### Cancel Load
 
 Users can't cancel Stream load manually. Stream load will be cancelled automatically by the system after a timeout or import error.
+
+### View Stream Load
+
+Users can view completed stream load tasks through `show stream load`.
+
+By default, BE does not record Stream Load records. If you want to view the records that need to be enabled on BE `enable_stream_load_record=true`, you need to restart BE here
 
 ## Relevant System Configuration
 

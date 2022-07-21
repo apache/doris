@@ -50,6 +50,7 @@ SHOW STREAM LOAD
 
 illustrate:
 
+1. The default is to not record Stream Load records. If you want to view the records that need to be enabled on BE, `enable_stream_load_record=true`, you need to restart BE here
 1. If db_name is not specified, the current default db is used
 2. If LABEL LIKE is used, it will match the tasks whose label of the Stream Load task contains label_matcher
 3. If LABEL = is used, it will match the specified label exactly
