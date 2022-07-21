@@ -37,11 +37,11 @@ import java.util.Map;
 public interface ExternalFileScanProvider {
     TFileFormatType getTableFormatType() throws DdlException, MetaNotFoundException;
 
-    TFileType getTableFileType();
+    TFileType getTableFileType() throws DdlException, MetaNotFoundException;
 
     String getMetaStoreUrl();
 
-    InputSplit[] getSplits(List<Expr> exprs) throws IOException, UserException;
+    List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException;
 
     Table getRemoteHiveTable() throws DdlException, MetaNotFoundException;
 

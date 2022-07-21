@@ -24,7 +24,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileType;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -56,7 +55,7 @@ public class ExternalIcebergScanProvider extends ExternalHiveScanProvider {
     public TFileFormatType getTableFormatType() throws DdlException, MetaNotFoundException {
         TFileFormatType type;
 
-        String icebergFormat  = getRemoteHiveTable().getParameters()
+        String icebergFormat = getRemoteHiveTable().getParameters()
                 .getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
         if (icebergFormat.equals("parquet")) {
             type = TFileFormatType.FORMAT_PARQUET;
@@ -69,12 +68,7 @@ public class ExternalIcebergScanProvider extends ExternalHiveScanProvider {
     }
 
     @Override
-    public TFileType getTableFileType() {
-        return TFileType.FILE_HDFS;
-    }
-
-    @Override
-    public InputSplit[] getSplits(List<Expr> exprs) throws IOException, UserException {
+    public List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException {
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : exprs) {
             Expression expression = IcebergUtils.convertToIcebergExpr(conjunct);
@@ -88,7 +82,7 @@ public class ExternalIcebergScanProvider extends ExternalHiveScanProvider {
         for (Expression predicate : expressions) {
             scan = scan.filter(predicate);
         }
-        List<FileSplit> splits = new ArrayList<>();
+        List<InputSplit> splits = new ArrayList<>();
 
         for (FileScanTask task : scan.planFiles()) {
             for (FileScanTask spitTask : task.split(128 * 1024 * 1024)) {
@@ -96,7 +90,7 @@ public class ExternalIcebergScanProvider extends ExternalHiveScanProvider {
                         spitTask.start(), spitTask.length(), new String[0]));
             }
         }
-        return splits.toArray(new InputSplit[0]);
+        return splits;
     }
 
     private org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {

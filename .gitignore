@@ -33,6 +33,7 @@ package-lock.json
 # ignore project file
 .cproject
 .project
+.cache
 .settings/
 **/.idea/
 **/.vscode/

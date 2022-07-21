@@ -53,10 +53,15 @@ public class HiveTable extends Table {
     public static final String HIVE_TABLE = "table";
     public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
     public static final String HIVE_HDFS_PREFIX = "dfs.";
+    public static final String S3_FS_PREFIX = "fs.s3";
     public static final String S3_PROPERTIES_PREFIX = "AWS";
     public static final String S3_AK = "AWS_ACCESS_KEY";
     public static final String S3_SK = "AWS_SECRET_KEY";
     public static final String S3_ENDPOINT = "AWS_ENDPOINT";
+    public static final String AWS_REGION = "AWS_REGION";
+    public static final String AWS_MAX_CONN_SIZE = "AWS_MAX_CONN_SIZE";
+    public static final String AWS_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
+    public static final String AWS_CONN_TIMEOUT_MS = "AWS_CONN_TIMEOUT_MS";
 
     public HiveTable() {
         super(TableType.HIVE);
