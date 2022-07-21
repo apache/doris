@@ -22,7 +22,6 @@
 // Note: To filter out tables from sql files, use the following one-liner comamnd
 // sed -nr 's/.*tables: (.*)$/\1/gp' /path/to/*.sql | sed -nr 's/,/\n/gp' | sort | uniq
 suite("load") {
-    def url = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com"
     def tables = ["customer", "lineorder", "part", "date", "supplier"]
     def columns = ["""c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use""",
                     """lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority, 
@@ -40,13 +39,6 @@ suite("load") {
     }
     i = 0
     for (String tableName in tables) {   
-        String fileName = """${context.sf1DataPath}/ssb/sf1/${tableName}.tbl.gz"""
-        if (!new File(fileName).isAbsolute()) {
-            fileName = new File(context.dataPath, fileName).getAbsolutePath()
-        }
-        if (!new File(fileName).exists()) {
-            fileName  = """${url}/ssb/sf1/${tableName}.tbl.gz"""
-        }
         streamLoad {
             // a default db 'regression_test' is specified in
             // ${DORIS_HOME}/conf/regression-conf.groovy
@@ -62,7 +54,7 @@ suite("load") {
             set 'columns', columns[i]
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file fileName
+            file """${context.sf1DataPath}/ssb/sf1/${tableName}.tbl.gz"""
 
             time 10000 // limit inflight 10s
 

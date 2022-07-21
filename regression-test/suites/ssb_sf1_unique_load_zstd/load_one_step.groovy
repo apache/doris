@@ -17,7 +17,6 @@
 
 
 suite("load_one_step") {
-    def url = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com"
     def tables = ["customer": ["""c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use""", 30000], "lineorder": ["""lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority, 
                     lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount, 
                     lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy""", 6001215], "part": ["""p_partkey,p_name,p_mfgr,p_category,p_brand,p_color,p_type,p_size,p_container,p_dummy""", 200000], "date": ["""d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,
@@ -25,13 +24,6 @@ suite("load_one_step") {
                     d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy""", 2556], "supplier": ["""s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy""", 2000]]
 
     tables.each { tableName, rows ->
-        String fileName = """${context.sf1DataPath}/ssb/sf1/${tableName}.tbl.gz"""
-        if (!new File(fileName).isAbsolute()) {
-            fileName = new File(context.dataPath, fileName).getAbsolutePath()
-        }
-        if (!new File(fileName).exists()) {
-            fileName  = """${url}/ssb/sf1/${tableName}.tbl.gz"""
-        }
         sql """ DROP TABLE IF EXISTS $tableName """
         sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
         streamLoad {
@@ -39,7 +31,7 @@ suite("load_one_step") {
             set 'column_separator', '|'
             set 'compress_type', 'GZ'
             set 'columns', rows[0]
-            file fileName
+            file """${context.sf1DataPath}/ssb/sf1/${tableName}.tbl.gz"""
 
             time 10000 // limit inflight 10s
 
