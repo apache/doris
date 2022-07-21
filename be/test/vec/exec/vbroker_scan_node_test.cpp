@@ -31,7 +31,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/local_file_reader.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
@@ -45,7 +45,7 @@ class VBrokerScanNodeTest : public testing::Test {
 public:
     VBrokerScanNodeTest() : _runtime_state(TQueryGlobals()) {
         init();
-        _runtime_state._instance_mem_tracker.reset(new MemTracker());
+        _runtime_state.init_instance_mem_tracker();
         _runtime_state._query_options.enable_vectorized_engine = true;
     }
     void init();

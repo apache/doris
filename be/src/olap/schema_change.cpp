@@ -31,7 +31,7 @@
 #include "olap/tablet.h"
 #include "olap/types.h"
 #include "olap/wrapper_field.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "util/defer_op.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -1006,27 +1006,25 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
 
 RowBlockAllocator::RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation)
         : _tablet_schema(tablet_schema),
-          _mem_tracker(MemTracker::create_virtual_tracker(-1, "RowBlockAllocator")),
+          _tracker(std::make_unique<MemTracker>("RowBlockAllocator")),
           _row_len(tablet_schema.row_size()),
           _memory_limitation(memory_limitation) {
     VLOG_NOTICE << "RowBlockAllocator(). row_len=" << _row_len;
 }
 
 RowBlockAllocator::~RowBlockAllocator() {
-    if (_mem_tracker->consumption() != 0) {
-        LOG(WARNING) << "memory lost in RowBlockAllocator. memory_size="
-                     << _mem_tracker->consumption();
+    if (_tracker->consumption() != 0) {
+        LOG(WARNING) << "memory lost in RowBlockAllocator. memory_size=" << _tracker->consumption();
     }
 }
 
 Status RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bool null_supported) {
     size_t row_block_size = _row_len * num_rows;
 
-    if (_memory_limitation > 0 &&
-        _mem_tracker->consumption() + row_block_size > _memory_limitation) {
+    if (_memory_limitation > 0 && _tracker->consumption() + row_block_size > _memory_limitation) {
         LOG(WARNING)
                 << "RowBlockAllocator::alocate() memory exceeded. "
-                << "m_memory_allocated=" << _mem_tracker->consumption() << " "
+                << "m_memory_allocated=" << _tracker->consumption() << " "
                 << "mem limit for schema change=" << _memory_limitation << " "
                 << "You can increase the memory "
                 << "by changing the Config.memory_limitation_per_thread_for_schema_change_bytes";
@@ -1046,9 +1044,9 @@ Status RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bool n
     row_block_info.null_supported = null_supported;
     (*row_block)->init(row_block_info);
 
-    _mem_tracker->consume(row_block_size);
+    _tracker->consume(row_block_size);
     VLOG_NOTICE << "RowBlockAllocator::allocate() this=" << this << ", num_rows=" << num_rows
-                << ", m_memory_allocated=" << _mem_tracker->consumption()
+                << ", m_memory_allocated=" << _tracker->consumption()
                 << ", row_block_addr=" << *row_block;
     return Status::OK();
 }
@@ -1059,11 +1057,11 @@ void RowBlockAllocator::release(RowBlock* row_block) {
         return;
     }
 
-    _mem_tracker->release(row_block->capacity() * _row_len);
+    _tracker->release(row_block->capacity() * _row_len);
 
     VLOG_NOTICE << "RowBlockAllocator::release() this=" << this
                 << ", num_rows=" << row_block->capacity()
-                << ", m_memory_allocated=" << _mem_tracker->consumption()
+                << ", m_memory_allocated=" << _tracker->consumption()
                 << ", row_block_addr=" << row_block;
     delete row_block;
 }
@@ -1073,7 +1071,7 @@ bool RowBlockAllocator::is_memory_enough_for_sorting(size_t num_rows, size_t all
         return true;
     }
     size_t row_block_size = _row_len * (num_rows - allocated_rows);
-    return _mem_tracker->consumption() + row_block_size < _memory_limitation;
+    return _tracker->consumption() + row_block_size < _memory_limitation;
 }
 
 RowBlockMerger::RowBlockMerger(TabletSharedPtr tablet) : _tablet(tablet) {}
@@ -1084,7 +1082,7 @@ bool RowBlockMerger::merge(const std::vector<RowBlock*>& row_block_arr, RowsetWr
                            uint64_t* merged_rows) {
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
-    std::unique_ptr<MemPool> mem_pool(new MemPool("RowBlockMerger"));
+    std::unique_ptr<MemPool> mem_pool(new MemPool());
     std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
 
     auto merge_error = [&]() -> bool {
@@ -1366,11 +1364,10 @@ VSchemaChangeWithSorting::VSchemaChangeWithSorting(const RowBlockChanger& row_bl
         : _changer(row_block_changer),
           _memory_limitation(memory_limitation),
           _temp_delta_versions(Version::mock()) {
-    _mem_tracker = MemTracker::create_tracker(
-            config::memory_limitation_per_thread_for_schema_change_bytes,
-            fmt::format("VSchemaChangeWithSorting:changer={}",
-                        std::to_string(int64(&row_block_changer))),
-            StorageEngine::instance()->schema_change_mem_tracker(), MemTrackerLevel::TASK);
+    _mem_tracker =
+            std::make_unique<MemTracker>(fmt::format("VSchemaChangeWithSorting:changer={}",
+                                                     std::to_string(int64(&row_block_changer))),
+                                         StorageEngine::instance()->schema_change_mem_tracker());
 }
 
 Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_reader,
@@ -1590,15 +1587,19 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
     rowset_reader->next_block(ref_block.get());
     while (ref_block->rows()) {
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
-        if (!_mem_tracker->try_consume(new_block->allocated_bytes())) {
+        if (!_mem_tracker->check_limit(config::memory_limitation_per_thread_for_schema_change_bytes,
+                                       new_block->allocated_bytes())) {
             RETURN_IF_ERROR(create_rowset());
 
-            if (!_mem_tracker->try_consume(new_block->allocated_bytes())) {
+            if (!_mem_tracker->check_limit(
+                        config::memory_limitation_per_thread_for_schema_change_bytes,
+                        new_block->allocated_bytes())) {
                 LOG(WARNING) << "Memory limitation is too small for Schema Change."
                              << "memory_limitation=" << _memory_limitation;
                 return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
             }
         }
+        _mem_tracker->consume(new_block->allocated_bytes());
 
         // move unique ptr
         blocks.push_back(

@@ -41,15 +41,14 @@ Status SetOperationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status SetOperationNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
-    _build_pool.reset(new MemPool(mem_tracker().get()));
+    _build_pool.reset(new MemPool(mem_tracker()));
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
     for (size_t i = 0; i < _child_expr_lists.size(); ++i) {
-        RETURN_IF_ERROR(Expr::prepare(_child_expr_lists[i], state, child(i)->row_desc(),
-                                      expr_mem_tracker()));
+        RETURN_IF_ERROR(Expr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
         DCHECK_EQ(_child_expr_lists[i].size(), _tuple_desc->slots().size());
     }
     _build_tuple_size = child(0)->row_desc().tuple_descriptors().size();
@@ -136,9 +135,8 @@ bool SetOperationNode::equals(TupleRow* row, TupleRow* other) {
 Status SetOperationNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB(
-            "SetOperation, while constructing the hash table.");
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("SetOperation, while constructing the hash table.");
     RETURN_IF_CANCELLED(state);
     // open result expr lists.
     for (const std::vector<ExprContext*>& exprs : _child_expr_lists) {
@@ -146,7 +144,7 @@ Status SetOperationNode::open(RuntimeState* state) {
     }
     // initial build hash table used for remove duplicated
     _hash_tbl.reset(new HashTable(_child_expr_lists[0], _child_expr_lists[1], _build_tuple_size,
-                                  true, _find_nulls, id(), mem_tracker(), state->batch_size() * 2));
+                                  true, _find_nulls, id(), state->batch_size() * 2));
     RowBatch build_batch(child(0)->row_desc(), state->batch_size());
     RETURN_IF_ERROR(child(0)->open(state));
 

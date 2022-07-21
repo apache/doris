@@ -23,18 +23,16 @@
 #include <limits>
 
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/debug_util.h"
 
 namespace doris {
 
 class KeyCoderTest : public testing::Test {
 public:
-    KeyCoderTest() : _tracker(new MemTracker()), _pool(_tracker.get()) {}
+    KeyCoderTest() : _pool() {}
     virtual ~KeyCoderTest() {}
 
 private:
-    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
 };
 

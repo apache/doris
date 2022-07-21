@@ -32,7 +32,7 @@
 #include <arrow/result.h>
 
 #include "common/object_pool.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "util/debug_util.h"
 

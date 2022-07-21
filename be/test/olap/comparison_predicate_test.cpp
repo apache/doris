@@ -88,10 +88,7 @@ static std::string to_datetime_string(uint64_t& datetime_value) {
 #define TEST_PREDICATE_DEFINITION(CLASS_NAME)                                                     \
     class CLASS_NAME : public testing::Test {                                                     \
     public:                                                                                       \
-        CLASS_NAME() {                                                                            \
-            _mem_tracker.reset(new MemTracker(-1));                                               \
-            _mem_pool.reset(new MemPool(_mem_tracker.get()));                                     \
-        }                                                                                         \
+        CLASS_NAME() { _mem_pool.reset(new MemPool()); }                                          \
         ~CLASS_NAME() {}                                                                          \
         void SetTabletSchema(std::string name, const std::string& type,                           \
                              const std::string& aggregation, uint32_t length, bool is_allow_null, \
@@ -116,7 +113,6 @@ static std::string to_datetime_string(uint64_t& datetime_value) {
             Schema schema(*tablet_schema);                                                        \
             _row_block.reset(new RowBlockV2(schema, size));                                       \
         }                                                                                         \
-        std::shared_ptr<MemTracker> _mem_tracker;                                                 \
         std::unique_ptr<MemPool> _mem_pool;                                                       \
         std::unique_ptr<RowBlockV2> _row_block;                                                   \
     };

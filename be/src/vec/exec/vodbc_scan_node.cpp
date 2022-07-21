@@ -47,7 +47,7 @@ Status VOdbcScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
@@ -67,7 +67,7 @@ Status VOdbcScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a odbc scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool("OdbcScanNode"));
+    _tuple_pool.reset(new (std::nothrow) MemPool());
 
     if (_tuple_pool.get() == nullptr) {
         return Status::InternalError("new a mem pool failed.");
@@ -87,8 +87,8 @@ Status VOdbcScanNode::prepare(RuntimeState* state) {
 Status VOdbcScanNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOdbcScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     VLOG_CRITICAL << _scan_node_type << "::Open";
 
     if (nullptr == state) {

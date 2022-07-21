@@ -44,7 +44,7 @@ void StorageByteBuffer::BufDeleter::operator()(char* p) {
             LOG(FATAL) << "fail to munmap: mem=" << p << ", len=" << _mmap_length
                        << ", errno=" << Errno::no() << ", errno_str=" << Errno::str();
         } else {
-            RELEASE_THREAD_LOCAL_MEM_TRACKER(_mmap_length);
+            RELEASE_THREAD_MEM_TRACKER(_mmap_length);
         }
     } else {
         delete[] p;
@@ -96,13 +96,13 @@ StorageByteBuffer* StorageByteBuffer::reference_buffer(StorageByteBuffer* refere
 
 StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int prot, int flags,
                                            int fd, uint64_t offset) {
-    CONSUME_THREAD_LOCAL_MEM_TRACKER(length);
+    CONSUME_THREAD_MEM_TRACKER(length);
     char* memory = (char*)::mmap(start, length, prot, flags, fd, offset);
 
     if (MAP_FAILED == memory) {
         LOG(WARNING) << "fail to mmap. [errno='" << Errno::no() << "' errno_str='" << Errno::str()
                      << "']";
-        RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
+        RELEASE_THREAD_MEM_TRACKER(length);
         return nullptr;
     }
 
@@ -114,7 +114,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int pro
     if (nullptr == buf) {
         deleter(memory);
         LOG(WARNING) << "fail to allocate StorageByteBuffer.";
-        RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
+        RELEASE_THREAD_MEM_TRACKER(length);
         return nullptr;
     }
 
@@ -135,13 +135,13 @@ StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset
 
     size_t length = handler->length();
     int fd = handler->fd();
-    CONSUME_THREAD_LOCAL_MEM_TRACKER(length);
+    CONSUME_THREAD_MEM_TRACKER(length);
     char* memory = (char*)::mmap(nullptr, length, prot, flags, fd, offset);
 
     if (MAP_FAILED == memory) {
         LOG(WARNING) << "fail to mmap. [errno='" << Errno::no() << "' errno_str='" << Errno::str()
                      << "']";
-        RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
+        RELEASE_THREAD_MEM_TRACKER(length);
         return nullptr;
     }
 
@@ -153,7 +153,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset
     if (nullptr == buf) {
         deleter(memory);
         LOG(WARNING) << "fail to allocate StorageByteBuffer.";
-        RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
+        RELEASE_THREAD_MEM_TRACKER(length);
         return nullptr;
     }
 

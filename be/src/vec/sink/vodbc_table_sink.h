@@ -27,7 +27,6 @@ class RowDescriptor;
 class TExpr;
 class RuntimeState;
 class RuntimeProfile;
-class MemTracker;
 namespace vectorized {
 
 // This class is a sinker, which put input data to odbc table
@@ -60,7 +59,6 @@ private:
     std::vector<VExprContext*> _output_expr_ctxs;
 
     RuntimeProfile* _profile;
-    std::shared_ptr<MemTracker> _mem_tracker;
 
     ODBCConnectorParam _odbc_param;
     std::string _odbc_tbl;

@@ -57,7 +57,7 @@ public:
 
     ~RuntimeFilterMgr();
 
-    Status init();
+    Status init(MemTrackerLimiter* parent_tracker);
 
     // get a consumer filter by filter-id
     Status get_consume_filter(const int filter_id, IRuntimeFilter** consumer_filter);
@@ -90,7 +90,7 @@ private:
     std::map<int32_t, RuntimeFilterMgrVal> _producer_map;
 
     RuntimeState* _state;
-    std::shared_ptr<MemTracker> _tracker;
+    std::unique_ptr<MemTracker> _tracker;
     ObjectPool _pool;
 
     TNetworkAddress _merge_addr;
@@ -129,14 +129,13 @@ private:
         std::vector<doris::TRuntimeFilterTargetParams> target_info;
         IRuntimeFilter* filter;
         std::unordered_set<std::string> arrive_id; // fragment_instance_id ?
-        std::shared_ptr<MemTracker> tracker;
         std::shared_ptr<ObjectPool> pool;
     };
     UniqueId _query_id;
     UniqueId _fragment_instance_id;
     // protect _filter_map
     std::mutex _filter_map_mutex;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
     // TODO: convert filter id to i32
     // filter-id -> val
     std::map<std::string, std::shared_ptr<RuntimeFilterCntlVal>> _filter_map;

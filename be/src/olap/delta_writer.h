@@ -131,7 +131,7 @@ private:
 
     StorageEngine* _storage_engine;
     std::unique_ptr<FlushToken> _flush_token;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _flushed_mem_tracker;
 
     // The counter of number of segment flushed already.
     int64_t _segment_counter = 0;

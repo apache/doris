@@ -26,7 +26,6 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"
 
@@ -36,13 +35,9 @@ namespace doris {
 
 InitialReservations::InitialReservations(ObjectPool* obj_pool,
                                          ReservationTracker* query_reservation,
-                                         std::shared_ptr<MemTracker> query_mem_tracker,
                                          int64_t initial_reservation_total_claims)
-        : initial_reservation_mem_tracker_(
-                  MemTracker::create_tracker(-1, "InitialReservations", query_mem_tracker)),
-          remaining_initial_reservation_claims_(initial_reservation_total_claims) {
+        : remaining_initial_reservation_claims_(initial_reservation_total_claims) {
     initial_reservations_.InitChildTracker(nullptr, query_reservation,
-                                           initial_reservation_mem_tracker_.get(),
                                            numeric_limits<int64_t>::max());
 }
 

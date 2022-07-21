@@ -64,8 +64,7 @@ public:
 
 private:
     SnapshotManager() : _snapshot_base_id(0) {
-        _mem_tracker = MemTracker::create_tracker(-1, "SnapshotManager", nullptr,
-                                                  MemTrackerLevel::OVERVIEW);
+        _mem_tracker = std::make_unique<MemTracker>("SnapshotManager");
     }
 
     Status _calc_snapshot_id_path(const TabletSharedPtr& tablet, int64_t timeout_s,
@@ -96,7 +95,7 @@ private:
     std::mutex _snapshot_mutex;
     uint64_t _snapshot_base_id;
 
-    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<MemTracker> _mem_tracker;
 }; // SnapshotManager
 
 } // namespace doris

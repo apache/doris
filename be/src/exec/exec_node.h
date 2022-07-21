@@ -188,9 +188,7 @@ public:
     RuntimeProfile* runtime_profile() const { return _runtime_profile.get(); }
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
-    std::shared_ptr<MemTracker> mem_tracker() const { return _mem_tracker; }
-
-    std::shared_ptr<MemTracker> expr_mem_tracker() const { return _expr_mem_tracker; }
+    MemTracker* mem_tracker() const { return _mem_tracker.get(); }
 
     OpentelemetrySpan get_next_span() { return _get_next_span; }
 
@@ -291,9 +289,7 @@ protected:
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
     /// Account for peak memory used by this node
-    std::shared_ptr<MemTracker> _mem_tracker;
-    // MemTracker used by all Expr.
-    std::shared_ptr<MemTracker> _expr_mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;

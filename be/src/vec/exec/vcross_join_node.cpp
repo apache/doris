@@ -33,9 +33,7 @@ VCrossJoinNode::VCrossJoinNode(ObjectPool* pool, const TPlanNode& tnode, const D
 Status VCrossJoinNode::prepare(RuntimeState* state) {
     DCHECK(_join_op == TJoinOp::CROSS_JOIN);
     RETURN_IF_ERROR(VBlockingJoinNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
-    _block_mem_tracker =
-            MemTracker::create_virtual_tracker(-1, "VCrossJoinNode:Block", mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     _num_existing_columns = child(0)->row_desc().num_materialized_slots();
     _num_columns_to_add = child(1)->row_desc().num_materialized_slots();
@@ -48,7 +46,6 @@ Status VCrossJoinNode::close(RuntimeState* state) {
         return Status::OK();
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VCrossJoinNode::close");
-    _block_mem_tracker->release(_total_mem_usage);
     VBlockingJoinNode::close(state);
     return Status::OK();
 }
@@ -56,8 +53,7 @@ Status VCrossJoinNode::close(RuntimeState* state) {
 Status VCrossJoinNode::construct_build_side(RuntimeState* state) {
     // Do a full scan of child(1) and store all build row batches.
     RETURN_IF_ERROR(child(1)->open(state));
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB(
-            "Vec Cross join, while getting next from the child 1");
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Vec Cross join, while getting next from the child 1");
 
     bool eos = false;
     while (true) {
@@ -74,7 +70,6 @@ Status VCrossJoinNode::construct_build_side(RuntimeState* state) {
             _build_rows += rows;
             _total_mem_usage += mem_usage;
             _build_blocks.emplace_back(std::move(block));
-            _block_mem_tracker->consume(mem_usage);
         }
 
         if (eos) {
@@ -96,7 +91,7 @@ Status VCrossJoinNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VCrossJoinNode::get_next");
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     *eos = false;
 
     if (_eos) {

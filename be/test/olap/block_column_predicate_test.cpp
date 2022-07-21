@@ -34,10 +34,7 @@ namespace doris {
 
 class BlockColumnPredicateTest : public testing::Test {
 public:
-    BlockColumnPredicateTest() {
-        _mem_tracker.reset(new MemTracker(-1));
-        _mem_pool.reset(new MemPool(_mem_tracker.get()));
-    }
+    BlockColumnPredicateTest() { _mem_pool.reset(new MemPool()); }
 
     ~BlockColumnPredicateTest() = default;
 
@@ -65,7 +62,6 @@ public:
         _row_block.reset(new RowBlockV2(schema, size));
     }
 
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::unique_ptr<RowBlockV2> _row_block;
 };

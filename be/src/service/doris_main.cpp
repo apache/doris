@@ -51,6 +51,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
+#include "runtime/memory/mem_tracker_task_pool.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -63,11 +64,6 @@
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
-
-#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
-#include "runtime/tcmalloc_hook.h"
-#endif
 
 static void help(const char*);
 
@@ -333,11 +329,6 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
         return -1;
     }
-#if defined(USE_MEM_TRACKER) && !defined(USE_JEMALLOC)
-    if (doris::config::track_new_delete) {
-        init_hook();
-    }
-#endif // USE_MEM_TRACKER
 #endif
 
     std::vector<doris::StorePath> paths;
@@ -384,6 +375,10 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
+    // init exec env
+    auto exec_env = doris::ExecEnv::GetInstance();
+    doris::ExecEnv::init(exec_env, paths);
+
     // init and open storage engine
     doris::EngineOptions options;
     options.store_paths = paths;
@@ -394,10 +389,6 @@ int main(int argc, char** argv) {
         LOG(FATAL) << "fail to open StorageEngine, res=" << st.get_error_msg();
         exit(-1);
     }
-
-    // init exec env
-    auto exec_env = doris::ExecEnv::GetInstance();
-    doris::ExecEnv::init(exec_env, paths);
     exec_env->set_storage_engine(engine);
     engine->set_heartbeat_flags(exec_env->heartbeat_flags());
 

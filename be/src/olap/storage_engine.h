@@ -179,15 +179,12 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
-    std::shared_ptr<MemTracker> compaction_mem_tracker() { return _compaction_mem_tracker; }
-    std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
-    std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
-    std::shared_ptr<MemTracker> storage_migration_mem_tracker() {
-        return _storage_migration_mem_tracker;
-    }
-    std::shared_ptr<MemTracker> clone_mem_tracker() { return _clone_mem_tracker; }
-    std::shared_ptr<MemTracker> batch_load_mem_tracker() { return _batch_load_mem_tracker; }
-    std::shared_ptr<MemTracker> consistency_mem_tracker() { return _consistency_mem_tracker; }
+    MemTrackerLimiter* compaction_mem_tracker() { return _compaction_mem_tracker.get(); }
+    MemTracker* segment_meta_mem_tracker() { return _segment_meta_mem_tracker.get(); }
+    MemTrackerLimiter* schema_change_mem_tracker() { return _schema_change_mem_tracker.get(); }
+    MemTrackerLimiter* clone_mem_tracker() { return _clone_mem_tracker.get(); }
+    MemTrackerLimiter* batch_load_mem_tracker() { return _batch_load_mem_tracker.get(); }
+    MemTrackerLimiter* consistency_mem_tracker() { return _consistency_mem_tracker.get(); }
 
     // check cumulative compaction config
     void check_cumulative_compaction_config();
@@ -332,20 +329,19 @@ private:
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
     // Count the memory consumption of all Base and Cumulative tasks.
-    std::shared_ptr<MemTracker> _compaction_mem_tracker;
-    // Count the memory consumption of all Segment read.
-    std::shared_ptr<MemTracker> _tablet_mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _compaction_mem_tracker;
+    // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
+    // The memory consumed by querying is tracked in segment iterator.
+    std::unique_ptr<MemTracker> _segment_meta_mem_tracker;
     // Count the memory consumption of all SchemaChange tasks.
-    std::shared_ptr<MemTracker> _schema_change_mem_tracker;
-    // Count the memory consumption of all StorageMigration tasks.
-    std::shared_ptr<MemTracker> _storage_migration_mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _schema_change_mem_tracker;
     // Count the memory consumption of all EngineCloneTask.
     // Note: Memory that does not contain make/release snapshots.
-    std::shared_ptr<MemTracker> _clone_mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _clone_mem_tracker;
     // Count the memory consumption of all EngineBatchLoadTask.
-    std::shared_ptr<MemTracker> _batch_load_mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _batch_load_mem_tracker;
     // Count the memory consumption of all EngineChecksumTask.
-    std::shared_ptr<MemTracker> _consistency_mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _consistency_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;

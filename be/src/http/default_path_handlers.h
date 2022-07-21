@@ -28,6 +28,5 @@ class WebPageHandler;
 
 // Adds a set of default path handlers to the webserver to display
 // logs and configuration flags
-void add_default_path_handlers(WebPageHandler* web_page_handler,
-                               const std::shared_ptr<MemTracker>& process_mem_tracker);
+void add_default_path_handlers(WebPageHandler* web_page_handler);
 } // namespace doris

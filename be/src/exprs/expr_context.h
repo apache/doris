@@ -41,7 +41,6 @@ class VOlapScanNode;
 
 class Expr;
 class MemPool;
-class MemTracker;
 class RuntimeState;
 class RowDescriptor;
 class TColumnValue;
@@ -57,9 +56,7 @@ public:
     ~ExprContext();
 
     /// Prepare expr tree for evaluation.
-    /// Allocations from this context will be counted against 'tracker'.
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                   const std::shared_ptr<MemTracker>& tracker);
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
 
     /// Must be called after calling Prepare(). Does not need to be called on clones.
     /// Idempotent (this allows exprs to be opened multiple times in subplans without
@@ -172,10 +169,7 @@ private:
     /// and owned by this ExprContext.
     std::vector<FunctionContext*> _fn_contexts;
 
-    // Used to create _pool, if change to raw pointer later, be careful about tracker's life cycle.
-    std::shared_ptr<MemTracker> _mem_tracker;
-
-    /// Pool backing fn_contexts_. Counts against the runtime state's UDF mem tracker.
+    /// Pool backing fn_contexts_.
     std::unique_ptr<MemPool> _pool;
 
     /// The expr tree this context is for.

@@ -66,7 +66,7 @@ Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status EsHttpScanNode::prepare(RuntimeState* state) {
     VLOG_QUERY << "EsHttpScanNode prepare";
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     _scanner_profile.reset(new RuntimeProfile("EsHttpScanNode"));
     runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
@@ -121,8 +121,8 @@ Status EsHttpScanNode::build_conjuncts_list() {
 
 Status EsHttpScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
 
     // if conjunct is constant, compute direct and set eos = true
@@ -195,7 +195,7 @@ Status EsHttpScanNode::collect_scanners_status() {
 
 Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     if (state->is_cancelled()) {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
         if (update_status(Status::Cancelled("Cancelled"))) {
@@ -418,7 +418,7 @@ static std::string get_host_port(const std::vector<TNetworkAddress>& es_hosts) {
 }
 
 void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Status>& p_status) {
-    SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
+    SCOPED_ATTACH_TASK(_runtime_state);
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     DCHECK(start_idx < length);

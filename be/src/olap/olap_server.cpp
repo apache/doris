@@ -606,8 +606,6 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
         auto st = thread_pool->submit_func([=]() {
-            SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::COMPACTION,
-                                      tablet->get_compaction_mem_tracker(compaction_type));
             CgroupsMgr::apply_system_cgroup();
             tablet->execute_compaction(compaction_type);
             _permit_limiter.release(permits);

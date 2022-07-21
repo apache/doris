@@ -1024,8 +1024,7 @@ inline void SpillSorter::TupleSorter::swap(uint8_t* left, uint8_t* right) {
 // SpillSorter methods
 SpillSorter::SpillSorter(const TupleRowComparator& compare_less_than,
                          const vector<ExprContext*>& slot_materialize_expr_ctxs,
-                         RowDescriptor* output_row_desc,
-                         const std::shared_ptr<MemTracker>& mem_tracker, RuntimeProfile* profile,
+                         RowDescriptor* output_row_desc, RuntimeProfile* profile,
                          RuntimeState* state)
         : _state(state),
           _compare_less_than(compare_less_than),
@@ -1034,7 +1033,6 @@ SpillSorter::SpillSorter(const TupleRowComparator& compare_less_than,
           _block_mgr_client(nullptr),
           _has_var_len_slots(false),
           _sort_tuple_slot_expr_ctxs(slot_materialize_expr_ctxs),
-          _mem_tracker(mem_tracker),
           _output_row_desc(output_row_desc),
           _unsorted_run(nullptr),
           _profile(profile),
@@ -1077,8 +1075,7 @@ Status SpillSorter::init() {
     if (_output_row_desc->tuple_descriptors()[0]->has_varlen_slots()) {
         min_blocks_required *= 2;
     }
-    RETURN_IF_ERROR(_block_mgr->register_client(min_blocks_required, _mem_tracker, _state,
-                                                &_block_mgr_client));
+    RETURN_IF_ERROR(_block_mgr->register_client(min_blocks_required, _state, &_block_mgr_client));
 
     DCHECK(_unsorted_run != nullptr);
     RETURN_IF_ERROR(_unsorted_run->init());

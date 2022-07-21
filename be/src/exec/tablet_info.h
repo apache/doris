@@ -295,7 +295,7 @@ private:
 
     ObjectPool _obj_pool;
     vectorized::Block _partition_block;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
     std::vector<VOlapTablePartition*> _partitions;
     std::unique_ptr<std::map<BlockRow*, VOlapTablePartition*, VOlapTablePartKeyComparator>>
             _partitions_map;

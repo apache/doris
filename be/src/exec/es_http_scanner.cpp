@@ -40,6 +40,7 @@ EsHttpScanner::EsHttpScanner(RuntimeState* state, RuntimeProfile* profile, Tuple
           _next_range(0),
           _line_eof(false),
           _batch_eof(false),
+          _mem_pool(new MemPool()),
           _tuple_desc(nullptr),
           _counter(counter),
           _es_reader(nullptr),
@@ -47,15 +48,7 @@ EsHttpScanner::EsHttpScanner(RuntimeState* state, RuntimeProfile* profile, Tuple
           _doc_value_mode(doc_value_mode),
           _rows_read_counter(nullptr),
           _read_timer(nullptr),
-          _materialize_timer(nullptr) {
-#ifndef BE_TEST
-    _mem_pool.reset(new MemPool(state->query_type() == TQueryType::LOAD
-                                        ? "EsHttpScanner:" + std::to_string(state->load_job_id())
-                                        : "EsHttpScanner:Select"));
-#else
-    _mem_pool.reset(new MemPool());
-#endif
-}
+          _materialize_timer(nullptr) {}
 
 EsHttpScanner::~EsHttpScanner() {
     close();

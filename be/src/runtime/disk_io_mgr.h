@@ -30,7 +30,7 @@
 #include "common/config.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/error_util.h"
 #include "util/internal_queue.h"
 #include "util/metrics.h"
@@ -238,18 +238,9 @@ public:
         int64_t buffer_len() { return _buffer_len; }
         int64_t len() { return _len; }
         bool eosr() { return _eosr; }
-        MemTracker* buffer_mem_tracker() { return _buffer_mem_tracker; }
 
         // Returns the offset within the scan range that this buffer starts at
         int64_t scan_range_offset() const { return _scan_range_offset; }
-
-        // Updates this buffer to be owned by the new tracker.
-        // Transfer memory ownership between two trackers.
-        void update_mem_tracker(MemTracker* tracker);
-
-        // To set a tracker, make sure that in an external location,
-        // the desc buffer's memory must have transferred ownership,
-        void set_mem_tracker(MemTracker* tracker);
 
         // Returns the buffer to the IoMgr. This must be called for every buffer
         // returned by get_next()/read() that did not return an error. This is non-blocking.
@@ -267,9 +258,6 @@ public:
 
         // Reader that this buffer is for
         RequestContext* _reader;
-
-        // The current tracker this buffer is associated with.
-        MemTracker* _buffer_mem_tracker;
 
         // Scan range that this buffer is for.
         ScanRange* _scan_range;
@@ -559,9 +547,7 @@ public:
     //    used for this reader will be tracked by this. If the limit is exceeded
     //    the reader will be cancelled and MEM_LIMIT_EXCEEDED will be returned via
     //    get_next().
-    Status register_context(
-            RequestContext** request_context,
-            std::shared_ptr<MemTracker> reader_mem_tracker = std::shared_ptr<MemTracker>());
+    Status register_context(RequestContext** request_context);
 
     // Unregisters context from the disk IoMgr. This must be called for every
     // register_context() regardless of cancellation and must be called in the
@@ -634,6 +620,7 @@ public:
     int64_t bytes_read_dn_cache(RequestContext* reader) const;
     int num_remote_ranges(RequestContext* reader) const;
     int64_t unexpected_remote_bytes(RequestContext* reader) const;
+    MemTrackerLimiter* mem_tracker() const { return _mem_tracker.get(); }
 
     // Returns the read throughput across all readers.
     // TODO: should this be a sliding window?  This should report metrics for the
@@ -698,7 +685,7 @@ private:
     // Pool to allocate BufferDescriptors.
     ObjectPool _pool;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
 
     // Number of worker(read) threads per disk. Also the max depth of queued
     // work to the disk.
@@ -800,16 +787,15 @@ private:
     // Returns a buffer to the free list. buffer_size / _min_buffer_size should be a power
     // of 2, and buffer_size should be <= _max_buffer_size. These constraints will be met
     // if buffer was acquired via get_free_buffer() (which it should have been).
-    void return_free_buffer(char* buffer, int64_t buffer_size, MemTracker* tracker);
+    void return_free_buffer(char* buffer, int64_t buffer_size);
 
-    // Returns the buffer in desc (cannot be nullptr), sets buffer to nullptr and clears the
-    // mem tracker.
+    // Returns the buffer in desc (cannot be nullptr), sets buffer to nullptr
     void return_free_buffer(BufferDescriptor* desc);
 
     // Disk worker thread loop. This function retrieves the next range to process on
     // the disk queue and invokes read_range() or Write() depending on the type of Range().
     // There can be multiple threads per disk running this loop.
-    void work_loop(DiskQueue* queue, const std::shared_ptr<MemTracker>& mem_tracker);
+    void work_loop(DiskQueue* queue, MemTrackerLimiter* mem_tracker);
 
     // This is called from the disk thread to get the next range to process. It will
     // wait until a scan range and buffer are available, or a write range is available.

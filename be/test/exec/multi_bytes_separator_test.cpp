@@ -28,7 +28,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/local_file_reader.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 #include "runtime/user_function_cache.h"

@@ -76,7 +76,6 @@ protected:
 
     std::unique_ptr<RowDescriptor> _row_desc;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     std::unique_ptr<MemPool> _mem_pool;
 

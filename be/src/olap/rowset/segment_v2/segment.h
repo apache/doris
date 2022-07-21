@@ -124,9 +124,7 @@ private:
     uint32_t _segment_id;
     TabletSchema _tablet_schema;
 
-    // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
-    // The memory consumed by querying is tracked in segment iterator.
-    std::shared_ptr<MemTracker> _mem_tracker;
+    int64_t _meta_mem_usage;
     SegmentFooterPB _footer;
 
     // Map from column unique id to column ordinal in footer's ColumnMetaPB

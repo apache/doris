@@ -147,9 +147,6 @@ private:
     std::unique_ptr<Field> _field;
     bool _is_nullable;
     std::vector<uint8_t> _null_bitmap;
-
-protected:
-    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 class FlushPageCallback {

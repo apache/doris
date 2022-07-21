@@ -63,14 +63,13 @@ Status MergeNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status MergeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
 
     // Prepare const expr lists.
     for (int i = 0; i < _const_result_expr_ctx_lists.size(); ++i) {
-        RETURN_IF_ERROR(Expr::prepare(_const_result_expr_ctx_lists[i], state, row_desc(),
-                                      expr_mem_tracker()));
+        RETURN_IF_ERROR(Expr::prepare(_const_result_expr_ctx_lists[i], state, row_desc()));
         DCHECK_EQ(_const_result_expr_ctx_lists[i].size(), _tuple_desc->slots().size());
     }
 
@@ -84,8 +83,7 @@ Status MergeNode::prepare(RuntimeState* state) {
 
     // Prepare result expr lists.
     for (int i = 0; i < _result_expr_ctx_lists.size(); ++i) {
-        RETURN_IF_ERROR(Expr::prepare(_result_expr_ctx_lists[i], state, child(i)->row_desc(),
-                                      expr_mem_tracker()));
+        RETURN_IF_ERROR(Expr::prepare(_result_expr_ctx_lists[i], state, child(i)->row_desc()));
         // DCHECK_EQ(_result_expr_ctx_lists[i].size(), _tuple_desc->slots().size());
         DCHECK_EQ(_result_expr_ctx_lists[i].size(), _materialized_slots.size());
     }
@@ -94,8 +92,8 @@ Status MergeNode::prepare(RuntimeState* state) {
 }
 
 Status MergeNode::open(RuntimeState* state) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // Prepare const expr lists.
     for (int i = 0; i < _const_result_expr_ctx_lists.size(); ++i) {
         RETURN_IF_ERROR(Expr::open(_const_result_expr_ctx_lists[i], state));
@@ -112,7 +110,7 @@ Status MergeNode::open(RuntimeState* state) {
 Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // Create new tuple buffer for row_batch.
     int tuple_buffer_size = row_batch->capacity() * _tuple_desc->byte_size();
     void* tuple_buffer = row_batch->tuple_data_pool()->allocate(tuple_buffer_size);

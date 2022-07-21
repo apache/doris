@@ -36,11 +36,11 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "testutil/test_util.h"
 #include "util/file_utils.h"
 
@@ -71,6 +71,8 @@ static bool column_contains_index(ColumnMetaPB column_meta, ColumnIndexTypePB ty
     return false;
 }
 
+static StorageEngine* k_engine = nullptr;
+
 class SegmentReaderWriterTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -78,11 +80,20 @@ protected:
             EXPECT_TRUE(FileUtils::remove_all(kSegmentDir).ok());
         }
         EXPECT_TRUE(FileUtils::create_dir(kSegmentDir).ok());
+
+        doris::EngineOptions options;
+        k_engine = new StorageEngine(options);
+        StorageEngine::_s_instance = k_engine;
     }
 
     void TearDown() override {
         if (FileUtils::check_exist(kSegmentDir)) {
             EXPECT_TRUE(FileUtils::remove_all(kSegmentDir).ok());
+        }
+        if (k_engine != nullptr) {
+            k_engine->stop();
+            delete k_engine;
+            k_engine = nullptr;
         }
     }
 
@@ -775,8 +786,7 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
 
 TEST_F(SegmentReaderWriterTest, TestStringDict) {
     size_t num_rows_per_block = 10;
-    auto tracker = std::make_shared<MemTracker>();
-    MemPool pool(tracker.get());
+    MemPool pool;
 
     std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
     tablet_schema->_num_columns = 4;

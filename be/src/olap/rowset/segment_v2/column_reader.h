@@ -440,7 +440,7 @@ public:
               _type_size(0),
               _precision(precision),
               _scale(scale),
-              _pool(new MemPool("DefaultValueColumnIterator")) {}
+              _pool(new MemPool()) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 

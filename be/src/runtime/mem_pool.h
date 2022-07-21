@@ -93,7 +93,6 @@ class MemPool {
 public:
     // 'tracker' tracks the amount of memory allocated by this pool. Must not be nullptr.
     MemPool(MemTracker* mem_tracker);
-    MemPool(const std::string& label);
     MemPool();
 
     /// Frees all chunks of memory and subtracts the total allocated bytes
@@ -318,8 +317,6 @@ private:
     /// The current and peak memory footprint of this pool. This is different from
     /// total allocated_bytes_ since it includes bytes in chunks that are not used.
     MemTracker* _mem_tracker;
-    // TODO(zxy) temp variable, In the future, mem trackers should all use raw pointers.
-    std::shared_ptr<MemTracker> _mem_tracker_own;
 };
 
 // Stamp out templated implementations here so they're included in IR module

@@ -37,13 +37,9 @@ namespace doris {
 class TupleRowZOrderCompareTest : public testing::Test {
 public:
     ObjectPool _agg_buffer_pool;
-    std::unique_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _buffer_mem_pool;
 
-    TupleRowZOrderCompareTest() {
-        _mem_tracker.reset(new MemTracker(-1));
-        _buffer_mem_pool.reset(new MemPool(_mem_tracker.get()));
-    }
+    TupleRowZOrderCompareTest() { _buffer_mem_pool.reset(new MemPool()); }
 
     ~TupleRowZOrderCompareTest() = default;
 

@@ -19,7 +19,6 @@
 
 #include <sstream>
 
-#include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
@@ -31,10 +30,7 @@ namespace vectorized {
 
 VOdbcTableSink::VOdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& t_exprs)
-        : _pool(pool),
-          _row_desc(row_desc),
-          _t_output_expr(t_exprs),
-          _mem_tracker(MemTracker::create_tracker(-1, "VOdbcTableSink")) {
+        : _pool(pool), _row_desc(row_desc), _t_output_expr(t_exprs) {
     _name = "VOdbcTableSink";
 }
 
@@ -54,7 +50,7 @@ Status VOdbcTableSink::init(const TDataSink& t_sink) {
 Status VOdbcTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
+    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _row_desc));
     std::stringstream title;
     title << "VOdbcTableSink (frag_id=" << state->fragment_instance_id() << ")";
     // create profile

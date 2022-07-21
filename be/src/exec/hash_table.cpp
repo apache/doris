@@ -22,7 +22,7 @@
 
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/raw_value.h"
 
 namespace doris {
@@ -30,7 +30,7 @@ namespace doris {
 HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
                      const std::vector<ExprContext*>& probe_expr_ctxs, int num_build_tuples,
                      bool stores_nulls, const std::vector<bool>& finds_nulls, int32_t initial_seed,
-                     const std::shared_ptr<MemTracker>& mem_tracker, int64_t num_buckets)
+                     int64_t num_buckets)
         : _build_expr_ctxs(build_expr_ctxs),
           _probe_expr_ctxs(probe_expr_ctxs),
           _num_build_tuples(num_build_tuples),
@@ -47,8 +47,7 @@ HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
 
     DCHECK_EQ((num_buckets & (num_buckets - 1)), 0) << "num_buckets must be a power of 2";
-    _mem_tracker =
-            MemTracker::create_virtual_tracker(-1, mem_tracker->label() + "HashTable", mem_tracker);
+    _mem_tracker = std::make_unique<MemTracker>("HashTable");
     _buckets.resize(num_buckets);
     _num_buckets = num_buckets;
     _num_buckets_till_resize = MAX_BUCKET_OCCUPANCY_FRACTION * _num_buckets;
@@ -176,11 +175,13 @@ Status HashTable::resize_buckets(int64_t num_buckets) {
 
     int64_t old_num_buckets = _num_buckets;
     int64_t delta_bytes = (num_buckets - old_num_buckets) * sizeof(Bucket);
-    Status st = _mem_tracker->try_consume(delta_bytes);
+    Status st = thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
+            delta_bytes);
     if (!st) {
         LOG_EVERY_N(WARNING, 100) << "resize bucket failed: " << st.to_string();
         return st;
     }
+    _mem_tracker->consume(delta_bytes);
 
     _buckets.resize(num_buckets);
 

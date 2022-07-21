@@ -98,8 +98,7 @@ public:
                                     std::vector<VExprContext*>* ctxs);
 
     static Status prepare(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
-                          const RowDescriptor& row_desc,
-                          const std::shared_ptr<MemTracker>& tracker);
+                          const RowDescriptor& row_desc);
 
     static Status open(const std::vector<VExprContext*>& ctxs, RuntimeState* state);
 

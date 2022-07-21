@@ -113,10 +113,7 @@ private:
 
 class DataStreamTest : public testing::Test {
 protected:
-    DataStreamTest()
-            : _limit(new MemTracker(-1)),
-              _runtime_state(TUniqueId(), TQueryOptions(), "", &_exec_env),
-              _next_val(0) {
+    DataStreamTest() : _runtime_state(TUniqueId(), TQueryOptions(), "", &_exec_env), _next_val(0) {
         _exec_env.init_for_tests();
         _runtime_state.init_mem_trackers(TUniqueId());
     }
@@ -200,8 +197,6 @@ protected:
     static const int NUM_BATCHES = TOTAL_DATA_SIZE / BATCH_CAPACITY / PER_ROW_DATA;
 
     ObjectPool _obj_pool;
-    std::shared_ptr<MemTracker> _limit;
-    std::shared_ptr<MemTracker> _tracker;
     DescriptorTbl* _desc_tbl;
     const RowDescriptor* _row_desc;
     TupleRowComparator* _less_than;
@@ -324,8 +319,8 @@ protected:
         SlotRef* rhs_slot = _obj_pool.add(new SlotRef(expr_node));
         _rhs_slot_ctx = _obj_pool.add(new ExprContext(rhs_slot));
 
-        _lhs_slot_ctx->prepare(&_runtime_state, *_row_desc, _tracker.get());
-        _rhs_slot_ctx->prepare(&_runtime_state, *_row_desc, _tracker.get());
+        _lhs_slot_ctx->prepare(&_runtime_state, *_row_desc);
+        _rhs_slot_ctx->prepare(&_runtime_state, *_row_desc);
         _lhs_slot_ctx->open(nullptr);
         _rhs_slot_ctx->open(nullptr);
         SortExecExprs* sort_exprs = _obj_pool.add(new SortExecExprs());
@@ -337,7 +332,7 @@ protected:
 
     // Create _batch, but don't fill it with data yet. Assumes we created _row_desc.
     RowBatch* create_row_batch() {
-        RowBatch* batch = new RowBatch(*_row_desc, BATCH_CAPACITY, _limit.get());
+        RowBatch* batch = new RowBatch(*_row_desc, BATCH_CAPACITY);
         int64_t* tuple_mem =
                 reinterpret_cast<int64_t*>(batch->tuple_data_pool()->allocate(BATCH_CAPACITY * 8));
         bzero(tuple_mem, BATCH_CAPACITY * 8);
@@ -424,7 +419,7 @@ protected:
         if (info->status.is_cancelled()) {
             return;
         }
-        RowBatch batch(*_row_desc, 1024, _limit.get());
+        RowBatch batch(*_row_desc, 1024);
         VLOG_QUERY << "start reading merging";
         bool eos = false;
         while (!(info->status = info->stream_recvr->get_next(&batch, &eos)).is_cancelled()) {

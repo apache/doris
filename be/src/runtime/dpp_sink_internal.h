@@ -29,7 +29,6 @@
 namespace doris {
 
 class ExprContext;
-class MemTracker;
 class ObjectPool;
 class RuntimeState;
 class RowDescriptor;
@@ -192,8 +191,7 @@ public:
     static Status from_thrift(ObjectPool* pool, const TRangePartition& t_partition,
                               PartitionInfo* partition);
 
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                   const std::shared_ptr<MemTracker>& mem_tracker);
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
 
     Status open(RuntimeState* state);
 

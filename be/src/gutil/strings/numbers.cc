@@ -1488,26 +1488,26 @@ string AccurateItoaKMGT(int64 i) {
         i = -i;
     }
 
-    string ret = StringPrintf("%s", sign) + std::to_string(i) + " = " + StringPrintf("%s", sign);
+    string ret = StringPrintf("%s", sign);
     int64 val;
     if ((val = (i >> 40)) > 1) {
         ret += StringPrintf("%" PRId64
                             "%s"
-                            " + ",
+                            ",",
                             val, "T");
         i = i - (val << 40);
     }
     if ((val = (i >> 30)) > 1) {
         ret += StringPrintf("%" PRId64
                             "%s"
-                            " + ",
+                            ",",
                             val, "G");
         i = i - (val << 30);
     }
     if ((val = (i >> 20)) > 1) {
         ret += StringPrintf("%" PRId64
                             "%s"
-                            " + ",
+                            ",",
                             val, "M");
         i = i - (val << 20);
     }

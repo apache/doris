@@ -63,7 +63,7 @@ Status BrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status BrokerScanNode::prepare(RuntimeState* state) {
     VLOG_QUERY << "BrokerScanNode prepare";
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // get tuple desc
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -87,8 +87,8 @@ Status BrokerScanNode::prepare(RuntimeState* state) {
 
 Status BrokerScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
 
     RETURN_IF_ERROR(start_scanners());
@@ -107,7 +107,7 @@ Status BrokerScanNode::start_scanners() {
 
 Status BrokerScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // check if CANCELLED.
     if (state->is_cancelled()) {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
@@ -343,7 +343,10 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
                    // 1. too many batches in queue, or
                    // 2. at least one batch in queue and memory exceed limit.
                    (_batch_queue.size() >= _max_buffered_batches ||
-                    (mem_tracker()->any_limit_exceeded() && !_batch_queue.empty()))) {
+                    (thread_context()
+                             ->_thread_mem_tracker_mgr->limiter_mem_tracker()
+                             ->any_limit_exceeded() &&
+                     !_batch_queue.empty()))) {
                 _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
             }
             // Process already set failed, so we just return OK

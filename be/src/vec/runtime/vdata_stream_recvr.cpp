@@ -18,7 +18,7 @@
 #include "vec/runtime/vdata_stream_recvr.h"
 
 #include "gen_cpp/data.pb.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
@@ -92,7 +92,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
                                               ::google::protobuf::Closure** done) {
     // Avoid deadlock when calling SenderQueue::cancel() in tcmalloc hook,
     // limit memory via DataStreamRecvr::exceeds_limit.
-    STOP_CHECK_LIMIT_THREAD_LOCAL_MEM_TRACKER();
+    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
         return;
@@ -126,7 +126,6 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
         SCOPED_TIMER(_recvr->_deserialize_row_batch_timer);
         block = new Block(pblock);
     }
-    _recvr->_block_mem_tracker->consume(block->bytes());
 
     VLOG_ROW << "added #rows=" << block->rows() << " batch_size=" << block_byte_size << "\n";
     _block_queue.emplace_back(block_byte_size, block);
@@ -145,7 +144,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
 void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     // Avoid deadlock when calling SenderQueue::cancel() in tcmalloc hook,
     // limit memory via DataStreamRecvr::exceeds_limit.
-    STOP_CHECK_LIMIT_THREAD_LOCAL_MEM_TRACKER();
+    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     std::unique_lock<std::mutex> l(_lock);
     if (_is_cancelled) {
         return;
@@ -167,7 +166,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
 
     size_t block_size = nblock->bytes();
     _block_queue.emplace_back(block_size, nblock);
-    _recvr->_block_mem_tracker->consume(nblock->bytes());
     _data_arrival_cv.notify_one();
 
     if (_recvr->exceeds_limit(block_size)) {
@@ -264,12 +262,9 @@ VDataStreamRecvr::VDataStreamRecvr(
           _num_buffered_bytes(0),
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    _mem_tracker =
-            MemTracker::create_tracker(-1, "VDataStreamRecvr:" + print_id(_fragment_instance_id),
-                                       nullptr, MemTrackerLevel::VERBOSE, _profile);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    _block_mem_tracker = MemTracker::create_virtual_tracker(
-            -1, "VDataStreamRecvr:block:" + print_id(_fragment_instance_id), _mem_tracker);
+    _mem_tracker = std::make_unique<MemTracker>(
+            "VDataStreamRecvr:" + print_id(_fragment_instance_id), nullptr, _profile);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;
@@ -292,7 +287,6 @@ VDataStreamRecvr::VDataStreamRecvr(
 
 VDataStreamRecvr::~VDataStreamRecvr() {
     DCHECK(_mgr == nullptr) << "Must call close()";
-    MemTracker::memory_leak_check(_block_mem_tracker.get(), false);
 }
 
 Status VDataStreamRecvr::create_merger(const std::vector<VExprContext*>& ordering_expr,
@@ -300,7 +294,7 @@ Status VDataStreamRecvr::create_merger(const std::vector<VExprContext*>& orderin
                                        const std::vector<bool>& nulls_first, size_t batch_size,
                                        int64_t limit, size_t offset) {
     DCHECK(_is_merging);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     std::vector<BlockSupplier> child_block_suppliers;
     // Create the merger that will a single stream of sorted rows.
     _merger.reset(new VSortedRunMerger(ordering_expr, is_asc_order, nulls_first, batch_size, limit,
@@ -316,19 +310,19 @@ Status VDataStreamRecvr::create_merger(const std::vector<VExprContext*>& orderin
 
 void VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
                                  int64_t packet_seq, ::google::protobuf::Closure** done) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
 }
 
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(block, use_move);
 }
 
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     if (!_is_merging) {
         Block* res = nullptr;
         RETURN_IF_ERROR(_sender_queues[0]->get_batch(&res));
@@ -342,11 +336,6 @@ Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
         RETURN_IF_ERROR(_merger->get_next(block, eos));
     }
 
-    if (LIKELY(_block_mem_tracker->consumption() >= block->bytes())) {
-        _block_mem_tracker->release(block->bytes());
-    } else {
-        _block_mem_tracker->release(_block_mem_tracker->consumption());
-    }
     return Status::OK();
 }
 
@@ -375,7 +364,6 @@ void VDataStreamRecvr::close() {
     _mgr = nullptr;
 
     _merger.reset();
-    _block_mem_tracker->release(_block_mem_tracker->consumption());
 }
 
 } // namespace doris::vectorized

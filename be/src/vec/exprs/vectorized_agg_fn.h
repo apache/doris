@@ -33,8 +33,7 @@ public:
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, MemPool* pool,
                    const SlotDescriptor* intermediate_slot_desc,
-                   const SlotDescriptor* output_slot_desc,
-                   const std::shared_ptr<MemTracker>& mem_tracker);
+                   const SlotDescriptor* output_slot_desc);
 
     void set_timer(RuntimeProfile::Counter* exec_timer, RuntimeProfile::Counter* merge_timer,
                    RuntimeProfile::Counter* expr_timer) {

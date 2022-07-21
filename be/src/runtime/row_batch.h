@@ -394,15 +394,6 @@ public:
     std::string to_string();
 
 private:
-    // Back up the current thread local mem tracker. Used when transferring buffer memory between row batches.
-    // Memory operations in the actual row batch are automatically recorded in the thread local mem tracker.
-    // Change the recording position in the mem tracker specified by the external switch.
-    // Note: Raw pointers cannot be used directly, because when transferring_resource_ownership to other RowBatch,
-    // the src mem tracker when creating the current RowBatch may have been destroyed.
-    // At this time, the transfer of memory ownership cannot be completed, resulting in consumption > 0
-    // when the src mem tracker is destructed, and the memory statistics of the dst mem tracker are missing.
-    std::shared_ptr<MemTracker> _mem_tracker;
-
     // Close owned tuple streams and delete if needed.
     void close_tuple_streams();
 

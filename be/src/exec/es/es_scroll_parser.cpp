@@ -28,7 +28,7 @@
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/string_value.h"
 #include "util/string_parser.hpp"
 #include "vec/runtime/vdatetime_value.h"
@@ -353,7 +353,9 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED,
                                                           "MaterializeNextRow", len, "string slot");
-                RETURN_LIMIT_EXCEEDED(tuple_pool->mem_tracker(), nullptr, details, len, rst);
+                RETURN_LIMIT_EXCEEDED(
+                        thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(), nullptr,
+                        details, len, rst);
             }
             memcpy(buffer, _id.data(), len);
             reinterpret_cast<StringValue*>(slot)->ptr = buffer;
@@ -413,7 +415,9 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(
                         ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");
-                RETURN_LIMIT_EXCEEDED(tuple_pool->mem_tracker(), nullptr, details, val_size, rst);
+                RETURN_LIMIT_EXCEEDED(
+                        thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(), nullptr,
+                        details, val_size, rst);
             }
             memcpy(buffer, val.data(), val_size);
             reinterpret_cast<StringValue*>(slot)->ptr = buffer;

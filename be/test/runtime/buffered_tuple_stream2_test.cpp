@@ -60,7 +60,7 @@ static const int NUM_STRINGS = sizeof(STRINGS) / sizeof(StringValue);
 
 class SimpleTupleStreamTest : public testing::Test {
 public:
-    SimpleTupleStreamTest() : _tracker(new MemTracker(-1)) {}
+    SimpleTupleStreamTest() {}
     // A null dtor to pass codestyle check
     ~SimpleTupleStreamTest() {}
 
@@ -68,7 +68,7 @@ protected:
     virtual void SetUp() {
         _test_env.reset(new TestEnv());
         create_descriptors();
-        _mem_pool.reset(new MemPool(_tracker.get()));
+        _mem_pool.reset(new MemPool());
     }
 
     virtual void create_descriptors() {
@@ -99,8 +99,7 @@ protected:
     void InitBlockMgr(int64_t limit, int block_size) {
         Status status = _test_env->create_query_state(0, limit, block_size, &_runtime_state);
         EXPECT_TRUE(status.ok());
-        status = _runtime_state->block_mgr2()->register_client(0, _tracker, _runtime_state,
-                                                               &_client);
+        status = _runtime_state->block_mgr2()->register_client(0, _runtime_state, &_client);
         EXPECT_TRUE(status.ok());
     }
 
@@ -209,7 +208,7 @@ protected:
     void ReadValues(BufferedTupleStream2* stream, RowDescriptor* desc, std::vector<T>* results,
                     int num_batches = -1) {
         bool eos = false;
-        RowBatch batch(*desc, BATCH_SIZE, _tracker.get());
+        RowBatch batch(*desc, BATCH_SIZE);
         int batches_read = 0;
         do {
             batch.reset();
@@ -354,7 +353,6 @@ protected:
     RuntimeState* _runtime_state;
     BufferedBlockMgr2::Client* _client;
 
-    std::shared_ptr<MemTracker> _tracker;
     ObjectPool _pool;
     RowDescriptor* _int_desc;
     RowDescriptor* _string_desc;
@@ -784,7 +782,7 @@ TEST_F(ArrayTupleStreamTest, TestArrayDeepCopy) {
     array_len_index = 0;
     bool eos = false;
     int rows_read = 0;
-    RowBatch batch(*_array_desc, BATCH_SIZE, _tracker.get());
+    RowBatch batch(*_array_desc, BATCH_SIZE);
     do {
         batch.reset();
         EXPECT_TRUE(stream.get_next(&batch, &eos).ok());

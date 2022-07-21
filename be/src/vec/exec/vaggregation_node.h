@@ -520,7 +520,7 @@ private:
     bool _is_merge;
     std::unique_ptr<MemPool> _mem_pool;
 
-    std::shared_ptr<MemTracker> _data_mem_tracker;
+    std::unique_ptr<MemTracker> _data_mem_tracker;
 
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.

@@ -31,7 +31,7 @@
 #include "olap_utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -43,7 +43,7 @@ namespace doris {
 
 OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
                          bool need_agg_finalize, const TPaloScanRange& scan_range,
-                         const std::shared_ptr<MemTracker>& tracker)
+                         MemTracker* tracker)
         : _runtime_state(runtime_state),
           _parent(parent),
           _tuple_desc(parent->_tuple_desc),
@@ -52,12 +52,7 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
           _version(-1) {
-#ifndef NDEBUG
-    _mem_tracker = MemTracker::create_tracker(tracker->limit(),
-                                              "OlapScanner:" + tls_ctx()->thread_id_str(), tracker);
-#else
     _mem_tracker = tracker;
-#endif
 }
 
 Status OlapScanner::prepare(
@@ -65,7 +60,7 @@ Status OlapScanner::prepare(
         const std::vector<TCondition>& filters,
         const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
         const std::vector<FunctionFilter>& function_filters) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     set_tablet_reader();
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader->set_batch_size(
@@ -136,7 +131,7 @@ Status OlapScanner::open() {
     auto span = _runtime_state->get_tracer()->StartSpan("OlapScanner::open");
     auto scope = opentelemetry::trace::Scope {span};
     SCOPED_TIMER(_parent->_reader_init_timer);
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     if (_conjunct_ctxs.size() > _parent->_direct_conjunct_size) {
         _use_pushdown_conjuncts = true;
@@ -298,14 +293,14 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
 }
 
 Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     // 2. Allocate Row's Tuple buf
     uint8_t* tuple_buf =
             batch->tuple_data_pool()->allocate(state->batch_size() * _tuple_desc->byte_size());
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
-    std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker));
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     {

@@ -33,7 +33,7 @@
 #include "exprs/slot_ref.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/test_env.h"
@@ -47,9 +47,7 @@ namespace doris {
 class HashTableTest : public testing::Test {
 public:
     HashTableTest() {
-        _tracker = MemTracker::create_tracker(-1, "root");
-        _pool_tracker = MemTracker::create_tracker(-1, "mem-pool", _tracker);
-        _mem_pool.reset(new MemPool(_pool_tracker.get()));
+        _mem_pool.reset(new MemPool());
         _state = _pool.add(new RuntimeState(TQueryGlobals()));
         _state->init_instance_mem_tracker();
         _state->_exec_env = ExecEnv::GetInstance();
@@ -57,8 +55,6 @@ public:
 
 protected:
     RuntimeState* _state;
-    std::shared_ptr<MemTracker> _tracker;
-    std::shared_ptr<MemTracker> _pool_tracker;
     ObjectPool _pool;
     std::shared_ptr<MemPool> _mem_pool;
     std::vector<ExprContext*> _build_expr;
@@ -71,12 +67,12 @@ protected:
 
         auto build_slot_ref = _pool.add(new SlotRef(int_desc, 0));
         _build_expr.push_back(_pool.add(new ExprContext(build_slot_ref)));
-        status = Expr::prepare(_build_expr, _state, desc, _tracker);
+        status = Expr::prepare(_build_expr, _state, desc);
         EXPECT_TRUE(status.ok());
 
         auto probe_slot_ref = _pool.add(new SlotRef(int_desc, 0));
         _probe_expr.push_back(_pool.add(new ExprContext(probe_slot_ref)));
-        status = Expr::prepare(_probe_expr, _state, desc, _tracker);
+        status = Expr::prepare(_probe_expr, _state, desc);
         EXPECT_TRUE(status.ok());
     }
 
@@ -195,9 +191,6 @@ TEST_F(HashTableTest, SetupTest) {
 // testing for probe rows that are both there and not.
 // The hash table is rehashed a few times and the scans/finds are tested again.
 TEST_F(HashTableTest, BasicTest) {
-    std::shared_ptr<MemTracker> hash_table_tracker =
-            MemTracker::create_tracker(-1, "hash-table-basic-tracker", _tracker);
-
     TupleRow* build_rows[5];
     TupleRow* scan_rows[5] = {0};
 
@@ -219,7 +212,7 @@ TEST_F(HashTableTest, BasicTest) {
     int initial_seed = 1;
     int64_t num_buckets = 4;
     HashTable hash_table(_build_expr, _probe_expr, 1, false, is_null_safe, initial_seed,
-                         hash_table_tracker, num_buckets);
+                         num_buckets);
 
     for (int i = 0; i < 5; ++i) {
         hash_table.insert(build_rows[i]);
@@ -259,14 +252,11 @@ TEST_F(HashTableTest, BasicTest) {
 
 // This tests makes sure we can scan ranges of buckets
 TEST_F(HashTableTest, ScanTest) {
-    std::shared_ptr<MemTracker> hash_table_tracker =
-            MemTracker::create_tracker(-1, "hash-table-scan-tracker", _tracker);
-
     std::vector<bool> is_null_safe = {false};
     int initial_seed = 1;
     int64_t num_buckets = 4;
     HashTable hash_table(_build_expr, _probe_expr, 1, false, is_null_safe, initial_seed,
-                         hash_table_tracker, num_buckets);
+                         num_buckets);
     // Add 1 row with val 1, 2 with val 2, etc
     std::vector<TupleRow*> build_rows;
     ProbeTestData probe_rows[15];
@@ -313,14 +303,13 @@ TEST_F(HashTableTest, GrowTableTest) {
     int num_to_add = LOOP_LESS_OR_MORE(2, 4);
     int expected_size = 0;
 
-    std::shared_ptr<MemTracker> mem_tracker =
-            MemTracker::create_tracker(1024 * 1024, "hash-table-grow-tracker", _tracker);
+    int mem_limit = 1024 * 1024;
     std::vector<bool> is_null_safe = {false};
     int initial_seed = 1;
     int64_t num_buckets = 4;
     HashTable hash_table(_build_expr, _probe_expr, 1, false, is_null_safe, initial_seed,
-                         mem_tracker, num_buckets);
-    EXPECT_FALSE(mem_tracker->limit_exceeded());
+                         num_buckets);
+    EXPECT_FALSE(hash_table.mem_tracker()->limit_exceeded(mem_limit));
 
     for (int i = 0; i < LOOP_LESS_OR_MORE(1, 20); ++i) {
         for (int j = 0; j < num_to_add; ++build_row_val, ++j) {
@@ -331,9 +320,10 @@ TEST_F(HashTableTest, GrowTableTest) {
         num_to_add *= 2;
         EXPECT_EQ(hash_table.size(), expected_size);
     }
-    LOG(INFO) << "consume:" << mem_tracker->consumption() << ",expected_size:" << expected_size;
+    LOG(INFO) << "consume:" << hash_table.mem_tracker()->consumption()
+              << ",expected_size:" << expected_size;
 
-    EXPECT_EQ(LOOP_LESS_OR_MORE(0, 1), mem_tracker->limit_exceeded());
+    EXPECT_EQ(LOOP_LESS_OR_MORE(0, 1), hash_table.mem_tracker()->limit_exceeded(mem_limit));
 
     // Validate that we can find the entries
     for (int i = 0; i < expected_size * 5; i += 100000) {
@@ -354,13 +344,11 @@ TEST_F(HashTableTest, GrowTableTest) {
 TEST_F(HashTableTest, GrowTableTest2) {
     int build_row_val = 0;
 
-    std::shared_ptr<MemTracker> mem_tracker =
-            MemTracker::create_tracker(1024 * 1024 * 1024, "hash-table-grow2-tracker", _tracker);
     std::vector<bool> is_null_safe = {false};
     int initial_seed = 1;
     int64_t num_buckets = 4;
     HashTable hash_table(_build_expr, _probe_expr, 1, false, is_null_safe, initial_seed,
-                         mem_tracker, num_buckets);
+                         num_buckets);
 
     LOG(INFO) << time(nullptr);
 

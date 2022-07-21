@@ -28,7 +28,7 @@ namespace doris {
 struct Chunk;
 class ChunkArena;
 class MetricEntity;
-class MemTracker;
+class MemTrackerLimiter;
 class Status;
 
 // Used to allocate memory with power-of-two length.
@@ -62,23 +62,25 @@ public:
 
     ChunkAllocator(size_t reserve_limit);
 
-    // Allocate a Chunk with a power-of-two length "size".
-    // Return true if success and allocated chunk is saved in "chunk".
-    // Otherwise return false.
-    Status allocate(size_t size, Chunk* chunk, MemTracker* tracker = nullptr,
-                    bool check_limits = false);
-
-    Status allocate_align(size_t size, Chunk* chunk, MemTracker* tracker = nullptr,
-                          bool check_limits = false);
+    // Up size to 2^n length, allocate a chunk.
+    Status allocate_align(size_t size, Chunk* chunk);
 
     // Free chunk allocated from this allocator
-    void free(const Chunk& chunk, MemTracker* tracker = nullptr);
+    void free(const Chunk& chunk);
 
     // Transfer the memory ownership to the chunk allocator.
     // If the chunk allocator is full, then free to the system.
     // Note: make sure that the length of 'data' is equal to size,
     // otherwise the capacity of chunk allocator will be wrong.
-    void free(uint8_t* data, size_t size, MemTracker* tracker = nullptr);
+    void free(uint8_t* data, size_t size);
+
+private:
+    friend class MemPool;
+
+    // Allocate a Chunk with a power-of-two length "size".
+    // Return true if success and allocated chunk is saved in "chunk".
+    // Otherwise return false.
+    Status allocate(size_t size, Chunk* Chunk);
 
 private:
     static ChunkAllocator* _s_instance;
@@ -93,7 +95,7 @@ private:
 
     std::shared_ptr<MetricEntity> _chunk_allocator_metric_entity;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 } // namespace doris

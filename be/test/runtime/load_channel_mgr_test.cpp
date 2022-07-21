@@ -30,7 +30,6 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/primitive_type.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
@@ -354,7 +353,6 @@ TEST_F(LoadChannelMgrTest, add_failed) {
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
-    auto tracker = std::make_shared<MemTracker>();
     PUniqueId load_id;
     load_id.set_hi(2);
     load_id.set_lo(3);

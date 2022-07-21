@@ -878,7 +878,7 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     }
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
-    _mem_pool.reset(new MemPool("PushBrokerReader"));
+    _mem_pool.reset(new MemPool());
     _counter.reset(new ScannerCounter());
 
     // init scanner

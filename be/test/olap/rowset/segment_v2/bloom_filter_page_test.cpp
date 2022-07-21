@@ -26,7 +26,6 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/logging.h"
 
 using doris::segment_v2::PageBuilderOptions;
@@ -64,8 +63,7 @@ public:
         status = bf_page_decoder.seek_to_position_in_page(0);
         EXPECT_TRUE(status.ok());
 
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
+        MemPool pool;
         Slice* values = reinterpret_cast<Slice*>(pool.allocate(sizeof(Slice)));
         ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values, nullptr, 2,
                           &pool);

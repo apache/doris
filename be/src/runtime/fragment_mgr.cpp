@@ -255,8 +255,7 @@ Status FragmentExecState::execute() {
 Status FragmentExecState::cancel_before_execute() {
     // set status as 'abort', cuz cancel() won't effect the status arg of DataSink::close().
 #ifndef BE_TEST
-    SCOPED_ATTACH_TASK_THREAD(executor()->runtime_state()->query_type(),
-                              executor()->runtime_state()->instance_mem_tracker());
+    SCOPED_ATTACH_TASK(executor()->runtime_state());
 #endif
     _executor.set_abort();
     _executor.cancel();
@@ -495,8 +494,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
             .instance_id(exec_state->fragment_instance_id())
             .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
 #ifndef BE_TEST
-    SCOPED_ATTACH_TASK_THREAD(exec_state->executor()->runtime_state(),
-                              exec_state->executor()->runtime_state()->instance_mem_tracker());
+    SCOPED_ATTACH_TASK(exec_state->executor()->runtime_state());
 #endif
     exec_state->execute();
 

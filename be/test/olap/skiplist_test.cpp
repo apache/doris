@@ -24,7 +24,6 @@
 
 #include "olap/schema.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "testutil/test_util.h"
 #include "util/hash_util.hpp"
 #include "util/priority_thread_pool.hpp"
@@ -50,8 +49,7 @@ struct TestComparator {
 class SkipTest : public testing::Test {};
 
 TEST_F(SkipTest, Empty) {
-    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool());
 
     TestComparator* cmp = new TestComparator();
     SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
@@ -69,8 +67,7 @@ TEST_F(SkipTest, Empty) {
 }
 
 TEST_F(SkipTest, InsertAndLookup) {
-    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool());
 
     const int N = 2000;
     const int R = 5000;
@@ -151,8 +148,7 @@ TEST_F(SkipTest, InsertAndLookup) {
 
 // Only non-DUP model will use Find() and InsertWithHint().
 TEST_F(SkipTest, InsertWithHintNoneDupModel) {
-    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool());
 
     const int N = 2000;
     const int R = 5000;
@@ -258,7 +254,6 @@ private:
     // Current state of the test
     State _current;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::shared_ptr<TestComparator> _comparator;
     // SkipList is not protected by _mu.  We just use a single writer
@@ -267,8 +262,7 @@ private:
 
 public:
     ConcurrentTest()
-            : _mem_tracker(new MemTracker(-1)),
-              _mem_pool(new MemPool(_mem_tracker.get())),
+            : _mem_pool(new MemPool()),
               _comparator(new TestComparator()),
               _list(_comparator.get(), _mem_pool.get(), false) {}
 

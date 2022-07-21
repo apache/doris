@@ -22,8 +22,8 @@
 #include <list>
 #include <mutex>
 
-#include "runtime/mem_tracker.h"
 #include "runtime/memory/chunk.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/system_allocator.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
@@ -101,7 +101,6 @@ public:
         // Poison this chunk to make asan can detect invalid access
         ASAN_POISON_MEMORY_REGION(ptr, size);
         std::lock_guard<SpinLock> l(_lock);
-        // TODO(zxy) The memory of vector resize is not recorded in chunk allocator mem tracker
         _chunk_lists[idx].push_back(ptr);
     }
 
@@ -120,9 +119,7 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
           _steal_arena_limit(reserve_limit * 0.1),
           _reserved_bytes(0),
           _arenas(CpuInfo::get_max_num_cores()) {
-    _mem_tracker =
-            MemTracker::create_tracker(-1, "ChunkAllocator", nullptr, MemTrackerLevel::OVERVIEW);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_END_CLEAR(_mem_tracker);
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(-1, "ChunkAllocator");
     for (int i = 0; i < _arenas.size(); ++i) {
         _arenas[i].reset(new ChunkArena());
     }
@@ -138,18 +135,8 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
     INT_GAUGE_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_reserved_bytes);
 }
 
-Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, bool check_limits) {
-    MemTracker* reset_tracker =
-            tracker ? tracker : tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get();
-    // In advance, transfer the memory ownership of allocate from ChunkAllocator::tracker to the parameter tracker.
-    // Next, if the allocate is successful, it will exit normally;
-    // if the allocate fails, return this part of the memory to the parameter tracker.
-    if (check_limits) {
-        RETURN_IF_ERROR(_mem_tracker->try_transfer_to(reset_tracker, size));
-    } else {
-        _mem_tracker->transfer_to(reset_tracker, size);
-    }
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+Status ChunkAllocator::allocate(size_t size, Chunk* chunk) {
+    DCHECK(BitUtil::RoundUpToPowerOfTwo(size) == size);
 
     // fast path: allocate from current core arena
     int core_id = CpuInfo::get_current_core();
@@ -160,6 +147,8 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
         DCHECK_GE(_reserved_bytes, 0);
         _reserved_bytes.fetch_sub(size);
         chunk_pool_local_core_alloc_count->increment(1);
+        // transfer the memory ownership of allocate from ChunkAllocator::tracker to the tls tracker.
+        THREAD_MEM_TRACKER_TRANSFER_FROM(size, _mem_tracker.get());
         return Status::OK();
     }
     // Second path: try to allocate from other core's arena
@@ -175,6 +164,8 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
                 chunk_pool_other_core_alloc_count->increment(1);
                 // reset chunk's core_id to other
                 chunk->core_id = core_id % _arenas.size();
+                // transfer the memory ownership of allocate from ChunkAllocator::tracker to the tls tracker.
+                THREAD_MEM_TRACKER_TRANSFER_FROM(size, _mem_tracker.get());
                 return Status::OK();
             }
         }
@@ -189,23 +180,13 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
     chunk_pool_system_alloc_count->increment(1);
     chunk_pool_system_alloc_cost_ns->increment(cost_ns);
     if (chunk->data == nullptr) {
-        // allocate fails, return this part of the memory to the parameter tracker.
-        reset_tracker->transfer_to(_mem_tracker.get(), size);
         return Status::MemoryAllocFailed("ChunkAllocator failed to allocate chunk {} bytes", size);
     }
     return Status::OK();
 }
 
-void ChunkAllocator::free(const Chunk& chunk, MemTracker* tracker) {
-    // The chunk's memory ownership is transferred from tls tracker to ChunkAllocator.
+void ChunkAllocator::free(const Chunk& chunk) {
     DCHECK(chunk.core_id != -1);
-    if (tracker) {
-        tracker->transfer_to(_mem_tracker.get(), chunk.size);
-    } else {
-        tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker.get(),
-                                                                       chunk.size);
-    }
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t old_reserved_bytes = _reserved_bytes;
     int64_t new_reserved_bytes = 0;
     do {
@@ -232,20 +213,21 @@ void ChunkAllocator::free(const Chunk& chunk, MemTracker* tracker) {
     if (_reserved_bytes % 100 == 32) {
         chunk_pool_reserved_bytes->set_value(_reserved_bytes);
     }
+    // The chunk's memory ownership is transferred from tls tracker to ChunkAllocator.
+    THREAD_MEM_TRACKER_TRANSFER_TO(chunk.size, _mem_tracker.get());
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
 }
 
-Status ChunkAllocator::allocate_align(size_t size, Chunk* chunk, MemTracker* tracker,
-                                      bool check_limits) {
-    return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk, tracker, check_limits);
+Status ChunkAllocator::allocate_align(size_t size, Chunk* chunk) {
+    return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk);
 }
 
-void ChunkAllocator::free(uint8_t* data, size_t size, MemTracker* tracker) {
+void ChunkAllocator::free(uint8_t* data, size_t size) {
     Chunk chunk;
     chunk.data = data;
     chunk.size = size;
     chunk.core_id = CpuInfo::get_current_core();
-    free(chunk, tracker);
+    free(chunk);
 }
 
 } // namespace doris

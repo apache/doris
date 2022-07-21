@@ -31,8 +31,7 @@ public:
     static Status from_thrift(ObjectPool* pool, const TRangePartition& t_partition,
                               VPartitionInfo* partition);
 
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                   const std::shared_ptr<MemTracker>& mem_tracker);
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
 
     Status open(RuntimeState* state);
 

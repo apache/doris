@@ -102,7 +102,6 @@ public:
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     PlanNodeId dest_node_id() const { return _dest_node_id; }
     const RowDescriptor& row_desc() const { return _row_desc; }
-    const std::shared_ptr<MemTracker>& mem_tracker() const { return _mem_tracker; }
 
     void add_sub_plan_statistics(const PQueryStatistics& statistics, int sender_id) {
         _sub_plan_query_statistics_recvr->insert(statistics, sender_id);
@@ -157,7 +156,7 @@ private:
     std::atomic<int> _num_buffered_bytes;
 
     // Memtracker for batches in the sender queue(s).
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     // One or more queues of row batches received from senders. If _is_merging is true,
     // there is one SenderQueue for each sender. Otherwise, row batches from all senders

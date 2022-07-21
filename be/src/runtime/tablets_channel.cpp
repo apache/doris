@@ -36,7 +36,6 @@ TabletsChannel::TabletsChannel(const TabletsChannelKey& key, bool is_high_priori
           _closed_senders(64),
           _is_high_priority(is_high_priority),
           _is_vec(is_vec) {
-    _mem_tracker = MemTracker::create_tracker(-1, "TabletsChannel:" + std::to_string(key.index_id));
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
@@ -206,6 +205,14 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
         }
     }
     return Status::OK();
+}
+
+int64_t TabletsChannel::mem_consumption() {
+    int64_t mem_usage = 0;
+    for (auto& it : _tablet_writers) {
+        mem_usage += it.second->mem_consumption();
+    }
+    return mem_usage;
 }
 
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {

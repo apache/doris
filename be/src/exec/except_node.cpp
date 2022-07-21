@@ -39,8 +39,8 @@ Status ExceptNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status ExceptNode::open(RuntimeState* state) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Except Node, while probing the hash table.");
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Except Node, while probing the hash table.");
     RETURN_IF_ERROR(SetOperationNode::open(state));
     // if a table is empty, the result must be empty
     if (_hash_tbl->size() == 0) {
@@ -87,7 +87,7 @@ Status ExceptNode::open(RuntimeState* state) {
 Status ExceptNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eos) {
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     *eos = true;
     if (reached_limit()) {
         return Status::OK();

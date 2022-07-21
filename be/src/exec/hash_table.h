@@ -90,8 +90,7 @@ public:
     //  - initial_seed: Initial seed value to use when computing hashes for rows
     HashTable(const std::vector<ExprContext*>& build_exprs,
               const std::vector<ExprContext*>& probe_exprs, int num_build_tuples, bool stores_nulls,
-              const std::vector<bool>& finds_nulls, int32_t initial_seed,
-              const std::shared_ptr<MemTracker>& mem_tracker, int64_t num_buckets);
+              const std::vector<bool>& finds_nulls, int32_t initial_seed, int64_t num_buckets);
 
     ~HashTable();
 
@@ -196,6 +195,8 @@ public:
     std::string debug_string(bool skip_empty, const RowDescriptor* build_desc);
 
     std::pair<int64_t, int64_t> minmax_node();
+
+    MemTracker* mem_tracker() { return _mem_tracker.get(); }
 
     // Load factor that will trigger growing the hash table on insert.  This is
     // defined as the number of non-empty buckets / total_buckets
@@ -448,7 +449,7 @@ private:
     // total capacity
     int64_t _total_capacity;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     std::vector<Bucket> _buckets;
 

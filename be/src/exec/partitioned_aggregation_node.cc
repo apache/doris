@@ -37,7 +37,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -183,11 +183,11 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     state_ = state;
 
-    mem_pool_.reset(new MemPool(mem_tracker().get()));
-    agg_fn_pool_.reset(new MemPool(expr_mem_tracker().get()));
+    mem_pool_.reset(new MemPool(mem_tracker()));
+    agg_fn_pool_.reset(new MemPool(mem_tracker()));
 
     ht_resize_timer_ = ADD_TIMER(runtime_profile(), "HTResizeTime");
     get_results_timer_ = ADD_TIMER(runtime_profile(), "GetResultsTime");
@@ -228,16 +228,16 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
     // TODO chenhao
     const RowDescriptor& row_desc = child(0)->row_desc();
     RETURN_IF_ERROR(NewAggFnEvaluator::Create(agg_fns_, state, _pool, agg_fn_pool_.get(),
-                                              &agg_fn_evals_, expr_mem_tracker(), row_desc));
+                                              &agg_fn_evals_, row_desc));
 
-    expr_results_pool_.reset(new MemPool(expr_mem_tracker().get()));
+    expr_results_pool_.reset(new MemPool(mem_tracker()));
     if (!grouping_exprs_.empty()) {
         RowDescriptor build_row_desc(intermediate_tuple_desc_, false);
         RETURN_IF_ERROR(PartitionedHashTableCtx::Create(
                 _pool, state, build_exprs_, grouping_exprs_, true,
                 vector<bool>(build_exprs_.size(), true), state->fragment_hash_seed(),
-                MAX_PARTITION_DEPTH, 1, nullptr, expr_results_pool_.get(), expr_mem_tracker(),
-                build_row_desc, row_desc, &ht_ctx_));
+                MAX_PARTITION_DEPTH, 1, nullptr, expr_results_pool_.get(), build_row_desc, row_desc,
+                &ht_ctx_));
     }
     // AddCodegenDisabledMessage(state);
     return Status::OK();
@@ -245,10 +245,10 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
 
 Status PartitionedAggregationNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     // Open the child before consuming resources in this node.
     RETURN_IF_ERROR(child(0)->open(state));
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     // Claim reservation after the child has been opened to reduce the peak reservation
     // requirement.
@@ -343,7 +343,7 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
 }
 
 Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // 1. `!need_finalize` means this aggregation node not the level two aggregation node
     // 2. `grouping_exprs_.size() == 0 ` means is not group by
     // 3. `child(0)->rows_returned() == 0` mean not data from child
@@ -411,7 +411,8 @@ Status PartitionedAggregationNode::CopyStringData(const SlotDescriptor& slot_des
                     "Cannot perform aggregation at node with id $0."
                     " Failed to allocate $1 output bytes.",
                     _id, sv->len);
-            RETURN_LIMIT_EXCEEDED(pool->mem_tracker(), state_, details, sv->len, rst);
+            RETURN_LIMIT_EXCEEDED(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(),
+                                  state_, details, sv->len, rst);
         }
         memcpy(new_ptr, sv->ptr, sv->len);
         sv->ptr = new_ptr;
@@ -724,7 +725,7 @@ PartitionedAggregationNode::Partition::~Partition() {
 }
 
 Status PartitionedAggregationNode::Partition::InitStreams() {
-    agg_fn_pool.reset(new MemPool(parent->expr_mem_tracker().get()));
+    agg_fn_pool.reset(new MemPool(parent->mem_tracker()));
     DCHECK_EQ(agg_fn_evals.size(), 0);
     NewAggFnEvaluator::ShallowClone(parent->partition_pool_.get(), agg_fn_pool.get(),
                                     parent->agg_fn_evals_, &agg_fn_evals);
@@ -850,7 +851,8 @@ Status PartitionedAggregationNode::Partition::Spill(bool more_aggregate_rows) {
     // TODO(ml): enable spill
     std::stringstream msg;
     msg << "New partitioned Aggregation in spill";
-    RETURN_LIMIT_EXCEEDED(parent->state_->query_mem_tracker(), parent->state_, msg.str());
+    RETURN_LIMIT_EXCEEDED(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(),
+                          parent->state_, msg.str());
 
     RETURN_IF_ERROR(SerializeStreamForSpilling());
 
@@ -929,11 +931,15 @@ Tuple* PartitionedAggregationNode::ConstructIntermediateTuple(
             << "to allocate $1 bytes for intermediate tuple. "
             << "Backend: " << BackendOptions::get_localhost() << ", "
             << "fragment: " << print_id(state_->fragment_instance_id()) << " "
-            << "Used: " << pool->mem_tracker()->consumption()
-            << ", Limit: " << pool->mem_tracker()->limit() << ". "
+            << "Used: "
+            << thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->consumption()
+            << ", Limit: "
+            << thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->limit() << ". "
             << "You can change the limit by session variable exec_mem_limit.";
         string details = Substitute(str.str(), _id, tuple_data_size);
-        *status = pool->mem_tracker()->mem_limit_exceeded(state_, details, tuple_data_size, rst);
+        *status = thread_context()
+                          ->_thread_mem_tracker_mgr->limiter_mem_tracker()
+                          ->mem_limit_exceeded(state_, details, tuple_data_size, rst);
         return nullptr;
     }
     memset(tuple_data, 0, fixed_size);

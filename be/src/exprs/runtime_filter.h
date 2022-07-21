@@ -159,12 +159,10 @@ public:
 
     // This function can be called multiple times
     Status get_prepared_context(std::vector<ExprContext*>* push_expr_ctxs,
-                                const RowDescriptor& desc,
-                                const std::shared_ptr<MemTracker>& tracker);
+                                const RowDescriptor& desc);
 
     Status get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* push_vexprs,
-                               const RowDescriptor& desc,
-                               const std::shared_ptr<MemTracker>& tracker);
+                               const RowDescriptor& desc);
 
     bool is_broadcast_join() const { return _is_broadcast_join; }
 

@@ -28,7 +28,6 @@ class TExpr;
 class TMysqlTableSink;
 class RuntimeState;
 class RuntimeProfile;
-class MemTracker;
 namespace vectorized {
 
 class VExprContext;
@@ -68,7 +67,6 @@ private:
     VMysqlTableWriter* _writer;
 
     RuntimeProfile* _profile;
-    std::shared_ptr<MemTracker> _mem_tracker;
 };
 } // namespace vectorized
 } // namespace doris

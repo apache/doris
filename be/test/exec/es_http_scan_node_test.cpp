@@ -40,7 +40,7 @@ namespace doris {
 class EsHttpScanNodeTest : public testing::Test {
 public:
     EsHttpScanNodeTest() : _runtime_state(TQueryGlobals()) {
-        _runtime_state._instance_mem_tracker.reset(new MemTracker());
+        _runtime_state.init_instance_mem_tracker();
         TDescriptorTable t_desc_table;
 
         // table descriptors

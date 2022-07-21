@@ -67,13 +67,12 @@ Status VUnionNode::prepare(RuntimeState* state) {
             ADD_TIMER(_runtime_profile, "MaterializeExprsEvaluateTimer");
     // Prepare const expr lists.
     for (const std::vector<VExprContext*>& exprs : _const_expr_lists) {
-        RETURN_IF_ERROR(VExpr::prepare(exprs, state, row_desc(), expr_mem_tracker()));
+        RETURN_IF_ERROR(VExpr::prepare(exprs, state, row_desc()));
     }
 
     // Prepare result expr lists.
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
-        RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc(),
-                                       expr_mem_tracker()));
+        RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
     return Status::OK();
 }

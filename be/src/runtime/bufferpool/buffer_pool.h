@@ -172,8 +172,8 @@ public:
     /// 'reservation_limit' and associated with MemTracker 'mem_tracker'. The initial
     /// reservation is 0 bytes.
     Status RegisterClient(const std::string& name, ReservationTracker* parent_reservation,
-                          const std::shared_ptr<MemTracker>& mem_tracker, int64_t reservation_limit,
-                          RuntimeProfile* profile, ClientHandle* client) WARN_UNUSED_RESULT;
+                          int64_t reservation_limit, RuntimeProfile* profile,
+                          ClientHandle* client) WARN_UNUSED_RESULT;
 
     /// Deregister 'client' if it is registered. All pages must be destroyed and buffers
     /// must be freed for the client before calling this. Releases any reservation that

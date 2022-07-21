@@ -31,7 +31,6 @@
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "testutil/test_util.h"
 #include "util/file_utils.h"
 #include "vec/core/types.h"
@@ -51,7 +50,7 @@ static const std::string TEST_DIR = "./ut_dir/column_reader_writer_test";
 
 class ColumnReaderWriterTest : public testing::Test {
 public:
-    ColumnReaderWriterTest() : _tracker(new MemTracker()), _pool(_tracker.get()) {}
+    ColumnReaderWriterTest() : _pool() {}
     ~ColumnReaderWriterTest() override = default;
 
 protected:
@@ -70,7 +69,6 @@ protected:
     }
 
 private:
-    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
 };
 
@@ -155,8 +153,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             st = iter->seek_to_first();
             EXPECT_TRUE(st.ok()) << st.to_string();
 
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -207,8 +204,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             st = iter->init(iter_opts);
             EXPECT_TRUE(st.ok());
 
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -332,8 +328,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
             st = iter->seek_to_first();
             EXPECT_TRUE(st.ok()) << st.to_string();
 
-            MemTracker tracker;
-            MemPool pool(&tracker);
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
             cvb->resize(1024);
@@ -359,8 +354,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         }
         // seek read
         {
-            MemTracker tracker;
-            MemPool pool(&tracker);
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
             cvb->resize(1024);
@@ -468,8 +462,7 @@ void test_read_default_value(string value, void* result) {
             st = iter.seek_to_first();
             EXPECT_TRUE(st.ok()) << st.to_string();
 
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -499,8 +492,7 @@ void test_read_default_value(string value, void* result) {
         }
 
         {
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
             cvb->resize(1024);

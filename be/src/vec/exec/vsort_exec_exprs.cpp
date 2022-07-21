@@ -46,14 +46,11 @@ Status VSortExecExprs::init(const std::vector<VExprContext*>& lhs_ordering_expr_
 }
 
 Status VSortExecExprs::prepare(RuntimeState* state, const RowDescriptor& child_row_desc,
-                               const RowDescriptor& output_row_desc,
-                               const std::shared_ptr<MemTracker>& expr_mem_tracker) {
+                               const RowDescriptor& output_row_desc) {
     if (_materialize_tuple) {
-        RETURN_IF_ERROR(VExpr::prepare(_sort_tuple_slot_expr_ctxs, state, child_row_desc,
-                                       expr_mem_tracker));
+        RETURN_IF_ERROR(VExpr::prepare(_sort_tuple_slot_expr_ctxs, state, child_row_desc));
     }
-    RETURN_IF_ERROR(
-            VExpr::prepare(_lhs_ordering_expr_ctxs, state, output_row_desc, expr_mem_tracker));
+    RETURN_IF_ERROR(VExpr::prepare(_lhs_ordering_expr_ctxs, state, output_row_desc));
     return Status::OK();
 }
 
