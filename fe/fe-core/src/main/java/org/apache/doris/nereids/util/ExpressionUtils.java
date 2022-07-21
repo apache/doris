@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.ExpressionType;
+import org.apache.doris.nereids.trees.expressions.Or;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -98,8 +100,8 @@ public class ExpressionUtils {
             }
         }
 
-        Optional<Expression> result =
-                distinctExpressions.stream().reduce((left, right) -> new CompoundPredicate(op, left, right));
+        Optional<Expression> result = distinctExpressions.stream()
+                .reduce(op == ExpressionType.AND ? And::new : Or::new);
         return result.orElse(new BooleanLiteral(op == ExpressionType.AND));
     }
 }

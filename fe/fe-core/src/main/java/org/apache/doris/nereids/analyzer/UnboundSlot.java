@@ -85,6 +85,11 @@ public class UnboundSlot extends Slot implements Unbound {
     }
 
     @Override
+    public int hashCode() {
+        return Objects.hash(nameParts.toArray());
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUnboundSlot(this, context);
     }
