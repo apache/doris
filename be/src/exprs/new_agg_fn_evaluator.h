@@ -33,7 +33,6 @@
 namespace doris {
 
 class MemPool;
-class MemTracker;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
@@ -63,13 +62,11 @@ public:
     /// even if this function returns error status on initialization failure.
     static Status Create(const AggFn& agg_fn, RuntimeState* state, ObjectPool* pool,
                          MemPool* mem_pool, NewAggFnEvaluator** eval,
-                         const std::shared_ptr<MemTracker>& tracker,
                          const RowDescriptor& row_desc) WARN_UNUSED_RESULT;
 
     /// Convenience functions for creating evaluators for multiple aggregate functions.
     static Status Create(const std::vector<AggFn*>& agg_fns, RuntimeState* state, ObjectPool* pool,
                          MemPool* mem_pool, std::vector<NewAggFnEvaluator*>* evals,
-                         const std::shared_ptr<MemTracker>& tracker,
                          const RowDescriptor& row_desc) WARN_UNUSED_RESULT;
 
     ~NewAggFnEvaluator();

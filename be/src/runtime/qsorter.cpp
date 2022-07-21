@@ -79,9 +79,7 @@ bool TupleRowLessThan::operator()(TupleRow* const& lhs, TupleRow* const& rhs) co
 
 QSorter::QSorter(const RowDescriptor& row_desc, const std::vector<ExprContext*>& order_expr_ctxs,
                  RuntimeState* state)
-        : _row_desc(row_desc),
-          _order_expr_ctxs(order_expr_ctxs),
-          _tuple_pool(new MemPool("QSorter")) {}
+        : _row_desc(row_desc), _order_expr_ctxs(order_expr_ctxs), _tuple_pool(new MemPool()) {}
 
 Status QSorter::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::clone_if_not_exists(_order_expr_ctxs, state, &_lhs_expr_ctxs));

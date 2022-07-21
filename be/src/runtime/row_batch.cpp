@@ -44,8 +44,7 @@ const int RowBatch::AT_CAPACITY_MEM_USAGE = 8 * 1024 * 1024;
 const int RowBatch::FIXED_LEN_BUFFER_LIMIT = AT_CAPACITY_MEM_USAGE / 2;
 
 RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity)
-        : _mem_tracker(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()),
-          _has_in_flight_row(false),
+        : _has_in_flight_row(false),
           _num_rows(0),
           _num_uncommitted_rows(0),
           _capacity(capacity),
@@ -70,8 +69,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity)
 // to allocated string data in special mempool
 // (change via python script that runs over Data_types.cc)
 RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
-        : _mem_tracker(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()),
-          _has_in_flight_row(false),
+        : _has_in_flight_row(false),
           _num_rows(input_batch.num_rows()),
           _num_uncommitted_rows(0),
           _capacity(_num_rows),
@@ -326,7 +324,6 @@ void RowBatch::add_io_buffer(DiskIoMgr::BufferDescriptor* buffer) {
     DCHECK(buffer != nullptr);
     _io_buffers.push_back(buffer);
     _auxiliary_mem_usage += buffer->buffer_len();
-    buffer->update_mem_tracker(_mem_tracker.get());
 }
 
 Status RowBatch::resize_and_allocate_tuple_buffer(RuntimeState* state, int64_t* tuple_buffer_size,
@@ -405,7 +402,6 @@ void RowBatch::transfer_resource_ownership(RowBatch* dest) {
         DiskIoMgr::BufferDescriptor* buffer = _io_buffers[i];
         dest->_io_buffers.push_back(buffer);
         dest->_auxiliary_mem_usage += buffer->buffer_len();
-        buffer->update_mem_tracker(dest->_mem_tracker.get());
     }
     _io_buffers.clear();
 
@@ -514,7 +510,6 @@ void RowBatch::acquire_state(RowBatch* src) {
         DiskIoMgr::BufferDescriptor* buffer = src->_io_buffers[i];
         _io_buffers.push_back(buffer);
         _auxiliary_mem_usage += buffer->buffer_len();
-        buffer->update_mem_tracker(_mem_tracker.get());
     }
     src->_io_buffers.clear();
     src->_auxiliary_mem_usage = 0;

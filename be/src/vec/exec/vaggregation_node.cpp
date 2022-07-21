@@ -232,20 +232,18 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
 Status AggregationNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _serialize_key_timer = ADD_TIMER(runtime_profile(), "SerializeKeyTimer");
     _exec_timer = ADD_TIMER(runtime_profile(), "ExecTime");
     _merge_timer = ADD_TIMER(runtime_profile(), "MergeTime");
     _expr_timer = ADD_TIMER(runtime_profile(), "ExprTime");
     _get_results_timer = ADD_TIMER(runtime_profile(), "GetResultsTime");
-    _data_mem_tracker =
-            MemTracker::create_virtual_tracker(-1, "AggregationNode:Data", mem_tracker());
+    _data_mem_tracker = std::make_unique<MemTracker>("AggregationNode:Data");
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
-    RETURN_IF_ERROR(
-            VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc(), expr_mem_tracker()));
+    RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
 
     _mem_pool = std::make_unique<MemPool>();
 
@@ -263,7 +261,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(state, child(0)->row_desc(),
                                                           _mem_pool.get(), intermediate_slot_desc,
-                                                          output_slot_desc, mem_tracker()));
+                                                          output_slot_desc));
     }
 
     // set profile timer to evaluators
@@ -361,9 +359,9 @@ Status AggregationNode::prepare(RuntimeState* state) {
 Status AggregationNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("aggregator, while execute open.");
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("aggregator, while execute open.");
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
 
@@ -405,8 +403,8 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
 Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "AggregationNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("aggregator, while execute get_next.");
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("aggregator, while execute get_next.");
 
     if (_is_streaming_preagg) {
         bool child_eos = false;

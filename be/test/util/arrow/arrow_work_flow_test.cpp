@@ -30,7 +30,7 @@
 #include "olap/row.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker_task_pool.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -69,6 +69,7 @@ protected:
             delete _exec_env->_result_queue_mgr;
             delete _exec_env->_thread_mgr;
             delete _exec_env->_buffer_reservation;
+            delete _exec_env->_task_pool_mem_tracker_registry;
         }
     }
 
@@ -83,7 +84,6 @@ private:
     TPlanNode _tnode;
     ExecEnv* _exec_env = nullptr;
     RuntimeState* _state = nullptr;
-    std::shared_ptr<MemTracker> _mem_tracker;
 }; // end class ArrowWorkFlowTest
 
 void ArrowWorkFlowTest::init() {
@@ -96,7 +96,7 @@ void ArrowWorkFlowTest::init_runtime_state() {
     _exec_env->_result_queue_mgr = new ResultQueueMgr();
     _exec_env->_thread_mgr = new ThreadResourceMgr();
     _exec_env->_buffer_reservation = new ReservationTracker();
-    _exec_env->_task_pool_mem_tracker_registry.reset(new MemTrackerTaskPool());
+    _exec_env->_task_pool_mem_tracker_registry = new MemTrackerTaskPool();
     _exec_env->_is_init = true;
     TQueryOptions query_options;
     query_options.batch_size = 1024;
@@ -105,8 +105,6 @@ void ArrowWorkFlowTest::init_runtime_state() {
     query_id.hi = 100;
     _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _exec_env);
     _state->init_instance_mem_tracker();
-    _mem_tracker =
-            MemTracker::create_tracker(-1, "ArrowWorkFlowTest", _state->instance_mem_tracker());
     _state->set_desc_tbl(_desc_tbl);
     _state->_load_dir = "./test_run/output/";
     _state->init_mem_trackers(TUniqueId());

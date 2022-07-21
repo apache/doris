@@ -23,6 +23,7 @@
 
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/storage_engine.h"
 #include "olap/storage_policy_mgr.h"
 #include "olap/tablet_meta.h"
 #include "testutil/mock_rowset.h"
@@ -34,11 +35,13 @@ namespace doris {
 
 using RowsetMetaSharedContainerPtr = std::shared_ptr<std::vector<RowsetMetaSharedPtr>>;
 
+static StorageEngine* k_engine = nullptr;
+
 class TestTablet : public testing::Test {
 public:
     virtual ~TestTablet() {}
 
-    virtual void SetUp() {
+    void SetUp() override {
         _tablet_meta = new_tablet_meta(TTabletSchema());
         _json_rowset_meta = R"({
             "rowset_id": 540081,
@@ -88,9 +91,19 @@ public:
                 }]
             }
         })";
+
+        doris::EngineOptions options;
+        k_engine = new StorageEngine(options);
+        StorageEngine::_s_instance = k_engine;
     }
 
-    virtual void TearDown() {}
+    void TearDown() override {
+        if (k_engine != nullptr) {
+            k_engine->stop();
+            delete k_engine;
+            k_engine = nullptr;
+        }
+    }
 
     TabletMetaSharedPtr new_tablet_meta(TTabletSchema schema, bool enable_merge_on_write = false) {
         return static_cast<TabletMetaSharedPtr>(

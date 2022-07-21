@@ -56,7 +56,7 @@ Status VTableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VTableFunctionNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(TableFunctionNode::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_vfn_ctxs, state, _row_descriptor, expr_mem_tracker()));
+    RETURN_IF_ERROR(VExpr::prepare(_vfn_ctxs, state, _row_descriptor));
 
     // get current all output slots
     for (const auto& tuple_desc : this->row_desc().tuple_descriptors()) {

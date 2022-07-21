@@ -71,7 +71,7 @@ Status ExportSink::prepare(RuntimeState* state) {
     SCOPED_TIMER(_profile->total_time_counter());
 
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _expr_mem_tracker));
+    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc));
 
     // TODO(lingbin): add some Counter
     _bytes_written_counter = ADD_COUNTER(profile(), "BytesExported", TUnit::BYTES);

@@ -634,7 +634,7 @@ CONF_Int32(aws_log_level, "3");
 CONF_mInt32(remote_storage_read_buffer_mb, "16");
 
 // Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
-CONF_Bool(track_new_delete, "true");
+CONF_Bool(enable_tcmalloc_hook, "true");
 
 // If true, switch TLS MemTracker to count more detailed memory,
 // including caches such as ExecNode operators and TabletManager.
@@ -647,25 +647,11 @@ CONF_Bool(track_new_delete, "true");
 //       2. Consider using raw pointers for mem tracker in thread local
 CONF_Bool(memory_verbose_track, "false");
 
-// Default level of MemTracker to show in web page
-// now MemTracker support two level:
-//      OVERVIEW: 0
-//      TASK: 1
-//      INSTANCE: 2
-//      VERBOSE: 3
-// the level equal or lower than mem_tracker_level will show in web page
-CONF_mInt16(mem_tracker_level, "0");
-
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
 // Decreasing this value will increase the frequency of consume/release.
 // Increasing this value will cause MemTracker statistics to be inaccurate.
 CONF_mInt32(mem_tracker_consume_min_size_bytes, "4194304");
-
-// When MemTracker is a negative value, it is considered that a memory leak has occurred,
-// but the actual MemTracker records inaccurately will also cause a negative value,
-// so this feature is in the experimental stage.
-CONF_mBool(memory_leak_detection, "false");
 
 // The version information of the tablet will be stored in the memory
 // in an adjacency graph data structure.
