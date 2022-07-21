@@ -273,6 +273,9 @@ public class ConnectProcessor {
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             // set is as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
+            UUID uuid = UUID.randomUUID();
+            TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            ctx.setQueryId(queryId);
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe palo bug.
