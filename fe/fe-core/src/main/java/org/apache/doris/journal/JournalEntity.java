@@ -147,6 +147,11 @@ public class JournalEntity implements Writable {
         boolean isRead = false;
         LOG.debug("get opcode: {}", opCode);
         switch (opCode) {
+            case OperationType.OP_LOCAL_EOF: {
+                data = null;
+                isRead = true;
+                break;
+            }
             case OperationType.OP_SAVE_NEXTID: {
                 data = new Text();
                 ((Text) data).readFields(in);

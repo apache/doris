@@ -27,7 +27,7 @@ import java.util.Objects;
  * Compound predicate expression.
  * Such as &&,||,AND,OR.
  */
-public class CompoundPredicate extends Expression implements BinaryExpression {
+public abstract class CompoundPredicate extends Expression implements BinaryExpression {
 
     /**
      * Desc: Constructor for CompoundPredicate.
@@ -58,7 +58,7 @@ public class CompoundPredicate extends Expression implements BinaryExpression {
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        return new CompoundPredicate(getType(), children.get(0), children.get(1));
+        throw  new RuntimeException("The withChildren() method is not implemented");
     }
 
     @Override
@@ -72,6 +72,11 @@ public class CompoundPredicate extends Expression implements BinaryExpression {
         CompoundPredicate other = (CompoundPredicate) o;
         return (type == other.getType()) && Objects.equals(left(), other.left())
                 && Objects.equals(right(), other.right());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(getType(), left(), right());
     }
 
     @Override

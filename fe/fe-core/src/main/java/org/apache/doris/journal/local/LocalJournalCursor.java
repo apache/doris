@@ -17,33 +17,11 @@
 
 package org.apache.doris.journal.local;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
-import org.apache.doris.journal.bdbje.Timestamp;
-import org.apache.doris.load.DeleteInfo;
-import org.apache.doris.load.LoadErrorHub;
-import org.apache.doris.load.LoadJob;
-import org.apache.doris.persist.BatchDropInfo;
-import org.apache.doris.persist.BatchModifyPartitionsInfo;
-import org.apache.doris.persist.ConsistencyCheckInfo;
-import org.apache.doris.persist.CreateTableInfo;
-import org.apache.doris.persist.DatabaseInfo;
-import org.apache.doris.persist.DropInfo;
-import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLogFileInputStream;
-import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.OperationType;
-import org.apache.doris.persist.PartitionPersistInfo;
-import org.apache.doris.persist.RecoverInfo;
-import org.apache.doris.persist.RefreshExternalTableInfo;
-import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.Storage;
-import org.apache.doris.persist.TableInfo;
-import org.apache.doris.system.Backend;
-import org.apache.doris.system.Frontend;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -55,7 +33,10 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 
-@Deprecated
+/**
+ * For unit test only.
+ * Use local file save edit logs.
+ */
 public final class LocalJournalCursor implements JournalCursor {
     private static final Logger LOG = LogManager.getLogger(LocalJournalCursor.class);
     private String imageDir;
@@ -121,14 +102,62 @@ public final class LocalJournalCursor implements JournalCursor {
                 new EditLogFileInputStream(new File(imageDir, "edits." + fileName))));
 
         while (scannedKey < fromKey) {
-            short opCode = currentStream.readShort();
-            if (opCode == OperationType.OP_INVALID) {
-                System.out.println("Can not find the key:" + fromKey);
-                throw new IOException();
-            }
-            getJournalEntity(currentStream, opCode);
+            getJournalEntity(currentStream);
             scannedKey++;
         }
+    }
+
+    public JournalEntity next2() {
+        if (currentKey > toKey) {
+            return null;
+        }
+
+        JournalEntity ret = null;
+        try {
+            short opCode = OperationType.OP_LOCAL_EOF;
+
+            while (true) {
+                try {
+                    opCode = currentStream.readShort();
+                    if (opCode == OperationType.OP_LOCAL_EOF) {
+                        if (nextFilePositionIndex < editFileSequenceNumbers.size()) {
+                            currentStream.close();
+                            currentStream = new DataInputStream(new BufferedInputStream(new EditLogFileInputStream(
+                                    new File(imageDir,
+                                            "edits." + editFileSequenceNumbers.get(nextFilePositionIndex)))));
+                            nextFilePositionIndex++;
+                            continue;
+                        } else {
+                            return null;
+                        }
+                    }
+                } catch (EOFException e) {
+                    if (nextFilePositionIndex < editFileSequenceNumbers.size()) {
+                        currentStream.close();
+                        currentStream = new DataInputStream(new BufferedInputStream(new EditLogFileInputStream(
+                                new File(imageDir, "edits." + editFileSequenceNumbers.get(nextFilePositionIndex)))));
+                        nextFilePositionIndex++;
+                        continue;
+                    } else {
+                        return null;
+                    }
+                }
+                break;
+            }
+
+            ret = getJournalEntity(currentStream);
+            currentKey++;
+            return ret;
+        } catch (IOException e) {
+            LOG.error("something wrong. {}", e);
+            try {
+                currentStream.close();
+            } catch (IOException e1) {
+                LOG.error(e1);
+            }
+            LOG.error(e);
+        }
+        return ret;
     }
 
     @Override
@@ -139,17 +168,15 @@ public final class LocalJournalCursor implements JournalCursor {
 
         JournalEntity ret = null;
         try {
-            short opCode = OperationType.OP_INVALID;
-
             while (true) {
                 try {
-                    opCode = currentStream.readShort();
-                    if (opCode == OperationType.OP_INVALID) {
+                    ret = getJournalEntity(currentStream);
+                    if (ret.getOpCode() == OperationType.OP_LOCAL_EOF) {
                         if (nextFilePositionIndex < editFileSequenceNumbers.size()) {
                             currentStream.close();
                             currentStream = new DataInputStream(new BufferedInputStream(new EditLogFileInputStream(
-                                    new File(imageDir, "edits." + editFileSequenceNumbers
-                                            .get(nextFilePositionIndex)))));
+                                    new File(imageDir,
+                                            "edits." + editFileSequenceNumbers.get(nextFilePositionIndex)))));
                             nextFilePositionIndex++;
                             continue;
                         } else {
@@ -159,9 +186,8 @@ public final class LocalJournalCursor implements JournalCursor {
                 } catch (EOFException e) {
                     if (nextFilePositionIndex < editFileSequenceNumbers.size()) {
                         currentStream.close();
-                        currentStream = new DataInputStream(
-                                new BufferedInputStream(new EditLogFileInputStream(new File(
-                                        imageDir, "edits." + editFileSequenceNumbers.get(nextFilePositionIndex)))));
+                        currentStream = new DataInputStream(new BufferedInputStream(new EditLogFileInputStream(
+                                new File(imageDir, "edits." + editFileSequenceNumbers.get(nextFilePositionIndex)))));
                         nextFilePositionIndex++;
                         continue;
                     } else {
@@ -171,7 +197,6 @@ public final class LocalJournalCursor implements JournalCursor {
                 break;
             }
 
-            ret = getJournalEntity(currentStream, opCode);
             currentKey++;
             return ret;
         } catch (IOException e) {
@@ -187,187 +212,9 @@ public final class LocalJournalCursor implements JournalCursor {
     }
 
     @Deprecated
-    private JournalEntity getJournalEntity(DataInputStream in, short opCode) throws IOException {
+    private JournalEntity getJournalEntity(DataInputStream in) throws IOException {
         JournalEntity ret = new JournalEntity();
-        ret.setOpCode(opCode);
-        switch (opCode) {
-            case OperationType.OP_SAVE_NEXTID: {
-                Text text = new Text();
-                text.readFields(in);
-                ret.setData(text);
-                break;
-            }
-            case OperationType.OP_SAVE_TRANSACTION_ID: {
-                Text text = new Text();
-                text.readFields(in);
-                ret.setData(text);
-                break;
-            }
-            case OperationType.OP_CREATE_DB: {
-                Database db = new Database();
-                db.readFields(in);
-                ret.setData(db);
-                break;
-            }
-            case OperationType.OP_DROP_DB: {
-                Text text = new Text();
-                text.readFields(in);
-                ret.setData(text);
-                break;
-            }
-            case OperationType.OP_ALTER_DB:
-            case OperationType.OP_RENAME_DB: {
-                DatabaseInfo info = new DatabaseInfo();
-                info.readFields(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_CREATE_TABLE: {
-                CreateTableInfo info = new CreateTableInfo();
-                info.readFields(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_DROP_TABLE: {
-                DropInfo info = new DropInfo();
-                info.readFields(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
-                RefreshExternalTableInfo info = RefreshExternalTableInfo.read(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_ADD_PARTITION: {
-                PartitionPersistInfo info = new PartitionPersistInfo();
-                info.readFields(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_DROP_PARTITION: {
-                DropPartitionInfo info = DropPartitionInfo.read(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_MODIFY_PARTITION: {
-                ModifyPartitionInfo info = ModifyPartitionInfo.read(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_BATCH_MODIFY_PARTITION: {
-                BatchModifyPartitionsInfo info = BatchModifyPartitionsInfo.read(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_ERASE_DB:
-            case OperationType.OP_ERASE_TABLE:
-            case OperationType.OP_ERASE_PARTITION: {
-                Text text = new Text();
-                text.readFields(in);
-                ret.setData(text);
-                break;
-            }
-            case OperationType.OP_RECOVER_DB:
-            case OperationType.OP_RECOVER_TABLE:
-            case OperationType.OP_RECOVER_PARTITION: {
-                RecoverInfo recoverInfo = new RecoverInfo();
-                recoverInfo.readFields(in);
-                ret.setData(recoverInfo);
-                break;
-            }
-            case OperationType.OP_CLEAR_ROLLUP_INFO: {
-                ReplicaPersistInfo info = ReplicaPersistInfo.read(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_DROP_ROLLUP: {
-                DropInfo info = DropInfo.read(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_BATCH_DROP_ROLLUP: {
-                BatchDropInfo batchDropInfo = BatchDropInfo.read(in);
-                ret.setData(batchDropInfo);
-                break;
-            }
-            case OperationType.OP_RENAME_TABLE:
-            case OperationType.OP_RENAME_ROLLUP:
-            case OperationType.OP_RENAME_PARTITION: {
-                TableInfo info = TableInfo.read(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_FINISH_CONSISTENCY_CHECK: {
-                ConsistencyCheckInfo info = ConsistencyCheckInfo.read(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_LOAD_START:
-            case OperationType.OP_LOAD_ETL:
-            case OperationType.OP_LOAD_LOADING:
-            case OperationType.OP_LOAD_QUORUM:
-            case OperationType.OP_LOAD_DONE:
-            case OperationType.OP_LOAD_CANCEL: {
-                LoadJob job = new LoadJob();
-                job.readFields(in);
-                ret.setData(job);
-                break;
-            }
-            case OperationType.OP_FINISH_DELETE: {
-                DeleteInfo info = DeleteInfo.read(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_ADD_REPLICA:
-            case OperationType.OP_DELETE_REPLICA: {
-                ReplicaPersistInfo info = ReplicaPersistInfo.read(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_ADD_BACKEND:
-            case OperationType.OP_DROP_BACKEND:
-            case OperationType.OP_BACKEND_STATE_CHANGE: {
-                Backend be = Backend.read(in);
-                ret.setData(be);
-                break;
-            }
-            case OperationType.OP_ADD_FRONTEND:
-            case OperationType.OP_ADD_FIRST_FRONTEND:
-            case OperationType.OP_REMOVE_FRONTEND: {
-                Frontend fe = Frontend.read(in);
-                ret.setData(fe);
-                break;
-            }
-            case OperationType.OP_SET_LOAD_ERROR_HUB: {
-                LoadErrorHub.Param param = new LoadErrorHub.Param();
-                param.readFields(in);
-                ret.setData(param);
-                break;
-            }
-            case OperationType.OP_MASTER_INFO_CHANGE: {
-                MasterInfo info = new MasterInfo();
-                info.readFields(in);
-                ret.setData(info);
-                break;
-            }
-            case OperationType.OP_TIMESTAMP: {
-                Timestamp stamp = new Timestamp();
-                stamp.readFields(in);
-                ret.setData(stamp);
-                break;
-            }
-            case OperationType.OP_META_VERSION: {
-                Text text = new Text();
-                text.readFields(in);
-                ret.setData(text);
-                break;
-            }
-
-            default: {
-                throw new IOException("Never seen opcode " + opCode);
-            }
-        }
+        ret.readFields(in);
         return ret;
     }
 

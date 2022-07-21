@@ -35,7 +35,7 @@
 
 #include "exprs/anyval_util.h"
 #include "runtime/datetime_value.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/user_function_cache.h"
 #include "udf/udf_internal.h"
@@ -145,7 +145,6 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, bool is_analytic_fn)
 Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, MemPool* pool,
                                const SlotDescriptor* intermediate_slot_desc,
                                const SlotDescriptor* output_slot_desc,
-                               const std::shared_ptr<MemTracker>& mem_tracker,
                                FunctionContext** agg_fn_ctx) {
     DCHECK(pool != nullptr);
     DCHECK(intermediate_slot_desc != nullptr);
@@ -155,9 +154,9 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
     _intermediate_slot_desc = intermediate_slot_desc;
 
     _string_buffer_len = 0;
-    _mem_tracker = MemTracker::create_virtual_tracker(-1, "AggFnEvaluator", mem_tracker);
+    _mem_tracker = std::make_unique<MemTracker>("AggFnEvaluator");
 
-    Status status = Expr::prepare(_input_exprs_ctxs, state, desc, mem_tracker);
+    Status status = Expr::prepare(_input_exprs_ctxs, state, desc);
     RETURN_IF_ERROR(status);
 
     ObjectPool* obj_pool = state->obj_pool();

@@ -86,9 +86,26 @@ You can also use IDE embedded GUI tools to run maven command to generate sources
 If you are developing on the OS which lack of support to run `shell script` and `make` such as Windows, a workround here 
 is generate codes in Linux and copy them back. Using Docker should also be an option.
 
+#### arm mac compile failed
+
+An error would occur if you generated sources using maven on arm mac. Detailed error messages are as follows.
+
+```
+[ERROR] Failed to execute goal org.xolstice.maven.plugins:protobuf-maven-plugin:0.6.1:compile (grpc-build) on project apm-network: Unable to resolve artifact: Missing:
+[ERROR] 1) com.google.protobuf:protoc:exe:osx-aarch_64:3.14.0
+[ERROR] 1 required artifact is missing.
+```
+
+Since protobuf v3.14.0 and protoc-gen-grpc-java v1.30.0 don't come up with osx-aarch_64 version, given the advice by [grpc_community], you'd better manually download the corresponding osx_x86 version and then translate them by Rosseta2.
+
+1. open `doris/fe/fe-core/pom.xml`
+2. change `<protocArtifact>com.google.protobuf:protoc:${protobuf.version}</protocArtifact>` to `<protocArtifact>com.google.protobuf:protoc:3.14.0:exe:osx-x86_64</protocArtifact>`
+3. change `<pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</pluginArtifact>` to `<pluginArtifact>io.grpc:protoc-gen-grpc-java:1.30.0:exe:osx-x86_64</pluginArtifact>`
+4. open terminal and paste `softwareupdate --install-rosetta`
+
 ### help document
 
-If a help document has not been generated, go to the docs directory and run`sh build_help_zip.sh`，
+If a help document has not been generated, go to the docs directory and run `sh build_help_zip.sh`，
    
 Then copy help-resource.zip from build to fe/fe-core/target/classes
 

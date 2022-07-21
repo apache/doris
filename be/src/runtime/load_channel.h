@@ -26,7 +26,7 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 #include "runtime/thread_context.h"
 #include "util/uid_util.h"
@@ -39,7 +39,7 @@ class Cache;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTracker>& mem_tracker,
+    LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTrackerLimiter> mem_tracker,
                 int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
                 bool is_vec);
     ~LoadChannel();
@@ -99,7 +99,7 @@ private:
 
     UniqueId _load_id;
     // Tracks the total memory consumed by current load job on this BE
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
 
     // lock protect the tablets channel map
     std::mutex _lock;
@@ -129,6 +129,7 @@ private:
 template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
 Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
                               TabletWriterAddResult* response) {
+    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;

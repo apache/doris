@@ -24,19 +24,19 @@
 #include "olap/storage_engine.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/initial_reservations.h"
+#include "runtime/memory/mem_tracker_task_pool.h"
 #include "runtime/result_queue_mgr.h"
 #include "util/disk_info.h"
 #include "util/priority_thread_pool.hpp"
 
 namespace doris {
 
-TestEnv::TestEnv()
-        : _block_mgr_parent_tracker(MemTracker::create_tracker(-1, "BufferedBlockMgr2")) {
+TestEnv::TestEnv() {
     // Some code will use ExecEnv::GetInstance(), so init the global ExecEnv singleton
     _exec_env = ExecEnv::GetInstance();
     _exec_env->_thread_mgr = new ThreadResourceMgr(2);
     _exec_env->_buffer_reservation = new ReservationTracker();
-    _exec_env->_task_pool_mem_tracker_registry.reset(new MemTrackerTaskPool());
+    _exec_env->_task_pool_mem_tracker_registry = new MemTrackerTaskPool();
     _exec_env->_disk_io_mgr = new DiskIoMgr(1, 1, 1, 10);
     _exec_env->disk_io_mgr()->init(-1);
     _exec_env->_scan_thread_pool = new PriorityThreadPool(1, 16);
@@ -63,6 +63,7 @@ TestEnv::~TestEnv() {
     SAFE_DELETE(_exec_env->_buffer_pool);
     SAFE_DELETE(_exec_env->_scan_thread_pool);
     SAFE_DELETE(_exec_env->_disk_io_mgr);
+    SAFE_DELETE(_exec_env->_task_pool_mem_tracker_registry);
     SAFE_DELETE(_exec_env->_buffer_reservation);
     SAFE_DELETE(_exec_env->_thread_mgr);
 
@@ -88,9 +89,8 @@ Status TestEnv::create_query_state(int64_t query_id, int max_buffers, int block_
     }
 
     std::shared_ptr<BufferedBlockMgr2> mgr;
-    RETURN_IF_ERROR(BufferedBlockMgr2::create(
-            *runtime_state, (*runtime_state)->runtime_profile(), _tmp_file_mgr.get(),
-            calculate_mem_tracker(max_buffers, block_size), block_size, &mgr));
+    RETURN_IF_ERROR(BufferedBlockMgr2::create(*runtime_state, (*runtime_state)->runtime_profile(),
+                                              _tmp_file_mgr.get(), block_size, &mgr));
     (*runtime_state)->set_block_mgr2(mgr);
     // (*runtime_state)->_block_mgr = mgr;
 

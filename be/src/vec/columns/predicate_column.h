@@ -264,7 +264,7 @@ public:
                                  uint32_t* start_offset_array, size_t num) override {
         if constexpr (std::is_same_v<T, StringValue>) {
             if (_pool == nullptr) {
-                _pool.reset(new MemPool("PredicateStringColumn"));
+                _pool.reset(new MemPool());
             }
 
             size_t total_mem_size = 0;

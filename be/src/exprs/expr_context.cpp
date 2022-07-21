@@ -28,7 +28,6 @@
 #include "exprs/expr.h"
 #include "exprs/slot_ref.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -46,14 +45,11 @@ ExprContext::~ExprContext() {
     }
 }
 
-Status ExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                            const std::shared_ptr<MemTracker>& tracker) {
+Status ExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     DCHECK(!_prepared);
-    _mem_tracker = tracker;
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     DCHECK(_pool.get() == nullptr);
     _prepared = true;
-    _pool.reset(new MemPool(_mem_tracker.get()));
+    _pool.reset(new MemPool());
     return _root->prepare(state, row_desc, this);
 }
 
@@ -62,7 +58,6 @@ Status ExprContext::open(RuntimeState* state) {
     if (_opened) {
         return Status::OK();
     }
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     _opened = true;
     // Fragment-local state is only initialized for original contexts. Clones inherit the
     // original's fragment state and only need to have thread-local state initialized.
@@ -108,10 +103,9 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx) {
     DCHECK(_prepared);
     DCHECK(_opened);
     DCHECK(*new_ctx == nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     *new_ctx = state->obj_pool()->add(new ExprContext(_root));
-    (*new_ctx)->_pool.reset(new MemPool(_pool->mem_tracker()));
+    (*new_ctx)->_pool.reset(new MemPool());
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         (*new_ctx)->_fn_contexts.push_back(_fn_contexts[i]->impl()->clone((*new_ctx)->_pool.get()));
     }
@@ -119,7 +113,6 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx) {
     (*new_ctx)->_is_clone = true;
     (*new_ctx)->_prepared = true;
     (*new_ctx)->_opened = true;
-    (*new_ctx)->_mem_tracker = _mem_tracker;
 
     return _root->open(state, *new_ctx, FunctionContext::THREAD_LOCAL);
 }
@@ -128,10 +121,9 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx, Expr* root
     DCHECK(_prepared);
     DCHECK(_opened);
     DCHECK(*new_ctx == nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     *new_ctx = state->obj_pool()->add(new ExprContext(root));
-    (*new_ctx)->_pool.reset(new MemPool(_pool->mem_tracker()));
+    (*new_ctx)->_pool.reset(new MemPool());
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         (*new_ctx)->_fn_contexts.push_back(_fn_contexts[i]->impl()->clone((*new_ctx)->_pool.get()));
     }
@@ -139,13 +131,11 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx, Expr* root
     (*new_ctx)->_is_clone = true;
     (*new_ctx)->_prepared = true;
     (*new_ctx)->_opened = true;
-    (*new_ctx)->_mem_tracker = _mem_tracker;
 
     return root->open(state, *new_ctx, FunctionContext::THREAD_LOCAL);
 }
 
 void ExprContext::free_local_allocations() {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     free_local_allocations(_fn_contexts);
 }
 
@@ -411,8 +401,9 @@ Status ExprContext::get_const_value(RuntimeState* state, Expr& expr, AnyVal** co
             Status rst;
             char* ptr_copy = reinterpret_cast<char*>(_pool->try_allocate(sv->len, &rst));
             if (ptr_copy == nullptr) {
-                RETURN_LIMIT_EXCEEDED(_pool->mem_tracker(), state,
-                                      "Could not allocate constant string value", sv->len, rst);
+                RETURN_LIMIT_EXCEEDED(
+                        thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(), state,
+                        "Could not allocate constant string value", sv->len, rst);
             }
             memcpy(ptr_copy, sv->ptr, sv->len);
             sv->ptr = reinterpret_cast<uint8_t*>(ptr_copy);

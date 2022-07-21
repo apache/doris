@@ -192,7 +192,6 @@ message ColumnPB {
     optional bool visible = 16 [default=true];
     repeated ColumnPB children_columns = 17;
     repeated string children_column_names = 18;
-    optional int32 col_unique_id = 19 [default=-1]; // default is important
 }
 
 enum SortType {
