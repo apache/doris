@@ -484,7 +484,7 @@ You can use [STOP SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-
 
 ## Case Combat
 
-[How to use Apache Doris Binlog Load and examples](https://doris.apache.org/zh-CN/article/articles/doris-binlog-load.md)
+[How to use Apache Doris Binlog Load and examples](https://doris.apache.org/blogs/PracticalCases/doris-binlog-load.html)
 
 ## Related Parameters
 
