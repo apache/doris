@@ -189,7 +189,8 @@ public class Memo {
                 }
             }
             GroupExpression that = groupExpressions.get(groupExpression);
-            if (that != null) {
+            if (that != null && that.getOwnerGroup() != null
+                    && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
                 // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
                 // that.getOwnerGroup() already has this groupExpression.
                 Group ownerGroup = groupExpression.getOwnerGroup();
@@ -199,10 +200,11 @@ public class Memo {
                 groupExpressions.put(groupExpression, groupExpression);
             }
         }
-
-        source.moveLogicalExpressionOwnership(destination);
-        source.movePhysicalExpressionOwnership(destination);
-        groups.remove(source);
+        if (!source.equals(destination)) {
+            source.moveLogicalExpressionOwnership(destination);
+            source.movePhysicalExpressionOwnership(destination);
+            groups.remove(source);
+        }
     }
 
     /**
