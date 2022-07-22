@@ -1727,7 +1727,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
         Map<String, String> properties = stmt.getProperties();
 
         // get use light schema change
-        Boolean useLightSchemaChange = false;
+        Boolean useLightSchemaChange = true;
         try {
             useLightSchemaChange = PropertyAnalyzer.analyzeUseLightSchemaChange(properties);
         } catch (AnalysisException e) {
@@ -1736,11 +1736,14 @@ public class InternalDataSource implements DataSourceIf<Database> {
         // use light schema change optimization
         olapTable.setUseLightSchemaChange(useLightSchemaChange);
         if (useLightSchemaChange) {
+            LOG.info("table: {} uses light schema change", olapTable.getName());
             for (Column column : baseSchema) {
                 column.setUniqueId(olapTable.incAndGetMaxColUniqueId());
                 LOG.debug("table: {}, newColumn: {}, uniqueId: {}", olapTable.getName(), column.getName(),
                     column.getUniqueId());
             }
+        } else {
+            LOG.info("table: {} doesn't use light schema change", olapTable.getName());
         }
 
         // get storage format
