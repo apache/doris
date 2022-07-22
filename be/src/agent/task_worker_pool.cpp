@@ -365,7 +365,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
         TStatus task_status;
 
         std::vector<TTabletInfo> finish_tablet_infos;
-        LOG(INFO) << "create tablet: " << create_tablet_req;
+        VLOG_NOTICE << "create tablet: " << create_tablet_req;
         Status create_status = _env->storage_engine()->create_tablet(create_tablet_req);
         if (!create_status.ok()) {
             LOG(WARNING) << "create table failed. status: " << create_status
