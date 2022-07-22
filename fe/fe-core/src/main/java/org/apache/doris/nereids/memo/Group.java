@@ -272,7 +272,9 @@ public class Group {
      * @param target the new owner group of expressions
      */
     public void moveLogicalExpressionOwnership(Group target) {
-        if (equals(target)) return;
+        if (equals(target)) {
+            return;
+        }
         for (GroupExpression expression : logicalExpressions) {
             target.addGroupExpression(expression);
         }
@@ -285,7 +287,9 @@ public class Group {
      * @param target the new owner group of expressions
      */
     public void movePhysicalExpressionOwnership(Group target) {
-        if (equals(target)) return;
+        if (equals(target)) {
+            return;
+        }
         for (GroupExpression expression : physicalExpressions) {
             target.addGroupExpression(expression);
         }
