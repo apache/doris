@@ -399,9 +399,9 @@ public class StoragePolicy extends Policy {
                 tmpMap.put(COOLDOWN_TTL, this.getCooldownTtl());
             });
             tmpMap.put(MD5_CHECKSUM, this.getMd5Checksum());
-            NotifyUpdateStoragePolicyTask createReplicaTask
+            NotifyUpdateStoragePolicyTask notifyUpdateStoragePolicyTask
                     = new NotifyUpdateStoragePolicyTask(beId, getPolicyName(), tmpMap);
-            batchTask.addTask(createReplicaTask);
+            batchTask.addTask(notifyUpdateStoragePolicyTask);
             LOG.info("update policy info to be: {}, policy name: {}, "
                         + "properties: {} to modify S3 resource batch task.",
                     beId, getPolicyName(), tmpMap);
