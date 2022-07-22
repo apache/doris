@@ -30,7 +30,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -201,18 +200,8 @@ public class Memo {
             }
         }
 
-        Iterator<GroupExpression> iterator = source.getLogicalExpressions().iterator();
-        while (iterator.hasNext()) {
-            GroupExpression groupExpression = iterator.next();
-            iterator.remove();
-            destination.addGroupExpression(groupExpression);
-        }
-        iterator = source.getPhysicalExpressions().iterator();
-        while (iterator.hasNext()) {
-            GroupExpression groupExpression = iterator.next();
-            iterator.remove();
-            destination.addGroupExpression(groupExpression);
-        }
+        source.moveLogicalExpressionOwnership(destination);
+        source.movePhysicalExpressionOwnership(destination);
         groups.remove(source);
     }
 
