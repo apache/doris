@@ -1,4 +1,0 @@
-WARNING: Logging before InitGoogleLogging() is written to STDERR
-I0705 14:04:04.120195  6462 server.cpp:1046] Server[doris::FunctionServiceImpl] is serving on port=9000.
-I0705 14:04:04.120270  6462 server.cpp:1049] Check out http://xafj-palo-rpm64.xafj.baidu.com:9000 in web browser.
-I0705 14:04:48.013370  6462 server.cpp:1101] Server[doris::FunctionServiceImpl] is going to quit

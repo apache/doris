@@ -1,5 +1,0 @@
-compaction quickly for small data import #9791
-1.merge small versions of rowset as soon as possible to increase the import frequency of small version data
-2.small version means that the number of rows is less than config::small_compaction_max_rows  default 10000
-
-

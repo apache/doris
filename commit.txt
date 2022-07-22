@@ -1,2 +1,0 @@
-[refactor] remove scheam hash
-
