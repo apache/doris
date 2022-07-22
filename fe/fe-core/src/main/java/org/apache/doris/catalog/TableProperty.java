@@ -285,7 +285,8 @@ public class TableProperty implements Writable {
                 .buildStorageFormat()
                 .buildDataSortInfo()
                 .buildRemoteStoragePolicy()
-                .buildCompressionType();
+                .buildCompressionType()
+                .buildStoragePolicy();
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
