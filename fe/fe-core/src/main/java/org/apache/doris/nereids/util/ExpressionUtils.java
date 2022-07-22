@@ -29,6 +29,7 @@ import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -65,26 +66,26 @@ public class ExpressionUtils {
         }
     }
 
-    public static Expression and(List<Expression> expressions) {
+    public static Optional<Expression> and(List<Expression> expressions) {
         return combine(And.class, expressions);
     }
 
-    public static Expression and(Expression... expressions) {
+    public static Optional<Expression> and(Expression... expressions) {
         return combine(And.class, Lists.newArrayList(expressions));
     }
 
-    public static Expression or(Expression... expressions) {
+    public static Optional<Expression> or(Expression... expressions) {
         return combine(Or.class, Lists.newArrayList(expressions));
     }
 
-    public static Expression or(List<Expression> expressions) {
+    public static Optional<Expression> or(List<Expression> expressions) {
         return combine(Or.class, expressions);
     }
 
     /**
      * Use AND/OR to combine expressions together.
      */
-    public static Expression combine(Class<? extends Expression> type, List<Expression> inputExpressions) {
+    public static Optional<Expression> combine(Class<? extends Expression> type, List<Expression> inputExpressions) {
         Preconditions.checkArgument(type == And.class || type == Or.class);
         Objects.requireNonNull(inputExpressions, "expressions is null");
 
@@ -95,14 +96,12 @@ public class ExpressionUtils {
         Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
             if (expression.equals(shortCircuit)) {
-                return shortCircuit;
+                return Optional.of(shortCircuit);
             } else if (!expression.equals(skip)) {
                 distinctExpressions.add(expression);
             }
         }
 
-        return distinctExpressions.stream()
-                .reduce(type == And.class ? And::new : Or::new)
-                .orElse(new BooleanLiteral(type == And.class));
+        return distinctExpressions.stream().reduce(type == And.class ? And::new : Or::new);
     }
 }

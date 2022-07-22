@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.LinkedHashSet;
@@ -41,10 +42,11 @@ public class DistinctPredicatesRule extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitCompoundPredicate(CompoundPredicate expr, ExpressionRewriteContext context) {
+        Preconditions.checkNotNull(expr);
         List<Expression> extractExpressions = ExpressionUtils.extract(expr);
         Set<Expression> distinctExpressions = new LinkedHashSet<>(extractExpressions);
         if (distinctExpressions.size() != extractExpressions.size()) {
-            return ExpressionUtils.combine(expr.getClass(), Lists.newArrayList(distinctExpressions));
+            return ExpressionUtils.combine(expr.getClass(), Lists.newArrayList(distinctExpressions)).get();
         }
         return expr;
     }

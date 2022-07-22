@@ -19,6 +19,8 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -45,7 +47,7 @@ public class ExtractCommonFactorRule extends AbstractExpressionRewriteRule {
     public Expression visitCompoundPredicate(CompoundPredicate expr, ExpressionRewriteContext context) {
 
         Expression rewrittenChildren = ExpressionUtils.combine(expr.getClass(), ExpressionUtils.extract(expr).stream()
-                .map(predicate -> rewrite(predicate, context)).collect(Collectors.toList()));
+                .map(predicate -> rewrite(predicate, context)).collect(Collectors.toList())).get();
 
         if (!(rewrittenChildren instanceof CompoundPredicate)) {
             return rewrittenChildren;
@@ -64,14 +66,16 @@ public class ExtractCommonFactorRule extends AbstractExpressionRewriteRule {
                 .map(predicates -> predicates.stream().filter(p -> !commons.contains(p)).collect(Collectors.toList()))
                 .collect(Collectors.toList());
 
+        // TODO(wenjie): add BooleanLiteral for solving empty list is tricky.
         Expression combineUncorrelated = ExpressionUtils.combine(compoundPredicate.getClass(),
                 uncorrelated.stream()
                         .map(predicates -> ExpressionUtils.combine(compoundPredicate.flipType(), predicates))
-                        .collect(Collectors.toList()));
+                        .map(option -> option.orElse(new BooleanLiteral(compoundPredicate.flipType() == And.class)))
+                        .collect(Collectors.toList())).get();
 
         List<Expression> finalCompound = Lists.newArrayList(commons);
         finalCompound.add(combineUncorrelated);
 
-        return ExpressionUtils.combine(compoundPredicate.flipType(), finalCompound);
+        return ExpressionUtils.combine(compoundPredicate.flipType(), finalCompound).get();
     }
 }

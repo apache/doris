@@ -100,11 +100,11 @@ public class PushDownPredicateTest {
         Expression onCondition1 = new EqualTo(rStudent.getOutput().get(0), rScore.getOutput().get(0));
         Expression onCondition2 = new GreaterThan(rStudent.getOutput().get(0), Literal.of(1));
         Expression onCondition3 = new GreaterThan(rScore.getOutput().get(0), Literal.of(2));
-        Expression onCondition = ExpressionUtils.and(onCondition1, onCondition2, onCondition3);
+        Expression onCondition = ExpressionUtils.and(onCondition1, onCondition2, onCondition3).get();
 
         Expression whereCondition1 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression whereCondition2 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
-        Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
+        Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2).get();
 
 
         Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(onCondition), rStudent, rScore);
@@ -136,8 +136,8 @@ public class PushDownPredicateTest {
         LogicalFilter filter2 = (LogicalFilter) op3;
 
         Assertions.assertEquals(join1.getCondition().get(), onCondition1);
-        Assertions.assertEquals(filter1.getPredicates(), ExpressionUtils.and(onCondition2, whereCondition1));
-        Assertions.assertEquals(filter2.getPredicates(), ExpressionUtils.and(onCondition3, whereCondition2));
+        Assertions.assertEquals(filter1.getPredicates(), ExpressionUtils.and(onCondition2, whereCondition1).get());
+        Assertions.assertEquals(filter2.getPredicates(), ExpressionUtils.and(onCondition3, whereCondition2).get());
     }
 
     @Test
@@ -148,7 +148,7 @@ public class PushDownPredicateTest {
                 new Subtract(rScore.getOutput().get(0), Literal.of(2)));
         Expression whereCondition2 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression whereCondition3 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
-        Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3);
+        Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3).get();
 
         Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), rStudent, rScore);
         Plan filter = new LogicalFilter(whereCondition, join);
@@ -207,7 +207,7 @@ public class PushDownPredicateTest {
         Expression whereCondition4 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
 
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3,
-                whereCondition4);
+                whereCondition4).get();
 
         Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), rStudent, rScore);
         Plan join1 = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), join, rCourse);

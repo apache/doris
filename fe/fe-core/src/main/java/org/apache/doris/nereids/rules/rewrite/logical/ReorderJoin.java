@@ -102,14 +102,14 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             if (joinConditions.isEmpty()) {
                 cond = Optional.empty();
             } else {
-                cond = Optional.of(ExpressionUtils.and(joinConditions));
+                cond = ExpressionUtils.and(joinConditions);
             }
 
             LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, cond, joinInputs.get(0), joinInputs.get(1));
             if (nonJoinConditions.isEmpty()) {
                 return join;
             } else {
-                return new LogicalFilter(ExpressionUtils.and(nonJoinConditions), join);
+                return new LogicalFilter(ExpressionUtils.and(nonJoinConditions).get(), join);
             }
         } else {
             Plan left = joinInputs.get(0);
@@ -150,7 +150,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             if (joinConditions.isEmpty()) {
                 cond = Optional.empty();
             } else {
-                cond = Optional.of(ExpressionUtils.and(joinConditions));
+                cond = ExpressionUtils.and(joinConditions);
             }
 
             LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, cond, left, right);
