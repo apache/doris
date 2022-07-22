@@ -551,11 +551,6 @@ build_re2() {
 
 # hyperscan
 build_hyperscan() {
-    MACHINE_TYPE=$(uname -m)
-    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
-        echo "use vectorscan instead of hyperscan on aarch64"
-        HYPERSCAN_SOURCE=$VECTORSCAN_SOURCE
-    fi
     check_if_source_exist $RAGEL_SOURCE
     cd $TP_SOURCE_DIR/$RAGEL_SOURCE
     ./configure --prefix=$TP_INSTALL_DIR && make install
