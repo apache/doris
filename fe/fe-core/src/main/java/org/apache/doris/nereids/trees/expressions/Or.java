@@ -32,12 +32,27 @@ public class Or extends CompoundPredicate {
      * @param right right child of comparison predicate
      */
     public Or(Expression left, Expression right) {
-        super(ExpressionType.OR, left, right);
+        super(left, right, "OR");
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new Or(children.get(0), children.get(1));
+    }
+
+    @Override
+    public CompoundPredicate flip() {
+        return new And(left(), right());
+    }
+
+    @Override
+    public CompoundPredicate flip(Expression left, Expression right) {
+        return new And(left, right);
+    }
+
+    @Override
+    public Class<? extends CompoundPredicate> flipType() {
+        return And.class;
     }
 }

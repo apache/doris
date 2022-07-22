@@ -23,6 +23,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -141,6 +143,14 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
         return visit(compoundPredicate, context);
+    }
+
+    public R visitAnd(And and, C context) {
+        return visitCompoundPredicate(and, context);
+    }
+
+    public R visitOr(Or or, C context) {
+        return visitCompoundPredicate(or, context);
     }
 
     public R visitStringRegexPredicate(StringRegexPredicate stringRegexPredicate, C context) {
