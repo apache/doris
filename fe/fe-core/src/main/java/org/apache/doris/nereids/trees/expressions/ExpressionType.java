@@ -15,15 +15,49 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.ssb;
+package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.tpch.AnalyzeCheckTestBase;
-
-public abstract class SSBTestBase extends AnalyzeCheckTestBase {
-    @Override
-    protected void runBeforeAll() throws Exception {
-        createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
-        SSBUtils.createTables(this);
-    }
+/**
+ * Types for all Expression in Nereids.
+ */
+public enum ExpressionType {
+    UNBOUND_FUNCTION,
+    UNBOUND_ALIAS,
+    UNBOUND_SLOT,
+    UNBOUND_STAR,
+    BOUND_STAR,
+    BOUND_FUNCTION,
+    LITERAL,
+    SLOT_REFERENCE,
+    COMPARISON_PREDICATE,
+    EQUAL_TO,
+    LESS_THAN,
+    GREATER_THAN,
+    LESS_THAN_EQUAL,
+    GREATER_THAN_EQUAL,
+    NULL_SAFE_EQUAL,
+    NOT,
+    ALIAS,
+    COMPOUND,
+    AND,
+    OR,
+    BETWEEN,
+    LIKE,
+    REGEXP,
+    MULTIPLY,
+    DIVIDE,
+    MOD,
+    INT_DIVIDE,
+    ADD,
+    SUBTRACT,
+    BITAND,
+    BITOR,
+    BITXOR,
+    BITNOT,
+    FACTORIAL,
+    FUNCTION_CALL,
+    CASE,
+    WHEN_CLAUSE,
+    IN,
+    SUBQUERY
 }

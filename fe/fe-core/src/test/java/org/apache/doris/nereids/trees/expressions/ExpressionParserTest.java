@@ -146,4 +146,13 @@ public class ExpressionParserTest {
         String caseWhen2 = "select case when a = 1 then 2 else 3 end from test";
         assertSql(caseWhen2);
     }
+
+    @Test
+    public void testIn() throws Exception {
+        String in = "select * from test where a in (a, b, c)";
+        assertSql(in);
+
+        String inExpr = "a in (b, c, d)";
+        assertExpr(inExpr);
+    }
 }

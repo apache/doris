@@ -52,6 +52,7 @@ import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
+import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
@@ -72,6 +73,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.In;
 import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
@@ -86,6 +88,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -704,6 +707,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         getExpression(ctx.pattern)
                     );
                     break;
+                case DorisParser.IN:
+                    if (ctx.query() == null) {
+                        List<Expression> expressions = ctx.expression().stream()
+                                .map(expr -> getExpression(expr)).collect(ImmutableList.toImmutableList());
+                        outExpression = new In(
+                                valueExpression,
+                                expressions
+                        );
+                    } else {
+                        outExpression = new In(
+                                valueExpression,
+                                ImmutableList.of(new SubqueryExpr(typedVisit(ctx.query())))
+                        );
+                    }
+                    break;
                 default:
                     throw new IllegalStateException("Unsupported predicate type: " + ctx.kind.getText());
             }
@@ -723,5 +741,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }).collect(ImmutableList.toImmutableList());
             return namedExpressions;
         });
+    }
+
+    @Override
+    public Expression visitSubqueryExpression(SubqueryExpressionContext subqueryExprCtx) {
+        return ParserUtils.withOrigin(subqueryExprCtx, () -> new SubqueryExpr(typedVisit(subqueryExprCtx.query())));
     }
 }

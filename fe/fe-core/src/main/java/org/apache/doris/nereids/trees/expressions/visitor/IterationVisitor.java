@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.In;
 import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -206,6 +208,20 @@ public abstract class IterationVisitor<C> extends DefaultExpressionVisitor<Void,
 
     @Override
     public Void visitDoubleLiteral(DoubleLiteral doubleLiteral, C context) {
+        return null;
+    }
+
+    @Override
+    public Void visitIn(In in, C context) {
+        visit(in.getCompareExpr(), context);
+        for (Expression expr : in.getInExpr()) {
+            visit(expr, context);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitSubqueryExpr(SubqueryExpr subquery, C context) {
         return null;
     }
 }
