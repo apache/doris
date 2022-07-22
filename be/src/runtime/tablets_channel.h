@@ -28,7 +28,7 @@
 #include "gutil/strings/substitute.h"
 #include "olap/delta_writer.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "util/bitmap.h"
 #include "util/priority_thread_pool.hpp"
@@ -88,7 +88,7 @@ public:
     // no-op when this channel has been closed or cancelled
     Status reduce_mem_usage(int64_t mem_limit);
 
-    int64_t mem_consumption() const { return _mem_tracker->consumption(); }
+    int64_t mem_consumption();
 
 private:
     template <typename Request>
@@ -141,8 +141,6 @@ private:
 
     std::unordered_set<int64_t> _partition_ids;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
-
     static std::atomic<uint64_t> _s_tablet_writer_count;
 
     bool _is_high_priority = false;
@@ -171,7 +169,6 @@ Status TabletsChannel::_get_current_seq(int64_t& cur_seq, const Request& request
 template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
 Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
                                  TabletWriterAddResult* response) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t cur_seq = 0;
 
     auto status = _get_current_seq(cur_seq, request);

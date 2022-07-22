@@ -17,14 +17,15 @@
 
 #include <gtest/gtest.h>
 
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/logging.h"
 #include "util/metrics.h"
 
 namespace doris {
 
 TEST(MemTrackerTest, SingleTrackerNoLimit) {
-    auto t = MemTracker::create_tracker();
+    auto t = std::make_unique<MemTrackerLimiter>();
     EXPECT_FALSE(t->has_limit());
     t->consume(10);
     EXPECT_EQ(t->consumption(), 10);
@@ -37,7 +38,7 @@ TEST(MemTrackerTest, SingleTrackerNoLimit) {
 }
 
 TEST(MemTestTest, SingleTrackerWithLimit) {
-    auto t = MemTracker::create_tracker(11, "limit tracker");
+    auto t = std::make_unique<MemTrackerLimiter>(11, "limit tracker");
     EXPECT_TRUE(t->has_limit());
     t->consume(10);
     EXPECT_EQ(t->consumption(), 10);
@@ -52,9 +53,9 @@ TEST(MemTestTest, SingleTrackerWithLimit) {
 }
 
 TEST(MemTestTest, TrackerHierarchy) {
-    auto p = MemTracker::create_tracker(100);
-    auto c1 = MemTracker::create_tracker(80, "c1", p);
-    auto c2 = MemTracker::create_tracker(50, "c2", p);
+    auto p = std::make_unique<MemTrackerLimiter>(100);
+    auto c1 = std::make_unique<MemTrackerLimiter>(80, "c1", p.get());
+    auto c2 = std::make_unique<MemTrackerLimiter>(50, "c2", p.get());
 
     // everything below limits
     c1->consume(60);
@@ -95,9 +96,9 @@ TEST(MemTestTest, TrackerHierarchy) {
 }
 
 TEST(MemTestTest, TrackerHierarchyTryConsume) {
-    auto p = MemTracker::create_tracker(100);
-    auto c1 = MemTracker::create_tracker(80, "c1", p);
-    auto c2 = MemTracker::create_tracker(50, "c2", p);
+    auto p = std::make_unique<MemTrackerLimiter>(100);
+    auto c1 = std::make_unique<MemTrackerLimiter>(80, "c1", p.get());
+    auto c2 = std::make_unique<MemTrackerLimiter>(50, "c2", p.get());
 
     // everything below limits
     bool consumption = c1->try_consume(60).ok();

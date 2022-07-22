@@ -46,7 +46,7 @@ class VOrcScannerTest : public testing::Test {
 public:
     VOrcScannerTest() : _runtime_state(TQueryGlobals()) {
         _profile = _runtime_state.runtime_profile();
-        _runtime_state._instance_mem_tracker.reset(new MemTracker());
+        _runtime_state.init_instance_mem_tracker();
         _runtime_state._query_options.enable_vectorized_engine = true;
     }
     ~VOrcScannerTest() {}
@@ -414,10 +414,6 @@ TEST_F(VOrcScannerTest, normal) {
                         &_counter);
     EXPECT_TRUE(scanner.open().ok());
 
-    //auto tracker = std::make_shared<MemTracker>();
-    //MemPool tuple_pool(tracker.get());
-
-    //Tuple* tuple = (Tuple*)tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
     vectorized::Block block;
     bool eof = false;
 

@@ -125,8 +125,28 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             tblRef.analyze(analyzer);
             leftTblRef = tblRef;
         }
+        // Fix the problem of column nullable attribute error caused by inline view + outer join
+        changeTblRefToNullable(analyzer);
 
         analyzed = true;
+    }
+
+    // set null-side inlinve view column
+    // For example: select * from (select a as k1 from t) tmp right join b on tmp.k1=b.k1
+    // The columns from tmp should be nullable.
+    // The table ref tmp will be used by HashJoinNode.computeOutputTuple()
+    private void changeTblRefToNullable(Analyzer analyzer) {
+        for (TableRef tableRef : tablerefs) {
+            if (!(tableRef instanceof InlineViewRef)) {
+                continue;
+            }
+            InlineViewRef inlineViewRef = (InlineViewRef) tableRef;
+            if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+                for (SlotDescriptor slotDescriptor : inlineViewRef.getDesc().getSlots()) {
+                    slotDescriptor.setIsNullable(true);
+                }
+            }
+        }
     }
 
     public FromClause clone() {
