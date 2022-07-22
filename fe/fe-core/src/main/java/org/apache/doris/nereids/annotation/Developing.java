@@ -23,7 +23,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Indicating that the feature is developing, not ready to be used, not stable and tend to have bugs.
+ * Indicating that the feature is developing, not ready to be used, not stable
+ * and tend to have bugs.
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.TYPE, ElementType.METHOD})
