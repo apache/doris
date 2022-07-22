@@ -195,6 +195,11 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
             // duplicated keys are allowed, no need to merge sort keys in rowset
             need_ordered_result = false;
         }
+        if (_tablet_schema->keys_type() == UNIQUE_KEYS &&
+            _tablet->enable_unique_key_merge_on_write()) {
+            // unique keys with merge on write, no need to merge sort keys in rowset
+            need_ordered_result = false;
+        }
         if (_aggregation) {
             // compute engine will aggregate rows with the same key,
             // it's ok for rowset to return unordered result
@@ -203,6 +208,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     }
 
     _reader_context.reader_type = read_params.reader_type;
+    _reader_context.version = read_params.version;
     _reader_context.tablet_schema = _tablet_schema;
     _reader_context.need_ordered_result = need_ordered_result;
     _reader_context.return_columns = &_return_columns;
@@ -225,6 +231,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.batch_size = _batch_size;
     _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
     _reader_context.merged_rows = &_merged_rows;
+    _reader_context.delete_bitmap = read_params.delete_bitmap;
+    _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
 
     *valid_rs_readers = *rs_readers;
 
