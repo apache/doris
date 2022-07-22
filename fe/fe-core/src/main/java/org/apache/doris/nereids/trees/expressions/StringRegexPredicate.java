@@ -29,15 +29,22 @@ import java.util.Objects;
  * Such as: like, regexp
  */
 public abstract class StringRegexPredicate extends Expression implements BinaryExpression {
+
+    /**
+     * like or regexp
+     */
+    protected final String symbol;
+
     /**
      * Constructor of StringRegexPredicate.
      *
-     * @param nodeType node type of expression
      * @param left     left child of string regex
      * @param right    right child of string regex
+     * @param symbol   operator symbol
      */
-    public StringRegexPredicate(ExpressionType nodeType, Expression left, Expression right) {
-        super(nodeType, left, right);
+    public StringRegexPredicate(Expression left, Expression right, String symbol) {
+        super(left, right);
+        this.symbol = symbol;
     }
 
     @Override
@@ -47,8 +54,12 @@ public abstract class StringRegexPredicate extends Expression implements BinaryE
 
     @Override
     public String toSql() {
-        String nodeType = getType().toString();
-        return left().toSql() + ' ' + nodeType + ' ' + right().toSql();
+        return '(' + left().toSql() + ' ' + symbol + ' ' + right().toSql() + ')';
+    }
+
+    @Override
+    public String toString() {
+        return "(" + left() + " " + symbol + " " + right() + ")";
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -57,7 +68,7 @@ public abstract class StringRegexPredicate extends Expression implements BinaryE
 
     @Override
     public int hashCode() {
-        return Objects.hash(type, left(), right());
+        return Objects.hash(symbol, left(), right());
     }
 
     @Override
@@ -69,7 +80,7 @@ public abstract class StringRegexPredicate extends Expression implements BinaryE
             return false;
         }
         StringRegexPredicate other = (StringRegexPredicate) o;
-        return (type == other.getType()) && Objects.equals(left(), other.left())
+        return Objects.equals(left(), other.left())
                 && Objects.equals(right(), other.right());
     }
 }

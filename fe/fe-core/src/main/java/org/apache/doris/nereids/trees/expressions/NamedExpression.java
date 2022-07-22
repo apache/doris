@@ -27,8 +27,8 @@ import java.util.List;
  */
 public abstract class NamedExpression extends Expression {
 
-    public NamedExpression(ExpressionType type, Expression... children) {
-        super(type, children);
+    public NamedExpression(Expression... children) {
+        super(children);
     }
 
     public Slot toSlot() throws UnboundException {
