@@ -1053,7 +1053,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setResultEntrys(new ArrayList<>());
         }
 
-        LOG.info("refresh storage policy request: {}", result);
+        LOG.debug("refresh storage policy request: {}", result);
         return result;
     }
 }
