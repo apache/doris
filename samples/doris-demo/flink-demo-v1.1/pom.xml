@@ -21,16 +21,16 @@ under the License.
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.example</groupId>
-    <artifactId>flink-demo</artifactId>
+    <artifactId>flink-demo-v1</artifactId>
     <version>1.0-SNAPSHOT</version>
-    <name>flink-demo</name>
+    <name>flink-demo-v1</name>
     <!-- FIXME change it to the project's website -->
     <url>http://www.example.com</url>
     <properties>
         <scala.version>2.12.10</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
         <java.version>1.8</java.version>
-        <flink.version>1.12.2</flink.version>
+        <flink.version>1.14.3</flink.version>
         <fastjson.version>1.2.62</fastjson.version>
         <hadoop.version>2.8.3</hadoop.version>
         <scope.mode>compile</scope.mode>
@@ -44,7 +44,7 @@ under the License.
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-table-planner-blink_${scala.binary.version}</artifactId>
-            <version>${flink.version}</version>
+            <version>1.13.6</version>
         </dependency>
         <dependency>
             <groupId>org.apache.flink</groupId>
@@ -81,42 +81,22 @@ under the License.
             <artifactId>fastjson</artifactId>
             <version>${fastjson.version}</version>
         </dependency>
-        <dependency>
-            <groupId>org.apache.flink</groupId>
-            <artifactId>flink-hadoop-compatibility_2.11</artifactId>
-            <version>${flink.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-client</artifactId>
-            <version>${hadoop.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.flink</groupId>
-            <artifactId>flink-shaded-hadoop-2-uber</artifactId>
-            <version>2.6.5-10.0</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>flink-doris-connector-1.14_2.12</artifactId>
-            <version>1.0.3</version>
-        </dependency>
-        <!--After adding the following two dependencies, Flink's log will appear-->
+        <!-- Add log dependencies when debugging locally -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
-            <version>1.7.25</version>
+            <version>${slf4j.version}</version>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <version>1.7.25</version>
+            <artifactId>slf4j-log4j12</artifactId>
+            <version>${slf4j.version}</version>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/com.ververica/flink-connector-oracle-cdc -->
+        <!-- flink-doris-connector -->
         <dependency>
-            <groupId>com.ververica</groupId>
-            <artifactId>flink-connector-oracle-cdc</artifactId>
-            <version>2.1.1</version>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>flink-doris-connector-1.14_2.12</artifactId>
+            <version>1.1.0</version>
         </dependency>
     </dependencies>
     <build>
