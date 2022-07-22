@@ -114,6 +114,13 @@ public:
     }
 
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
+
+    void insert_many_raw_data(const char* pos, size_t num) override {
+        size_t old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, pos, num * sizeof(T));
+    }
+
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(T()); }
     void insert(const Field& x) override {
@@ -140,6 +147,11 @@ public:
     virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                              const uint8_t* null_map,
                                              size_t max_row_byte_size) const override;
+
+    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+
+    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+                                       const uint8_t* null_map) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
