@@ -73,13 +73,23 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
      * TODO: check bound plan and expression details.
      */
     @Test
+    public void testAnalyzeAllCase() {
+        for (String sql : testSql) {
+            System.out.println("*****\nStart test: " + sql + "\n*****\n");
+            checkAnalyze(sql);
+        }
+    }
+
+    @Test
     public void testAnalyze() {
         checkAnalyze(testSql.get(8));
     }
 
     @Test
     public void testParse() {
-        System.out.println(parser.parseSingle(testSql.get(3)).treeString());
+        for (String sql : testSql) {
+            System.out.println(parser.parseSingle(sql).treeString());
+        }
     }
 
     private void checkAnalyze(String sql) {
