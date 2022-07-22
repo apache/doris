@@ -32,24 +32,25 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -178,44 +179,35 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
-    public Expr visitCompoundPredicate(CompoundPredicate compoundPredicate, PlanTranslatorContext context) {
-        ExpressionType nodeType = compoundPredicate.getType();
-        org.apache.doris.analysis.CompoundPredicate.Operator staleOp;
-        switch (nodeType) {
-            case OR:
-                staleOp = org.apache.doris.analysis.CompoundPredicate.Operator.OR;
-                break;
-            case AND:
-                staleOp = org.apache.doris.analysis.CompoundPredicate.Operator.AND;
-                break;
-            case NOT:
-                staleOp = org.apache.doris.analysis.CompoundPredicate.Operator.NOT;
-                break;
-            default:
-                throw new AnalysisException(String.format("Unknown node type: %s", nodeType.name()));
-        }
-        return new org.apache.doris.analysis.CompoundPredicate(staleOp,
-                compoundPredicate.child(0).accept(this, context),
-                compoundPredicate.child(1).accept(this, context));
+    public Expr visitAnd(And and, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.CompoundPredicate(
+                org.apache.doris.analysis.CompoundPredicate.Operator.AND,
+                and.child(0).accept(this, context),
+                and.child(1).accept(this, context));
     }
 
     @Override
-    public Expr visitStringRegexPredicate(StringRegexPredicate stringRegexPredicate, PlanTranslatorContext context) {
-        ExpressionType nodeType = stringRegexPredicate.getType();
-        org.apache.doris.analysis.LikePredicate.Operator staleOp;
-        switch (nodeType) {
-            case LIKE:
-                staleOp = LikePredicate.Operator.LIKE;
-                break;
-            case REGEXP:
-                staleOp = LikePredicate.Operator.REGEXP;
-                break;
-            default:
-                throw new AnalysisException(String.format("Unknown node type: %s", nodeType.name()));
-        }
-        return new org.apache.doris.analysis.LikePredicate(staleOp,
-                stringRegexPredicate.left().accept(this, context),
-                stringRegexPredicate.right().accept(this, context));
+    public Expr visitOr(Or or, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.CompoundPredicate(
+                org.apache.doris.analysis.CompoundPredicate.Operator.OR,
+                or.child(0).accept(this, context),
+                or.child(1).accept(this, context));
+    }
+
+    @Override
+    public Expr visitLike(Like like, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.LikePredicate(
+                LikePredicate.Operator.LIKE,
+                like.left().accept(this, context),
+                like.right().accept(this, context));
+    }
+
+    @Override
+    public Expr visitRegexp(Regexp regexp, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.LikePredicate(
+                LikePredicate.Operator.REGEXP,
+                regexp.left().accept(this, context),
+                regexp.right().accept(this, context));
     }
 
     @Override

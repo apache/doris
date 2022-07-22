@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -34,7 +33,6 @@ public class UnboundSlot extends Slot implements Unbound {
     private final List<String> nameParts;
 
     public UnboundSlot(List<String> nameParts) {
-        super(ExpressionType.UNBOUND_SLOT);
         this.nameParts = Objects.requireNonNull(nameParts, "nameParts can not be null");
     }
 
