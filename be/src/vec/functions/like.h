@@ -17,10 +17,10 @@
 
 #pragma once
 
+#include <hs/hs.h>
+
 #include <functional>
 #include <memory>
-
-#include <hs/hs.h>
 
 #include "runtime/string_search.hpp"
 #include "runtime/string_value.h"
@@ -59,26 +59,24 @@ struct LikeSearchState {
     std::unique_ptr<re2::RE2> regex;
 
     template <typename Deleter, Deleter deleter>
-    struct HyperscanDeleter
-    {
+    struct HyperscanDeleter {
         template <typename T>
-        void operator()(T * ptr) const
-        {
+        void operator()(T* ptr) const {
             deleter(ptr);
         }
     };
 
     // hyperscan compiled pattern database and scratch space, reused for performance
-    std::unique_ptr<hs_database_t, HyperscanDeleter<decltype(&hs_free_database), &hs_free_database>> hs_database;
-    std::unique_ptr<hs_scratch_t, HyperscanDeleter<decltype(&hs_free_scratch), &hs_free_scratch>> hs_scratch;
+    std::unique_ptr<hs_database_t, HyperscanDeleter<decltype(&hs_free_database), &hs_free_database>>
+            hs_database;
+    std::unique_ptr<hs_scratch_t, HyperscanDeleter<decltype(&hs_free_scratch), &hs_free_scratch>>
+            hs_scratch;
 
     // hyperscan match callback
-    static int hs_match_handler(unsigned int /* from */, // NOLINT
+    static int hs_match_handler(unsigned int /* from */,       // NOLINT
                                 unsigned long long /* from */, // NOLINT
-                                unsigned long long /* to */, // NOLINT
-                                unsigned int /* flags */,
-                                void * ctx)
-    {
+                                unsigned long long /* to */,   // NOLINT
+                                unsigned int /* flags */, void* ctx) {
         // set result to 1 for matched row
         *((unsigned char*)ctx) = 1;
         /// return non-zero to indicate hyperscan stop after first matched
@@ -136,14 +134,14 @@ protected:
                                         const StringValue& pattern, unsigned char* result);
 
     static Status constant_regex_fn(LikeSearchState* state, const StringValue& val,
-                                         const StringValue& pattern, unsigned char* result);
+                                    const StringValue& pattern, unsigned char* result);
 
     static Status regexp_fn(LikeSearchState* state, const StringValue& val,
                             const StringValue& pattern, unsigned char* result);
 
     // hyperscan compile expression to database and allocate scratch space
     static Status hs_prepare(FunctionContext* context, const char* expression,
-                             hs_database_t **database, hs_scratch_t **scratch);
+                             hs_database_t** database, hs_scratch_t** scratch);
 };
 
 class FunctionLike : public FunctionLikeBase {

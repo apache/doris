@@ -83,9 +83,9 @@ Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const Str
 }
 
 Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const StringValue& val,
-                                            const StringValue& pattern, unsigned char* result) {
-    auto ret = hs_scan(state->hs_database.get(), val.ptr, val.len, 0,
-                       state->hs_scratch.get(), state->hs_match_handler, (void*)result);
+                                           const StringValue& pattern, unsigned char* result) {
+    auto ret = hs_scan(state->hs_database.get(), val.ptr, val.len, 0, state->hs_scratch.get(),
+                       state->hs_match_handler, (void*)result);
     if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
         return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
     }
@@ -94,15 +94,15 @@ Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const StringV
 }
 
 Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const StringValue& val,
-                                 const StringValue& pattern, unsigned char* result) {
+                                   const StringValue& pattern, unsigned char* result) {
     std::string re_pattern(pattern.ptr, pattern.len);
 
-    hs_database_t *database = nullptr;
-    hs_scratch_t *scratch = nullptr;
+    hs_database_t* database = nullptr;
+    hs_scratch_t* scratch = nullptr;
     RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch));
 
-    auto ret = hs_scan(database, val.ptr, val.len, 0,
-                       scratch, state->hs_match_handler, (void*)result);
+    auto ret =
+            hs_scan(database, val.ptr, val.len, 0, scratch, state->hs_match_handler, (void*)result);
     if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
         return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
     }
@@ -115,10 +115,10 @@ Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const StringValue& va
 
 // hyperscan compile expression to database and allocate scratch space
 Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expression,
-                                    hs_database_t **database, hs_scratch_t **scratch) {
-    hs_compile_error_t *compile_err;
-    if (hs_compile(expression, HS_FLAG_DOTALL, HS_MODE_BLOCK, NULL, database,
-                &compile_err) != HS_SUCCESS) {
+                                    hs_database_t** database, hs_scratch_t** scratch) {
+    hs_compile_error_t* compile_err;
+    if (hs_compile(expression, HS_FLAG_DOTALL, HS_MODE_BLOCK, NULL, database, &compile_err) !=
+        HS_SUCCESS) {
         hs_free_compile_error(compile_err);
         *database = nullptr;
         if (context) context->set_error("hs_compile regex pattern error");
@@ -278,7 +278,7 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
     }
 
     // add $ to pattern tail to match line tail
-    if (pattern.size() > 0 && pattern[pattern.size()-1] != '%') {
+    if (pattern.size() > 0 && pattern[pattern.size() - 1] != '%') {
         re_pattern->append("$");
     }
 }
@@ -332,8 +332,8 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
             std::string re_pattern;
             convert_like_pattern(&state->search_state, pattern_str, &re_pattern);
 
-            hs_database_t *database = nullptr;
-            hs_scratch_t *scratch = nullptr;
+            hs_database_t* database = nullptr;
+            hs_scratch_t* scratch = nullptr;
             RETURN_IF_ERROR(hs_prepare(context, re_pattern.c_str(), &database, &scratch));
 
             state->search_state.hs_database.reset(database);
@@ -372,8 +372,8 @@ Status FunctionRegexp::prepare(FunctionContext* context,
             state->search_state.set_search_string(search_string);
             state->function = constant_substring_fn;
         } else {
-            hs_database_t *database = nullptr;
-            hs_scratch_t *scratch = nullptr;
+            hs_database_t* database = nullptr;
+            hs_scratch_t* scratch = nullptr;
             RETURN_IF_ERROR(hs_prepare(context, pattern_str.c_str(), &database, &scratch));
 
             state->search_state.hs_database.reset(database);
@@ -384,6 +384,5 @@ Status FunctionRegexp::prepare(FunctionContext* context,
     }
     return Status::OK();
 }
-
 
 } // namespace doris::vectorized
