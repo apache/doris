@@ -347,6 +347,7 @@ public abstract class SetOperationNode extends PlanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         Preconditions.checkState(conjuncts.isEmpty());
+        createDefaultSmap(analyzer);
         computeTupleStatAndMemLayout(analyzer);
         computeStats(analyzer);
     }
