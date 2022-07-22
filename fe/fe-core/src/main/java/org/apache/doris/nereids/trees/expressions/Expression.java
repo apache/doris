@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,16 +34,10 @@ import java.util.Objects;
  */
 public abstract class Expression extends AbstractTreeNode<Expression> {
 
-    protected final ExpressionType type;
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
-    public Expression(ExpressionType type, Expression... children) {
+    public Expression(Expression... children) {
         super(children);
-        this.type = Objects.requireNonNull(type, "type can not be null");
-    }
-
-    public ExpressionType getType() {
-        return type;
     }
 
     public DataType getDataType() throws UnboundException {
@@ -76,12 +71,17 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         throw new RuntimeException();
     }
 
+    public final Expression withChildren(Expression... children) {
+        return withChildren(ImmutableList.copyOf(children));
+    }
+
     /**
      * Whether the expression is a constant.
      */
     public boolean isConstant() {
         return children().stream().anyMatch(Expression::isConstant);
     }
+
 
     @Override
     public boolean equals(Object o) {

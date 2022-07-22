@@ -37,7 +37,6 @@ public abstract class Literal extends Expression implements LeafExpression {
      * @param dataType logical data type in Nereids
      */
     public Literal(DataType dataType) {
-        super(ExpressionType.LITERAL);
         this.dataType = dataType;
     }
 

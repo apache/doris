@@ -30,17 +30,12 @@ import java.util.List;
 public class Regexp extends StringRegexPredicate {
 
     public Regexp(Expression left, Expression right) {
-        super(ExpressionType.REGEXP, left, right);
+        super(left, right, "regexp");
     }
 
     @Override
     public boolean nullable() throws UnboundException {
         return left().nullable();
-    }
-
-    @Override
-    public String toString() {
-        return "(" + left() + " regexp " + right() + ")";
     }
 
     @Override

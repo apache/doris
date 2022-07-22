@@ -31,7 +31,7 @@ import java.util.Objects;
  */
 public class WhenClause extends Expression implements BinaryExpression {
     public WhenClause(Expression operand, Expression result) {
-        super(ExpressionType.WHEN_CLAUSE, operand, result);
+        super(operand, result);
     }
 
     @Override

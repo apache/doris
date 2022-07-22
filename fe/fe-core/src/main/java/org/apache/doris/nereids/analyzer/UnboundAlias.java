@@ -19,7 +19,6 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -35,7 +34,7 @@ import java.util.List;
 public class UnboundAlias extends NamedExpression implements UnaryExpression, Unbound {
 
     public UnboundAlias(Expression child) {
-        super(ExpressionType.UNBOUND_ALIAS, child);
+        super(child);
     }
 
     @Override

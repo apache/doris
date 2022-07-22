@@ -31,7 +31,7 @@ import java.util.Objects;
 public class Not extends Expression implements UnaryExpression {
 
     public Not(Expression child) {
-        super(ExpressionType.NOT, child);
+        super(child);
     }
 
     @Override

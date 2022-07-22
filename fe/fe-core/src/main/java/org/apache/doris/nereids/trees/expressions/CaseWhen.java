@@ -44,13 +44,12 @@ public class CaseWhen extends Expression {
     private final int defaultValueIndex;
 
     public CaseWhen(List<WhenClause> whenClauses) {
-        super(ExpressionType.CASE, whenClauses.toArray(new Expression[0]));
+        super(whenClauses.toArray(new Expression[0]));
         defaultValueIndex = -1;
     }
 
     public CaseWhen(List<WhenClause> whenClauses, Expression defaultValue) {
-        super(ExpressionType.CASE,
-                ImmutableList.builder().addAll(whenClauses).add(defaultValue).build().toArray(new Expression[0]));
+        super(ImmutableList.builder().addAll(whenClauses).add(defaultValue).build().toArray(new Expression[0]));
         defaultValueIndex = children().size() - 1;
     }
 

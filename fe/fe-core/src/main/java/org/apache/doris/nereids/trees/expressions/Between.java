@@ -45,7 +45,7 @@ public class Between extends Expression implements TernaryExpression {
 
     public Between(Expression compareExpr, Expression lowerBound,
                    Expression upperBound) {
-        super(ExpressionType.BETWEEN, compareExpr, lowerBound, upperBound);
+        super(compareExpr, lowerBound, upperBound);
         this.compareExpr = compareExpr;
         this.lowerBound = lowerBound;
         this.upperBound = upperBound;

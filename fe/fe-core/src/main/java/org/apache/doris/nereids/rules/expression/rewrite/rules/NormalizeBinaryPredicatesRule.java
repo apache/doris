@@ -19,15 +19,8 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rewrite.RewriteHelper;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 
 /**
  * Normalizes binary predicates of the form 'expr' op 'slot' so that the slot is on the left-hand side.
@@ -40,24 +33,6 @@ public class NormalizeBinaryPredicatesRule extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitComparisonPredicate(ComparisonPredicate expr, ExpressionRewriteContext context) {
-
-        if (RewriteHelper.isConstant(expr.left()) && !RewriteHelper.isConstant(expr.right())) {
-            ExpressionType exprType = expr.getType();
-            switch (exprType) {
-                case EQUAL_TO:
-                    return new EqualTo(expr.right(), expr.left());
-                case GREATER_THAN:
-                    return new LessThan(expr.right(), expr.left());
-                case GREATER_THAN_EQUAL:
-                    return new LessThanEqual(expr.right(), expr.left());
-                case LESS_THAN:
-                    return new GreaterThan(expr.right(), expr.left());
-                case LESS_THAN_EQUAL:
-                    return new GreaterThanEqual(expr.right(), expr.left());
-                default:
-                    return expr;
-            }
-        }
-        return expr;
+        return expr.left().isConstant() && !expr.right().isConstant() ? expr.commute() : expr;
     }
 }

@@ -49,7 +49,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
 
     @VisibleForTesting
     Alias(ExprId exprId, Expression child, String name) {
-        super(ExpressionType.ALIAS, child);
+        super(child);
         this.exprId = exprId;
         this.name = name;
         this.qualifier = ImmutableList.of();

@@ -30,7 +30,7 @@ import java.util.List;
 public class EqualTo extends ComparisonPredicate {
 
     public EqualTo(Expression left, Expression right) {
-        super(ExpressionType.EQUAL_TO, left, right, "=");
+        super(left, right, "=");
     }
 
     @Override
@@ -51,5 +51,10 @@ public class EqualTo extends ComparisonPredicate {
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitEqualTo(this, context);
+    }
+
+    @Override
+    public ComparisonPredicate commute() {
+        return new EqualTo(right(), left());
     }
 }

@@ -30,17 +30,12 @@ import java.util.List;
 public class Like extends StringRegexPredicate {
 
     public Like(Expression left, Expression right) {
-        super(ExpressionType.LIKE, left, right);
+        super(left, right, "like");
     }
 
     @Override
     public boolean nullable() throws UnboundException {
         return left().nullable();
-    }
-
-    @Override
-    public String toString() {
-        return "(" + left() + " like " + right() + ")";
     }
 
     @Override

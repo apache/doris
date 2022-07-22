@@ -35,12 +35,11 @@ public abstract class ComparisonPredicate extends Expression implements BinaryEx
     /**
      * Constructor of ComparisonPredicate.
      *
-     * @param nodeType node type of expression
      * @param left     left child of comparison predicate
      * @param right    right child of comparison predicate
      */
-    public ComparisonPredicate(ExpressionType nodeType, Expression left, Expression right, String symbol) {
-        super(nodeType, left, right);
+    public ComparisonPredicate(Expression left, Expression right, String symbol) {
+        super(left, right);
         this.symbol = symbol;
     }
 
@@ -65,7 +64,7 @@ public abstract class ComparisonPredicate extends Expression implements BinaryEx
 
     @Override
     public int hashCode() {
-        return Objects.hash(type, left(), right());
+        return Objects.hash(symbol, left(), right());
     }
 
     @Override
@@ -77,7 +76,12 @@ public abstract class ComparisonPredicate extends Expression implements BinaryEx
             return false;
         }
         ComparisonPredicate other = (ComparisonPredicate) o;
-        return (type == other.getType()) && Objects.equals(left(), other.left())
+        return Objects.equals(left(), other.left())
                 && Objects.equals(right(), other.right());
     }
+
+    /**
+     * Commute between left and right children.
+     */
+    public abstract ComparisonPredicate commute();
 }

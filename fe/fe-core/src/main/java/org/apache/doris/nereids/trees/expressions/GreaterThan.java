@@ -35,7 +35,7 @@ public class GreaterThan extends ComparisonPredicate {
      * @param right right child of greater than
      */
     public GreaterThan(Expression left, Expression right) {
-        super(ExpressionType.GREATER_THAN, left, right, ">");
+        super(left, right, ">");
     }
 
     @Override
@@ -57,5 +57,10 @@ public class GreaterThan extends ComparisonPredicate {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitGreaterThan(this, context);
+    }
+
+    @Override
+    public ComparisonPredicate commute() {
+        return new LessThan(right(), left());
     }
 }
