@@ -112,6 +112,7 @@ public class NereidsPlanner extends Planner {
      */
     private PhysicalPlan doPlan() {
         analyze();
+        finalizeAnalyze();
         rewrite();
         optimize();
         return getRoot().extractPlan();
@@ -122,6 +123,10 @@ public class NereidsPlanner extends Planner {
      */
     private void analyze() {
         new AnalyzeRulesJob(plannerContext).execute();
+    }
+
+    private void finalizeAnalyze() {
+
     }
 
     /**

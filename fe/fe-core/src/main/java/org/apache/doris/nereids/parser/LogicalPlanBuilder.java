@@ -20,6 +20,8 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
+import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
+import org.apache.doris.nereids.DorisParser.AliasedRelationContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
@@ -52,6 +54,7 @@ import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
+import org.apache.doris.nereids.DorisParser.TableAliasContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
@@ -95,6 +98,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -177,11 +181,39 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create an aliased table reference. This is typically used in FROM clauses.
      */
+
+    private LogicalPlan applyAlias(TableAliasContext ctx, LogicalPlan plan) {
+        if (null != ctx.strictIdentifier()) {
+            String alias = ctx.strictIdentifier().getText();
+            if (null != ctx.identifierList()) {
+                List<String> colName = visitIdentifierSeq(ctx.identifierList().identifierSeq());
+                // TODO: multi-colName
+            } else {
+                return new LogicalSubQueryAlias<>(alias, plan);
+            }
+        }
+        return plan;
+    }
+
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
-        // TODO: sample and time travel, alias, sub query
-        return new UnboundRelation(tableId);
+        return applyAlias(ctx.tableAlias(), new UnboundRelation(tableId));
+    }
+
+    @Override
+    public LogicalPlan visitAliasedQuery(AliasedQueryContext ctx) {
+        String alias = "__auto_generated_name__";
+        LogicalPlan query = visitQuery(ctx.query());
+        if (null != ctx.tableAlias().strictIdentifier()) {
+            alias = ctx.tableAlias().strictIdentifier().getText();
+        }
+        return new LogicalSubQueryAlias<>(alias, query);
+    }
+
+    @Override
+    public LogicalPlan visitAliasedRelation(AliasedRelationContext ctx) {
+        return applyAlias(ctx.tableAlias(), (LogicalPlan) super.visitRelation(ctx.relation()));
     }
 
     /**

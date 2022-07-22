@@ -34,12 +34,13 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
             "SELECT * FROM T1",
             "SELECT * FROM T1 JOIN T2 ON T1.ID = T2.ID",
             "SELECT * FROM T1 T",
-            "SELECT * FROM (SELECT * FROM T1) T",
+            "SELECT T.ID FROM T1 T",
+            "SELECT * FROM (SELECT * FROM T1 T) T2",
             "SELECT T1.ID ID FROM T1",
             "SELECT T.ID FROM T1 T",
-            "SELECT X.ID FROM (SELECT * FROM (T1) A JOIN T1 AS B ON T1.ID = T2.ID) X WHERE X.SCORE < 20"
+            "SELECT A.ID, B.SCORE FROM T1 A, T2 B WHERE A.ID = B.ID",
+            "SELECT X.ID FROM (SELECT * FROM (T1) A JOIN (SELECT ID ID1 FROM T1) AS B ON A.ID = B.ID1) X WHERE B.SCORE < 20"
     );
-    //    private final String testSql = "SELECT X.ID FROM (SELECT * FROM (T1) A JOIN T1 AS B ON T1.ID = T2.ID) X WHERE X.SCORE < 20";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -73,7 +74,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
      */
     @Test
     public void testAnalyze() {
-        checkAnalyze(testSql.get(0));
+        checkAnalyze(testSql.get(8));
     }
 
     @Test
@@ -154,3 +155,4 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         return true;
     }
 }
+
