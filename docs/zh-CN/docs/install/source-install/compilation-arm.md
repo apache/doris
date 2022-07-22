@@ -333,7 +333,7 @@ under the License.
 
 ```shell
 cd /opt
-git clone https://github.com/apache/incubator-doris.git
+git clone https://github.com/apache/doris.git
 ```
 
 #### 安装部署
@@ -375,7 +375,7 @@ USE_AVX2=OFF sh build.sh
 
        ```shell
        export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
-       sh /opt/incubator-doris/thirdparty/build-thirdparty.sh
+       sh /opt/doris/thirdparty/build-thirdparty.sh
        ```
 
        REPOSITORY_URL 中包含所有第三方库源码包和他们的历史版本。
@@ -386,7 +386,7 @@ USE_AVX2=OFF sh build.sh
 
      - 执行 build.sh 时抛出异常
 
-       > /opt/incubator-doris/env.sh: line 46: python: command not found
+       > /opt/doris/env.sh: line 46: python: command not found
        >
        > Python 2.7.18
 
@@ -519,8 +519,8 @@ USE_AVX2=OFF sh build.sh
      将 ldb/aclocal 目录下的 `pkg.m4` 文件拷贝至 libxml2/m4 目录下，重新编译第三方库
 
      ```shell
-     cp /opt/software/ldb_toolchain/share/aclocal/pkg.m4 /opt/incubator-doris/thirdparty/src/libxml2-v2.9.10/m4
-     sh /opt/incubator-doris/thirdparty/build-thirdparty.sh
+     cp /opt/software/ldb_toolchain/share/aclocal/pkg.m4 /opt/doris/thirdparty/src/libxml2-v2.9.10/m4
+     sh /opt/doris/thirdparty/build-thirdparty.sh
      ```
 
 9. 执行测试 CURL_HAS_TLS_PROXY 失败

@@ -155,8 +155,7 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
         break;
     }
     default:
-        return Status::InternalError(
-                fmt::format("Unknown expr node type: {}", texpr_node.node_type));
+        return Status::InternalError("Unknown expr node type: {}", texpr_node.node_type);
     }
     return Status::OK();
 }
@@ -225,9 +224,9 @@ Status VExpr::create_expr_trees(ObjectPool* pool, const std::vector<doris::TExpr
 }
 
 Status VExpr::prepare(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
-                      const RowDescriptor& row_desc, const std::shared_ptr<MemTracker>& tracker) {
+                      const RowDescriptor& row_desc) {
     for (int i = 0; i < ctxs.size(); ++i) {
-        RETURN_IF_ERROR(ctxs[i]->prepare(state, row_desc, tracker));
+        RETURN_IF_ERROR(ctxs[i]->prepare(state, row_desc));
     }
     return Status::OK();
 }

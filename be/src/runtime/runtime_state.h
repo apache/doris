@@ -38,6 +38,7 @@
 #include "runtime/thread_resource_mgr.h"
 #include "util/logging.h"
 #include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
 
 namespace doris {
 
@@ -126,8 +127,8 @@ public:
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     ExecEnv* exec_env() { return _exec_env; }
-    std::shared_ptr<MemTracker> query_mem_tracker() { return _query_mem_tracker; }
-    std::shared_ptr<MemTracker> instance_mem_tracker() { return _instance_mem_tracker; }
+    MemTrackerLimiter* query_mem_tracker() { return _query_mem_tracker; }
+    MemTrackerLimiter* instance_mem_tracker() { return _instance_mem_tracker.get(); }
     ThreadResourceMgr::ResourcePool* resource_pool() { return _resource_pool; }
 
     void set_fragment_root_id(PlanNodeId id) {
@@ -373,6 +374,10 @@ public:
 
     QueryFragmentsCtx* get_query_fragments_ctx() { return _query_ctx; }
 
+    OpentelemetryTracer get_tracer() { return _tracer; }
+
+    void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
+
 private:
     // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const std::shared_ptr<BufferedBlockMgr2>& block_mgr) {
@@ -385,10 +390,10 @@ private:
 
     // MemTracker that is shared by all fragment instances running on this host.
     // The query mem tracker must be released after the _instance_mem_tracker.
-    std::shared_ptr<MemTracker> _query_mem_tracker;
+    MemTrackerLimiter* _query_mem_tracker;
 
     // Memory usage of this fragment instance
-    std::shared_ptr<MemTracker> _instance_mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _instance_mem_tracker;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
@@ -520,6 +525,8 @@ private:
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
+
+    OpentelemetryTracer _tracer = telemetry::get_noop_tracer();
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

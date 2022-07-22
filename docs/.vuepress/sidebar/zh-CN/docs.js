@@ -153,8 +153,7 @@ module.exports = [
         directoryPath: "alter-table/",
         initialOpenGroupIndex: -1,
         children: [
-          "schema-change",
-          "replace-table"
+          "schema-change"
         ],
       },
       {
@@ -249,6 +248,7 @@ module.exports = [
           "spark-sink"
         ],
       },
+      "cloudcanal",
       {
         title: "自定义函数",
         directoryPath: "udf/",
@@ -751,6 +751,7 @@ module.exports = [
               "SHOW-CREATE-TABLE",
               "SHOW-CREATE-MATERIALIZED-VIEW",
               "SHOW-DATA",
+              "SHOW-DATA-SKEW",
               "SHOW-DATABASE-ID",
               "SHOW-DATABASES",
               "SHOW-DELETE",
@@ -790,7 +791,7 @@ module.exports = [
               "SHOW-STREAM-LOAD",
               "SHOW-SYNC-JOB",
               "SHOW-TABLE-ID",
-              "SHOW-TABLES",			  
+              "SHOW-TABLES",
               "SHOW-TABLE-STATUS",
               "SHOW-TABLET",
               "SHOW-TRANSACTION",
@@ -868,6 +869,7 @@ module.exports = [
       },
       "sql-interception",
       "query-profile",
+      "tracing",
       "optimization",
       {
         title: "运维监控",
@@ -886,6 +888,7 @@ module.exports = [
           "disk-capacity",
           "metadata-operation",
           "tablet-meta-tool",
+          "tablet-local-debug",
           "tablet-repair-and-balance",
           "tablet-restore-tool",
           "monitor-alert",

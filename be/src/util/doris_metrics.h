@@ -127,8 +127,8 @@ public:
     IntCounter* memtable_flush_duration_us;
 
     IntCounter* attach_task_thread_count;
-    IntCounter* switch_thread_mem_tracker_count;
-    IntCounter* switch_thread_mem_tracker_err_cb_count;
+    IntCounter* add_thread_mem_tracker_consumer_count;
+    IntCounter* thread_mem_tracker_exceed_call_back_count;
     // brpc server response count
     IntCounter* switch_bthread_count;
 
@@ -159,16 +159,17 @@ public:
     IntGauge* max_network_send_bytes_rate;
     IntGauge* max_network_receive_bytes_rate;
 
-    // Metrics related with BlockManager
-    IntCounter* readable_blocks_total;
-    IntCounter* writable_blocks_total;
-    IntCounter* blocks_created_total;
-    IntCounter* blocks_deleted_total;
-    IntCounter* bytes_read_total;
-    IntCounter* bytes_written_total;
-    IntCounter* disk_sync_total;
-    IntGauge* blocks_open_reading;
-    IntGauge* blocks_open_writing;
+    // Metrics related with file reader/writer
+    IntCounter* local_file_reader_total;
+    IntCounter* s3_file_reader_total;
+    IntCounter* local_file_writer_total;
+    IntCounter* file_created_total;
+    IntCounter* local_bytes_read_total;
+    IntCounter* s3_bytes_read_total;
+    IntCounter* local_bytes_written_total;
+    IntGauge* local_file_open_reading;
+    IntGauge* s3_file_open_reading;
+    IntGauge* local_file_open_writing;
 
     // Size of some global containers
     UIntGauge* rowset_count_generated_and_in_use;
@@ -206,6 +207,11 @@ public:
     UIntGauge* add_batch_task_queue_size;
     UIntGauge* send_batch_thread_pool_thread_num;
     UIntGauge* send_batch_thread_pool_queue_size;
+
+    // Upload metrics
+    UIntGauge* upload_total_byte;
+    IntCounter* upload_rowset_count;
+    IntCounter* upload_fail_count;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;

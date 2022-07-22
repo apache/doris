@@ -22,11 +22,13 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
+import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -39,11 +41,12 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowExecutor;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -55,6 +58,7 @@ import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
+import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
@@ -92,6 +96,8 @@ public abstract class TestWithFeService {
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
 
+    protected static final String DEFAULT_CLUSTER_PREFIX = "default_cluster:";
+
     @BeforeAll
     public final void beforeAll() throws Exception {
         connectContext = createDefaultCtx();
@@ -113,12 +119,16 @@ public abstract class TestWithFeService {
 
     // Help to create a mocked ConnectContext.
     protected ConnectContext createDefaultCtx() throws IOException {
+        return createCtx(UserIdentity.ROOT, "127.0.0.1");
+    }
+
+    protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {
         SocketChannel channel = SocketChannel.open();
         ConnectContext ctx = new ConnectContext(channel);
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
-        ctx.setQualifiedUser(PaloAuth.ROOT_USER);
-        ctx.setRemoteIP("127.0.0.1");
+        ctx.setCurrentUserIdentity(user);
+        ctx.setQualifiedUser(user.getQualifiedUser());
+        ctx.setRemoteIP(host);
         ctx.setCatalog(Catalog.getCurrentCatalog());
         ctx.setThreadLocalInfo();
         return ctx;
@@ -126,11 +136,15 @@ public abstract class TestWithFeService {
 
     // Parse an origin stmt and analyze it. Return a StatementBase instance.
     protected StatementBase parseAndAnalyzeStmt(String originStmt) throws Exception {
+        return parseAndAnalyzeStmt(originStmt, connectContext);
+    }
+
+    // Parse an origin stmt and analyze it. Return a StatementBase instance.
+    protected StatementBase parseAndAnalyzeStmt(String originStmt, ConnectContext ctx) throws Exception {
         System.out.println("begin to parse stmt: " + originStmt);
-        SqlScanner input =
-                new SqlScanner(new StringReader(originStmt), connectContext.getSessionVariable().getSqlMode());
+        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
-        Analyzer analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
+        Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
         StatementBase statementBase = null;
         try {
             statementBase = SqlParserUtils.getFirstStmt(parser);
@@ -151,8 +165,8 @@ public abstract class TestWithFeService {
     // for analyzing multi statements
     protected List<StatementBase> parseAndAnalyzeStmts(String originStmt) throws Exception {
         System.out.println("begin to parse stmts: " + originStmt);
-        SqlScanner input =
-                new SqlScanner(new StringReader(originStmt), connectContext.getSessionVariable().getSqlMode());
+        SqlScanner input = new SqlScanner(new StringReader(originStmt),
+                connectContext.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
         Analyzer analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
         List<StatementBase> statementBases = null;
@@ -191,6 +205,7 @@ public abstract class TestWithFeService {
         }
         Config.plugin_dir = dorisHome + "/plugins";
         Config.custom_config_dir = dorisHome + "/conf";
+        Config.edit_log_type = "local";
         File file = new File(Config.custom_config_dir);
         if (!file.exists()) {
             file.mkdir();
@@ -224,10 +239,29 @@ public abstract class TestWithFeService {
             throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
             InterruptedException {
         int feRpcPort = startFEServer(runningDir);
+        List<Backend> bes = Lists.newArrayList();
+        System.out.println("start create backend");
         for (int i = 0; i < backendNum; i++) {
-            createBackend("127.0.0.1", feRpcPort);
-            // sleep to wait first heartbeat
-            Thread.sleep(6000);
+            bes.add(createBackend("127.0.0.1", feRpcPort));
+        }
+        System.out.println("after create backend");
+        checkBEHeartbeat(bes);
+        // Thread.sleep(2000);
+        System.out.println("after create backend2");
+    }
+
+    private void checkBEHeartbeat(List<Backend> bes) throws InterruptedException {
+        int maxTry = 10;
+        boolean allAlive = false;
+        while (maxTry-- > 0 && !allAlive) {
+            Thread.sleep(1000);
+            boolean hasDead = false;
+            for (Backend be : bes) {
+                if (!be.isAlive()) {
+                    hasDead = true;
+                }
+            }
+            allAlive = !hasDead;
         }
     }
 
@@ -240,31 +274,30 @@ public abstract class TestWithFeService {
         // to make cluster running well.
         FeConstants.runningUnitTest = true;
         int feRpcPort = startFEServer(runningDir);
+        List<Backend> bes = Lists.newArrayList();
         for (int i = 0; i < backendNum; i++) {
             String host = "127.0.0." + (i + 1);
-            createBackend(host, feRpcPort);
+            bes.add(createBackend(host, feRpcPort));
         }
-        // sleep to wait first heartbeat
-        Thread.sleep(6000);
+        checkBEHeartbeat(bes);
     }
 
-    protected void createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
+    protected Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
         int beHeartbeatPort = findValidPort();
         int beThriftPort = findValidPort();
         int beBrpcPort = findValidPort();
         int beHttpPort = findValidPort();
 
         // start be
-        MockedBackend backend =
-                MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort, beHttpPort,
-                        new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
-                        new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
+        MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
+                beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
+                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
         // add be
-        Backend be =
-                new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(), backend.getHeartbeatPort());
+        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(),
+                backend.getHeartbeatPort());
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setTotalCapacityB(1000000);
         diskInfo1.setAvailableCapacityB(500000);
@@ -272,12 +305,13 @@ public abstract class TestWithFeService {
         Map<String, DiskInfo> disks = Maps.newHashMap();
         disks.put(diskInfo1.getRootPath(), diskInfo1);
         be.setDisks(ImmutableMap.copyOf(disks));
-        be.setAlive(true);
+        be.setAlive(false);
         be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         be.setBePort(beThriftPort);
         be.setHttpPort(beHttpPort);
         be.setBrpcPort(beBrpcPort);
         Catalog.getCurrentSystemInfo().addBackend(be);
+        return be;
     }
 
     protected void cleanDorisFeDir(String baseDir) {
@@ -307,11 +341,11 @@ public abstract class TestWithFeService {
         return port;
     }
 
-    protected String getSQLPlanOrErrorMsg(String sql) throws Exception {
+    public String getSQLPlanOrErrorMsg(String sql) throws Exception {
         return getSQLPlanOrErrorMsg(sql, false);
     }
 
-    protected String getSQLPlanOrErrorMsg(String sql, boolean isVerbose) throws Exception {
+    public String getSQLPlanOrErrorMsg(String sql, boolean isVerbose) throws Exception {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         connectContext.setExecutor(stmtExecutor);
@@ -325,7 +359,7 @@ public abstract class TestWithFeService {
         }
     }
 
-    protected Planner getSQLPlanner(String queryStr) throws Exception {
+    public Planner getSQLPlanner(String queryStr) throws Exception {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
         stmtExecutor.execute();
@@ -336,7 +370,7 @@ public abstract class TestWithFeService {
         }
     }
 
-    protected StmtExecutor getSqlStmtExecutor(String queryStr) throws Exception {
+    public StmtExecutor getSqlStmtExecutor(String queryStr) throws Exception {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
         stmtExecutor.execute();
@@ -347,28 +381,45 @@ public abstract class TestWithFeService {
         }
     }
 
-    protected void createDatabase(String db) throws Exception {
+    public void createDatabase(String db) throws Exception {
         String createDbStmtStr = "CREATE DATABASE " + db;
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
     }
 
-    protected void useDatabase(String dbName) {
+    public void useDatabase(String dbName) {
         connectContext.setDatabase(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
     }
 
-    protected void createTable(String sql) throws Exception {
+    protected ShowResultSet showCreateTable(String sql) throws Exception {
+        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt(sql);
+        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
+        return executor.execute();
+    }
+
+    protected ShowResultSet showCreateTableByName(String table) throws Exception {
+        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt("show create table " + table);
+        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
+        return executor.execute();
+    }
+
+    public void createTable(String sql) throws Exception {
         createTables(sql);
     }
 
-    protected void createTables(String... sqls) throws Exception {
+    public void createTableAsSelect(String sql) throws Exception {
+        CreateTableAsSelectStmt createTableAsSelectStmt = (CreateTableAsSelectStmt) parseAndAnalyzeStmt(sql);
+        Catalog.getCurrentCatalog().createTableAsSelect(createTableAsSelectStmt);
+    }
+
+    public void createTables(String... sqls) throws Exception {
         for (String sql : sqls) {
             CreateTableStmt stmt = (CreateTableStmt) parseAndAnalyzeStmt(sql);
             Catalog.getCurrentCatalog().createTable(stmt);
         }
     }
 
-    protected void createView(String sql) throws Exception {
+    public void createView(String sql) throws Exception {
         CreateViewStmt createViewStmt = (CreateViewStmt) parseAndAnalyzeStmt(sql);
         Catalog.getCurrentCatalog().createView(createViewStmt);
     }

@@ -54,7 +54,7 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
@@ -74,7 +74,7 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a odbc scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool("OdbcScanNode"));
+    _tuple_pool.reset(new (std::nothrow) MemPool());
 
     if (_tuple_pool.get() == nullptr) {
         return Status::InternalError("new a mem pool failed.");
@@ -93,8 +93,8 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
 
 Status OdbcScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     VLOG_CRITICAL << _scan_node_type << "::Open";
 
     if (nullptr == state) {
@@ -105,7 +105,6 @@ Status OdbcScanNode::open(RuntimeState* state) {
         return Status::InternalError("used before initialize.");
     }
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(_odbc_scanner->open());
     RETURN_IF_ERROR(_odbc_scanner->query());
@@ -138,10 +137,9 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
         return Status::InternalError("used before initialize.");
     }
 
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     if (reached_limit()) {
         *eos = true;
@@ -198,16 +196,13 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
                 if (slot_desc->is_nullable()) {
                     _tuple->set_null(slot_desc->null_indicator_offset());
                 } else {
-                    std::stringstream ss;
-                    ss << "nonnull column contains nullptr. table=" << _table_name
-                       << ", column=" << slot_desc->col_name();
-                    return Status::InternalError(ss.str());
+                    return Status::InternalError(
+                            "nonnull column contains nullptr. table={}, column={}", _table_name,
+                            slot_desc->col_name());
                 }
             } else if (column_data.strlen_or_ind > column_data.buffer_length) {
-                std::stringstream ss;
-                ss << "nonnull column contains nullptr. table=" << _table_name
-                   << ", column=" << slot_desc->col_name();
-                return Status::InternalError(ss.str());
+                return Status::InternalError("nonnull column contains nullptr. table={}, column={}",
+                                             _table_name, slot_desc->col_name());
             } else {
                 RETURN_IF_ERROR(write_text_slot(static_cast<char*>(column_data.target_value_ptr),
                                                 column_data.strlen_or_ind, slot_desc, state));
@@ -234,7 +229,6 @@ Status OdbcScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     _tuple_pool.reset();

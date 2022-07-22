@@ -54,7 +54,8 @@
         "sequence_col_idx": -1,
         "sort_type": "LEXICAL",
         "sort_col_num": 0,
-        "compression_type": "LZ4F"
+        "compression_type": "LZ4F",
+        "schema_version": 0
     },
     "rs_metas": [
         {
@@ -143,7 +144,8 @@
     },
     "preferred_rowset_type": "BETA_ROWSET",
     "tablet_type": "TABLET_TYPE_DISK",
-    "storage_medium": "HDD",
-    "remote_storage_name": "",
-    "replica_id": 0
+    "replica_id": 0,
+    "storage_policy": "",
+    "delete_bitmap": {},
+    "enable_unique_key_merge_on_write": false
 }

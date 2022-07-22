@@ -67,4 +67,4 @@ MySQL> select json_quote("\n\b\r\t");
 +------------------------+
 ```
 ### keywords
-json_quote
+json,quote,json_quote

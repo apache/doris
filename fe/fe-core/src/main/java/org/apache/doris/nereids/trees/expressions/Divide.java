@@ -17,18 +17,34 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
+
 /**
  * Divide Expression.
  */
-public class Divide<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Arithmetic implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-    public Divide(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+public class Divide extends Arithmetic implements BinaryExpression {
+    public Divide(Expression left, Expression right) {
         super(ArithmeticOperator.DIVIDE, left, right);
     }
 
     @Override
-    public String sql() {
-        return left().sql() + ' ' + getArithOperator().toString()
-                + ' ' + right().sql();
+    public String toSql() {
+        return left().toSql() + ' ' + getArithmeticOperator().toString()
+                + ' ' + right().toSql();
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new Divide(children.get(0), children.get(1));
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitDivide(this, context);
     }
 }

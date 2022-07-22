@@ -75,7 +75,7 @@ public class LateralViewRef extends TableRef {
 
         // analyze lateral view
         desc = analyzer.registerTableRef(this);
-        explodeSlotRef = new SlotRef(new TableName(null, viewName), columnName);
+        explodeSlotRef = new SlotRef(new TableName(null, null, viewName), columnName);
         explodeSlotRef.analyze(analyzer);
         isAnalyzed = true;  // true now that we have assigned desc
     }

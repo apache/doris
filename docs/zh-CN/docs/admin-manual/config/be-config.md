@@ -673,11 +673,17 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 BloomFilter/Min/Max等统计信息缓存的容量
 
+### `kafka_api_version_request`
+
+默认值：true
+
+如果依赖的 kafka 版本低于0.10.0.0, 该值应该被设置为 false。
+
 ### `kafka_broker_version_fallback`
 
 默认值：0.10.0
 
-如果依赖的 kafka 版本低于routine load依赖的 kafka 客户端版本, 将使用回退版本 kafka_broker_version_fallback 设置的值，有效值为：0.9.0、0.8.2、0.8.1、0.8.0。
+如果依赖的 kafka 版本低于0.10.0.0, 当 kafka_api_version_request 值为 false 的时候，将使用回退版本 kafka_broker_version_fallback 设置的值，有效值为：0.9.0.x、0.8.x.y。
 
 ### `load_data_reserve_hours`
 
@@ -1456,35 +1462,17 @@ webserver默认工作线程数
   ```
 * 默认值: 3
 
-### `track_new_delete`
+### `enable_tcmalloc_hook`
 
 * 类型：bool
 * 描述：是否Hook TCmalloc new/delete，目前在Hook中统计thread local MemTracker。
 * 默认值：true
-
-### `mem_tracker_level`
-
-* 类型: int16
-* 描述: MemTracker在Web页面上展示的级别，等于或低于这个级别的MemTracker会在Web页面上展示
-  ```
-    OVERVIEW = 0
-    TASK = 1
-    INSTANCE = 2
-    VERBOSE = 3
-  ```
-* 默认值: 0
 
 ### `mem_tracker_consume_min_size_bytes`
 
 * 类型: int32
 * 描述: TCMalloc Hook consume/release MemTracker时的最小长度，小于该值的consume size会持续累加，避免频繁调用MemTracker的consume/release，减小该值会增加consume/release的频率，增大该值会导致MemTracker统计不准，理论上一个MemTracker的统计值与真实值相差 = (mem_tracker_consume_min_size_bytes * 这个MemTracker所在的BE线程数)。
 * 默认值: 1048576
-
-### `memory_leak_detection`
-
-* 类型: bool
-* 描述: 是否启动内存泄漏检测，当 MemTracker 为负值时认为发生了内存泄漏，但实际 MemTracker 记录不准确时也会导致负值，所以这个功能处于实验阶段。
-* 默认值: false
 
 ### `max_segment_num_per_rowset`
 
@@ -1553,3 +1541,24 @@ webserver默认工作线程数
 * 类型: int32
 * 描述: String 类型最大长度的软限，单位是字节
 * 默认值: 1048576
+
+### `enable_quick_compaction`
+* 类型: bool
+* 描述: 是否开启quick_compaction,主要用在小数据量频繁导入的场景,通过快速compaction的机制及时合并导入版本可以有效避免-235的问题，小数据量的定义目前是根据行数来定义
+* 默认值: false
+
+### `quick_compaction_max_rows`
+* 类型: int32
+* 描述: 当导入的行数小于这个值认为这次导入是小数据量的导入，在快速合并时会被选中
+* 默认值: 1000
+
+### `quick_compaction_batch_size`
+* 类型: int32
+* 描述: 快速合并的触发时机，导入次数达到quick_compaction_batch_size时触发一次
+* 默认值: 10
+
+### `quick_compaction_min_rowsets`
+* 类型: int32
+* 描述: 最少进行合并的版本数，当选中的小数据量的rowset个数，大于这个值是才会进行真正的合并
+* 默认值: 10
+

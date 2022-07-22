@@ -20,16 +20,17 @@
 #include <iostream>
 
 #include "env/env.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/column_block.h"
 #include "olap/decimal12.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "testutil/test_util.h"
 #include "util/file_utils.h"
 #include "vec/core/types.h"
@@ -49,8 +50,8 @@ static const std::string TEST_DIR = "./ut_dir/column_reader_writer_test";
 
 class ColumnReaderWriterTest : public testing::Test {
 public:
-    ColumnReaderWriterTest() : _tracker(new MemTracker()), _pool(_tracker.get()) {}
-    virtual ~ColumnReaderWriterTest() {}
+    ColumnReaderWriterTest() : _pool() {}
+    ~ColumnReaderWriterTest() override = default;
 
 protected:
     void SetUp() override {
@@ -68,7 +69,6 @@ protected:
     }
 
 private:
-    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
 };
 
@@ -82,11 +82,10 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
 
     // write data
     std::string fname = TEST_DIR + "/" + test_name;
+    auto fs = io::global_local_filesystem();
     {
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts(fname);
-        std::string storage_name;
-        Status st = fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock);
+        io::FileWriterPtr file_writer;
+        Status st = fs->create_file(fname, &file_writer);
         EXPECT_TRUE(st.ok()) << st.get_error_msg();
 
         ColumnWriterOptions writer_opts;
@@ -111,7 +110,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             column = create_char_key(1);
         }
         std::unique_ptr<ColumnWriter> writer;
-        ColumnWriter::create(writer_opts, &column, wblock.get(), &writer);
+        ColumnWriter::create(writer_opts, &column, file_writer.get(), &writer);
         st = writer->init();
         EXPECT_TRUE(st.ok()) << st.to_string();
 
@@ -126,40 +125,35 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
         EXPECT_TRUE(writer->write_zone_map().ok());
 
         // close the file
-        EXPECT_TRUE(wblock->close().ok());
+        EXPECT_TRUE(file_writer->close().ok());
     }
     auto type_info = get_scalar_type_info(type);
+    io::FileReaderSPtr file_reader;
+    ASSERT_EQ(fs->open_file(fname, &file_reader), Status::OK());
     // read and check
     {
         // sequence read
         {
             ColumnReaderOptions reader_opts;
-            FilePathDesc path_desc;
-            path_desc.filepath = fname;
             std::unique_ptr<ColumnReader> reader;
-            auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
+            auto st = ColumnReader::create(reader_opts, meta, num_rows, file_reader, &reader);
             EXPECT_TRUE(st.ok());
 
             ColumnIterator* iter = nullptr;
             st = reader->new_iterator(&iter);
             EXPECT_TRUE(st.ok());
-            std::unique_ptr<fs::ReadableBlock> rblock;
-            fs::BlockManager* block_manager = fs::fs_util::block_manager(path_desc);
-            block_manager->open_block(path_desc, &rblock);
 
-            EXPECT_TRUE(st.ok());
             ColumnIteratorOptions iter_opts;
             OlapReaderStatistics stats;
             iter_opts.stats = &stats;
-            iter_opts.rblock = rblock.get();
+            iter_opts.file_reader = file_reader.get();
             st = iter->init(iter_opts);
             EXPECT_TRUE(st.ok());
 
             st = iter->seek_to_first();
             EXPECT_TRUE(st.ok()) << st.to_string();
 
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -194,29 +188,23 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
 
         {
             ColumnReaderOptions reader_opts;
-            FilePathDesc path_desc;
-            path_desc.filepath = fname;
             std::unique_ptr<ColumnReader> reader;
-            auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
+            auto st = ColumnReader::create(reader_opts, meta, num_rows, file_reader, &reader);
             EXPECT_TRUE(st.ok());
 
             ColumnIterator* iter = nullptr;
             st = reader->new_iterator(&iter);
             EXPECT_TRUE(st.ok());
-            std::unique_ptr<fs::ReadableBlock> rblock;
-            fs::BlockManager* block_manager = fs::fs_util::block_manager(path_desc);
-            block_manager->open_block(path_desc, &rblock);
 
             EXPECT_TRUE(st.ok());
             ColumnIteratorOptions iter_opts;
             OlapReaderStatistics stats;
             iter_opts.stats = &stats;
-            iter_opts.rblock = rblock.get();
+            iter_opts.file_reader = file_reader.get();
             st = iter->init(iter_opts);
             EXPECT_TRUE(st.ok());
 
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -267,11 +255,10 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
 
     // write data
     std::string fname = TEST_DIR + "/" + test_name;
+    auto fs = io::global_local_filesystem();
     {
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts(fname);
-        std::string storage_name;
-        Status st = fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock);
+        io::FileWriterPtr file_writer;
+        Status st = fs->create_file(fname, &file_writer);
         EXPECT_TRUE(st.ok()) << st.get_error_msg();
 
         ColumnWriterOptions writer_opts;
@@ -296,7 +283,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         child_meta->set_is_nullable(true);
 
         std::unique_ptr<ColumnWriter> writer;
-        ColumnWriter::create(writer_opts, &list_column, wblock.get(), &writer);
+        ColumnWriter::create(writer_opts, &list_column, file_writer.get(), &writer);
         st = writer->init();
         EXPECT_TRUE(st.ok()) << st.to_string();
 
@@ -314,30 +301,26 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         EXPECT_TRUE(st.ok());
 
         // close the file
-        EXPECT_TRUE(wblock->close().ok());
+        EXPECT_TRUE(file_writer->close().ok());
     }
     auto type_info = get_type_info(&meta);
-
+    io::FileReaderSPtr file_reader;
+    ASSERT_EQ(fs->open_file(fname, &file_reader), Status::OK());
     // read and check
     {
         ColumnReaderOptions reader_opts;
-        FilePathDesc path_desc;
-        path_desc.filepath = fname;
         std::unique_ptr<ColumnReader> reader;
-        auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
+        auto st = ColumnReader::create(reader_opts, meta, num_rows, file_reader, &reader);
         EXPECT_TRUE(st.ok());
 
         ColumnIterator* iter = nullptr;
         st = reader->new_iterator(&iter);
         EXPECT_TRUE(st.ok());
-        std::unique_ptr<fs::ReadableBlock> rblock;
-        fs::BlockManager* block_manager = fs::fs_util::block_manager(path_desc);
-        st = block_manager->open_block(path_desc, &rblock);
-        EXPECT_TRUE(st.ok());
+
         ColumnIteratorOptions iter_opts;
         OlapReaderStatistics stats;
         iter_opts.stats = &stats;
-        iter_opts.rblock = rblock.get();
+        iter_opts.file_reader = file_reader.get();
         st = iter->init(iter_opts);
         EXPECT_TRUE(st.ok());
         // sequence read
@@ -345,8 +328,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
             st = iter->seek_to_first();
             EXPECT_TRUE(st.ok()) << st.to_string();
 
-            MemTracker tracker;
-            MemPool pool(&tracker);
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
             cvb->resize(1024);
@@ -372,8 +354,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         }
         // seek read
         {
-            MemTracker tracker;
-            MemPool pool(&tracker);
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
             cvb->resize(1024);
@@ -469,10 +450,10 @@ void test_read_default_value(string value, void* result) {
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
-        DefaultValueColumnIterator iter(tablet_column.has_default_value(),
-                                        tablet_column.default_value(), tablet_column.is_nullable(),
-                                        create_static_type_info_ptr(scalar_type_info),
-                                        tablet_column.length());
+        DefaultValueColumnIterator iter(
+                tablet_column.has_default_value(), tablet_column.default_value(),
+                tablet_column.is_nullable(), create_static_type_info_ptr(scalar_type_info),
+                tablet_column.length(), tablet_column.precision(), tablet_column.frac());
         ColumnIteratorOptions iter_opts;
         auto st = iter.init(iter_opts);
         EXPECT_TRUE(st.ok());
@@ -481,8 +462,7 @@ void test_read_default_value(string value, void* result) {
             st = iter.seek_to_first();
             EXPECT_TRUE(st.ok()) << st.to_string();
 
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -512,8 +492,7 @@ void test_read_default_value(string value, void* result) {
         }
 
         {
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -581,10 +560,10 @@ void test_v_read_default_value(string value, void* result) {
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
-        DefaultValueColumnIterator iter(tablet_column.has_default_value(),
-                                        tablet_column.default_value(), tablet_column.is_nullable(),
-                                        create_static_type_info_ptr(scalar_type_info),
-                                        tablet_column.length());
+        DefaultValueColumnIterator iter(
+                tablet_column.has_default_value(), tablet_column.default_value(),
+                tablet_column.is_nullable(), create_static_type_info_ptr(scalar_type_info),
+                tablet_column.length(), tablet_column.precision(), tablet_column.frac());
         ColumnIteratorOptions iter_opts;
         auto st = iter.init(iter_opts);
         EXPECT_TRUE(st.ok());

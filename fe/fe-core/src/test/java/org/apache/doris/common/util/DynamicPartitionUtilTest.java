@@ -23,7 +23,7 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;

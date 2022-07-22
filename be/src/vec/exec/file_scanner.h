@@ -26,6 +26,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+class FileScanNode;
 class FileScanner {
 public:
     FileScanner(RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -33,6 +34,9 @@ public:
                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
     virtual ~FileScanner() = default;
+
+    virtual void reg_conjunct_ctxs(const TupleId& tupleId,
+                                   const std::vector<ExprContext*>& conjunct_ctxs);
 
     // Open this scanner, will initialize information need to
     virtual Status open();
@@ -45,7 +49,11 @@ public:
     // Close this scanner
     virtual void close() = 0;
 
+    std::vector<bool>* mutable_runtime_filter_marks() { return &_runtime_filter_marks; }
+
 protected:
+    virtual void _init_profiles(RuntimeProfile* profile) = 0;
+
     Status finalize_block(vectorized::Block* dest_block, bool* eof);
     Status init_block(vectorized::Block* block);
 
@@ -68,7 +76,6 @@ protected:
 
     std::unique_ptr<RowDescriptor> _row_desc;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     std::unique_ptr<MemPool> _mem_pool;
 
@@ -81,9 +88,20 @@ protected:
 
     bool _scanner_eof = false;
     int _rows = 0;
+    long _read_row_counter = 0;
 
     std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
     int _num_of_columns_from_file;
+
+    // File formats based push down predicate
+    std::vector<ExprContext*> _conjunct_ctxs;
+    // slot_ids for parquet predicate push down are in tuple desc
+    TupleId _tupleId;
+
+    // to record which runtime filters have been used
+    std::vector<bool> _runtime_filter_marks;
+
+    FileScanNode* _parent;
 
 private:
     Status _init_expr_ctxes();

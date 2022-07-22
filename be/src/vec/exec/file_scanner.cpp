@@ -27,7 +27,6 @@
 #include "exec/text_converter.hpp"
 #include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
@@ -43,15 +42,7 @@ FileScanner::FileScanner(RuntimeState* state, RuntimeProfile* profile,
           _ranges(ranges),
           _next_range(0),
           _counter(counter),
-#if BE_TEST
-          _mem_tracker(new MemTracker()),
-#else
-          _mem_tracker(MemTracker::create_tracker(
-                  -1, state->query_type() == TQueryType::LOAD
-                              ? "FileScanner:" + std::to_string(state->load_job_id())
-                              : "FileScanner:Select")),
-#endif
-          _mem_pool(std::make_unique<MemPool>(_mem_tracker.get())),
+          _mem_pool(std::make_unique<MemPool>()),
           _pre_filter_texprs(pre_filter_texprs),
           _profile(profile),
           _rows_read_counter(nullptr),
@@ -67,6 +58,12 @@ Status FileScanner::open() {
     _read_timer = ADD_TIMER(_profile, "TotalRawReadTime(*)");
 
     return Status::OK();
+}
+
+void FileScanner::reg_conjunct_ctxs(const TupleId& tupleId,
+                                    const std::vector<ExprContext*>& conjunct_ctxs) {
+    _conjunct_ctxs = conjunct_ctxs;
+    _tupleId = tupleId;
 }
 
 Status FileScanner::_init_expr_ctxes() {
@@ -119,7 +116,7 @@ Status FileScanner::_init_expr_ctxes() {
         _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
                 _state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
-        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc, _mem_tracker));
+        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc));
         RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
     }
 
@@ -130,6 +127,7 @@ void FileScanner::close() {
     if (_vpre_filter_ctx_ptr) {
         (*_vpre_filter_ctx_ptr)->close(_state);
     }
+    COUNTER_UPDATE(_rows_read_counter, _read_row_counter);
 }
 
 Status FileScanner::init_block(vectorized::Block* block) {
@@ -165,6 +163,7 @@ Status FileScanner::_filter_block(vectorized::Block* _block) {
 
 Status FileScanner::finalize_block(vectorized::Block* _block, bool* eof) {
     *eof = _scanner_eof;
+    _read_row_counter += _block->rows();
     RETURN_IF_ERROR(_fill_columns_from_path(_block));
     if (LIKELY(_rows > 0)) {
         RETURN_IF_ERROR(_filter_block(_block));
@@ -190,11 +189,6 @@ Status FileScanner::_fill_columns_from_path(vectorized::Block* _block) {
 
             auto doris_column = _block->get_by_name(slot_desc->col_name()).column;
             IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
-            if (slot_desc->is_nullable()) {
-                auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
-                nullable_column->get_null_map_data().push_back(0);
-                col_ptr = &nullable_column->get_nested_column();
-            }
 
             for (size_t j = 0; j < rows; ++j) {
                 _text_converter->write_vec_column(slot_desc, col_ptr,

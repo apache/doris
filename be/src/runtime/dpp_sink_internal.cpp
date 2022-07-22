@@ -89,9 +89,7 @@ Status PartRangeKey::from_thrift(ObjectPool* pool, const TPartitionKey& t_key, P
         key->_key = pool->add(new DateTimeValue());
         DateTimeValue* datetime = reinterpret_cast<DateTimeValue*>(key->_key);
         if (!(datetime->from_date_str(t_key.key.c_str(), t_key.key.length()))) {
-            std::stringstream error_msg;
-            error_msg << "Fail to convert date string:" << t_key.key;
-            return Status::InternalError(error_msg.str());
+            return Status::InternalError("Fail to convert date string:{}", t_key.key);
         }
         datetime->cast_to_date();
         break;
@@ -101,9 +99,7 @@ Status PartRangeKey::from_thrift(ObjectPool* pool, const TPartitionKey& t_key, P
         key->_key = pool->add(new DateTimeValue());
         DateTimeValue* datetime = reinterpret_cast<DateTimeValue*>(key->_key);
         if (!(datetime->from_date_str(t_key.key.c_str(), t_key.key.length()))) {
-            std::stringstream error_msg;
-            error_msg << "Fail to convert datetime string:" << t_key.key;
-            return Status::InternalError(error_msg.str());
+            return Status::InternalError("Fail to convert datetime string:{}", t_key.key);
         }
         datetime->to_datetime();
         break;
@@ -114,9 +110,7 @@ Status PartRangeKey::from_thrift(ObjectPool* pool, const TPartitionKey& t_key, P
         break;
     }
     if (parse_result != StringParser::PARSE_SUCCESS) {
-        std::stringstream error_msg;
-        error_msg << "Fail to convert string:" << t_key.key;
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError("Fail to convert string:{}", t_key.key);
     }
 
     return Status::OK();
@@ -156,10 +150,9 @@ Status PartitionInfo::from_thrift(ObjectPool* pool, const TRangePartition& t_par
     return Status::OK();
 }
 
-Status PartitionInfo::prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                              const std::shared_ptr<MemTracker>& mem_tracker) {
+Status PartitionInfo::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     if (_distributed_expr_ctxs.size() > 0) {
-        RETURN_IF_ERROR(Expr::prepare(_distributed_expr_ctxs, state, row_desc, mem_tracker));
+        RETURN_IF_ERROR(Expr::prepare(_distributed_expr_ctxs, state, row_desc));
     }
     return Status::OK();
 }

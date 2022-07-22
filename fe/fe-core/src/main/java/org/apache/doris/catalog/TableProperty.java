@@ -58,6 +58,8 @@ public class TableProperty implements Writable {
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
 
+    private String storagePolicy = "";
+
     /*
      * the default storage format of this table.
      * DEFAULT: depends on BE's config 'default_rowset_type'
@@ -98,6 +100,7 @@ public class TableProperty implements Writable {
                 break;
             case OperationType.OP_MODIFY_IN_MEMORY:
                 buildInMemory();
+                buildStoragePolicy();
                 break;
             default:
                 break;
@@ -137,6 +140,15 @@ public class TableProperty implements Writable {
     public TableProperty buildInMemory() {
         isInMemory = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_INMEMORY, "false"));
         return this;
+    }
+
+    public TableProperty buildStoragePolicy() {
+        storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
+        return this;
+    }
+
+    public String getStoragePolicy() {
+        return storagePolicy;
     }
 
     public TableProperty buildDataSortInfo() {
@@ -237,6 +249,15 @@ public class TableProperty implements Writable {
 
     public TCompressionType getCompressionType() {
         return compressionType;
+    }
+
+    public void setEnableUniqueKeyMergeOnWrite(boolean enable) {
+        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
+    }
+
+    public boolean getEnableUniqueKeyMergeOnWrite() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+                    PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
     }
 
     public void buildReplicaAllocation() {

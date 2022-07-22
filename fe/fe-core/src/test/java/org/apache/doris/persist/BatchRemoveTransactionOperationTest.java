@@ -20,7 +20,7 @@ package org.apache.doris.persist;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.meta.MetaContext;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;

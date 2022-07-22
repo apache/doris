@@ -672,11 +672,17 @@ Default: 10737418240
 
 BloomFilter/Min/Max and other statistical information cache capacity
 
+### `kafka_api_version_request`
+
+Default: true
+
+If the dependent Kafka version is lower than 0.10.0.0, this value should be set to false.
+
 ### `kafka_broker_version_fallback`
 
 Default: 0.10.0
 
-If the dependent Kafka version is lower than the Kafka client version that routine load depends on, the value set by the fallback version kafka_broker_version_fallback will be used, and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+If the dependent Kafka version is lower than 0.10.0.0, the value set by the fallback version kafka_broker_version_fallback will be used if the value of kafka_api_version_request is set to false, and the valid values are: 0.9.0.x, 0.8.x.y.
 
 ### `load_data_reserve_hours`
 
@@ -1437,35 +1443,17 @@ The size of the buffer before flashing
   
 * Default: 3
 
-### `track_new_delete`
+### `enable_tcmalloc_hook`
 
 * Type: bool
 * Description: Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
 * Default: true
-
-### `mem_tracker_level`
-
-* Type: int16
-* Description: The level at which MemTracker is displayed on the Web page equal or lower than this level will be displayed on the Web page
-  ```
-    OVERVIEW = 0
-    TASK = 1
-    INSTANCE = 2
-    VERBOSE = 3
-  ```
-* Default: 0
 
 ### `mem_tracker_consume_min_size_bytes`
 
 * Type: int32
 * Description: The minimum length of TCMalloc Hook when consume/release MemTracker. Consume size smaller than this value will continue to accumulate to avoid frequent calls to consume/release of MemTracker. Decreasing this value will increase the frequency of consume/release. Increasing this value will cause MemTracker statistics to be inaccurate. Theoretically, the statistical value of a MemTracker differs from the true value = ( mem_tracker_consume_min_size_bytes * the number of BE threads where the MemTracker is located).
 * Default: 1048576
-
-### `memory_leak_detection`
-
-* Type: bool
-* Description: Whether to start memory leak detection, when MemTracker is a negative value, it is considered that a memory leak has occurred, but the actual MemTracker records inaccurately will also cause a negative value, so this feature is in the experimental stage.
-* Default: false
 
 ### `max_segment_num_per_rowset`
 
@@ -1531,3 +1519,24 @@ Translated with www.DeepL.com/Translator (free version)
 * Type: int32
 * Description: The maximum amount of data read by each OlapScanner.
 * Default: 1024
+
+### `enable_quick_compaction`
+* Type: bool
+* Description: enable quick compaction,It is mainly used in the scenario of frequent import of small amount of data. The problem of -235 can be effectively avoided by merging the imported versions in time through the mechanism of rapid compaction. The definition of small amount of data is currently defined according to the number of rows
+* Default: false
+
+### `quick_compaction_max_rows`
+* Type: int32
+* Description: When the number of imported rows is less than this value, it is considered that this import is an import of small amount of data, which will be selected during quick compaction
+* Default: 1000
+
+### `quick_compaction_batch_size`
+* Type: int32
+* Description: trigger time, when import times reach quick_compaction_batch_size will trigger immediately 
+* Default: 10
+
+### `quick_compaction_min_rowsets`
+* Type: int32
+* Description: at least the number of versions to be compaction, and the number of rowsets with a small amount of data in the selection. If it is greater than this value, the real compaction will be carried out
+* Default: 10
+

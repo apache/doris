@@ -137,10 +137,9 @@ public:
     void get_tablets_distribution_on_different_disks(
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
             std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk);
+    void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables);
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
-
-    void find_tablet_have_alpha_rowset(std::vector<TabletSharedPtr>& tablets);
 
 private:
     // Add a tablet pointer to StorageEngine
@@ -182,9 +181,6 @@ private:
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 
-    Status _get_storage_param(DataDir* data_dir, const std::string& storage_name,
-                              StorageParamPB* storage_param);
-
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 
@@ -203,7 +199,7 @@ private:
     };
 
     // trace the memory use by meta of tablet
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     const int32_t _tablets_shards_size;
     const int32_t _tablets_shards_mask;

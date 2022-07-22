@@ -39,7 +39,12 @@ TEST(function_string_test, function_string_substr_test) {
                 {{std::string("hello word"), -5, 5}, std::string(" word")},
                 {{std::string("hello word"), 1, 12}, std::string("hello word")},
                 {{std::string("HELLO,!^%"), 4, 2}, std::string("LO")},
-                {{std::string(""), 5, 4}, Null()},
+                {{std::string(""), 5, 4}, std::string("")},
+                {{std::string(""), -1, 4}, std::string("")},
+                {{std::string("12"), 3, 4}, std::string("")},
+                {{std::string(""), 0, 4}, std::string("")},
+                {{std::string("123"), 0, 4}, std::string("")},
+                {{std::string("123"), 1, 0}, std::string("")},
                 {{Null(), 5, 4}, Null()}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
@@ -53,7 +58,11 @@ TEST(function_string_test, function_string_substr_test) {
                 {{std::string("hello word"), -5}, std::string(" word")},
                 {{std::string("hello word"), 1}, std::string("hello word")},
                 {{std::string("HELLO,!^%"), 4}, std::string("LO,!^%")},
-                {{std::string(""), 5, 4}, Null()},
+                {{std::string(""), 5}, std::string("")},
+                {{std::string(""), -1}, std::string("")},
+                {{std::string("12"), 3}, std::string("")},
+                {{std::string(""), 0}, std::string("")},
+                {{std::string("123"), 0}, std::string("")},
                 {{Null(), 5, 4}, Null()}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
@@ -82,7 +91,10 @@ TEST(function_string_test, function_string_strleft_test) {
                         {{std::string("hel  lo  "), 5}, std::string("hel  ")},
                         {{std::string("hello word"), 20}, std::string("hello word")},
                         {{std::string("HELLO,!^%"), 7}, std::string("HELLO,!")},
-                        {{std::string(""), 2}, Null()},
+                        {{std::string(""), 2}, std::string("")},
+                        {{std::string(""), -2}, std::string("")},
+                        {{std::string(""), 0}, std::string("")},
+                        {{std::string("123"), 0}, std::string("")},
                         {{Null(), 3}, Null()}};
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);
@@ -372,6 +384,23 @@ TEST(function_string_test, function_concat_ws_test) {
                 {{Null(), std::string(""), std::string("?"), std::string("")}, Null()},
                 {{std::string("-"), std::string("123"), Null(), std::string("456")},
                  std::string("123-456")}};
+
+        check_function<DataTypeString, true>(func_name, input_types, data_set);
+    };
+
+    {
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::Array, TypeIndex::String};
+
+        Array vec1 = {Field("", 0), Field("", 0), Field("", 0)};
+        Array vec2 = {Field("123", 3), Field("456", 3), Field("789", 3)};
+        Array vec3 = {Field("", 0), Field("?", 1), Field("", 0)};
+        Array vec4 = {Field("abc", 3), Field("", 0), Field("def", 3)};
+        Array vec5 = {Field("abc", 3), Field("def", 3), Field("ghi", 3)};
+        DataSet data_set = {{{std::string("-"), vec1}, std::string("--")},
+                            {{std::string(""), vec2}, std::string("123456789")},
+                            {{std::string("-"), vec3}, std::string("-?-")},
+                            {{Null(), vec4}, Null()},
+                            {{std::string("-"), vec5}, std::string("abc-def-ghi")}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
     };

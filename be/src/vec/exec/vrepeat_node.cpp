@@ -57,7 +57,10 @@ Status VRepeatNode::prepare(RuntimeState* state) {
        << " is not equal to the sum of child_slots_size " << _child_slots.size()
        << ",virtual_slots_size " << _virtual_tuple_desc->slots().size();
     if (_output_slots.size() != (_child_slots.size() + _virtual_tuple_desc->slots().size())) {
-        return Status::InternalError(ss.str());
+        return Status::InternalError(
+                "The output slots size {} is not equal to the sum of child_slots_size {}"
+                ",virtual_slots_size {}",
+                _output_slots.size(), _child_slots.size(), _virtual_tuple_desc->slots().size());
     }
 
     _child_block.reset(new Block());
@@ -66,6 +69,7 @@ Status VRepeatNode::prepare(RuntimeState* state) {
 }
 
 Status VRepeatNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VRepeatNode::open");
     VLOG_CRITICAL << "VRepeatNode::open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(RepeatNode::open(state));
@@ -170,14 +174,13 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
 }
 
 Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VRepeatNode::get_next");
     VLOG_CRITICAL << "VRepeatNode::get_next";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is NULL pointer");
     }
-
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     DCHECK(_repeat_id_idx >= 0);
     for (const std::vector<int64_t>& v : _grouping_list) {
@@ -188,7 +191,9 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     // current child block has finished its repeat, get child's next block
     if (_child_block->rows() == 0) {
         while (_child_block->rows() == 0 && !_child_eos) {
-            RETURN_IF_ERROR(child(0)->get_next(state, _child_block.get(), &_child_eos));
+            RETURN_IF_ERROR_AND_CHECK_SPAN(
+                    child(0)->get_next(state, _child_block.get(), &_child_eos),
+                    child(0)->get_next_span(), _child_eos);
         }
 
         if (_child_eos and _child_block->rows() == 0) {
@@ -218,6 +223,7 @@ Status VRepeatNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VRepeatNode::close");
     release_block_memory(*_child_block.get());
     RETURN_IF_ERROR(child(0)->close(state));
     return ExecNode::close(state);

@@ -173,7 +173,7 @@ public class FloatLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (!(targetType.isFloatingPointType() || targetType.isDecimalV2())) {
+        if (!(targetType.isFloatingPointType() || targetType.isDecimalV2() || targetType.isDecimalV3())) {
             return super.uncheckedCastTo(targetType);
         }
         if (targetType.isFloatingPointType()) {
@@ -183,7 +183,7 @@ public class FloatLiteral extends LiteralExpr {
                 return floatLiteral;
             }
             return this;
-        } else if (targetType.isDecimalV2()) {
+        } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
             // the double constructor does an exact translation, use valueOf() instead.
             return new DecimalLiteral(BigDecimal.valueOf(value));
         }

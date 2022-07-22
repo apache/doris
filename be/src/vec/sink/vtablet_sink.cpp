@@ -146,7 +146,7 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("add row failed. " + _cancel_msg);
+            return Status::InternalError("add row failed. {}", _cancel_msg);
         } else {
             return st.clone_and_prepend("already stopped, can't add row. cancelled/eos: ");
         }
@@ -159,7 +159,9 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
     while (!_cancelled &&
            (_pending_batches_bytes > _max_pending_batches_bytes ||
-            _parent->_mem_tracker->any_limit_exceeded()) &&
+            thread_context()
+                    ->_thread_mem_tracker_mgr->limiter_mem_tracker()
+                    ->any_limit_exceeded()) &&
            _pending_batches_num > 0) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -168,7 +170,8 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     _cur_mutable_block->add_row(block_row.first, block_row.second);
     _cur_add_block_request.add_tablet_ids(tablet_id);
 
-    if (_cur_mutable_block->rows() == _batch_size) {
+    if (_cur_mutable_block->rows() == _batch_size ||
+        _cur_mutable_block->bytes() > config::doris_scanner_row_bytes) {
         {
             SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
             std::lock_guard<std::mutex> l(_pending_batches_lock);
@@ -214,7 +217,7 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
 }
 
 void VNodeChannel::try_send_block(RuntimeState* state) {
-    SCOPED_ATTACH_TASK_THREAD(state, _node_channel_tracker);
+    SCOPED_ATTACH_TASK(state);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
     AddBlockReq send_block;
     {
@@ -362,19 +365,27 @@ Status VOlapTableSink::init(const TDataSink& sink) {
 Status VOlapTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(OlapTableSink::prepare(state));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _input_row_desc,
-                                               _expr_mem_tracker));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _input_row_desc));
     return Status::OK();
 }
 
 Status VOlapTableSink::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
     return OlapTableSink::open(state);
 }
 
+size_t VOlapTableSink::get_pending_bytes() const {
+    size_t mem_consumption = 0;
+    for (auto& indexChannel : _channels) {
+        mem_consumption += indexChannel->get_pending_bytes();
+    }
+    return mem_consumption;
+}
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
     auto rows = input_block->rows();
@@ -426,6 +437,13 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     if (findTabletMode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
         _partition_to_tablet_map.clear();
     }
+
+    //if pending bytes is more than 500M, wait
+    //constexpr size_t MAX_PENDING_BYTES = 500 * 1024 * 1024;
+    //while (get_pending_bytes() > MAX_PENDING_BYTES) {
+    //    std::this_thread::sleep_for(std::chrono::microseconds(500));
+    //}
+
     for (int i = 0; i < num_rows; ++i) {
         if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
             continue;
@@ -475,6 +493,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
 
 Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) return _close_status;
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::close");
     vectorized::VExpr::close(_output_vexpr_ctxs, state);
     return OlapTableSink::close(state, exec_status);
 }

@@ -18,7 +18,7 @@
 #include "vec/exec/vbroker_scan_node.h"
 
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple.h"
@@ -59,23 +59,19 @@ Status VBrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VBrokerScanNode::prepare(RuntimeState* state) {
     VLOG_QUERY << "VBrokerScanNode prepare";
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // get tuple desc
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {
-        std::stringstream ss;
-        ss << "Failed to get tuple descriptor, _tuple_id=" << _tuple_id;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Failed to get tuple descriptor, _tuple_id={}", _tuple_id);
     }
 
     // Initialize slots map
     for (auto slot : _tuple_desc->slots()) {
         auto pair = _slots_map.emplace(slot->col_name(), slot);
         if (!pair.second) {
-            std::stringstream ss;
-            ss << "Failed to insert slot, col_name=" << slot->col_name();
-            return Status::InternalError(ss.str());
+            return Status::InternalError("Failed to insert slot, col_name={}", slot->col_name());
         }
     }
 
@@ -86,10 +82,10 @@ Status VBrokerScanNode::prepare(RuntimeState* state) {
 }
 
 Status VBrokerScanNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VBrokerScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
 
     RETURN_IF_ERROR(start_scanners());
@@ -102,11 +98,16 @@ Status VBrokerScanNode::start_scanners() {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
         _num_running_scanners = 1;
     }
-    _scanner_threads.emplace_back(&VBrokerScanNode::scanner_worker, this, 0, _scan_ranges.size());
+    _scanner_threads.emplace_back([this, size = 0, length = _scan_ranges.size(),
+                                   parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
+        OpentelemetryScope scope {parent_span};
+        this->scanner_worker(size, length);
+    });
     return Status::OK();
 }
 
 Status VBrokerScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VBrokerScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // check if CANCELLED.
     if (state->is_cancelled()) {
@@ -200,7 +201,7 @@ Status VBrokerScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VBrokerScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     _scan_finished.store(true);
     _queue_writer_cond.notify_all();
@@ -245,7 +246,10 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
                // 1. too many batches in queue, or
                // 2. at least one batch in queue and memory exceed limit.
                (_block_queue.size() >= _max_buffered_batches ||
-                (mem_tracker()->any_limit_exceeded() && !_block_queue.empty()))) {
+                (thread_context()
+                         ->_thread_mem_tracker_mgr->limiter_mem_tracker()
+                         ->any_limit_exceeded() &&
+                 !_block_queue.empty()))) {
             _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
         }
         // Process already set failed, so we just return OK
@@ -263,13 +267,14 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
         // Queue size Must be smaller than _max_buffered_batches
         _block_queue.push_back(block);
 
-        // Notify reader to
+        // Notify reader to process
         _queue_reader_cond.notify_one();
     }
     return Status::OK();
 }
 
 void VBrokerScanNode::scanner_worker(int start_idx, int length) {
+    START_AND_SCOPE_SPAN(_runtime_state->get_tracer(), span, "VBrokerScanNode::scanner_worker");
     Thread::set_self_name("vbroker_scanner");
     Status status = Status::OK();
     ScannerCounter counter;
@@ -327,6 +332,7 @@ std::unique_ptr<BaseScanner> VBrokerScanNode::create_scanner(const TBrokerScanRa
                                               scan_range.ranges, scan_range.broker_addresses,
                                               _pre_filter_texprs, counter);
     }
+    scan->reg_conjunct_ctxs(_tuple_id, _conjunct_ctxs);
     std::unique_ptr<BaseScanner> scanner(scan);
     return scanner;
 }

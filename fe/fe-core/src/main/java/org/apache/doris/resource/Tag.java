@@ -23,11 +23,13 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Map;
 import java.util.Objects;
 
 /*
@@ -96,8 +98,18 @@ public class Tag implements Writable {
         return new Tag(type, value);
     }
 
+    public static Tag createNotCheck(String type, String value) {
+        return new Tag(type, value);
+    }
+
     public String toKey() {
         return type + "_" + value;
+    }
+
+    public Map<String, String> toMap() {
+        Map<String, String> map = Maps.newHashMap();
+        map.put(type, value);
+        return map;
     }
 
     @Override

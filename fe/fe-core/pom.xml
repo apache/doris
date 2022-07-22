@@ -215,11 +215,6 @@ under the License.
             <artifactId>jmockit</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/joda-time/joda-time -->
-        <dependency>
-            <groupId>joda-time</groupId>
-            <artifactId>joda-time</artifactId>
-        </dependency>
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
@@ -600,10 +595,35 @@ under the License.
             <scope>provided</scope>
         </dependency>
 
+        <!-- https://mvnrepository.com/artifact/io.opentelemetry/opentelemetry-api -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <version>1.14.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+            <version>1.14.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp-trace</artifactId>
+            <version>1.14.0</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/io.opentelemetry/opentelemetry-exporter-zipkin -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-zipkin</artifactId>
+            <version>1.14.0</version>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
-            <scope>provided</scope>
         </dependency>
 
         <dependency>
@@ -652,6 +672,20 @@ under the License.
     </dependencies>
     <build>
         <finalName>doris-fe</finalName>
+        <resources>
+            <resource>
+                <directory>target/generated-sources</directory>
+                <excludes>
+                    <exclude>cup</exclude>
+                </excludes>
+            </resource>
+            <resource>
+               <directory>src/main/resources</directory>
+               <includes>
+                  <include>**/*.*</include>
+               </includes>
+            </resource>
+        </resources>
         <plugins>
             <!--jcup-->
             <plugin>
@@ -749,8 +783,8 @@ under the License.
                             <goal>run</goal>
                         </goals>
                         <configuration>
-                            <!--protocCommand>${doris.thirdparty}/installed/bin/protoc</protocCommand-->
-                            <!-->You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools<-->
+                            <!-- <protocCommand>${doris.thirdparty}/installed/bin/protoc</protocCommand> -->
+                            <!--You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools-->
                             <protocArtifact>com.google.protobuf:protoc:${protobuf.version}</protocArtifact>
                             <protocVersion>${protobuf.version}</protocVersion>
                             <inputDirectories>
@@ -826,7 +860,7 @@ under the License.
                         <configuration>
                             <proc>only</proc>
                             <compilerArgs>
-                                <arg>-AoperatorPath=${basedir}/src/main/java/org/apache/doris/nereids</arg>
+                                <arg>-AplanPath=${basedir}/src/main/java/org/apache/doris/nereids</arg>
                             </compilerArgs>
                             <includes>
                                 <include>org/apache/doris/nereids/pattern/generator/PatternDescribableProcessPoint.java</include>

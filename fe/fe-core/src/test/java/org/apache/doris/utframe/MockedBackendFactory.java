@@ -34,9 +34,7 @@ import org.apache.doris.thrift.TCancelPlanFragmentParams;
 import org.apache.doris.thrift.TCancelPlanFragmentResult;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TCloneReq;
-import org.apache.doris.thrift.TDeleteEtlFilesRequest;
 import org.apache.doris.thrift.TDiskTrashInfo;
-import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
 import org.apache.doris.thrift.TExportState;
@@ -47,9 +45,6 @@ import org.apache.doris.thrift.TFetchDataResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TMasterInfo;
-import org.apache.doris.thrift.TMiniLoadEtlStatusRequest;
-import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
-import org.apache.doris.thrift.TMiniLoadEtlTaskRequest;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TScanBatchResult;
 import org.apache.doris.thrift.TScanCloseParams;
@@ -240,21 +235,6 @@ public class MockedBackendFactory {
 
         @Override
         public TAgentResult publishClusterState(TAgentPublishRequest request) throws TException {
-            return new TAgentResult(new TStatus(TStatusCode.OK));
-        }
-
-        @Override
-        public TAgentResult submitEtlTask(TMiniLoadEtlTaskRequest request) throws TException {
-            return new TAgentResult(new TStatus(TStatusCode.OK));
-        }
-
-        @Override
-        public TMiniLoadEtlStatusResult getEtlStatus(TMiniLoadEtlStatusRequest request) throws TException {
-            return new TMiniLoadEtlStatusResult(new TStatus(TStatusCode.OK), TEtlState.FINISHED);
-        }
-
-        @Override
-        public TAgentResult deleteEtlFiles(TDeleteEtlFilesRequest request) throws TException {
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
 

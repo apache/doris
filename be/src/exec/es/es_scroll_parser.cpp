@@ -28,7 +28,7 @@
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/string_value.h"
 #include "util/string_parser.hpp"
 #include "vec/runtime/vdatetime_value.h"
@@ -72,7 +72,7 @@ std::string json_value_to_string(const rapidjson::Value& value) {
 
 static const std::string ERROR_INVALID_COL_DATA =
         "Data source returned inconsistent column data. "
-        "Expected value of type $0 based on column metadata. This likely indicates a "
+        "Expected value of type {} based on column metadata. This likely indicates a "
         "problem with the data source library.";
 static const std::string ERROR_MEM_LIMIT_EXCEEDED =
         "DataSourceScanNode::$0() failed to allocate "
@@ -265,9 +265,7 @@ Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) 
     _size = 0;
     _document_node.Parse(scroll_result.c_str(), scroll_result.length());
     if (_document_node.HasParseError()) {
-        std::stringstream ss;
-        ss << "Parsing json error, json is: " << scroll_result;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Parsing json error, json is: {}", scroll_result);
     }
 
     if (!exactly_once && !_document_node.HasMember(FIELD_SCROLL_ID)) {
@@ -343,9 +341,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
         if (slot_desc->col_name() == FIELD_ID) {
             // actually this branch will not be reached, this is guaranteed by Doris FE.
             if (pure_doc_value) {
-                std::stringstream ss;
-                ss << "obtain `_id` is not supported in doc_values mode";
-                return Status::RuntimeError(ss.str());
+                return Status::RuntimeError("obtain `_id` is not supported in doc_values mode");
             }
             tuple->set_not_null(slot_desc->null_indicator_offset());
             void* slot = tuple->get_slot(slot_desc->tuple_offset());
@@ -357,7 +353,9 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED,
                                                           "MaterializeNextRow", len, "string slot");
-                RETURN_LIMIT_EXCEEDED(tuple_pool->mem_tracker(), nullptr, details, len, rst);
+                RETURN_LIMIT_EXCEEDED(
+                        thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(), nullptr,
+                        details, len, rst);
             }
             memcpy(buffer, _id.data(), len);
             reinterpret_cast<StringValue*>(slot)->ptr = buffer;
@@ -417,7 +415,9 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(
                         ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");
-                RETURN_LIMIT_EXCEEDED(tuple_pool->mem_tracker(), nullptr, details, val_size, rst);
+                RETURN_LIMIT_EXCEEDED(
+                        thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(), nullptr,
+                        details, val_size, rst);
             }
             memcpy(buffer, val.data(), val_size);
             reinterpret_cast<StringValue*>(slot)->ptr = buffer;
@@ -499,8 +499,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             } else if (pure_doc_value && col.IsArray() && col[0].IsString()) {
                 is_nested_str = true;
             } else if (pure_doc_value && col.IsArray()) {
-                return Status::InternalError(
-                        strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
+                return Status::InternalError(ERROR_INVALID_COL_DATA, "BOOLEAN");
             }
 
             const rapidjson::Value& str_col = is_nested_str ? col[0] : col;
@@ -605,9 +604,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         if (slot_desc->col_name() == FIELD_ID) {
             // actually this branch will not be reached, this is guaranteed by Doris FE.
             if (pure_doc_value) {
-                std::stringstream ss;
-                ss << "obtain `_id` is not supported in doc_values mode";
-                return Status::RuntimeError(ss.str());
+                return Status::RuntimeError("obtain `_id` is not supported in doc_values mode");
             }
             // obj[FIELD_ID] must not be NULL
             std::string _id = obj[FIELD_ID].GetString();
@@ -727,8 +724,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             } else if (pure_doc_value && col.IsArray() && col[0].IsString()) {
                 is_nested_str = true;
             } else if (pure_doc_value && col.IsArray()) {
-                return Status::InternalError(
-                        strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
+                return Status::InternalError(ERROR_INVALID_COL_DATA, "BOOLEAN");
             }
 
             const rapidjson::Value& str_col = is_nested_str ? col[0] : col;

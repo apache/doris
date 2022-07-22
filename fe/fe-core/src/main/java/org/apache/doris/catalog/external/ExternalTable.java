@@ -44,7 +44,7 @@ public class ExternalTable implements TableIf {
     protected String name;
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
     protected TableType type = null;
-    protected List<Column> fullSchema = null;
+    protected volatile List<Column> fullSchema = null;
 
     /**
      * Create external table.
@@ -68,6 +68,10 @@ public class ExternalTable implements TableIf {
         this.id = id;
         this.name = name;
         this.type = type;
+    }
+
+    public boolean isView() {
+        return false;
     }
 
     @Override

@@ -17,14 +17,15 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.expressions.ExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Slot has not been bound.
@@ -33,8 +34,8 @@ public class UnboundSlot extends Slot implements Unbound {
     private final List<String> nameParts;
 
     public UnboundSlot(List<String> nameParts) {
-        super(NodeType.UNBOUND_SLOT);
-        this.nameParts = nameParts;
+        super(ExpressionType.UNBOUND_SLOT);
+        this.nameParts = Objects.requireNonNull(nameParts, "nameParts can not be null");
     }
 
     public List<String> getNameParts() {
@@ -53,7 +54,7 @@ public class UnboundSlot extends Slot implements Unbound {
     }
 
     @Override
-    public String sql() {
+    public String toSql() {
         return nameParts.stream().map(Utils::quoteIfNeeded).reduce((left, right) -> left + "." + right).orElse("");
     }
 
@@ -75,7 +76,12 @@ public class UnboundSlot extends Slot implements Unbound {
             return false;
         }
         UnboundSlot other = (UnboundSlot) o;
-        return nameParts.containsAll(other.getNameParts());
+        return nameParts.equals(other.getNameParts());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(nameParts.toArray());
     }
 
     @Override

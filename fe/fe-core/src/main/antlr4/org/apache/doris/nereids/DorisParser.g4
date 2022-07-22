@@ -178,24 +178,29 @@ booleanExpression
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
+    | NOT? kind=(LIKE | REGEXP) pattern=valueExpression
     ;
 
 valueExpression
     : primaryExpression                                                                      #valueExpressionDefault
     | operator=(MINUS | PLUS) valueExpression                                                #arithmeticUnary
-    | left=valueExpression operator=(ASTERISK | SLASH | PERCENT) right=valueExpression #arithmeticBinary
+    | left=valueExpression operator=(ASTERISK | SLASH | PERCENT) right=valueExpression       #arithmeticBinary
     | left=valueExpression operator=(PLUS | MINUS) right=valueExpression                     #arithmeticBinary
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     ;
 
 primaryExpression
-    : constant                                                                                 #constantDefault
+    : CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
+    | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
+    | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | functionExpression                                                                       #functioncall
+    | identifier LEFT_PAREN DISTINCT? arguments+=expression
+      (COMMA arguments+=expression)* RIGHT_PAREN                                                #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
+    | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
     ;
 
 qualifiedName
@@ -209,10 +214,6 @@ constant
     | STRING+                                                                                  #stringLiteral
     ;
 
-functionExpression
-    : aggFunction                                                                              #aggFunctions
-    ;
-
 comparisonOperator
     : EQ | NEQ | LT | LTE | GT | GTE | NSEQ
     ;
@@ -221,13 +222,9 @@ booleanValue
     : TRUE | FALSE
     ;
 
-//TODO: In the future, instead of specifying the function name,
-//      the function information is obtained by parsing the catalog. This method is more scalable.
-aggFunction
-    : AVG '(' DISTINCT? expression ')'
-    | SUM '(' DISTINCT? expression ')'
+whenClause
+    : WHEN condition=expression THEN result=expression
     ;
-
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
 // replace identifier with errorCapturingIdentifier where the immediate follow symbol is not an expression, otherwise

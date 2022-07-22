@@ -53,17 +53,17 @@ EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTablet
           _signature(signature),
           _res_status(res_status) {
     _download_status = Status::OK();
-    _mem_tracker = MemTracker::create_tracker(
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(
             -1,
             fmt::format("EngineBatchLoadTask#pushType={}:tabletId={}", _push_req.push_type,
                         std::to_string(_push_req.tablet_id)),
-            StorageEngine::instance()->batch_load_mem_tracker(), MemTrackerLevel::TASK);
+            StorageEngine::instance()->batch_load_mem_tracker());
 }
 
 EngineBatchLoadTask::~EngineBatchLoadTask() {}
 
 Status EngineBatchLoadTask::execute() {
-    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::STORAGE, _mem_tracker);
+    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE);
     Status status = Status::OK();
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_V2) {
         status = _init();
@@ -109,8 +109,7 @@ Status EngineBatchLoadTask::_init() {
         LOG(WARNING) << "get tables failed. "
                      << "tablet_id: " << _push_req.tablet_id
                      << ", schema_hash: " << _push_req.schema_hash;
-        return Status::InvalidArgument(
-                fmt::format("Could not find tablet {}", _push_req.tablet_id));
+        return Status::InvalidArgument("Could not find tablet {}", _push_req.tablet_id);
     }
 
     // check disk capacity
@@ -148,7 +147,7 @@ Status EngineBatchLoadTask::_init() {
 // Get replica root path
 Status EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, string* download_path) {
     Status status = Status::OK();
-    *download_path = root_path + DPP_PREFIX;
+    *download_path = root_path + "/" + DPP_PREFIX;
 
     // Check path exist
     std::filesystem::path full_path(*download_path);
@@ -159,7 +158,7 @@ Status EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, string* d
         std::filesystem::create_directories(*download_path, ec);
 
         if (ec) {
-            status = Status::IOError("Create download dir failed " + *download_path);
+            status = Status::IOError("Create download dir failed {}", *download_path);
             LOG(WARNING) << "create download dir failed.path: " << *download_path
                          << ", error code: " << ec;
         }

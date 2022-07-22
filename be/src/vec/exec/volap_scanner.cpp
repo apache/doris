@@ -29,7 +29,7 @@ namespace doris::vectorized {
 
 VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, bool aggregation,
                            bool need_agg_finalize, const TPaloScanRange& scan_range,
-                           const std::shared_ptr<MemTracker>& tracker)
+                           MemTracker* tracker)
         : _runtime_state(runtime_state),
           _parent(parent),
           _tuple_desc(parent->_tuple_desc),
@@ -37,21 +37,15 @@ VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, b
           _is_open(false),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
-          _version(-1) {
-#ifndef NDEBUG
-    _mem_tracker = MemTracker::create_tracker(
-            tracker->limit(), "VOlapScanner:" + tls_ctx()->thread_id_str(), tracker);
-#else
-    _mem_tracker = tracker;
-#endif
-}
+          _version(-1),
+          _mem_tracker(tracker) {}
 
 Status VOlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                bloom_filters) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<FunctionFilter>& function_filters) {
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     set_tablet_reader();
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader->set_batch_size(
@@ -73,6 +67,18 @@ Status VOlapScanner::prepare(
                << ", with schema_hash=" << schema_hash << ", reason=" << err;
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
+        }
+        _tablet_schema = _tablet->tablet_schema();
+        if (!_parent->_olap_scan_node.columns_desc.empty() &&
+            _parent->_olap_scan_node.columns_desc[0].col_unique_id >= 0) {
+            // Originally scanner get TabletSchema from tablet object in BE.
+            // To support lightweight schema change for adding / dropping columns,
+            // tabletschema is bounded to rowset and tablet's schema maybe outdated,
+            //  so we have to use schema from a query plan witch FE puts it in query plans.
+            _tablet_schema.clear_columns();
+            for (const auto& column_desc : _parent->_olap_scan_node.columns_desc) {
+                _tablet_schema.append_column(TabletColumn(column_desc));
+            }
         }
         {
             std::shared_lock rdlock(_tablet->get_header_lock());
@@ -103,7 +109,8 @@ Status VOlapScanner::prepare(
 
     {
         // Initialize tablet_reader_params
-        RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, bloom_filters));
+        RETURN_IF_ERROR(
+                _init_tablet_reader_params(key_ranges, filters, bloom_filters, function_filters));
     }
 
     return Status::OK();
@@ -111,7 +118,7 @@ Status VOlapScanner::prepare(
 
 Status VOlapScanner::open() {
     SCOPED_TIMER(_parent->_reader_init_timer);
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     if (_conjunct_ctxs.size() > _parent->_direct_conjunct_size) {
         _use_pushdown_conjuncts = true;
@@ -133,8 +140,8 @@ Status VOlapScanner::open() {
 // it will be called under tablet read lock because capture rs readers need
 Status VOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                bloom_filters) {
+        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     bool single_version =
             (_tablet_reader_params.rs_readers.size() == 1 &&
@@ -156,6 +163,7 @@ Status VOlapScanner::_init_tablet_reader_params(
     RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
 
     _tablet_reader_params.tablet = _tablet;
+    _tablet_reader_params.tablet_schema = &_tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
     _tablet_reader_params.version = Version(0, _version);
@@ -167,6 +175,10 @@ Status VOlapScanner::_init_tablet_reader_params(
     std::copy(bloom_filters.cbegin(), bloom_filters.cend(),
               std::inserter(_tablet_reader_params.bloom_filters,
                             _tablet_reader_params.bloom_filters.begin()));
+
+    std::copy(function_filters.cbegin(), function_filters.cend(),
+              std::inserter(_tablet_reader_params.function_filters,
+                            _tablet_reader_params.function_filters.begin()));
 
     // Range
     for (auto key_range : key_ranges) {
@@ -192,26 +204,17 @@ Status VOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.return_columns = _return_columns;
     } else {
         // we need to fetch all key columns to do the right aggregation on storage engine side.
-        for (size_t i = 0; i < _tablet->num_key_columns(); ++i) {
+        for (size_t i = 0; i < _tablet_schema.num_key_columns(); ++i) {
             _tablet_reader_params.return_columns.push_back(i);
         }
         for (auto index : _return_columns) {
-            if (_tablet->tablet_schema().column(index).is_key()) {
+            if (_tablet_schema.column(index).is_key()) {
                 continue;
             } else {
                 _tablet_reader_params.return_columns.push_back(index);
             }
         }
     }
-
-    // use _tablet_reader_params.return_columns, because reader use this to merge sort
-    Status res =
-            _read_row_cursor.init(_tablet->tablet_schema(), _tablet_reader_params.return_columns);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to init row cursor.res = " << res;
-        return Status::InternalError("failed to initialize storage read row cursor");
-    }
-    _read_row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
 
     // If a agg node is this scan node direct parent
     // we will not call agg object finalize method in scan node,
@@ -230,7 +233,9 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
         if (!slot->is_materialized()) {
             continue;
         }
-        int32_t index = _tablet->field_index(slot->col_name());
+        int32_t index = slot->col_unique_id() >= 0
+                                ? _tablet_schema.field_index(slot->col_unique_id())
+                                : _tablet_schema.field_index(slot->col_name());
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalid. field=" << slot->col_name();
@@ -238,22 +243,21 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
-        if (slot->is_nullable() && !_tablet->tablet_schema().column(index).is_nullable())
+        if (slot->is_nullable() && !_tablet_schema.column(index).is_nullable())
             _tablet_columns_convert_to_null_set.emplace(index);
-        _query_slots.push_back(slot);
     }
 
     // expand the sequence column
-    if (_tablet->tablet_schema().has_sequence_col() && need_seq_col) {
+    if (_tablet_schema.has_sequence_col() && need_seq_col) {
         bool has_replace_col = false;
         for (auto col : _return_columns) {
-            if (_tablet->tablet_schema().column(col).aggregation() ==
+            if (_tablet_schema.column(col).aggregation() ==
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
                 has_replace_col = true;
                 break;
             }
         }
-        if (auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
+        if (auto sequence_col_idx = _tablet_schema.sequence_col_idx();
             has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
                                          sequence_col_idx) == _return_columns.end()) {
             _return_columns.push_back(sequence_col_idx);
@@ -269,10 +273,9 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
 Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
-    int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     if (!block->mem_reuse()) {
         for (const auto slot_desc : _tuple_desc->slots()) {
             block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
@@ -297,8 +300,7 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
             _update_realtime_counter();
             RETURN_IF_ERROR(
                     VExprContext::filter_block(_vconjunct_ctx, block, _tuple_desc->slots().size()));
-        } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold &&
-                 block->allocated_bytes() < raw_bytes_threshold);
+        } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold);
     }
     // NOTE:
     // There is no need to check raw_bytes_threshold since block->rows() == 0 is checked first.

@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.UserException;
@@ -88,5 +89,7 @@ public abstract class Planner {
     public boolean isBlockQuery() {
         return isBlockQuery;
     }
+
+    public abstract DescriptorTable getDescTable();
 
 }

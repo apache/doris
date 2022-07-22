@@ -37,6 +37,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
@@ -195,6 +196,8 @@ public class InsertStmt extends DdlStmt {
         // get dbs of statement
         queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
         tblName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
         String dbName = tblName.getDb();
         String tableName = tblName.getTbl();
         // check exist
@@ -267,6 +270,8 @@ public class InsertStmt extends DdlStmt {
 
         if (targetTable == null) {
             tblName.analyze(analyzer);
+            // disallow external catalog
+            Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
         }
 
         // Check privilege

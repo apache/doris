@@ -69,9 +69,9 @@ public:
                          col_res->get_offsets());
             block.replace_by_position(result, std::move(col_res));
         } else {
-            return Status::RuntimeError(fmt::format(
-                    "Illegal column {} of argument of function {}",
-                    block.get_by_position(arguments[0]).column->get_name(), get_name()));
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        get_name());
         }
         return Status::OK();
     }

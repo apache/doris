@@ -33,10 +33,9 @@ Status VPartitionInfo::from_thrift(ObjectPool* pool, const TRangePartition& t_pa
     return Status::OK();
 }
 
-Status VPartitionInfo::prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                               const std::shared_ptr<MemTracker>& mem_tracker) {
+Status VPartitionInfo::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     if (_distributed_expr_ctxs.size() > 0) {
-        RETURN_IF_ERROR(VExpr::prepare(_distributed_expr_ctxs, state, row_desc, mem_tracker));
+        RETURN_IF_ERROR(VExpr::prepare(_distributed_expr_ctxs, state, row_desc));
     }
     return Status::OK();
 }

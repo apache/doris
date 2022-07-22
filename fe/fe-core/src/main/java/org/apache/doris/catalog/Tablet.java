@@ -394,6 +394,12 @@ public class Tablet extends MetaObject implements Writable {
         return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
     }
 
+    public long getRowCount(boolean singleReplica) {
+        LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+                .mapToLong(Replica::getRowCount);
+        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+    }
+
     /**
      * A replica is healthy only if
      * 1. the backend is available
@@ -457,8 +463,8 @@ public class Tablet extends MetaObject implements Writable {
 
             versions.add(replica.getVersionCount());
 
-            short curNum = currentAllocMap.getOrDefault(backend.getTag(), (short) 0);
-            currentAllocMap.put(backend.getTag(), (short) (curNum + 1));
+            short curNum = currentAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
+            currentAllocMap.put(backend.getLocationTag(), (short) (curNum + 1));
         }
 
         // 1. alive replicas are not enough

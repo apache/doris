@@ -36,7 +36,6 @@ TabletsChannel::TabletsChannel(const TabletsChannelKey& key, bool is_high_priori
           _closed_senders(64),
           _is_high_priority(is_high_priority),
           _is_vec(is_vec) {
-    _mem_tracker = MemTracker::create_tracker(-1, "TabletsChannel:" + std::to_string(key.index_id));
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
@@ -179,6 +178,7 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     // If we flush all the tablets at this time, each tablet will generate a lot of small files.
     // So here we only flush part of the tablet, and the next time the reduce memory operation is triggered,
     // the tablet that has not been flushed before will accumulate more data, thereby reducing the number of flushes.
+
     int64_t mem_to_flushed = mem_limit / 3;
     int counter = 0;
     int64_t sum = 0;
@@ -200,11 +200,19 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     for (int i = 0; i < counter; i++) {
         Status st = writers[i]->wait_flush();
         if (!st.ok()) {
-            return Status::InternalError(fmt::format(
-                    "failed to reduce mem consumption by flushing memtable. err: {}", st));
+            return Status::InternalError(
+                    "failed to reduce mem consumption by flushing memtable. err: {}", st);
         }
     }
     return Status::OK();
+}
+
+int64_t TabletsChannel::mem_consumption() {
+    int64_t mem_usage = 0;
+    for (auto& it : _tablet_writers) {
+        mem_usage += it.second->mem_consumption();
+    }
+    return mem_usage;
 }
 
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
@@ -224,6 +232,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
     }
     for (auto& tablet : request.tablets()) {
         WriteRequest wrequest;
+        wrequest.index_id = request.index_id();
         wrequest.tablet_id = tablet.tablet_id();
         wrequest.schema_hash = schema_hash;
         wrequest.write_type = WriteType::LOAD;
@@ -233,6 +242,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.tuple_desc = _tuple_desc;
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
+        wrequest.ptable_schema_param = request.schema();
 
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&wrequest, &writer, _is_vec);

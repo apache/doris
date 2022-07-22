@@ -31,7 +31,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.policy.Policy;
-import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TCompressionType;
@@ -43,11 +42,13 @@ import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -109,10 +110,20 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_LOAD = "disable_load";
 
+    public static final String PROPERTIES_STORAGE_POLICY = "storage_policy";
+
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
+
+    // For unique key data model, the feature Merge-on-Write will leverage a primary
+    // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
+    // which can avoid the merging cost in read stage, and accelerate the aggregation
+    // query performance significantly.
+    // For the detail design, see the [DISP-018](https://cwiki.apache.org/confluence/
+    // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
+    public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
 
     /**
      * check and replace members of DataProperty by properties.
@@ -132,6 +143,7 @@ public class PropertyAnalyzer {
         long cooldownTimeStamp = oldDataProperty.getCooldownTimeMs();
         String remoteStoragePolicy = oldDataProperty.getRemoteStoragePolicy();
         long remoteCooldownTimeMs = oldDataProperty.getRemoteCooldownTimeMs();
+        boolean hasStoragePolicy = false;
 
         long dataBaseTimeMs = 0;
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -153,6 +165,10 @@ public class PropertyAnalyzer {
             } else if (key.equalsIgnoreCase(PROPERTIES_DATA_BASE_TIME)) {
                 DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
                 dataBaseTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+            } else if (!hasStoragePolicy && key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
+                if (!Strings.isNullOrEmpty(value)) {
+                    hasStoragePolicy = true;
+                }
             }
         } // end for properties
 
@@ -185,11 +201,12 @@ public class PropertyAnalyzer {
 
         if (hasRemoteStoragePolicy) {
             // check remote storage policy
-            StoragePolicy checkedPolicy = new StoragePolicy(PolicyTypeEnum.STORAGE, remoteStoragePolicy);
+            StoragePolicy checkedPolicy = StoragePolicy.ofCheck(remoteStoragePolicy);
             Policy policy = Catalog.getCurrentCatalog().getPolicyMgr().getPolicy(checkedPolicy);
             if (!(policy instanceof StoragePolicy)) {
                 throw new AnalysisException("No PolicyStorage: " + remoteStoragePolicy);
             }
+
             StoragePolicy storagePolicy = (StoragePolicy) policy;
             // check remote storage cool down timestamp
             if (storagePolicy.getCooldownDatetime() != null) {
@@ -509,7 +526,7 @@ public class PropertyAnalyzer {
         if (properties != null && properties.containsKey(PROPERTIES_REMOTE_STORAGE_POLICY)) {
             remoteStoragePolicy = properties.get(PROPERTIES_REMOTE_STORAGE_POLICY);
             // check remote storage policy existence
-            StoragePolicy checkedStoragePolicy = new StoragePolicy(PolicyTypeEnum.STORAGE, remoteStoragePolicy);
+            StoragePolicy checkedStoragePolicy = StoragePolicy.ofCheck(remoteStoragePolicy);
             Policy policy = Catalog.getCurrentCatalog().getPolicyMgr().getPolicy(checkedStoragePolicy);
             if (!(policy instanceof StoragePolicy)) {
                 throw new AnalysisException("StoragePolicy: " + remoteStoragePolicy + " does not exist.");
@@ -517,6 +534,15 @@ public class PropertyAnalyzer {
         }
 
         return remoteStoragePolicy;
+    }
+
+    public static String analyzeStoragePolicy(Map<String, String> properties) throws AnalysisException {
+        String storagePolicy = "";
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
+            storagePolicy = properties.get(PROPERTIES_STORAGE_POLICY);
+        }
+
+        return storagePolicy;
     }
 
     // analyze property like : "type" = "xxx";
@@ -549,8 +575,8 @@ public class PropertyAnalyzer {
         return ScalarType.createType(type);
     }
 
-    public static Boolean analyzeBackendDisableProperties(Map<String, String> properties,
-            String key, Boolean defaultValue) {
+    public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key,
+            Boolean defaultValue) {
         if (properties.containsKey(key)) {
             String value = properties.remove(key);
             return Boolean.valueOf(value);
@@ -558,13 +584,39 @@ public class PropertyAnalyzer {
         return defaultValue;
     }
 
-    public static Tag analyzeBackendTagProperties(Map<String, String> properties, Tag defaultValue)
+    /**
+     * Found property with "tag." prefix and return a tag map, which key is tag type and value is tag value
+     * Eg.
+     * "tag.location" = "group_a", "tag.compute" = "x1"
+     * Returns:
+     * [location->group_a] [compute->x1]
+     *
+     * @param properties
+     * @param defaultValue
+     * @return
+     * @throws AnalysisException
+     */
+    public static Map<String, String> analyzeBackendTagsProperties(Map<String, String> properties, Tag defaultValue)
             throws AnalysisException {
-        if (properties.containsKey(TAG_LOCATION)) {
-            String tagVal = properties.remove(TAG_LOCATION);
-            return Tag.create(Tag.TYPE_LOCATION, tagVal);
+        Map<String, String> tagMap = Maps.newHashMap();
+        Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<String, String> entry = iter.next();
+            if (!entry.getKey().startsWith("tag.")) {
+                continue;
+            }
+            String[] keyParts = entry.getKey().split("\\.");
+            if (keyParts.length != 2) {
+                continue;
+            }
+            String val = entry.getValue().replaceAll(" ", "");
+            tagMap.put(keyParts[1], val);
+            iter.remove();
         }
-        return defaultValue;
+        if (tagMap.isEmpty() && defaultValue != null) {
+            tagMap.put(defaultValue.type, defaultValue.value);
+        }
+        return tagMap;
     }
 
     // There are 2 kinds of replication property:
@@ -665,5 +717,23 @@ public class PropertyAnalyzer {
         }
         DataSortInfo dataSortInfo = new DataSortInfo(sortType, colNum);
         return dataSortInfo;
+    }
+
+    public static boolean analyzeUniqueKeyMergeOnWrite(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+        if (value == null) {
+            return false;
+        }
+        properties.remove(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+        if (value.equals("true")) {
+            return true;
+        } else if (value.equals("false")) {
+            return false;
+        }
+        throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE
+                                    + " must be `true` or `false`");
     }
 }

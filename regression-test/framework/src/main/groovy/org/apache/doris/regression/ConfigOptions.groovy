@@ -35,9 +35,10 @@ class ConfigOptions {
     static Option feHttpAddressOpt
     static Option feHttpUserOpt
     static Option feHttpPasswordOpt
-    static Option beHttpAddressOpt
     static Option pathOpt
     static Option dataOpt
+    static Option realDataOpt
+    static Option sf1DataOpt
     static Option pluginOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
@@ -52,6 +53,7 @@ class ConfigOptions {
     static Option suiteParallelOpt
     static Option actionParallelOpt
     static Option randomOrderOpt
+    static Option stopWhenFail
     static Option timesOpt
     static Option withOutLoadDataOpt
 
@@ -118,6 +120,22 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("dataPath")
                 .desc("the data path")
+                .build()
+        realDataOpt = Option.builder("RD")
+                .argName("realDataPath")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("realDataPath")
+                .desc("the real data path")
+                .build()
+        sf1DataOpt = Option.builder("SD")
+                .argName("sf1DataPath")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("sf1DataPath")
+                .desc("the sf1 data path contains data file for ssb_sf1, tpcds_sf1 and tpch_sf1 cases")
                 .build()
         pluginOpt = Option.builder("plugin")
                 .argName("pluginPath")
@@ -205,14 +223,6 @@ class ConfigOptions {
                 .longOpt("feHttpPassword")
                 .desc("the password of fe http server")
                 .build()
-        beHttpAddressOpt = Option.builder("ba")
-                .argName("beAddress")
-                .required(false)
-                .hasArg(true)
-                .type(String.class)
-                .longOpt("beHttpAddress")
-                .desc("the be http address, format is ip:port")
-                .build()
         genOutOpt = Option.builder("genOut")
                 .required(false)
                 .hasArg(false)
@@ -261,6 +271,11 @@ class ConfigOptions {
                 .hasArg(false)
                 .desc("run tests in random order")
                 .build()
+        stopWhenFail = Option.builder("stopWhenFail")
+                .required(false)
+                .hasArg(false)
+                .desc("stop when a failure happens")
+                .build()
         timesOpt = Option.builder("times")
                 .argName("times")
                 .required(false)
@@ -296,7 +311,6 @@ class ConfigOptions {
                 .addOption(feHttpAddressOpt)
                 .addOption(feHttpUserOpt)
                 .addOption(feHttpPasswordOpt)
-                .addOption(beHttpAddressOpt)
                 .addOption(genOutOpt)
                 .addOption(confFileOpt)
                 .addOption(forceGenOutOpt)
@@ -304,6 +318,7 @@ class ConfigOptions {
                 .addOption(suiteParallelOpt)
                 .addOption(actionParallelOpt)
                 .addOption(randomOrderOpt)
+                .addOption(stopWhenFail)
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
 

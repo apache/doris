@@ -47,7 +47,6 @@ set(RUNTIME_FILES
     runtime_filter_mgr.cpp
     string_value.cpp
     thread_context.cpp
-    thread_mem_tracker_mgr.cpp
     thread_resource_mgr.cpp
     threadlocal.cc
     decimalv2_value.cpp
@@ -55,12 +54,10 @@ set(RUNTIME_FILES
     collection_value.cpp
     tuple.cpp
     tuple_row.cpp
-    vectorized_row_batch.cpp
     dpp_writer.cpp
     qsorter.cpp
     fragment_mgr.cpp
     dpp_sink_internal.cpp
-    etl_job_mgr.cpp
     load_path_mgr.cpp
     types.cpp
     tmp_file_mgr.cc
@@ -68,8 +65,6 @@ set(RUNTIME_FILES
     disk_io_mgr_reader_context.cc
     disk_io_mgr_scan_range.cc 
     buffered_block_mgr2.cc
-    mem_tracker.cpp
-    mem_tracker_task_pool.cpp
     spill_sorter.cc
     sorted_run_merger.cc
     data_stream_recvr.cc
@@ -106,6 +101,10 @@ set(RUNTIME_FILES
     mysql_result_writer.cpp
     memory/system_allocator.cpp
     memory/chunk_allocator.cpp
+    memory/mem_tracker_limiter.cpp
+    memory/mem_tracker.cpp
+    memory/mem_tracker_task_pool.cpp
+    memory/thread_mem_tracker_mgr.cpp
     fold_constant_executor.cpp
     cache/result_node.cpp
     cache/result_cache.cpp

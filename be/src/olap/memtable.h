@@ -22,7 +22,7 @@
 #include "common/object_pool.h"
 #include "olap/olap_define.h"
 #include "olap/skiplist.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "util/tuple_row_zorder_compare.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
@@ -42,13 +42,12 @@ class MemTable {
 public:
     MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             KeysType keys_type, RowsetWriter* rowset_writer,
-             const std::shared_ptr<MemTracker>& parent_tracker, bool support_vec = false);
+             KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* writer_mem_tracker,
+             bool support_vec = false);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
-    std::shared_ptr<MemTracker>& mem_tracker() { return _mem_tracker; }
 
     inline void insert(const Tuple* tuple) { (this->*_insert_fn)(tuple); }
     // insert tuple from (row_pos) to (row_pos+num_rows)
@@ -81,29 +80,17 @@ private:
     // row pos in _input_mutable_block
     struct RowInBlock {
         size_t _row_pos;
-        std::vector<vectorized::AggregateDataPtr> _agg_places;
-        explicit RowInBlock(size_t i) : _row_pos(i) {}
+        char* _agg_mem;
+        size_t* _agg_state_offset;
 
-        void init_agg_places(std::vector<vectorized::AggregateFunctionPtr>& agg_functions,
-                             int key_column_count) {
-            _agg_places.resize(agg_functions.size());
-            for (int cid = 0; cid < agg_functions.size(); cid++) {
-                if (cid < key_column_count) {
-                    _agg_places[cid] = nullptr;
-                } else {
-                    auto function = agg_functions[cid];
-                    size_t place_size = function->size_of_data();
-                    _agg_places[cid] = new char[place_size];
-                    function->create(_agg_places[cid]);
-                }
-            }
+        RowInBlock(size_t row) : _row_pos(row) {};
+
+        void init_agg_places(char* agg_mem, size_t* agg_state_offset) {
+            _agg_mem = agg_mem;
+            _agg_state_offset = agg_state_offset;
         }
 
-        ~RowInBlock() {
-            for (auto agg_place : _agg_places) {
-                delete[] agg_place;
-            }
-        }
+        char* agg_places(size_t offset) const { return _agg_mem + _agg_state_offset[offset]; }
     };
 
     class RowInBlockComparator {
@@ -165,7 +152,8 @@ private:
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
+    MemTracker* _writer_mem_tracker;
     // This is a buffer, to hold the memory referenced by the rows that have not
     // been inserted into the SkipList
     std::unique_ptr<MemPool> _buffer_mem_pool;
@@ -211,6 +199,8 @@ private:
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
+    std::vector<size_t> _offsets_of_aggregate_states;
+    size_t _total_size_of_aggregate_states;
     std::vector<RowInBlock*> _row_in_blocks;
     size_t _mem_usage;
 }; // class MemTable

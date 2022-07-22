@@ -50,9 +50,8 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto array_column = check_and_get_column<ColumnArray>(*left_column);
         if (!array_column) {
-            return Status::RuntimeError(
-                    fmt::format("unsupported types for function {}({})", get_name(),
-                                block.get_by_position(arguments[0]).type->get_name()));
+            return Status::RuntimeError("unsupported types for function {}({})", get_name(),
+                                        block.get_by_position(arguments[0]).type->get_name());
         }
         const auto& offsets = array_column->get_offsets();
 

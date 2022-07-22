@@ -38,6 +38,7 @@ import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -141,6 +142,8 @@ public class OlapTable extends Table {
 
     private TableProperty tableProperty;
 
+    private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
+
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -189,6 +192,20 @@ public class OlapTable extends Table {
 
     public TableProperty getTableProperty() {
         return this.tableProperty;
+    }
+
+    //take care: only use at create olap table.
+    public int incAndGetMaxColUniqueId() {
+        this.maxColUniqueId++;
+        return this.maxColUniqueId;
+    }
+
+    public int getMaxColUniqueId() {
+        return this.maxColUniqueId;
+    }
+
+    public void setMaxColUniqueId(int maxColUniqueId) {
+        this.maxColUniqueId = maxColUniqueId;
     }
 
     public boolean dynamicPartitionExists() {
@@ -1144,6 +1161,7 @@ public class OlapTable extends Table {
         }
 
         tempPartitions.write(out);
+        out.writeInt(maxColUniqueId);
     }
 
     @Override
@@ -1235,6 +1253,10 @@ public class OlapTable extends Table {
             }
         }
         tempPartitions.unsetPartitionInfo();
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_112) {
+            maxColUniqueId = in.readInt();
+        }
         // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
@@ -1423,11 +1445,11 @@ public class OlapTable extends Table {
                     if (be == null) {
                         continue;
                     }
-                    short num = currentReplicaAlloc.getOrDefault(be.getTag(), (short) 0);
-                    currentReplicaAlloc.put(be.getTag(), (short) (num + 1));
-                    List<Long> beIds = tag2beIds.getOrDefault(be.getTag(), Lists.newArrayList());
+                    short num = currentReplicaAlloc.getOrDefault(be.getLocationTag(), (short) 0);
+                    currentReplicaAlloc.put(be.getLocationTag(), (short) (num + 1));
+                    List<Long> beIds = tag2beIds.getOrDefault(be.getLocationTag(), Lists.newArrayList());
                     beIds.add(beId);
-                    tag2beIds.put(be.getTag(), beIds);
+                    tag2beIds.put(be.getLocationTag(), beIds);
                 }
                 if (!currentReplicaAlloc.equals(replicaAlloc.getAllocMap())) {
                     throw new DdlException("The relica allocation is " + currentReplicaAlloc.toString()
@@ -1537,6 +1559,21 @@ public class OlapTable extends Table {
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INMEMORY,
                 Boolean.valueOf(isInMemory).toString());
         tableProperty.buildInMemory();
+    }
+
+    public void setStoragePolicy(String storagePolicy) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, storagePolicy);
+        tableProperty.buildStoragePolicy();
+    }
+
+    public String getStoragePolicy() {
+        if (tableProperty != null) {
+            return tableProperty.getStoragePolicy();
+        }
+        return "";
     }
 
     public void setDataSortInfo(DataSortInfo dataSortInfo) {
@@ -1739,6 +1776,20 @@ public class OlapTable extends Table {
         return tableProperty.getRemoteStoragePolicy();
     }
 
+    public void setEnableUniqueKeyMergeOnWrite(boolean speedup) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.setEnableUniqueKeyMergeOnWrite(speedup);
+    }
+
+    public boolean getEnableUniqueKeyMergeOnWrite() {
+        if (tableProperty == null) {
+            return false;
+        }
+        return tableProperty.getEnableUniqueKeyMergeOnWrite();
+    }
+
     // For non partitioned table:
     //   The table's distribute hash columns need to be a subset of the aggregate columns.
     //
@@ -1789,8 +1840,8 @@ public class OlapTable extends Table {
                         if (be == null) {
                             continue;
                         }
-                        short num = curMap.getOrDefault(be.getTag(), (short) 0);
-                        curMap.put(be.getTag(), (short) (num + 1));
+                        short num = curMap.getOrDefault(be.getLocationTag(), (short) 0);
+                        curMap.put(be.getLocationTag(), (short) (num + 1));
                     }
                     if (!curMap.equals(allocMap)) {
                         throw new UserException("replica allocation of tablet " + tablet.getId() + " is not expected"

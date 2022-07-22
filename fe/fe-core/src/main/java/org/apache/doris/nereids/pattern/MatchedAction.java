@@ -17,16 +17,13 @@
 
 package org.apache.doris.nereids.pattern;
 
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
  * Define an callback action when match a pattern, usually implement as a rule body.
  * e.g. exchange join children for JoinCommutative Rule
  */
-public interface MatchedAction<
-        INPUT_TYPE extends RULE_TYPE,
-        OUTPUT_TYPE extends RULE_TYPE,
-        RULE_TYPE extends TreeNode<RULE_TYPE>> {
+public interface MatchedAction<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
 
-    OUTPUT_TYPE apply(MatchingContext<INPUT_TYPE, RULE_TYPE> ctx);
+    OUTPUT_TYPE apply(MatchingContext<INPUT_TYPE> ctx);
 }

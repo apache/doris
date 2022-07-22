@@ -51,6 +51,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.AgentTask;
@@ -222,6 +223,7 @@ public class RollupJobV2Test {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
                 shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(),
                         shadowReplica.getDataSize(),
+                        shadowReplica.getRemoteDataSize(),
                         shadowReplica.getRowCount());
             }
         }
@@ -301,6 +303,7 @@ public class RollupJobV2Test {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
                 shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(),
                         shadowReplica.getDataSize(),
+                        shadowReplica.getRemoteDataSize(),
                         shadowReplica.getRowCount());
             }
         }
@@ -335,7 +338,7 @@ public class RollupJobV2Test {
         out.close();
 
         List<Expr> params = Lists.newArrayList();
-        SlotRef param1 = new SlotRef(new TableName(null, "test"), "c1");
+        SlotRef param1 = new SlotRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "test"), "c1");
         params.add(param1);
         MVColumnItem mvColumnItem = new MVColumnItem(mvColumnName, Type.BITMAP);
         mvColumnItem.setDefineExpr(new FunctionCallExpr(new FunctionName("to_bitmap"), params));

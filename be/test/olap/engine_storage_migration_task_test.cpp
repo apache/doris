@@ -35,7 +35,6 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/tuple.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
@@ -82,7 +81,7 @@ static void tear_down() {
     }
     EXPECT_EQ(system("rm -rf ./data_test_1"), 0);
     EXPECT_EQ(system("rm -rf ./data_test_2"), 0);
-    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX);
 }
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
@@ -176,8 +175,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
 
-    MemTracker tracker;
-    MemPool pool(&tracker);
+    MemPool pool;
     // Tuple 1
     {
         Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));

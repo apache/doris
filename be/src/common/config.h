@@ -103,6 +103,8 @@ CONF_Int32(make_snapshot_worker_count, "5");
 CONF_Int32(release_snapshot_worker_count, "5");
 // the interval time(seconds) for agent report tasks signatrue to FE
 CONF_mInt32(report_task_interval_seconds, "10");
+// the interval time(seconds) for refresh storage policy from FE
+CONF_mInt32(storage_refresh_storage_policy_task_interval_seconds, "5");
 // the interval time(seconds) for agent report disk state to FE
 CONF_mInt32(report_disk_state_interval_seconds, "60");
 // the interval time(seconds) for agent report olap table to FE
@@ -167,6 +169,8 @@ CONF_mInt64(thrift_client_retry_interval_ms, "1000");
 CONF_mInt32(doris_scan_range_row_count, "524288");
 // max bytes number for single scan range, used in segmentv2
 CONF_mInt32(doris_scan_range_max_mb, "1024");
+// max bytes number for single scan block, used in segmentv2
+CONF_mInt32(doris_scan_block_max_mb, "67108864");
 // size of scanner queue between scanner thread and compute thread
 CONF_mInt32(doris_scanner_queue_size, "1024");
 // single read execute fragment row number
@@ -245,7 +249,7 @@ CONF_Bool(enable_low_cardinality_optimize, "true");
 CONF_mBool(disable_auto_compaction, "false");
 // whether enable vectorized compaction
 CONF_Bool(enable_vectorized_compaction, "true");
-// whether enable vectorized schema change
+// whether enable vectorized schema change, material-view or rollup task will fail if this config open.
 CONF_Bool(enable_vectorized_alter_table, "false");
 
 // check the configuration of auto compaction in seconds when auto compaction disabled
@@ -294,12 +298,6 @@ CONF_mInt64(min_compaction_failure_interval_sec, "5"); // 5 seconds
 // This config can be set to limit thread number in compaction thread pool.
 CONF_mInt32(max_base_compaction_threads, "4");
 CONF_mInt32(max_cumu_compaction_threads, "10");
-
-// This config can be set to limit thread number in convert rowset thread pool.
-CONF_mInt32(convert_rowset_thread_num, "0");
-
-// initial sleep interval in seconds of scan alpha rowset
-CONF_mInt32(scan_alpha_rowset_min_interval_sec, "3");
 
 // This config can be set to limit thread number in  smallcompaction thread pool.
 CONF_mInt32(quick_compaction_max_threads, "10");
@@ -490,7 +488,7 @@ CONF_mInt64(memtable_max_buffer_size, "419430400");
 // impact the load performance when user upgrading Doris.
 // user should set these configs properly if necessary.
 CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
-CONF_Int32(load_process_max_memory_limit_percent, "80");         // 80%
+CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
 
 // result buffer cancelled time (unit: second)
 CONF_mInt32(result_buffer_cancelled_interval_time, "300");
@@ -636,7 +634,7 @@ CONF_Int32(aws_log_level, "3");
 CONF_mInt32(remote_storage_read_buffer_mb, "16");
 
 // Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
-CONF_Bool(track_new_delete, "true");
+CONF_Bool(enable_tcmalloc_hook, "true");
 
 // If true, switch TLS MemTracker to count more detailed memory,
 // including caches such as ExecNode operators and TabletManager.
@@ -649,25 +647,11 @@ CONF_Bool(track_new_delete, "true");
 //       2. Consider using raw pointers for mem tracker in thread local
 CONF_Bool(memory_verbose_track, "false");
 
-// Default level of MemTracker to show in web page
-// now MemTracker support two level:
-//      OVERVIEW: 0
-//      TASK: 1
-//      INSTANCE: 2
-//      VERBOSE: 3
-// the level equal or lower than mem_tracker_level will show in web page
-CONF_mInt16(mem_tracker_level, "0");
-
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
 // Decreasing this value will increase the frequency of consume/release.
 // Increasing this value will cause MemTracker statistics to be inaccurate.
-CONF_mInt32(mem_tracker_consume_min_size_bytes, "2097152");
-
-// When MemTracker is a negative value, it is considered that a memory leak has occurred,
-// but the actual MemTracker records inaccurately will also cause a negative value,
-// so this feature is in the experimental stage.
-CONF_mBool(memory_leak_detection, "false");
+CONF_mInt32(mem_tracker_consume_min_size_bytes, "4194304");
 
 // The version information of the tablet will be stored in the memory
 // in an adjacency graph data structure.
@@ -710,12 +694,18 @@ CONF_mInt32(external_table_connect_timeout_sec, "5");
 // So the value of this config should corresponding to the number of rowsets on this BE.
 CONF_mInt32(segment_cache_capacity, "1000000");
 
+// Global bitmap cache capacity for aggregation cache, size in bytes
+CONF_Int64(delete_bitmap_agg_cache_capacity, "104857600");
+
 // s3 config
 CONF_mInt32(max_remote_storage_count, "10");
 
-// If the dependent Kafka version is lower than the Kafka client version that routine load depends on,
-// the value set by the fallback version kafka_broker_version_fallback will be used,
-// and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+// reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
+// If the dependent kafka broker version older than 0.10.0.0,
+// the value of kafka_api_version_request should be false, and the
+// value set by the fallback version kafka_broker_version_fallback will be used,
+// and the valid values are: 0.9.0.x, 0.8.x.y.
+CONF_String(kafka_api_version_request, "true");
 CONF_String(kafka_broker_version_fallback, "0.10.0");
 
 // The number of pool siz of routine load consumer.
@@ -740,6 +730,21 @@ CONF_String(function_service_protocol, "h2:grpc");
 // use which load balancer to select server to connect
 CONF_String(rpc_load_balancer, "rr");
 
+CONF_Bool(enable_tracing, "false");
+
+// The endpoint to export spans to.
+CONF_String(trace_export_url, "http://127.0.0.1:9411/api/v2/spans");
+
+// The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
+// An export will be triggered when the number of spans in the queue reaches half of the maximum.
+CONF_Int32(max_span_queue_size, "2048");
+
+// The maximum batch size of every export spans. It must be smaller or equal to max_queue_size.
+CONF_Int32(max_span_export_batch_size, "512");
+
+// The time interval between two consecutive export spans.
+CONF_Int32(export_span_schedule_delay_millis, "500");
+
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
 // so we set a soft limit, default is 1MB
 CONF_mInt32(string_type_length_soft_limit_bytes, "1048576");
@@ -753,10 +758,13 @@ CONF_Int32(object_pool_buffer_size, "100");
 
 // ParquetReaderWrap prefetch buffer size
 CONF_Int32(parquet_reader_max_buffer_size, "50");
+CONF_Bool(parquet_predicate_push_down, "true");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
 CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
+
+CONF_Bool(enable_decimalv3, "false");
 
 //whether turn on quick compaction feature
 CONF_Bool(enable_quick_compaction, "false");
@@ -766,6 +774,18 @@ CONF_Int32(quick_compaction_max_rows, "1000");
 CONF_Int32(quick_compaction_batch_size, "10");
 // do compaction min rowsets
 CONF_Int32(quick_compaction_min_rowsets, "10");
+
+CONF_mBool(enable_function_pushdown, "false");
+
+// cooldown task configs
+CONF_Int32(cooldown_thread_num, "5");
+CONF_mInt64(generate_cooldown_task_interval_sec, "20");
+CONF_Int32(concurrency_per_dir, "2");
+CONF_mInt64(cooldown_lag_time_sec, "10800"); // 3h
+
+CONF_Int32(s3_transfer_executor_pool_size, "2");
+
+CONF_Bool(enable_time_lut, "true");
 
 } // namespace config
 

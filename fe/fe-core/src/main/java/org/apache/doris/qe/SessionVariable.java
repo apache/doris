@@ -175,8 +175,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
-    public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
-
     public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
 
     public static final String RETURN_OBJECT_DATA_AS_BINARY = "return_object_data_as_binary";
@@ -192,7 +190,13 @@ public class SessionVariable implements Serializable, Writable {
 
     static final String ENABLE_ARRAY_TYPE = "enable_array_type";
 
-    public static final String ENABLE_NEREIDS = "enable_nereids";
+    public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
+
+    public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
+            "enable_nereids_reorder_to_eliminate_cross_join";
+
+    public static final String ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER =
+            "enable_remove_no_conjuncts_runtime_filter_policy";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -479,8 +483,14 @@ public class SessionVariable implements Serializable, Writable {
      * the new optimizer is fully developed. I hope that day
      * would be coming soon.
      */
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS)
-    private boolean enableNereids = false;
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER)
+    private boolean enableNereidsPlanner = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN)
+    private boolean enableNereidsReorderToEliminateCrossJoin = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER)
+    public boolean enableRemoveNoConjunctsRuntimeFilterPolicy = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -981,18 +991,41 @@ public class SessionVariable implements Serializable, Writable {
         this.enableArrayType = enableArrayType;
     }
 
-    public boolean isEnableNereids() {
-        return enableNereids;
+    /**
+     * Nereids only support vectorized engine.
+     *
+     * @return true if both nereids and vectorized engine are enabled
+     */
+    public boolean isEnableNereidsPlanner() {
+        return enableNereidsPlanner && enableVectorizedEngine;
     }
 
-    public void setEnableNereids(boolean enableNereids) {
-        this.enableNereids = enableNereids;
+    public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
+        this.enableNereidsPlanner = enableNereidsPlanner;
+    }
+
+    public boolean isEnableNereidsReorderToEliminateCrossJoin() {
+        return enableNereidsReorderToEliminateCrossJoin;
+    }
+
+    public void setEnableNereidsReorderToEliminateCrossJoin(boolean value) {
+        enableNereidsReorderToEliminateCrossJoin = value;
     }
 
     /**
      * Serialize to thrift object.
      * Used for rest api.
      **/
+    public boolean isEnableRemoveNoConjunctsRuntimeFilterPolicy() {
+        return enableRemoveNoConjunctsRuntimeFilterPolicy;
+    }
+
+    public void setEnableRemoveNoConjunctsRuntimeFilterPolicy(boolean enableRemoveNoConjunctsRuntimeFilterPolicy) {
+        this.enableRemoveNoConjunctsRuntimeFilterPolicy = enableRemoveNoConjunctsRuntimeFilterPolicy;
+    }
+
+    // Serialize to thrift object
+    // used for rest api
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);

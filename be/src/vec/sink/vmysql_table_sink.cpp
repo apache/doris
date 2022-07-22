@@ -19,7 +19,6 @@
 
 #include <sstream>
 
-#include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
@@ -29,10 +28,7 @@ namespace doris {
 namespace vectorized {
 VMysqlTableSink::VMysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                  const std::vector<TExpr>& t_exprs)
-        : _pool(pool),
-          _row_desc(row_desc),
-          _t_output_expr(t_exprs),
-          _mem_tracker(MemTracker::create_tracker(-1, "VMysqlTableSink")) {
+        : _pool(pool), _row_desc(row_desc), _t_output_expr(t_exprs) {
     _name = "VMysqlTableSink";
 }
 
@@ -58,7 +54,7 @@ Status VMysqlTableSink::init(const TDataSink& t_sink) {
 Status VMysqlTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
+    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _row_desc));
     std::stringstream title;
     title << "VMysqlTableSink (frag_id=" << state->fragment_instance_id() << ")";
     // create profile
@@ -67,6 +63,7 @@ Status VMysqlTableSink::prepare(RuntimeState* state) {
 }
 
 Status VMysqlTableSink::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::open(_output_expr_ctxs, state));
     // create writer
@@ -81,10 +78,12 @@ Status VMysqlTableSink::send(RuntimeState* state, RowBatch* batch) {
 }
 
 Status VMysqlTableSink::send(RuntimeState* state, Block* block) {
+    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VMysqlTableSink::send");
     return _writer->append(block);
 }
 
 Status VMysqlTableSink::close(RuntimeState* state, Status exec_status) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlTableSink::close");
     VExpr::close(_output_expr_ctxs, state);
     return Status::OK();
 }

@@ -19,7 +19,6 @@
 
 #include "common/logging.h"
 #include "olap/row.h"
-#include "olap/rowset/column_data_writer.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/schema.h"
 #include "runtime/tuple.h"
@@ -32,20 +31,24 @@ namespace doris {
 
 MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   KeysType keys_type, RowsetWriter* rowset_writer,
-                   const std::shared_ptr<MemTracker>& parent_tracker, bool support_vec)
+                   KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* writer_mem_tracker,
+                   bool support_vec)
         : _tablet_id(tablet_id),
           _schema(schema),
           _tablet_schema(tablet_schema),
           _slot_descs(slot_descs),
           _keys_type(keys_type),
-          _mem_tracker(MemTracker::create_tracker(-1, "MemTable", parent_tracker)),
+          _mem_tracker(std::make_unique<MemTracker>(
+                  fmt::format("MemTable:tabletId={}", std::to_string(tablet_id)))),
+          _writer_mem_tracker(writer_mem_tracker),
           _buffer_mem_pool(new MemPool(_mem_tracker.get())),
           _table_mem_pool(new MemPool(_mem_tracker.get())),
           _schema_size(_schema->schema_size()),
           _rowset_writer(rowset_writer),
           _is_first_insertion(true),
           _agg_functions(schema->num_columns()),
+          _offsets_of_aggregate_states(schema->num_columns()),
+          _total_size_of_aggregate_states(0),
           _mem_usage(0) {
     if (support_vec) {
         _skip_list = nullptr;
@@ -98,14 +101,44 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
         DCHECK(function != nullptr);
         _agg_functions[cid] = function;
     }
+
+    for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
+        _offsets_of_aggregate_states[cid] = _total_size_of_aggregate_states;
+        _total_size_of_aggregate_states += _agg_functions[cid]->size_of_data();
+
+        // If not the last aggregate_state, we need pad it so that next aggregate_state will be aligned.
+        if (cid + 1 < _agg_functions.size()) {
+            size_t alignment_of_next_state = _agg_functions[cid + 1]->align_of_data();
+
+            /// Extend total_size to next alignment requirement
+            /// Add padding by rounding up 'total_size_of_aggregate_states' to be a multiplier of alignment_of_next_state.
+            _total_size_of_aggregate_states =
+                    (_total_size_of_aggregate_states + alignment_of_next_state - 1) /
+                    alignment_of_next_state * alignment_of_next_state;
+        }
+    }
 }
 
 MemTable::~MemTable() {
+    if (_vec_skip_list != nullptr && _keys_type != KeysType::DUP_KEYS) {
+        VecTable::Iterator it(_vec_skip_list.get());
+        for (it.SeekToFirst(); it.Valid(); it.Next()) {
+            // We should release agg_places here, because they are not relesed when a
+            // load is canceled.
+            for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
+                auto function = _agg_functions[i];
+                DCHECK(function != nullptr);
+                DCHECK(it.key()->agg_places(i) != nullptr);
+                function->destroy(it.key()->agg_places(i));
+            }
+        }
+    }
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
+    _writer_mem_tracker->release(_mem_tracker->consumption());
     _mem_tracker->release(_mem_usage);
     _buffer_mem_pool->free_all();
     _table_mem_pool->free_all();
-    MemTracker::memory_leak_check(_mem_tracker.get(), true);
+    _mem_tracker->memory_leak_check();
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
@@ -161,12 +194,14 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
     if (is_exist) {
         _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
     } else {
-        row_in_block->init_agg_places(_agg_functions, _schema->num_key_columns());
+        row_in_block->init_agg_places(
+                (char*)_table_mem_pool->allocate_aligned(_total_size_of_aggregate_states, 16),
+                _offsets_of_aggregate_states.data());
         for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
             auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-            auto place = row_in_block->_agg_places[cid];
-            _agg_functions[cid]->add(place,
-                                     const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+            auto data = row_in_block->agg_places(cid);
+            _agg_functions[cid]->create(data);
+            _agg_functions[cid]->add(data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
                                      row_in_block->_row_pos, nullptr);
         }
 
@@ -245,9 +280,9 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
     }
     // dst is non-sequence row, or dst sequence is smaller
     for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
-        auto place = row_in_skiplist->_agg_places[cid];
         auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-        _agg_functions[cid]->add(place, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+        _agg_functions[cid]->add(row_in_skiplist->agg_places(cid),
+                                 const_cast<const doris::vectorized::IColumn**>(&col_ptr),
                                  new_row->_row_pos, nullptr);
     }
 }
@@ -276,10 +311,11 @@ void MemTable::_collect_vskiplist_results() {
             // get value columns from agg_places
             for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
                 auto function = _agg_functions[i];
-                function->insert_result_into(it.key()->_agg_places[i],
+                auto agg_place = it.key()->agg_places(i);
+                function->insert_result_into(agg_place,
                                              *(_output_mutable_block.get_column_by_position(i)));
                 if constexpr (is_final) {
-                    function->destroy(it.key()->_agg_places[i]);
+                    function->destroy(agg_place);
                 }
             }
             if constexpr (!is_final) {
@@ -301,6 +337,10 @@ void MemTable::_collect_vskiplist_results() {
                     vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
             _output_mutable_block.clear_column_data();
         }
+    }
+
+    if (is_final) {
+        _vec_skip_list.reset();
     }
 }
 

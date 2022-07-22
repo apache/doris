@@ -95,17 +95,19 @@ Status VSchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status VSchemaScanNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::close");
     if (!_is_init) {
+        span->SetStatus(opentelemetry::trace::StatusCode::kError, "Open before Init.");
         return Status::InternalError("Open before Init.");
     }
 
     if (nullptr == state) {
+        span->SetStatus(opentelemetry::trace::StatusCode::kError, "input pointer is nullptr.");
         return Status::InternalError("input pointer is nullptr.");
     }
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
 
@@ -130,7 +132,7 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     // new one mem pool
     _tuple_pool.reset(new (std::nothrow) MemPool());
@@ -232,13 +234,13 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
 }
 
 Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSchemaScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     VLOG_CRITICAL << "VSchemaScanNode::GetNext";
     if (state == NULL || block == NULL || eos == NULL)
         return Status::InternalError("input is NULL pointer");
     if (!_is_init) return Status::InternalError("used before initialize.");
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     std::vector<vectorized::MutableColumnPtr> columns(_slot_num);
     bool schema_eos = false;
@@ -280,10 +282,9 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
                                 reinterpret_cast<vectorized::ColumnNullable*>(columns[i].get());
                         nullable_column->insert_data(nullptr, 0);
                     } else {
-                        std::stringstream ss;
-                        ss << "nonnull column contains NULL. table=" << _table_name
-                           << ", column=" << slot_desc->col_name();
-                        return Status::InternalError(ss.str());
+                        return Status::InternalError(
+                                "nonnull column contains NULL. table={}, column={}", _table_name,
+                                slot_desc->col_name());
                     }
                 } else {
                     RETURN_IF_ERROR(write_slot_to_vectorized_column(
@@ -357,13 +358,15 @@ Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescript
         break;
     }
 
-    case TYPE_INT: {
+    case TYPE_INT:
+    case TYPE_DECIMAL32: {
         int32_t num = *reinterpret_cast<int32_t*>(slot);
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(num);
         break;
     }
 
-    case TYPE_BIGINT: {
+    case TYPE_BIGINT:
+    case TYPE_DECIMAL64: {
         int64_t num = *reinterpret_cast<int64_t*>(slot);
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
         break;
@@ -414,7 +417,8 @@ Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescript
         break;
     }
 
-    case TYPE_DECIMALV2: {
+    case TYPE_DECIMALV2:
+    case TYPE_DECIMAL128: {
         __int128 num = (reinterpret_cast<PackedInt128*>(slot))->value;
         reinterpret_cast<vectorized::ColumnVector<doris::PackedInt128>*>(col_ptr)->insert_value(
                 num);
@@ -459,7 +463,7 @@ Status VSchemaScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     _tuple_pool.reset();

@@ -70,6 +70,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public class DeleteHandlerTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     private DeleteHandler deleteHandler;
 
@@ -199,7 +200,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         new Expectations(globalTransactionMgr) {
@@ -226,7 +227,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -275,7 +276,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -326,7 +327,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -391,7 +392,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -450,7 +451,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();

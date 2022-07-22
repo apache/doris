@@ -28,7 +28,7 @@
 #include "olap/selection_vector.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "vec/columns/column.h"
 
 namespace doris {
@@ -38,7 +38,6 @@ class RowBlockRow;
 class RowCursor;
 
 // This struct contains a block of rows, in which each column's data is stored
-// in a vector. We don't use VectorizedRowBatch because it doesn't own the data
 // in block, however it is used by old code, which we don't want to change.
 class RowBlockV2 {
 public:

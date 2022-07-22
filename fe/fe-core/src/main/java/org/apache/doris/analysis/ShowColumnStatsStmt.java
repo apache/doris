@@ -21,10 +21,14 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.statistics.ColumnStats;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+
+import java.util.List;
 
 public class ShowColumnStatsStmt extends ShowStmt {
 
@@ -53,6 +57,8 @@ public class ShowColumnStatsStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
     }
 
     @Override
@@ -63,5 +69,10 @@ public class ShowColumnStatsStmt extends ShowStmt {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
+    }
+
+    public List<String> getPartitionNames() {
+        // TODO(WZT): partition statistics
+        return Lists.newArrayList();
     }
 }

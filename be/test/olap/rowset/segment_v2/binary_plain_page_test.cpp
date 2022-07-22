@@ -28,7 +28,6 @@
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -71,8 +70,7 @@ public:
         EXPECT_TRUE(status.ok());
 
         //test1
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
+        MemPool pool;
         size_t size = 3;
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, true, get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR),
@@ -108,7 +106,8 @@ public:
 };
 
 TEST_F(BinaryPlainPageTest, TestBinaryPlainPageBuilderSeekByValueSmallPage) {
-    TestBinarySeekByValueSmallPage<BinaryPlainPageBuilder, BinaryPlainPageDecoder>();
+    TestBinarySeekByValueSmallPage<BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>,
+                                   BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>>();
 }
 
 } // namespace segment_v2

@@ -153,8 +153,7 @@ module.exports = [
         directoryPath: "alter-table/",
         initialOpenGroupIndex: -1,
         children: [
-          "schema-change",
-          "replace-table"
+          "schema-change"
         ],
       },
       {
@@ -249,6 +248,7 @@ module.exports = [
           "spark-sink"
         ],
       },
+      "cloudcanal",
       {
         title: "UDF",
         directoryPath: "udf/",
@@ -751,6 +751,7 @@ module.exports = [
               "SHOW-CREATE-TABLE",
               "SHOW-CREATE-MATERIALIZED-VIEW",
               "SHOW-DATA",
+              "SHOW-DATA-SKEW",
               "SHOW-DATABASE-ID",
               "SHOW-DATABASES",
               "SHOW-DELETE",
@@ -868,6 +869,7 @@ module.exports = [
       },
       "sql-interception",
       "query-profile",
+      "tracing",
       "optimization",
       {
         title: "Maintenance and Monitor",
@@ -886,6 +888,7 @@ module.exports = [
           "disk-capacity",
           "metadata-operation",
           "tablet-meta-tool",
+          "tablet-local-debug",
           "tablet-repair-and-balance",
           "tablet-restore-tool",
           "monitor-alert",

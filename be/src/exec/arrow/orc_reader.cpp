@@ -34,7 +34,9 @@ ORCReaderWrap::ORCReaderWrap(FileReader* file_reader, int64_t batch_size,
     _cur_file_eof = false;
 }
 
-Status ORCReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
+                                  const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                                  const std::vector<ExprContext*>& conjunct_ctxs,
                                   const std::string& timezone) {
     // Open ORC file reader
     auto maybe_reader =

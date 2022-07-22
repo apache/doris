@@ -53,21 +53,21 @@ Status HDFSWriter::open() {
     int exists = hdfsExists(_hdfs_fs, _path.c_str());
     if (exists == 0) {
         // the path already exists
-        return Status::AlreadyExist(_path + " already exists.");
+        return Status::AlreadyExist("{} already exists.", _path);
     }
 
     std::filesystem::path hdfs_path(_path);
     std::string hdfs_dir = hdfs_path.parent_path().string();
     exists = hdfsExists(_hdfs_fs, hdfs_dir.c_str());
     if (exists != 0) {
-        LOG(INFO) << "hdfs dir doesn't exist, create it: " << hdfs_dir;
+        VLOG_NOTICE << "hdfs dir doesn't exist, create it: " << hdfs_dir;
         int ret = hdfsCreateDirectory(_hdfs_fs, hdfs_dir.c_str());
         if (ret != 0) {
             std::stringstream ss;
             ss << "create dir failed. "
                << "(BE: " << BackendOptions::get_localhost() << ")"
                << " namenode: " << _namenode << " path: " << hdfs_dir
-               << ", err: " << strerror(errno);
+               << ", err: " << hdfsGetLastError();
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
@@ -78,11 +78,11 @@ Status HDFSWriter::open() {
         std::stringstream ss;
         ss << "open file failed. "
            << "(BE: " << BackendOptions::get_localhost() << ")"
-           << " namenode:" << _namenode << " path:" << _path << ", err: " << strerror(errno);
+           << " namenode:" << _namenode << " path:" << _path << ", err: " << hdfsGetLastError();
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
-    LOG(INFO) << "open file. namenode:" << _namenode << ", path:" << _path;
+    VLOG_NOTICE << "open file. namenode:" << _namenode << ", path:" << _path;
     return Status::OK();
 }
 
@@ -96,7 +96,7 @@ Status HDFSWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_len
         std::stringstream ss;
         ss << "write file failed. "
            << "(BE: " << BackendOptions::get_localhost() << ")"
-           << "namenode:" << _namenode << " path:" << _path << ", err: " << strerror(errno);
+           << "namenode:" << _namenode << " path:" << _path << ", err: " << hdfsGetLastError();
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -123,7 +123,7 @@ Status HDFSWriter::close() {
         std::stringstream ss;
         ss << "failed to flush hdfs file. "
            << "(BE: " << BackendOptions::get_localhost() << ")"
-           << "namenode:" << _namenode << " path:" << _path << ", err: " << strerror(errno);
+           << "namenode:" << _namenode << " path:" << _path << ", err: " << hdfsGetLastError();
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -141,10 +141,8 @@ Status HDFSWriter::_connect() {
     }
     _hdfs_fs = hdfsBuilderConnect(_builder.get());
     if (_hdfs_fs == nullptr) {
-        std::stringstream ss;
-        ss << "connect to hdfs failed. namenode address:" << _namenode << ", error"
-           << hdfsGetLastError();
-        return Status::InternalError(ss.str());
+        return Status::InternalError("connect to hdfs failed. namenode address:{}, error {}",
+                                     _namenode, hdfsGetLastError());
     }
     return Status::OK();
 }

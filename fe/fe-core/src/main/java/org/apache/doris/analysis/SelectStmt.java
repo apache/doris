@@ -40,7 +40,6 @@ import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlUtils;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -314,18 +313,14 @@ public class SelectStmt extends QueryStmt {
                 if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
                     continue;
                 }
-                if (Strings.isNullOrEmpty(dbName)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-                }
-                if (Strings.isNullOrEmpty(tableName)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
-                }
-                DatabaseIf db = analyzer.getCatalog().getCurrentDataSource().getDbOrAnalysisException(dbName);
+                tblRef.getName().analyze(analyzer);
+                DatabaseIf db = analyzer.getCatalog().getDataSourceMgr()
+                        .getCatalogOrAnalysisException(tblRef.getName().getCtl()).getDbOrAnalysisException(dbName);
                 TableIf table = db.getTableOrAnalysisException(tableName);
 
                 // check auth
                 if (!Catalog.getCurrentCatalog().getAuth()
-                        .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.SELECT)) {
+                        .checkTblPriv(ConnectContext.get(), tblRef.getName(), PrivPredicate.SELECT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                             ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                             dbName + ": " + tableName);
@@ -515,13 +510,6 @@ public class SelectStmt extends QueryStmt {
                         "WHERE clause must not contain analytic expressions: " + e.toSql());
             }
             analyzer.registerConjuncts(whereClause, false, getTableRefIds());
-        }
-
-        // Change all outer join tuple to null here after analyze where and from clause
-        // all solt desc of join tuple is ready. Before analyze sort info/agg info/analytic info
-        // the solt desc nullable mark must be corrected to make sure BE exec query right.
-        if (VectorizedUtil.isVectorized()) {
-            analyzer.changeAllOuterJoinTupleToNull();
         }
 
         createSortInfo(analyzer);
@@ -824,7 +812,18 @@ public class SelectStmt extends QueryStmt {
                     List<Expr> candidateEqJoinPredicates = analyzer.getEqJoinConjunctsExcludeAuxPredicates(tid);
                     for (Expr candidateEqJoinPredicate : candidateEqJoinPredicates) {
                         List<TupleId> candidateTupleList = Lists.newArrayList();
-                        Expr.getIds(Lists.newArrayList(candidateEqJoinPredicate), candidateTupleList, null);
+                        List<Expr> candidateEqJoinPredicateList = Lists.newArrayList(candidateEqJoinPredicate);
+                        // If a large table or view has joinClause is ranked first,
+                        // and the joinClause is not judged here,
+                        // the column in joinClause may not be found during reanalyzing.
+                        // for example:
+                        // select * from t1 inner join t2 on t1.a = t2.b inner join t3 on t3.c = t2.b;
+                        // If t3 is a large table, it will be placed first after the reorderTable,
+                        // and the problem that t2.b does not exist will occur in reanalyzing
+                        if (candidateTableRef.getOnClause() != null) {
+                            candidateEqJoinPredicateList.add(candidateTableRef.getOnClause());
+                        }
+                        Expr.getIds(candidateEqJoinPredicateList, candidateTupleList, null);
                         int count = candidateTupleList.size();
                         for (TupleId tupleId : candidateTupleList) {
                             if (validTupleId.contains(tupleId) || tid.equals(tupleId)) {
@@ -884,7 +883,8 @@ public class SelectStmt extends QueryStmt {
             if (analyzer.isSemiJoined(tableRef.getId())) {
                 continue;
             }
-            expandStar(new TableName(tableRef.getAliasAsName().getDb(),
+            expandStar(new TableName(tableRef.getAliasAsName().getCtl(),
+                            tableRef.getAliasAsName().getDb(),
                             tableRef.getAliasAsName().getTbl()),
                     tableRef.getDesc());
 

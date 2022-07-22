@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.InternalDataSource;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.Set;
 
 public class GroupByClauseTest {
+    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
 
     private Analyzer analyzer;
 
@@ -46,7 +48,7 @@ public class GroupByClauseTest {
             f.setAccessible(true);
             Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
             TupleDescriptor td = new TupleDescriptor(new TupleId(0));
-            td.setTable(analyzerBase.getTableOrAnalysisException(new TableName("testdb", "t")));
+            td.setTable(analyzerBase.getTableOrAnalysisException(new TableName(internalCtl, "testdb", "t")));
             tupleByAlias.put("testdb.t", td);
             f.set(analyzer, tupleByAlias);
         } catch (NoSuchFieldException e) {
@@ -70,13 +72,13 @@ public class GroupByClauseTest {
         for (String[] colsList : colsLists) {
             ArrayList<Expr> exprList = new ArrayList<>();
             for (String col : colsList) {
-                exprList.add(new SlotRef(new TableName("testdb", "t"), col));
+                exprList.add(new SlotRef(new TableName(internalCtl, "testdb", "t"), col));
             }
             groupingExprsList.add(exprList);
         }
         String[] groupByCols = {"k1", "k2", "k3", "k4"};
         for (String col : groupByCols) {
-            groupByExprs.add(new SlotRef(new TableName("testdb", "t"), col));
+            groupByExprs.add(new SlotRef(new TableName(internalCtl, "testdb", "t"), col));
         }
         GroupByClause groupByClause = new GroupByClause(groupingExprsList,
                 GroupByClause.GroupingType.GROUPING_SETS);
@@ -113,7 +115,7 @@ public class GroupByClauseTest {
         ArrayList<Expr> groupingExprs = new ArrayList<>();
         String[] cols = {"k2", "k3", "k4", "k3"};
         for (String col : cols) {
-            Expr expr = new SlotRef(new TableName("testdb", "t"), col);
+            Expr expr = new SlotRef(new TableName(internalCtl, "testdb", "t"), col);
             groupingExprs.add(expr);
         }
 
@@ -151,7 +153,7 @@ public class GroupByClauseTest {
         ArrayList<Expr> groupingExprs = new ArrayList<>();
         String[] cols = {"k1", "k2", "k3", "k1"};
         for (String col : cols) {
-            Expr expr = new SlotRef(new TableName("testdb", "t"), col);
+            Expr expr = new SlotRef(new TableName(internalCtl, "testdb", "t"), col);
             groupingExprs.add(expr);
         }
 
@@ -189,7 +191,7 @@ public class GroupByClauseTest {
         ArrayList<Expr> groupingExprs = new ArrayList<>();
         String[] cols = {"k2", "k2", "k3", "k1"};
         for (String col : cols) {
-            Expr expr = new SlotRef(new TableName("testdb", "t"), col);
+            Expr expr = new SlotRef(new TableName(internalCtl, "testdb", "t"), col);
             groupingExprs.add(expr);
         }
 
@@ -211,7 +213,7 @@ public class GroupByClauseTest {
         ArrayList<Expr> groupingExprs = new ArrayList<>();
         String[] cols = {"k2", "k2", "k3", "k1"};
         for (String col : cols) {
-            Expr expr = new SlotRef(new TableName("testdb", "t"), col);
+            Expr expr = new SlotRef(new TableName(internalCtl, "testdb", "t"), col);
             groupingExprs.add(expr);
         }
 
@@ -234,7 +236,7 @@ public class GroupByClauseTest {
         ArrayList<Expr> groupingExprs = new ArrayList<>();
         String[] cols = {"k1", "k2", "k3", "k1"};
         for (String col : cols) {
-            Expr expr = new SlotRef(new TableName("testdb", "t"), col);
+            Expr expr = new SlotRef(new TableName(internalCtl, "testdb", "t"), col);
             groupingExprs.add(expr);
         }
         GroupByClause groupByClause = new GroupByClause(Expr.cloneList(groupingExprs),
@@ -252,7 +254,7 @@ public class GroupByClauseTest {
         ArrayList<Expr> groupingExprs = new ArrayList<>();
         String[] cols = {"k1", "k2", "k3"};
         for (String col : cols) {
-            Expr expr = new SlotRef(new TableName("testdb", "t"), col);
+            Expr expr = new SlotRef(new TableName(internalCtl, "testdb", "t"), col);
             groupingExprs.add(expr);
         }
 
@@ -260,7 +262,7 @@ public class GroupByClauseTest {
                 GroupByClause.GroupingType.CUBE);
         List<Expr> slots = new ArrayList<>();
         for (String col : cols) {
-            SlotRef expr = new SlotRef(new TableName("testdb", "t"), col);
+            SlotRef expr = new SlotRef(new TableName(internalCtl, "testdb", "t"), col);
             slots.add(expr);
         }
         GroupingInfo groupingInfo = null;

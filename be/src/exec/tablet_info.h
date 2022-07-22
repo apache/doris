@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/descriptors.pb.h"
+#include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"
@@ -41,6 +42,7 @@ struct OlapTableIndexSchema {
     int64_t index_id;
     std::vector<SlotDescriptor*> slots;
     int32_t schema_hash;
+    std::vector<TabletColumn*> columns;
 
     void to_protobuf(POlapTableIndexSchema* pindex) const;
 };
@@ -293,7 +295,7 @@ private:
 
     ObjectPool _obj_pool;
     vectorized::Block _partition_block;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
     std::vector<VOlapTablePartition*> _partitions;
     std::unique_ptr<std::map<BlockRow*, VOlapTablePartition*, VOlapTablePartKeyComparator>>
             _partitions_map;

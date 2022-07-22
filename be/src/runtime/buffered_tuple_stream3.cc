@@ -668,9 +668,9 @@ Status BufferedTupleStream3::GetRows(std::unique_ptr<RowBatch>* batch, bool* got
     if (num_rows() > numeric_limits<int>::max()) {
         // RowBatch::num_rows_ is a 32-bit int, avoid an overflow.
         return Status::InternalError(
-                Substitute("Trying to read $0 rows into in-memory batch failed. Limit "
-                           "is $1",
-                           num_rows(), numeric_limits<int>::max()));
+                "Trying to read {} rows into in-memory batch failed. Limit "
+                "is {}",
+                num_rows(), numeric_limits<int>::max());
     }
     RETURN_IF_ERROR(PinStream(got_rows));
     if (!*got_rows) return Status::OK();

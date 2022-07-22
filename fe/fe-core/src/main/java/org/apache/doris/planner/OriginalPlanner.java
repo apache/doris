@@ -21,6 +21,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.QueryStmt;
@@ -92,11 +93,13 @@ public class OriginalPlanner extends Planner {
                 for (Expr expr : outputExprs) {
                     List<SlotId> slotList = Lists.newArrayList();
                     expr.getIds(null, slotList);
-                    if (PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
+                    if ((!expr.getType().getPrimitiveType().isDecimalV2Type()
+                            && expr.getType().getPrimitiveType().isDecimalV3Type())) {
                         continue;
                     }
 
-                    if (PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
+                    if (!slotDesc.getType().getPrimitiveType().isDecimalV2Type()
+                            && !slotDesc.getType().getPrimitiveType().isDecimalV3Type()) {
                         continue;
                     }
 
@@ -138,6 +141,7 @@ public class OriginalPlanner extends Planner {
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
 
+        // TODO change to vec should happen after distributed planner
         if (VectorizedUtil.isVectorized()) {
             singleNodePlan.convertToVectoriezd();
         }
@@ -397,5 +401,10 @@ public class OriginalPlanner extends Planner {
                 }
             }
         }
+    }
+
+    @Override
+    public DescriptorTable getDescTable() {
+        return analyzer.getDescTbl();
     }
 }

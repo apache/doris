@@ -22,10 +22,10 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.DataSourceIf;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -41,14 +41,16 @@ import java.util.List;
  */
 public class DbsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("DbId").add("DbName").add("TableNum").add("Quota")
-            .add("LastConsistencyCheckTime").add("ReplicaQuota")
+            .add("DbId").add("DbName").add("TableNum").add("Size").add("Quota")
+            .add("LastConsistencyCheckTime").add("ReplicaCount").add("ReplicaQuota")
             .build();
 
     private Catalog catalog;
+    private DataSourceIf ds;
 
-    public DbsProcDir(Catalog catalog) {
+    public DbsProcDir(Catalog catalog, DataSourceIf ds) {
         this.catalog = catalog;
+        this.ds = ds;
     }
 
     @Override
@@ -69,7 +71,7 @@ public class DbsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
 
-        DatabaseIf db = catalog.getInternalDataSource().getDbNullable(dbId);
+        DatabaseIf db = ds.getDbNullable(dbId);
         if (db == null) {
             throw new AnalysisException("Database " + dbId + " does not exist");
         }
@@ -83,20 +85,20 @@ public class DbsProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<String> dbNames = catalog.getInternalDataSource().getDbNames();
+        List<String> dbNames = ds.getDbNames();
         if (dbNames == null || dbNames.isEmpty()) {
             // empty
             return result;
         }
 
         // get info
-        List<List<Comparable>> dbInfos = new ArrayList<List<Comparable>>();
+        List<List<Comparable>> dbInfos = new ArrayList<>();
         for (String dbName : dbNames) {
-            DatabaseIf db = catalog.getInternalDataSource().getDbNullable(dbName);
+            DatabaseIf db = ds.getDbNullable(dbName);
             if (db == null) {
                 continue;
             }
-            List<Comparable> dbInfo = new ArrayList<Comparable>();
+            List<Comparable> dbInfo = new ArrayList<>();
             db.readLock();
             try {
                 int tableNum = db.getTables().size();
@@ -104,19 +106,18 @@ public class DbsProcDir implements ProcDirInterface {
                 dbInfo.add(dbName);
                 dbInfo.add(tableNum);
 
-                String readableQuota = FeConstants.null_string;
-                String lastCheckTime = FeConstants.null_string;
-                long replicaQuota = 0;
-                if (db instanceof Database) {
-                    long dataQuota = ((Database) db).getDataQuota();
-                    Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuota);
-                    readableQuota =
-                            DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " " + quotaUnitPair.second;
-                    lastCheckTime = TimeUtils.longToTimeString(((Database) db).getLastCheckTime());
-                    replicaQuota = ((Database) db).getReplicaQuota();
-                }
+                long usedDataQuota = (db instanceof Database) ? ((Database) db).getUsedDataQuotaWithLock() : 0;
+                long dataQuota = (db instanceof Database) ? ((Database) db).getDataQuota() : 0;
+                String readableUsedQuota = DebugUtil.printByteWithUnit(usedDataQuota);
+                String readableQuota = DebugUtil.printByteWithUnit(dataQuota);
+                String lastCheckTime = (db instanceof Database) ? TimeUtils.longToTimeString(
+                        ((Database) db).getLastCheckTime()) : FeConstants.null_string;
+                long replicaCount = (db instanceof Database) ? ((Database) db).getReplicaCountWithLock() : 0;
+                long replicaQuota = (db instanceof Database) ? ((Database) db).getReplicaQuota() : 0;
+                dbInfo.add(readableUsedQuota);
                 dbInfo.add(readableQuota);
                 dbInfo.add(lastCheckTime);
+                dbInfo.add(replicaCount);
                 dbInfo.add(replicaQuota);
 
             } finally {

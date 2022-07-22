@@ -19,8 +19,6 @@
 
 #include "common/status.h"
 #include "olap/options.h"
-#include "runtime/mem_tracker.h"
-#include "runtime/mem_tracker_task_pool.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -44,7 +42,7 @@ class FragmentMgr;
 class ResultCache;
 class LoadPathMgr;
 class LoadStreamMgr;
-class MemTracker;
+class MemTrackerLimiter;
 class StorageEngine;
 class MemTrackerTaskPool;
 class PriorityThreadPool;
@@ -60,6 +58,7 @@ class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
+class StoragePolicyMgr;
 
 class BackendServiceClient;
 class FrontendServiceClient;
@@ -114,11 +113,11 @@ public:
         return nullptr;
     }
 
-    std::shared_ptr<MemTracker> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
-    std::shared_ptr<MemTracker> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
-    MemTrackerTaskPool* task_pool_mem_tracker_registry() {
-        return _task_pool_mem_tracker_registry.get();
-    }
+    MemTrackerLimiter* process_mem_tracker() { return _process_mem_tracker; }
+    void set_process_mem_tracker(MemTrackerLimiter* tracker) { _process_mem_tracker = tracker; }
+    MemTrackerLimiter* query_pool_mem_tracker() { return _query_pool_mem_tracker; }
+    MemTrackerLimiter* load_pool_mem_tracker() { return _load_pool_mem_tracker; }
+    MemTrackerTaskPool* task_pool_mem_tracker_registry() { return _task_pool_mem_tracker_registry; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
     ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
@@ -128,7 +127,6 @@ public:
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
     TMasterInfo* master_info() { return _master_info; }
-    EtlJobMgr* etl_job_mgr() { return _etl_job_mgr; }
     LoadPathMgr* load_path_mgr() { return _load_path_mgr; }
     DiskIoMgr* disk_io_mgr() { return _disk_io_mgr; }
     TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr; }
@@ -145,6 +143,7 @@ public:
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
+    StoragePolicyMgr* storage_policy_mgr() { return _storage_policy_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     size_t store_path_to_index(const std::string& path) { return _store_path_map[path]; }
@@ -182,11 +181,14 @@ private:
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
 
+    // The ancestor for all trackers. Every tracker is visible from the process down.
+    // Not limit total memory by process tracker, and it's just used to track virtual memory of process.
+    MemTrackerLimiter* _process_mem_tracker;
     // The ancestor for all querys tracker.
-    std::shared_ptr<MemTracker> _query_pool_mem_tracker = nullptr;
+    MemTrackerLimiter* _query_pool_mem_tracker;
     // The ancestor for all load tracker.
-    std::shared_ptr<MemTracker> _load_pool_mem_tracker = nullptr;
-    std::unique_ptr<MemTrackerTaskPool> _task_pool_mem_tracker_registry;
+    MemTrackerLimiter* _load_pool_mem_tracker;
+    MemTrackerTaskPool* _task_pool_mem_tracker_registry;
 
     // The following two thread pools are used in different scenarios.
     // _scan_thread_pool is a priority thread pool.
@@ -207,7 +209,6 @@ private:
     FragmentMgr* _fragment_mgr = nullptr;
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
-    EtlJobMgr* _etl_job_mgr = nullptr;
     LoadPathMgr* _load_path_mgr = nullptr;
     DiskIoMgr* _disk_io_mgr = nullptr;
     TmpFileMgr* _tmp_file_mgr = nullptr;
@@ -228,6 +229,7 @@ private:
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
+    StoragePolicyMgr* _storage_policy_mgr = nullptr;
 };
 
 template <>

@@ -45,7 +45,8 @@ static int64_t HUGE_PAGE_SIZE = 2LL * 1024 * 1024;
 
 SystemAllocator::SystemAllocator(int64_t min_buffer_len) : min_buffer_len_(min_buffer_len) {
     DCHECK(BitUtil::IsPowerOf2(min_buffer_len));
-#if !defined(ADDRESS_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(LEAK_SANITIZER)
+#if !defined(ADDRESS_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(USE_JEMALLOC)
     // Free() assumes that aggressive decommit is enabled for TCMalloc.
     size_t aggressive_decommit_enabled;
     MallocExtension::instance()->GetNumericProperty("tcmalloc.aggressive_memory_decommit",
@@ -76,11 +77,11 @@ Status SystemAllocator::AllocateViaMMap(int64_t len, uint8_t** buffer_mem) {
         // Map an extra huge page so we can fix up the alignment if needed.
         map_len += HUGE_PAGE_SIZE;
     }
-    CONSUME_THREAD_LOCAL_MEM_TRACKER(map_len);
+    CONSUME_THREAD_MEM_TRACKER(map_len);
     uint8_t* mem = reinterpret_cast<uint8_t*>(
             mmap(nullptr, map_len, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
     if (mem == MAP_FAILED) {
-        RELEASE_THREAD_LOCAL_MEM_TRACKER(map_len);
+        RELEASE_THREAD_MEM_TRACKER(map_len);
         return Status::BufferAllocFailed("mmap failed");
     }
 
@@ -92,12 +93,12 @@ Status SystemAllocator::AllocateViaMMap(int64_t len, uint8_t** buffer_mem) {
         if (misalignment != 0) {
             uintptr_t fixup = HUGE_PAGE_SIZE - misalignment;
             munmap(mem, fixup);
-            RELEASE_THREAD_LOCAL_MEM_TRACKER(fixup);
+            RELEASE_THREAD_MEM_TRACKER(fixup);
             mem += fixup;
             map_len -= fixup;
         }
         munmap(mem + len, map_len - len);
-        RELEASE_THREAD_LOCAL_MEM_TRACKER(map_len - len);
+        RELEASE_THREAD_MEM_TRACKER(map_len - len);
         DCHECK_EQ(reinterpret_cast<uintptr_t>(mem) % HUGE_PAGE_SIZE, 0) << mem;
         // Mark the buffer as a candidate for promotion to huge pages. The Linux Transparent
         // Huge Pages implementation will try to back the memory with a huge page if it is
@@ -128,9 +129,8 @@ Status SystemAllocator::AllocateViaMalloc(int64_t len, uint8_t** buffer_mem) {
     if (rc == 0 && *buffer_mem == nullptr && len != 0) rc = ENOMEM;
 #endif
     if (rc != 0) {
-        std::stringstream ss;
-        ss << "posix_memalign() failed to allocate buffer: " << get_str_err_msg();
-        return Status::InternalError(ss.str());
+        return Status::InternalError("posix_memalign() failed to allocate buffer: {}",
+                                     get_str_err_msg());
     }
     if (use_huge_pages) {
 #ifdef MADV_HUGEPAGE
@@ -147,7 +147,7 @@ Status SystemAllocator::AllocateViaMalloc(int64_t len, uint8_t** buffer_mem) {
 void SystemAllocator::Free(BufferPool::BufferHandle&& buffer) {
     if (config::mmap_buffers) {
         int rc = munmap(buffer.data(), buffer.len());
-        RELEASE_THREAD_LOCAL_MEM_TRACKER(buffer.len());
+        RELEASE_THREAD_MEM_TRACKER(buffer.len());
         DCHECK_EQ(rc, 0) << "Unexpected munmap() error: " << errno;
     } else {
         bool use_huge_pages = buffer.len() % HUGE_PAGE_SIZE == 0 && config::madvise_huge_pages;

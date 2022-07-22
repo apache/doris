@@ -144,7 +144,7 @@ With the `-s 100` parameter, the resulting dataset size is:
 | customer  | 300万（3000000） | 277M | 1           |
 | part      | 140万（1400000） | 116M | 1           |
 | supplier  | 20万（200000）   | 17M  | 1           |
-| date      | 2556             | 228K | 1           |
+| dates     | 2556            | 228K | 1           |
 
 ### 6.3 Create table
 
@@ -281,7 +281,7 @@ PROPERTIES (
 select count(*) from part;
 select count(*) from customer;
 select count(*) from supplier;
-select count(*) from date;
+select count(*) from dates;
 select count(*) from lineorder;
 select count(*) from lineorder_flat;
 ```
@@ -295,7 +295,7 @@ The amount of data should be the same as the number of rows that generate the da
 | customer       | 300万（3000000） | 277 MB      | 138.247 MB                |
 | part           | 140万（1400000） | 116 MB      | 12.759 MB                 |
 | supplier       | 20万（200000）   | 17 MB       | 9.143 MB                  |
-| date           | 2556             | 228 KB      | 34.276 KB                 |
+| dates          | 2556            | 228 KB      | 34.276 KB                 |
 
 ### 6.6 Query test
 
@@ -367,7 +367,7 @@ ORDER BY YEAR ASC, revenue DESC;
 --Q4.1
 SELECT (LO_ORDERDATE DIV 10000) AS YEAR, C_NATION, SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
 FROM lineorder_flat
-WHERE C_REGION = 'AMERICA' ND S_REGION = 'AMERICA' AND P_MFGR IN ('MFGR#1', 'MFGR#2')
+WHERE C_REGION = 'AMERICA' AND S_REGION = 'AMERICA' AND P_MFGR IN ('MFGR#1', 'MFGR#2')
 GROUP BY YEAR, C_NATION
 ORDER BY YEAR ASC, C_NATION ASC;
 

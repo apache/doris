@@ -30,7 +30,6 @@
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "testutil/test_util.h"
 #include "util/debug_util.h"
 
@@ -68,8 +67,9 @@ public:
         Status status = page_builder.get_dictionary_page(&dict_slice);
         EXPECT_TRUE(status.ok());
         PageDecoderOptions dict_decoder_options;
-        std::unique_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
+        std::unique_ptr<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>> dict_page_decoder(
+                new BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>(dict_slice.slice(),
+                                                                    dict_decoder_options));
         status = dict_page_decoder->init();
         EXPECT_TRUE(status.ok());
         // because every slice is unique
@@ -95,8 +95,7 @@ public:
         EXPECT_EQ(slices.size(), page_decoder.count());
 
         //check values
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
+        MemPool pool;
         auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         std::unique_ptr<ColumnVectorBatch> cvb;
@@ -175,8 +174,9 @@ public:
             int slice_index = random() % results.size();
             //int slice_index = 1;
             PageDecoderOptions dict_decoder_options;
-            std::unique_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                    new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
+            std::unique_ptr<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>> dict_page_decoder(
+                    new BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>(dict_slice.slice(),
+                                                                        dict_decoder_options));
             status = dict_page_decoder->init();
             EXPECT_TRUE(status.ok());
 
@@ -199,8 +199,7 @@ public:
             EXPECT_TRUE(status.ok());
 
             //check values
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(1, false, type_info, nullptr, &cvb);

@@ -22,17 +22,19 @@
 namespace doris {
 namespace segment_v2 {
 
-class BinaryPlainPageDecoder;
-
 static constexpr size_t DEFAULT_PAGE_SIZE = 1024 * 1024; // default size: 1M
 
 struct PageBuilderOptions {
     size_t data_page_size = DEFAULT_PAGE_SIZE;
 
     size_t dict_page_size = DEFAULT_PAGE_SIZE;
+
+    bool need_check_bitmap = true;
 };
 
-struct PageDecoderOptions {};
+struct PageDecoderOptions {
+    bool need_check_bitmap = true;
+};
 
 } // namespace segment_v2
 } // namespace doris

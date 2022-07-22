@@ -36,14 +36,14 @@ class VOlapScanNode;
 class VOlapScanner {
 public:
     VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, bool aggregation,
-                 bool need_agg_finalize, const TPaloScanRange& scan_range,
-                 const std::shared_ptr<MemTracker>& tracker);
+                 bool need_agg_finalize, const TPaloScanRange& scan_range, MemTracker* tracker);
     virtual ~VOlapScanner() = default;
 
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    const std::vector<TCondition>& filters,
                    const std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                           bloom_filters);
+                           bloom_filters,
+                   const std::vector<FunctionFilter>& function_filters);
 
     Status open();
 
@@ -89,15 +89,12 @@ public:
 
     std::vector<bool>* mutable_runtime_filter_marks() { return &_runtime_filter_marks; }
 
-    const std::vector<SlotDescriptor*>& get_query_slots() const { return _query_slots; }
-
-    const std::shared_ptr<MemTracker>& mem_tracker() const { return _mem_tracker; }
-
 private:
     Status _init_tablet_reader_params(
             const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
             const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                    bloom_filters);
+                    bloom_filters,
+            const std::vector<FunctionFilter>& function_filters);
     Status _init_return_columns(bool need_seq_col);
 
     // Update profile that need to be reported in realtime.
@@ -129,10 +126,6 @@ private:
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
 
-    RowCursor _read_row_cursor;
-
-    std::vector<SlotDescriptor*> _query_slots;
-
     // time costed and row returned statistics
     int64_t _num_rows_read = 0;
     int64_t _raw_rows_read = 0;
@@ -145,10 +138,12 @@ private:
 
     MonotonicStopWatch _watcher;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    MemTracker* _mem_tracker;
 
     VExprContext* _vconjunct_ctx = nullptr;
     bool _need_to_close = false;
+
+    TabletSchema _tablet_schema;
 };
 
 } // namespace vectorized

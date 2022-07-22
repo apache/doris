@@ -23,7 +23,6 @@
 #include "exec/exec_node.h"
 #include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
@@ -44,15 +43,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _counter(counter),
           _src_tuple(nullptr),
           _src_tuple_row(nullptr),
-#if BE_TEST
-          _mem_tracker(new MemTracker()),
-#else
-          _mem_tracker(MemTracker::create_tracker(
-                  -1, state->query_type() == TQueryType::LOAD
-                              ? "BaseScanner:" + std::to_string(state->load_job_id())
-                              : "BaseScanner:Select")),
-#endif
-          _mem_pool(std::make_unique<MemPool>(_mem_tracker.get())),
+          _mem_pool(std::make_unique<MemPool>()),
           _dest_tuple_desc(nullptr),
           _pre_filter_texprs(pre_filter_texprs),
           _strict_mode(false),
@@ -62,8 +53,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _read_timer(nullptr),
           _materialize_timer(nullptr),
           _success(false),
-          _scanner_eof(false) {
-}
+          _scanner_eof(false) {}
 
 Status BaseScanner::open() {
     RETURN_IF_ERROR(init_expr_ctxes());
@@ -95,14 +85,19 @@ Status BaseScanner::open() {
     return Status::OK();
 }
 
+void BaseScanner::reg_conjunct_ctxs(const TupleId& tupleId,
+                                    const std::vector<ExprContext*>& conjunct_ctxs) {
+    _conjunct_ctxs = conjunct_ctxs;
+    _tupleId = tupleId;
+}
+
 Status BaseScanner::init_expr_ctxes() {
     // Construct _src_slot_descs
     const TupleDescriptor* src_tuple_desc =
             _state->desc_tbl().get_tuple_descriptor(_params.src_tuple_id);
     if (src_tuple_desc == nullptr) {
-        std::stringstream ss;
-        ss << "Unknown source tuple descriptor, tuple_id=" << _params.src_tuple_id;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Unknown source tuple descriptor, tuple_id={}",
+                                     _params.src_tuple_id);
     }
 
     std::map<SlotId, SlotDescriptor*> src_slot_desc_map;
@@ -112,9 +107,7 @@ Status BaseScanner::init_expr_ctxes() {
     for (auto slot_id : _params.src_slot_ids) {
         auto it = src_slot_desc_map.find(slot_id);
         if (it == std::end(src_slot_desc_map)) {
-            std::stringstream ss;
-            ss << "Unknown source slot descriptor, slot_id=" << slot_id;
-            return Status::InternalError(ss.str());
+            return Status::InternalError("Unknown source slot descriptor, slot_id={}", slot_id);
         }
         _src_slot_descs.emplace_back(it->second);
     }
@@ -134,12 +127,12 @@ Status BaseScanner::init_expr_ctxes() {
             _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
                     _state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
-            RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc, _mem_tracker));
+            RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc));
             RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
         } else {
             RETURN_IF_ERROR(Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs,
                                                     &_pre_filter_ctxs));
-            RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
+            RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc));
             RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
         }
     }
@@ -147,9 +140,8 @@ Status BaseScanner::init_expr_ctxes() {
     // Construct dest slots information
     _dest_tuple_desc = _state->desc_tbl().get_tuple_descriptor(_params.dest_tuple_id);
     if (_dest_tuple_desc == nullptr) {
-        std::stringstream ss;
-        ss << "Unknown dest tuple descriptor, tuple_id=" << _params.dest_tuple_id;
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Unknown dest tuple descriptor, tuple_id={}",
+                                     _params.dest_tuple_id);
     }
 
     bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
@@ -159,23 +151,21 @@ Status BaseScanner::init_expr_ctxes() {
         }
         auto it = _params.expr_of_dest_slot.find(slot_desc->id());
         if (it == std::end(_params.expr_of_dest_slot)) {
-            std::stringstream ss;
-            ss << "No expr for dest slot, id=" << slot_desc->id()
-               << ", name=" << slot_desc->col_name();
-            return Status::InternalError(ss.str());
+            return Status::InternalError("No expr for dest slot, id={}, name={}", slot_desc->id(),
+                                         slot_desc->col_name());
         }
 
         if (_state->enable_vectorized_exec()) {
             vectorized::VExprContext* ctx = nullptr;
             RETURN_IF_ERROR(
                     vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get()));
             RETURN_IF_ERROR(ctx->open(_state));
             _dest_vexpr_ctx.emplace_back(ctx);
         } else {
             ExprContext* ctx = nullptr;
             RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get()));
             RETURN_IF_ERROR(ctx->open(_state));
             _dest_expr_ctx.emplace_back(ctx);
         }
@@ -186,9 +176,7 @@ Status BaseScanner::init_expr_ctxes() {
             } else {
                 auto _src_slot_it = src_slot_desc_map.find(it->second);
                 if (_src_slot_it == std::end(src_slot_desc_map)) {
-                    std::stringstream ss;
-                    ss << "No src slot " << it->second << " in src slot descs";
-                    return Status::InternalError(ss.str());
+                    return Status::InternalError("No src slot {} in src slot descs", it->second);
                 }
                 _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
             }

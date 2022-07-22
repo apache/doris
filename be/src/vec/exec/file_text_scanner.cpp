@@ -28,6 +28,7 @@
 #include "exec/text_converter.hpp"
 #include "exprs/expr_context.h"
 #include "io/buffered_reader.h"
+#include "io/file_factory.h"
 #include "io/hdfs_reader_writer.h"
 #include "util/types.h"
 #include "util/utf8_check.h"
@@ -47,6 +48,7 @@ FileTextScanner::FileTextScanner(RuntimeState* state, RuntimeProfile* profile,
           _success(false)
 
 {
+    _init_profiles(profile);
     if (params.__isset.text_params) {
         auto text_params = params.text_params;
         if (text_params.__isset.column_separator_str) {
@@ -100,8 +102,6 @@ Status FileTextScanner::get_next(Block* block, bool* eof) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
         RETURN_IF_ERROR(_cur_line_reader->read_line(&ptr, &size, &_cur_line_reader_eof));
-        std::unique_ptr<const uint8_t> u_ptr;
-        u_ptr.reset(ptr);
         if (_skip_lines > 0) {
             _skip_lines--;
             continue;
@@ -132,16 +132,6 @@ Status FileTextScanner::_fill_file_columns(const Slice& line, vectorized::Block*
 
         auto doris_column = _block->get_by_name(slot_desc->col_name()).column;
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
-        if (slot_desc->is_nullable()) {
-            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
-            nullable_column->get_null_map_data().push_back(0);
-            col_ptr = &nullable_column->get_nested_column();
-        }
-
-        if (value.size == 2 && value.data[0] == '\\' && value[1] == 'N') {
-            col_ptr->insert_default();
-            continue;
-        }
         _text_converter->write_vec_column(slot_desc, col_ptr, value.data, value.size, true, false);
     }
     _rows++;
@@ -163,11 +153,8 @@ Status FileTextScanner::_open_next_reader() {
 
 Status FileTextScanner::_open_file_reader() {
     const TFileRangeDesc& range = _ranges[_next_range];
-
-    FileReader* hdfs_reader = nullptr;
-    RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path,
-                                                    range.start_offset, &hdfs_reader));
-    _cur_file_reader.reset(new BufferedReader(_profile, hdfs_reader));
+    RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params, range,
+                                                    _cur_file_reader));
     return _cur_file_reader->open();
 }
 
@@ -180,7 +167,7 @@ Status FileTextScanner::_open_line_reader() {
     const TFileRangeDesc& range = _ranges[_next_range];
     int64_t size = range.size;
     if (range.start_offset != 0) {
-        if (range.format_type != TFileFormatType::FORMAT_CSV_PLAIN) {
+        if (_params.format_type != TFileFormatType::FORMAT_CSV_PLAIN) {
             std::stringstream ss;
             ss << "For now we do not support split compressed file";
             return Status::InternalError(ss.str());
@@ -191,14 +178,14 @@ Status FileTextScanner::_open_line_reader() {
     }
 
     // open line reader
-    switch (range.format_type) {
+    switch (_params.format_type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _cur_line_reader = new PlainTextLineReader(_profile, _cur_file_reader.get(), nullptr, size,
                                                    _line_delimiter, _line_delimiter_length);
         break;
     default: {
         std::stringstream ss;
-        ss << "Unknown format type, cannot init line reader, type=" << range.format_type;
+        ss << "Unknown format type, cannot init line reader, type=" << _params.format_type;
         return Status::InternalError(ss.str());
     }
     }

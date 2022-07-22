@@ -20,12 +20,16 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+
+import java.util.Objects;
 
 /**
  * All arithmetic operator.
  */
-public class Arithmetic extends Expression {
+public abstract class Arithmetic extends Expression {
 
     enum OperatorPosition {
         BINARY_INFIX,
@@ -107,32 +111,55 @@ public class Arithmetic extends Expression {
         this.op = op;
     }
 
-    public ArithmeticOperator getArithOperator() {
+    public ArithmeticOperator getArithmeticOperator() {
         return op;
     }
 
-    private static NodeType genNodeType(ArithmeticOperator op) {
+    private static ExpressionType genNodeType(ArithmeticOperator op) {
         switch (op) {
             case MULTIPLY:
-                return NodeType.MULTIPLY;
+                return ExpressionType.MULTIPLY;
             case DIVIDE:
-                return NodeType.DIVIDE;
+                return ExpressionType.DIVIDE;
             case MOD:
-                return NodeType.MOD;
+                return ExpressionType.MOD;
             case ADD:
-                return NodeType.ADD;
+                return ExpressionType.ADD;
             case SUBTRACT:
-                return NodeType.SUBTRACT;
+                return ExpressionType.SUBTRACT;
             case BITAND:
-                return NodeType.BITAND;
+                return ExpressionType.BITAND;
             case BITOR:
-                return NodeType.BITOR;
+                return ExpressionType.BITOR;
             case BITXOR:
-                return NodeType.BITXOR;
+                return ExpressionType.BITXOR;
             case BITNOT:
-                return NodeType.NOT;
+                return ExpressionType.NOT;
             default:
-                return null;
+                throw new RuntimeException("Not support arithmetic type: " + op.getName());
+        }
+    }
+
+    @Override
+    public DataType getDataType() {
+        // TODO: split Unary and Binary arithmetic
+        int arity = arity();
+        if (arity == 1) {
+            return child(0).getDataType();
+        } else if (arity == 2) {
+            // TODO: binary arithmetic
+            return child(0).getDataType();
+        } else {
+            return super.getDataType();
+        }
+    }
+
+    @Override
+    public boolean nullable() throws UnboundException {
+        if (op.isUnary()) {
+            return child(0).nullable();
+        } else {
+            return child(0).nullable() || child(1).nullable();
         }
     }
 
@@ -141,7 +168,27 @@ public class Arithmetic extends Expression {
     }
 
     @Override
-    public String sql() {
-        return null;
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        Arithmetic that = (Arithmetic) o;
+        return op == that.op && Objects.equals(this.children(), that.children());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(op, children());
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
     }
 }

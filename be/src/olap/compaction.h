@@ -54,8 +54,6 @@ public:
     Status execute_compact();
     virtual Status execute_compact_impl() = 0;
 
-    std::shared_ptr<MemTracker>& get_mem_tracker() { return _mem_tracker; }
-
 protected:
     virtual Status pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
@@ -67,7 +65,7 @@ protected:
     Status modify_rowsets();
     void gc_output_rowset();
 
-    Status construct_output_rowset_writer();
+    Status construct_output_rowset_writer(const TabletSchema* schema);
     Status construct_input_rowset_readers();
 
     Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
@@ -76,14 +74,9 @@ protected:
                                             std::vector<Version>* missing_version);
     int64_t get_compaction_permits();
 
-private:
-    // get num rows from segment group meta of input rowsets.
-    // return -1 if these are not alpha rowsets.
-    int64_t _get_input_num_rows_from_seg_grps();
-
 protected:
     // the root tracker for this compaction
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
 
     TabletSharedPtr _tablet;
 
@@ -99,6 +92,9 @@ protected:
     CompactionState _state;
 
     Version _output_version;
+
+    int64_t _oldest_write_timestamp;
+    int64_t _newest_write_timestamp;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };

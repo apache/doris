@@ -36,7 +36,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -402,10 +402,9 @@ Status DataStreamSender::prepare(RuntimeState* state) {
           << "])";
     _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = MemTracker::create_tracker(
-            -1, "DataStreamSender:" + print_id(state->fragment_instance_id()), nullptr,
-            MemTrackerLevel::VERBOSE, _profile);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    _mem_tracker = std::make_unique<MemTracker>(
+            "DataStreamSender:" + print_id(state->fragment_instance_id()), nullptr, _profile);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         std::random_device rd;
@@ -413,11 +412,11 @@ Status DataStreamSender::prepare(RuntimeState* state) {
         shuffle(_channels.begin(), _channels.end(), g);
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(Expr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));
+        RETURN_IF_ERROR(Expr::prepare(_partition_expr_ctxs, state, _row_desc));
     } else {
-        RETURN_IF_ERROR(Expr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));
+        RETURN_IF_ERROR(Expr::prepare(_partition_expr_ctxs, state, _row_desc));
         for (auto iter : _partition_infos) {
-            RETURN_IF_ERROR(iter->prepare(state, _row_desc, _expr_mem_tracker));
+            RETURN_IF_ERROR(iter->prepare(state, _row_desc));
         }
     }
 
@@ -446,7 +445,7 @@ DataStreamSender::~DataStreamSender() {
 
 Status DataStreamSender::open(RuntimeState* state) {
     DCHECK(state != nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     RETURN_IF_ERROR(Expr::open(_partition_expr_ctxs, state));
     for (auto iter : _partition_infos) {
         RETURN_IF_ERROR(iter->open(state));
@@ -456,7 +455,7 @@ Status DataStreamSender::open(RuntimeState* state) {
 
 Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
     SCOPED_TIMER(_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     // Unpartition or _channel size
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {

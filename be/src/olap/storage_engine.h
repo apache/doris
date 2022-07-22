@@ -36,7 +36,6 @@
 #include "gen_cpp/MasterService_types.h"
 #include "gutil/ref_counted.h"
 #include "olap/compaction_permit_limiter.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
@@ -96,7 +95,7 @@ public:
     // @brief 获取所有root_path信息
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
-    int64_t get_file_or_directory_size(std::filesystem::path file_path);
+    int64_t get_file_or_directory_size(const std::string& file_path);
 
     // get root path for creating tablet. The returned vector of root path should be random,
     // for avoiding that all the tablet would be deployed one disk.
@@ -180,15 +179,12 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
-    std::shared_ptr<MemTracker> compaction_mem_tracker() { return _compaction_mem_tracker; }
-    std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
-    std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
-    std::shared_ptr<MemTracker> storage_migration_mem_tracker() {
-        return _storage_migration_mem_tracker;
-    }
-    std::shared_ptr<MemTracker> clone_mem_tracker() { return _clone_mem_tracker; }
-    std::shared_ptr<MemTracker> batch_load_mem_tracker() { return _batch_load_mem_tracker; }
-    std::shared_ptr<MemTracker> consistency_mem_tracker() { return _consistency_mem_tracker; }
+    MemTrackerLimiter* compaction_mem_tracker() { return _compaction_mem_tracker.get(); }
+    MemTracker* segment_meta_mem_tracker() { return _segment_meta_mem_tracker.get(); }
+    MemTrackerLimiter* schema_change_mem_tracker() { return _schema_change_mem_tracker.get(); }
+    MemTrackerLimiter* clone_mem_tracker() { return _clone_mem_tracker.get(); }
+    MemTrackerLimiter* batch_load_mem_tracker() { return _batch_load_mem_tracker.get(); }
+    MemTrackerLimiter* consistency_mem_tracker() { return _consistency_mem_tracker.get(); }
 
     // check cumulative compaction config
     void check_cumulative_compaction_config();
@@ -219,7 +215,7 @@ private:
 
     void _clean_unused_rowset_metas();
 
-    Status _do_sweep(const FilePathDesc& scan_root_desc, const time_t& local_tm_now,
+    Status _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
                      const int32_t expire);
 
     // All these xxx_callback() functions are for Background threads
@@ -255,8 +251,6 @@ private:
 
     void _compaction_tasks_producer_callback();
 
-    void _alpha_rowset_scan_thread_callback();
-
     std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
                                                             std::vector<DataDir*>& data_dirs,
                                                             bool check_score);
@@ -275,6 +269,8 @@ private:
     Status _handle_quick_compaction(TabletSharedPtr);
 
     void _adjust_compaction_thread_num();
+
+    void _cooldown_tasks_producer_callback();
 
 private:
     struct CompactionCandidate {
@@ -333,20 +329,19 @@ private:
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
     // Count the memory consumption of all Base and Cumulative tasks.
-    std::shared_ptr<MemTracker> _compaction_mem_tracker;
-    // Count the memory consumption of all Segment read.
-    std::shared_ptr<MemTracker> _tablet_mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _compaction_mem_tracker;
+    // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
+    // The memory consumed by querying is tracked in segment iterator.
+    std::unique_ptr<MemTracker> _segment_meta_mem_tracker;
     // Count the memory consumption of all SchemaChange tasks.
-    std::shared_ptr<MemTracker> _schema_change_mem_tracker;
-    // Count the memory consumption of all StorageMigration tasks.
-    std::shared_ptr<MemTracker> _storage_migration_mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _schema_change_mem_tracker;
     // Count the memory consumption of all EngineCloneTask.
     // Note: Memory that does not contain make/release snapshots.
-    std::shared_ptr<MemTracker> _clone_mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _clone_mem_tracker;
     // Count the memory consumption of all EngineBatchLoadTask.
-    std::shared_ptr<MemTracker> _batch_load_mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _batch_load_mem_tracker;
     // Count the memory consumption of all EngineChecksumTask.
-    std::shared_ptr<MemTracker> _consistency_mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _consistency_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;
@@ -387,9 +382,6 @@ private:
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
 
-    scoped_refptr<Thread> _alpha_rowset_scan_thread;
-    std::unique_ptr<ThreadPool> _convert_rowset_thread_pool;
-
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
@@ -407,6 +399,14 @@ private:
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+
+    scoped_refptr<Thread> _cooldown_tasks_producer_thread;
+
+    std::unique_ptr<ThreadPool> _cooldown_thread_pool;
+
+    std::mutex _running_cooldown_mutex;
+    std::unordered_map<DataDir*, int64_t> _running_cooldown_tasks_cnt;
+    std::unordered_set<int64_t> _running_cooldown_tablets;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

@@ -42,17 +42,16 @@ Status VSortNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     _runtime_profile->add_info_string("TOP-N", _limit == -1 ? "false" : "true");
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    _block_mem_tracker = MemTracker::create_virtual_tracker(-1, "VSortNode:Block", mem_tracker());
-    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor,
-                                              expr_mem_tracker()));
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor));
     return Status::OK();
 }
 
 Status VSortNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(state->check_query_state("vsort, while open."));
@@ -76,8 +75,9 @@ Status VSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
 }
 
 Status VSortNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSortNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     auto status = Status::OK();
     if (_sorted_blocks.empty()) {
@@ -105,7 +105,7 @@ Status VSortNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    _block_mem_tracker->release(_total_mem_usage);
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::close");
     _vsort_exec_exprs.close(state);
     return ExecNode::close(state);
 }
@@ -125,7 +125,8 @@ Status VSortNode::sort_input(RuntimeState* state) {
     bool eos = false;
     do {
         Block block;
-        RETURN_IF_ERROR(child(0)->get_next(state, &block, &eos));
+        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next(state, &block, &eos),
+                                       child(0)->get_next_span(), eos);
         auto rows = block.rows();
 
         if (rows != 0) {
@@ -161,7 +162,6 @@ Status VSortNode::sort_input(RuntimeState* state) {
                 _sorted_blocks.emplace_back(std::move(block));
             }
 
-            _block_mem_tracker->consume(mem_usage);
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
         }

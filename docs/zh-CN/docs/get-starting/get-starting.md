@@ -40,6 +40,9 @@ under the License.
 
 **在创建之前，请准备好已完成编译的FE/BE文件，此教程不再赘述编译过程。**
 
+
+**该教程为单节点、1FE 和 1BE 的混布教程，只需要一个节点，便于快速体验 Doris。**
+
 1. 设置系统最大打开文件句柄数
 
    ```shell
@@ -82,7 +85,9 @@ under the License.
    # 配置FE-Config
    vi fe/conf/fe.conf
    # 取消priority_networks的注释，修改参数
-   priority_networks = 127.0.0.0/24
+   # 例如当前节点的 IP 地址为 10.10.2.21，则需要更改为 10.10.2.0/24 填入
+   # 这里需要填入的是 IP 子网网段地址，并非 IP 地址
+   priority_networks = 10.10.2.0/24
    # 保存退出
    ```
 
@@ -92,7 +97,9 @@ under the License.
    # 配置FE-Config
    vi be/conf/be.conf
    # 取消priority_networks的注释，修改参数
-   priority_networks = 127.0.0.0/24
+   # 例如当前节点的 IP 地址为 10.10.2.21，则需要更改为 10.10.2.0/24 填入
+   # 这里需要填入的是 IP 子网网段地址，并非 IP 地址
+   priority_networks = 10.10.2.0/24
    # 保存退出
    ```
 
@@ -137,10 +144,10 @@ under the License.
    注册 BE 至 FE（使用MySQL-Client，需自行安装）
 
    ```shell
-   # 登录
-   mysql -h 127.0.0.1 -P 9030 -uroot
+   # 登录，由于是单节点混布，所以 FE_IP 和 BE_IP 为同一个 IP 地址
+   mysql -h FE_IP -P 9030 -uroot
    # 注册BE
-   ALTER SYSTEM ADD BACKEND "127.0.0.1:9050";
+   ALTER SYSTEM ADD BACKEND "BE_IP:9050";
    ```
 
 ## Apache Doris简单使用

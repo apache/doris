@@ -17,43 +17,38 @@
 
 package org.apache.doris.nereids.memo;
 
-import java.util.Objects;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
+import org.apache.doris.common.Id;
+import org.apache.doris.common.IdGenerator;
 
 /**
  * UUID for {@link Group}.
  */
-public class GroupId {
-    private static final AtomicLong CURRENT_ID = new AtomicLong();
-    private static final UUID JVM_ID = UUID.randomUUID();
-
-    private final long id;
-    private final UUID jvmId;
-
-    public GroupId(long id, UUID jvmId) {
-        this.id = id;
-        this.jvmId = jvmId;
+public class GroupId extends Id<GroupId> {
+    protected GroupId(int id) {
+        super(id);
     }
 
-    public static GroupId newPlanSetId() {
-        return new GroupId(CURRENT_ID.getAndIncrement(), JVM_ID);
-    }
+    /**
+     * create a group id generator.
+     *
+     * @return group id generator
+     */
+    public static IdGenerator<GroupId> createGenerator() {
+        return new IdGenerator<GroupId>() {
+            @Override
+            public GroupId getNextId() {
+                return new GroupId(nextId++);
+            }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        GroupId groupId = (GroupId) o;
-        return id == groupId.id && jvmId.equals(groupId.jvmId);
+            @Override
+            public GroupId getMaxId() {
+                return new GroupId(nextId - 1);
+            }
+        };
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(id, jvmId);
+    public String toString() {
+        return "GroupId#" + id;
     }
 }

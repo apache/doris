@@ -46,7 +46,7 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
             fmt::format("({} {} set)", _children[0]->expr_name(), _is_not_in ? "not_in" : "in");
     _is_prepare = true;
 
-    DCHECK(_children.size() > 1);
+    DCHECK(_children.size() >= 1);
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     for (auto child : _children) {
@@ -60,8 +60,7 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     _function = SimpleFunctionFactory::instance().get_function(real_function_name,
                                                                argument_template, _data_type);
     if (_function == nullptr) {
-        return Status::NotSupported(
-                fmt::format("Function {} is not implemented", real_function_name));
+        return Status::NotSupported("Function {} is not implemented", real_function_name);
     }
 
     VExpr::register_function_context(state, context);

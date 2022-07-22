@@ -194,9 +194,6 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const std::any&
     } else if (type.is_float64()) {
         auto value = std::any_cast<ut_type::DOUBLE>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_float64()) {
-        auto value = std::any_cast<ut_type::DOUBLE>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_decimal128()) {
         auto value = std::any_cast<Decimal<Int128>>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);

@@ -25,6 +25,7 @@
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h" // for rowset id
 #include "olap/rowset/beta_rowset.h"
+#include "olap/tablet_schema.h"
 #include "util/time.h"
 
 namespace doris {

@@ -19,14 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,30 +44,18 @@ public class LockTablesStmt extends StatementBase {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         for (LockTable lockTable : lockTables) {
-            String dbName = lockTable.getTableName().getDb();
-            String tableName = lockTable.getTableName().getTbl();
-            if (Strings.isNullOrEmpty(dbName)) {
-                dbName = analyzer.getDefaultDb();
-            } else {
-                dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
-            }
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-            if (Strings.isNullOrEmpty(tableName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
-            }
-            Database db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbName);
-            db.getTableOrAnalysisException(tableName);
+            TableName tableName = lockTable.getTableName();
+            tableName.analyze(analyzer);
+            Database db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(tableName.getDb());
+            db.getTableOrAnalysisException(tableName.getTbl());
 
             // check auth
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                    tableName,
-                    PrivPredicate.SELECT)) {
+            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(
+                    ConnectContext.get(), tableName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                         ConnectContext.get().getQualifiedUser(),
                         ConnectContext.get().getRemoteIP(),
-                        dbName + ": " + tableName);
+                        tableName.toString());
             }
         }
     }

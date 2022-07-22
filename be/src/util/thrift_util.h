@@ -63,9 +63,7 @@ public:
             _mem_buffer->resetBuffer();
             obj->write(_protocol.get());
         } catch (std::exception& e) {
-            std::stringstream msg;
-            msg << "Couldn't serialize thrift object:\n" << e.what();
-            return Status::InternalError(msg.str());
+            return Status::InternalError("Couldn't serialize thrift object:\n{}", e.what());
         }
 
         _mem_buffer->getBuffer(buffer, len);
@@ -78,9 +76,7 @@ public:
             _mem_buffer->resetBuffer();
             obj->write(_protocol.get());
         } catch (apache::thrift::TApplicationException& e) {
-            std::stringstream msg;
-            msg << "Couldn't serialize thrift object:\n" << e.what();
-            return Status::InternalError(msg.str());
+            return Status::InternalError("Couldn't serialize thrift object:\n{}", e.what());
         }
 
         *result = _mem_buffer->getBufferAsString();
@@ -93,9 +89,7 @@ public:
             _mem_buffer->resetBuffer();
             obj->write(_protocol.get());
         } catch (apache::thrift::TApplicationException& e) {
-            std::stringstream msg;
-            msg << "Couldn't serialize thrift object:\n" << e.what();
-            return Status::InternalError(msg.str());
+            return Status::InternalError("Couldn't serialize thrift object:\n{}", e.what());
         }
 
         return Status::OK();
@@ -138,9 +132,7 @@ Status deserialize_thrift_msg(const uint8_t* buf, uint32_t* len, bool compact,
     try {
         deserialized_msg->read(tproto.get());
     } catch (std::exception& e) {
-        std::stringstream msg;
-        msg << "couldn't deserialize thrift msg:\n" << e.what();
-        return Status::InternalError(msg.str());
+        return Status::InternalError("Couldn't deserialize thrift msg:\n{}", e.what());
     } catch (...) {
         // TODO: Find the right exception for 0 bytes
         return Status::InternalError("Unknown exception");

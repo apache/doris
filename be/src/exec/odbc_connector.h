@@ -32,6 +32,10 @@
 
 namespace doris {
 
+namespace vectorized {
+class VExprContext;
+}
+
 struct ODBCConnectorParam {
     std::string connect_string;
 
@@ -72,7 +76,11 @@ public:
     // write for ODBC table
     Status init_to_write(RuntimeProfile* profile);
     Status append(const std::string& table_name, RowBatch* batch, uint32_t start_send_row,
-                  uint32_t* num_row_sent);
+                  uint32_t* num_rows_sent);
+
+    Status append(const std::string& table_name, vectorized::Block* block,
+                  const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs,
+                  uint32_t start_send_row, uint32_t* num_rows_sent);
 
     // use in ODBC transaction
     Status begin_trans();  // should be call after connect and before query or init_to_write

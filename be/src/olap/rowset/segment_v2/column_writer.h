@@ -32,8 +32,8 @@ namespace doris {
 class TypeInfo;
 class BlockCompressionCodec;
 
-namespace fs {
-class WritableBlock;
+namespace io {
+class FileWriter;
 }
 
 namespace segment_v2 {
@@ -50,7 +50,7 @@ struct ColumnWriterOptions {
     bool need_zone_map = false;
     bool need_bitmap_index = false;
     bool need_bloom_filter = false;
-    std::string to_string() {
+    std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()
            << ", data_page_size=" << data_page_size
@@ -72,7 +72,7 @@ class ZoneMapIndexWriter;
 class ColumnWriter {
 public:
     static Status create(const ColumnWriterOptions& opts, const TabletColumn* column,
-                         fs::WritableBlock* _wblock, std::unique_ptr<ColumnWriter>* writer);
+                         io::FileWriter* file_writer, std::unique_ptr<ColumnWriter>* writer);
 
     explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable)
             : _field(std::move(field)), _is_nullable(is_nullable) {}
@@ -147,9 +147,6 @@ private:
     std::unique_ptr<Field> _field;
     bool _is_nullable;
     std::vector<uint8_t> _null_bitmap;
-
-protected:
-    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 class FlushPageCallback {
@@ -164,7 +161,7 @@ public:
 class ScalarColumnWriter final : public ColumnWriter {
 public:
     ScalarColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                       fs::WritableBlock* output_file);
+                       io::FileWriter* file_writer);
 
     ~ScalarColumnWriter() override;
 
@@ -241,7 +238,7 @@ private:
     Status _write_data_page(Page* page);
 
 private:
-    fs::WritableBlock* _wblock = nullptr;
+    io::FileWriter* _file_writer = nullptr;
     // total size of data page list
     uint64_t _data_size;
 

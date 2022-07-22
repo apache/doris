@@ -37,8 +37,8 @@ Status StorageBackendMgr::init(const std::string& storage_param_dir) {
     if (!exist_status.ok() &&
         (!exist_status.is_not_found() || !Env::Default()->create_dirs(storage_param_dir).ok())) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(strings::Substitute(
-                        "failed to create remote storage_param root path $0", storage_param_dir)),
+                Status::IOError("failed to create remote storage_param root path {}",
+                                storage_param_dir),
                 "create_dirs failed");
     }
 
@@ -151,7 +151,7 @@ Status StorageBackendMgr::get_storage_param(const std::string& storage_name,
                                             StorageParamPB* storage_param) {
     std::shared_lock rdlock(_storage_backend_lock);
     if (_storage_backend_map.find(storage_name) == _storage_backend_map.end()) {
-        return Status::InternalError("storage_name not exist: " + storage_name);
+        return Status::InternalError("storage_name not exist: {}", storage_name);
     }
     *storage_param = _storage_param_map[storage_name];
     return Status::OK();
@@ -160,7 +160,7 @@ Status StorageBackendMgr::get_storage_param(const std::string& storage_name,
 Status StorageBackendMgr::get_root_path(const std::string& storage_name, std::string* root_path) {
     std::shared_lock rdlock(_storage_backend_lock);
     if (_storage_backend_map.find(storage_name) == _storage_backend_map.end()) {
-        return Status::InternalError("storage_name not exist: " + storage_name);
+        return Status::InternalError("storage_name not exist: {}", storage_name);
     }
     *root_path = get_root_path_from_param(_storage_param_map[storage_name]);
     return Status::OK();
@@ -197,7 +197,7 @@ Status StorageBackendMgr::_serialize_param(const StorageParamPB& storage_param_p
     bool serialize_success = storage_param_pb.SerializeToString(param_binary);
     if (!serialize_success) {
         LOG(WARNING) << "failed to serialize storage_param " << storage_param_pb.storage_name();
-        return Status::InternalError("failed to serialize storage_param: " +
+        return Status::InternalError("failed to serialize storage_param: {}",
                                      storage_param_pb.storage_name());
     }
     return Status::OK();
