@@ -19,10 +19,12 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -33,6 +35,7 @@ import com.google.common.collect.Maps;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
@@ -45,6 +48,7 @@ public class Memo {
     private final List<Group> groups = Lists.newArrayList();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
+    private final Map<GroupExpressionAdapter, GroupExpressionAdapter> groupExpressionAdapterMap = Maps.newHashMap();
     private Group root;
 
     public Memo(Plan plan) {
@@ -119,6 +123,38 @@ public class Memo {
         return result.withChildren(childrenNode);
     }
 
+    private static class GroupExpressionAdapter {
+        private final GroupExpression groupExpr;
+
+        public GroupExpressionAdapter(GroupExpression groupExpr) {
+            this.groupExpr = groupExpr;
+        }
+
+        public GroupExpression getGroupExpr() {
+            return groupExpr;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            GroupExpressionAdapter that = (GroupExpressionAdapter) o;
+            if (that.groupExpr.getPlan() instanceof LogicalOlapScan) {
+                return this.groupExpr == ((GroupExpressionAdapter) o).groupExpr;
+            }
+            return this.groupExpr.equals(that.groupExpr);
+        }
+
+        @Override
+        public int hashCode() {
+            return groupExpr.hashCode();
+        }
+    }
+
     /**
      * Insert or rewrite groupExpression to target group.
      * If group expression is already in memo and target group is not null, we merge two groups.
@@ -132,11 +168,16 @@ public class Memo {
      */
     private GroupExpression insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
             boolean rewrite, LogicalProperties logicalProperties) {
-        GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
-        if (existedGroupExpression != null) {
+        GroupExpressionAdapter adapter = new GroupExpressionAdapter(groupExpression);
+        // GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
+
+        GroupExpressionAdapter existedGroupExpressionAdapter = groupExpressionAdapterMap.get(adapter);
+
+        if (existedGroupExpressionAdapter != null) {
+            GroupExpression existedGroupExpression = existedGroupExpressionAdapter.getGroupExpr();
             Group mergedGroup = existedGroupExpression.getOwnerGroup();
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
-                mergedGroup = mergeGroup(target, existedGroupExpression.getOwnerGroup());
+                mergedGroup = mergeGroup(existedGroupExpression.getOwnerGroup(), target);
             }
             if (rewrite) {
                 mergedGroup.setLogicalProperties(logicalProperties);
@@ -156,6 +197,7 @@ public class Memo {
             groups.add(group);
         }
         groupExpressions.put(groupExpression, groupExpression);
+        groupExpressionAdapterMap.put(adapter, adapter);
         return groupExpression;
     }
 
