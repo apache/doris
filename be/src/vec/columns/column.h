@@ -204,6 +204,16 @@ public:
         LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
     }
 
+    virtual void insert_many_strings(const StringRef* strings, size_t num) {
+        LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
+    }
+
+    // Here `pos` points to the memory data type is the same as the data type of the column.
+    // This function is used by `insert_keys_into_columns` in AggregationNode.
+    virtual void insert_many_raw_data(const char* pos, size_t num) {
+        LOG(FATAL) << "Method insert_many_raw_data is not supported for " << get_name();
+    }
+
     void insert_many_data(const char* pos, size_t length, size_t data_num) {
         for (size_t i = 0; i < data_num; ++i) {
             insert_data(pos, length);
@@ -261,6 +271,17 @@ public:
                                              const uint8_t* null_map,
                                              size_t max_row_byte_size) const {
         LOG(FATAL) << "serialize_vec_with_null_map not supported";
+    }
+
+    // This function deserializes group-by keys into column in the vectorized way.
+    virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+        LOG(FATAL) << "deserialize_vec not supported";
+    }
+
+    // Used in ColumnNullable::deserialize_vec
+    virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+                                               const uint8_t* null_map) {
+        LOG(FATAL) << "deserialize_vec_with_null_map not supported";
     }
 
     /// Update state of hash function with value of n-th element.

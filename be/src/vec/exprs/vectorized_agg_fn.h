@@ -58,6 +58,9 @@ public:
 
     void insert_result_info(AggregateDataPtr place, IColumn* column);
 
+    void insert_result_info_vec(const std::vector<AggregateDataPtr>& place, size_t offset,
+                                IColumn* column, const size_t num_rows);
+
     void reset(AggregateDataPtr place);
 
     DataTypePtr& data_type() { return _data_type; }
