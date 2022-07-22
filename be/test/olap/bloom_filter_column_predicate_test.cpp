@@ -37,10 +37,7 @@ namespace doris {
 
 class TestBloomFilterColumnPredicate : public testing::Test {
 public:
-    TestBloomFilterColumnPredicate() : _row_block(nullptr) {
-        _mem_tracker.reset(new MemTracker(-1));
-        _mem_pool.reset(new MemPool(_mem_tracker.get()));
-    }
+    TestBloomFilterColumnPredicate() : _row_block(nullptr) { _mem_pool.reset(new MemPool()); }
 
     ~TestBloomFilterColumnPredicate() {}
 
@@ -69,7 +66,6 @@ public:
         _row_block.reset(new RowBlockV2(schema, size));
     }
 
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::unique_ptr<RowBlockV2> _row_block;
 };

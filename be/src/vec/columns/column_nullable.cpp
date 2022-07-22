@@ -482,4 +482,11 @@ ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable) {
     return ColumnNullable::create(column, ColumnUInt8::create(column->size(), is_nullable ? 1 : 0));
 }
 
+ColumnPtr remove_nullable(const ColumnPtr& column) {
+    if (is_column_nullable(*column)) {
+        return reinterpret_cast<const ColumnNullable*>(column.get())->get_nested_column_ptr();
+    }
+    return column;
+}
+
 } // namespace doris::vectorized

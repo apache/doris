@@ -53,7 +53,8 @@ public:
 
 protected:
     virtual ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                               int32_t num_of_columns_from_file) = 0;
+                                               int32_t num_of_columns_from_file,
+                                               int64_t range_start_offset, int64_t range_size) = 0;
     virtual void _update_profile(std::shared_ptr<Statistics>& statistics) {}
 
 private:
@@ -82,7 +83,8 @@ public:
 
 protected:
     ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                       int32_t num_of_columns_from_file) override;
+                                       int32_t num_of_columns_from_file, int64_t range_start_offset,
+                                       int64_t range_size) override;
 
     void _init_profiles(RuntimeProfile* profile) override;
     void _update_profile(std::shared_ptr<Statistics>& statistics) override;
@@ -93,6 +95,7 @@ private:
     RuntimeProfile::Counter* _filtered_bytes_counter;
     RuntimeProfile::Counter* _total_rows_counter;
     RuntimeProfile::Counter* _total_groups_counter;
+    RuntimeProfile::Counter* _total_bytes_counter;
 };
 
 class VFileORCScanner final : public FileArrowScanner {
@@ -105,7 +108,8 @@ public:
 
 protected:
     ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                       int32_t num_of_columns_from_file) override;
+                                       int32_t num_of_columns_from_file, int64_t range_start_offset,
+                                       int64_t range_size) override;
     void _init_profiles(RuntimeProfile* profile) override {};
 };
 

@@ -48,7 +48,6 @@ public:
     uint32_t mem_size() const;
 
     int32_t unique_id() const { return _unique_id; }
-    int32_t col_unique_id() const { return _col_unique_id; }
     std::string name() const { return _col_name; }
     void set_name(std::string col_name) { _col_name = col_name; }
     FieldType type() const { return _type; }
@@ -120,7 +119,6 @@ private:
     TabletColumn* _parent = nullptr;
     std::vector<TabletColumn> _sub_columns;
     uint32_t _sub_column_count = 0;
-    int32_t _col_unique_id = -1;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);

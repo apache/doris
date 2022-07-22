@@ -25,6 +25,7 @@
 #include "exec/olap_scanner.h"
 #include "exec/scan_node.h"
 #include "exprs/bloomfilter_predicate.h"
+#include "exprs/function_filter.h"
 #include "exprs/in_predicate.h"
 #include "runtime/descriptors.h"
 #include "util/progress_updater.h"
@@ -108,6 +109,8 @@ protected:
     void eval_const_conjuncts();
     Status normalize_conjuncts();
     Status build_key_ranges_and_filters();
+    Status build_function_filters();
+
     Status start_scan_thread(RuntimeState* state);
 
     template <PrimitiveType T>
@@ -190,6 +193,15 @@ protected:
     std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>
             _bloom_filters_push_down;
 
+    // push down functions to storage engine
+    // only support scalar functions, now just support like / not like
+    std::vector<FunctionFilter> _push_down_functions;
+    // functions conjunct's index which already be push down storage engine
+    std::set<uint32_t> _pushed_func_conjuncts_index;
+    // need keep these conjunct to the end of scan node,
+    // since some memory referenced by pushed function filters
+    std::vector<ExprContext*> _pushed_func_conjunct_ctxs;
+
     // Pool for storing allocated scanner objects.  We don't want to use the
     // runtime pool to ensure that the scanner objects are deleted before this
     // object is.
@@ -252,7 +264,7 @@ protected:
 
     int64_t _buffered_bytes;
     // Count the memory consumption of Rowset Reader and Tablet Reader in OlapScanner.
-    std::shared_ptr<MemTracker> _scanner_mem_tracker;
+    std::unique_ptr<MemTracker> _scanner_mem_tracker;
     EvalConjunctsFn _eval_conjuncts_fn;
 
     bool _need_agg_finalize = true;

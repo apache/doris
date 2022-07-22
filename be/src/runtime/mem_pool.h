@@ -93,7 +93,6 @@ class MemPool {
 public:
     // 'tracker' tracks the amount of memory allocated by this pool. Must not be nullptr.
     MemPool(MemTracker* mem_tracker);
-    MemPool(const std::string& label);
     MemPool();
 
     /// Frees all chunks of memory and subtracts the total allocated bytes
@@ -104,7 +103,6 @@ public:
     /// of the current chunk. Creates a new chunk if there aren't any chunks
     /// with enough capacity.
     uint8_t* allocate(int64_t size, Status* rst = nullptr) {
-        // TODO: rethink if DEFAULT_ALIGNMENT should be changed, malloc is aligned by 16.
         return allocate<false>(size, DEFAULT_ALIGNMENT, rst);
     }
 
@@ -170,7 +168,10 @@ public:
 
     MemTracker* mem_tracker() { return _mem_tracker; }
 
-    static constexpr int DEFAULT_ALIGNMENT = 8;
+    // The memory for __int128 should be aligned to 16 bytes.
+    // By the way, in 64-bit system, the address of a block returned by malloc or realloc in GNU systems
+    // is always a multiple of sixteen. (https://www.gnu.org/software/libc/manual/html_node/Aligned-Memory-Blocks.html)
+    static constexpr int DEFAULT_ALIGNMENT = 16;
 
 #if (defined(__SANITIZE_ADDRESS__) || defined(ADDRESS_SANITIZER)) && !defined(BE_TEST)
     static constexpr int DEFAULT_PADDING_SIZE = 0x10;
@@ -316,8 +317,6 @@ private:
     /// The current and peak memory footprint of this pool. This is different from
     /// total allocated_bytes_ since it includes bytes in chunks that are not used.
     MemTracker* _mem_tracker;
-    // TODO(zxy) temp variable, In the future, mem trackers should all use raw pointers.
-    std::shared_ptr<MemTracker> _mem_tracker_own;
 };
 
 // Stamp out templated implementations here so they're included in IR module

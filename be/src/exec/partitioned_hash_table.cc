@@ -27,7 +27,7 @@
 #include "exec/partitioned_hash_table.inline.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
@@ -64,10 +64,8 @@ PartitionedHashTableCtx::PartitionedHashTableCtx(const std::vector<Expr*>& build
                                                  bool stores_nulls,
                                                  const std::vector<bool>& finds_nulls,
                                                  int32_t initial_seed, int max_levels,
-                                                 MemPool* mem_pool, MemPool* expr_results_pool,
-                                                 const std::shared_ptr<MemTracker>& tracker)
-        : tracker_(tracker),
-          build_exprs_(build_exprs),
+                                                 MemPool* mem_pool, MemPool* expr_results_pool)
+        : build_exprs_(build_exprs),
           probe_exprs_(probe_exprs),
           stores_nulls_(stores_nulls),
           finds_nulls_(finds_nulls),
@@ -77,7 +75,6 @@ PartitionedHashTableCtx::PartitionedHashTableCtx(const std::vector<Expr*>& build
           scratch_row_(nullptr),
           mem_pool_(mem_pool),
           expr_results_pool_(expr_results_pool) {
-    DCHECK(tracker_ != nullptr);
     DCHECK(!finds_some_nulls_ || stores_nulls_);
     // Compute the layout and buffer size to store the evaluated expr results
     DCHECK_EQ(build_exprs_.size(), probe_exprs_.size());
@@ -110,30 +107,31 @@ Status PartitionedHashTableCtx::Init(ObjectPool* pool, RuntimeState* state, int 
     // TODO chenhao replace ExprContext with ScalarFnEvaluator
     for (int i = 0; i < build_exprs_.size(); i++) {
         ExprContext* context = pool->add(new ExprContext(build_exprs_[i]));
-        RETURN_IF_ERROR(context->prepare(state, row_desc, tracker_));
+        RETURN_IF_ERROR(context->prepare(state, row_desc));
         build_expr_evals_.push_back(context);
     }
     DCHECK_EQ(build_exprs_.size(), build_expr_evals_.size());
 
     for (int i = 0; i < probe_exprs_.size(); i++) {
         ExprContext* context = pool->add(new ExprContext(probe_exprs_[i]));
-        RETURN_IF_ERROR(context->prepare(state, row_desc_probe, tracker_));
+        RETURN_IF_ERROR(context->prepare(state, row_desc_probe));
         probe_expr_evals_.push_back(context);
     }
     DCHECK_EQ(probe_exprs_.size(), probe_expr_evals_.size());
-    return expr_values_cache_.Init(state, tracker_, build_exprs_);
+    return expr_values_cache_.Init(state, build_exprs_);
 }
 
-Status PartitionedHashTableCtx::Create(
-        ObjectPool* pool, RuntimeState* state, const std::vector<Expr*>& build_exprs,
-        const std::vector<Expr*>& probe_exprs, bool stores_nulls,
-        const std::vector<bool>& finds_nulls, int32_t initial_seed, int max_levels,
-        int num_build_tuples, MemPool* mem_pool, MemPool* expr_results_pool,
-        const std::shared_ptr<MemTracker>& tracker, const RowDescriptor& row_desc,
-        const RowDescriptor& row_desc_probe, std::unique_ptr<PartitionedHashTableCtx>* ht_ctx) {
+Status PartitionedHashTableCtx::Create(ObjectPool* pool, RuntimeState* state,
+                                       const std::vector<Expr*>& build_exprs,
+                                       const std::vector<Expr*>& probe_exprs, bool stores_nulls,
+                                       const std::vector<bool>& finds_nulls, int32_t initial_seed,
+                                       int max_levels, int num_build_tuples, MemPool* mem_pool,
+                                       MemPool* expr_results_pool, const RowDescriptor& row_desc,
+                                       const RowDescriptor& row_desc_probe,
+                                       std::unique_ptr<PartitionedHashTableCtx>* ht_ctx) {
     ht_ctx->reset(new PartitionedHashTableCtx(build_exprs, probe_exprs, stores_nulls, finds_nulls,
-                                              initial_seed, max_levels, mem_pool, expr_results_pool,
-                                              tracker));
+                                              initial_seed, max_levels, mem_pool,
+                                              expr_results_pool));
     return (*ht_ctx)->Init(pool, state, num_build_tuples, row_desc, row_desc_probe);
 }
 
@@ -291,7 +289,6 @@ PartitionedHashTableCtx::ExprValuesCache::ExprValuesCache()
           null_bitmap_(0) {}
 
 Status PartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
-                                                      const std::shared_ptr<MemTracker>& tracker,
                                                       const std::vector<Expr*>& build_exprs) {
     // Initialize the number of expressions.
     num_exprs_ = build_exprs.size();
@@ -310,12 +307,14 @@ Status PartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
                                      MAX_EXPR_VALUES_ARRAY_SIZE / expr_values_bytes_per_row_));
 
     int mem_usage = MemUsage(capacity_, expr_values_bytes_per_row_, num_exprs_);
-    Status st = tracker->check_limit(mem_usage);
+    Status st = thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
+            mem_usage);
     if (UNLIKELY(!st)) {
         capacity_ = 0;
         string details = Substitute(
                 "PartitionedHashTableCtx::ExprValuesCache failed to allocate $0 bytes", mem_usage);
-        RETURN_LIMIT_EXCEEDED(tracker, state, details, mem_usage, st);
+        RETURN_LIMIT_EXCEEDED(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(),
+                              state, details, mem_usage, st);
     }
 
     int expr_values_size = expr_values_bytes_per_row_ * capacity_;

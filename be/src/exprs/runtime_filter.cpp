@@ -1013,9 +1013,8 @@ Status IRuntimeFilter::publish() {
     if (_has_local_target) {
         IRuntimeFilter* consumer_filter = nullptr;
         // TODO: log if err
-        Status status =
-                _state->runtime_filter_mgr()->get_consume_filter(_filter_id, &consumer_filter);
-        DCHECK(status.ok());
+        RETURN_IF_ERROR(
+                _state->runtime_filter_mgr()->get_consume_filter(_filter_id, &consumer_filter));
         // push down
         std::swap(this->_wrapper, consumer_filter->_wrapper);
         consumer_filter->update_runtime_filter_type_to_profile();
@@ -1048,8 +1047,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctx
 }
 
 Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr_ctxs,
-                                            const RowDescriptor& desc,
-                                            const std::shared_ptr<MemTracker>& tracker) {
+                                            const RowDescriptor& desc) {
     if (_is_ignored) {
         return Status::OK();
     }
@@ -1059,7 +1057,7 @@ Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr
 
     if (_push_down_ctxs.empty()) {
         RETURN_IF_ERROR(_wrapper->get_push_context(&_push_down_ctxs, _state, _probe_ctx));
-        RETURN_IF_ERROR(Expr::prepare(_push_down_ctxs, _state, desc, tracker));
+        RETURN_IF_ERROR(Expr::prepare(_push_down_ctxs, _state, desc));
         RETURN_IF_ERROR(Expr::open(_push_down_ctxs, _state));
     }
     // push expr
@@ -1068,8 +1066,7 @@ Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr
 }
 
 Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* vexprs,
-                                           const RowDescriptor& desc,
-                                           const std::shared_ptr<MemTracker>& tracker) {
+                                           const RowDescriptor& desc) {
     if (_is_ignored) {
         return Status::OK();
     }

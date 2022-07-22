@@ -29,6 +29,7 @@
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
 #include "vec/common/hash_table/ph_hash_map.h"
+#include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/unaligned.h"
 
 namespace doris::vectorized {

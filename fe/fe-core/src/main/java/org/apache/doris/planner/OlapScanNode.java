@@ -569,15 +569,15 @@ public class OlapScanNode extends ScanNode {
             for (Replica replica : replicas) {
                 Backend backend = Catalog.getCurrentSystemInfo().getBackend(replica.getBackendId());
                 if (backend == null || !backend.isAlive()) {
-                    LOG.debug("backend {} not exists or is not alive for replica {}",
-                            replica.getBackendId(), replica.getId());
+                    LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
+                            replica.getId());
                     errs.add(replica.getId() + "'s backend " + replica.getBackendId() + " does not exist or not alive");
                     continue;
                 }
-                if (needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(backend.getTag())) {
-                    String err = String.format("Replica on backend %d with tag %s,"
-                                    + " which is not in user's resource tags: %s",
-                            backend.getId(), backend.getTag(), allowedTags);
+                if (needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(backend.getLocationTag())) {
+                    String err = String.format(
+                            "Replica on backend %d with tag %s," + " which is not in user's resource tags: %s",
+                            backend.getId(), backend.getLocationTag(), allowedTags);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug(err);
                     }
@@ -938,7 +938,6 @@ public class OlapScanNode extends ScanNode {
             SlotRef deleteSignSlot = new SlotRef(desc.getAliasAsName(), Column.DELETE_SIGN);
             deleteSignSlot.analyze(analyzer);
             deleteSignSlot.getDesc().setIsMaterialized(true);
-            deleteSignSlot.getDesc().setIsNullable(analyzer.isOuterMaterializedJoined(desc.getId()));
             Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
             conjunct.analyze(analyzer);
             conjuncts.add(conjunct);

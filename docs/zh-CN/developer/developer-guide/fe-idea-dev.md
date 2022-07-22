@@ -32,15 +32,6 @@ under the License.
 
 安装 JDK1.8+ ，使用 IntelliJ IDEA 打开 FE.
 
-#### MacOS下载
-
-1. `brew install --cask temurin`
-2. `brew tap homebrew/cask-versions`
-3. `sudo softwareupdate --install-rosetta`
-4. `brew install --cask temurin8`
-
-不能使用高版本的jdk，最好使用jdk8或者是jdk11，否则可能会有maven构建失败。
-
 ### thrift
 
 如果仅进行fe开发而没有编译过thirdparty，则需要安装thrift，并将thrift 复制或者连接到 `thirdparty/installed/bin` 目录下
@@ -98,6 +89,23 @@ cd fe && mvn clean install -DskipTests
 ![](/images/gen_code.png)
 
 如果使用windows环境可能会有make命令和sh脚本无法执行的情况 可以通过拷贝linux上的 `fe/fe-core/target/generated-sources` 目录拷贝到相应的目录的方式实现，也可以通过docker 镜像挂载本地目录之后，在docker 内部生成自动生成代码，可以参照编译一节
+
+#### arm mac compile failed
+
+如果在m1 mac上进行自动生成代码会出现如下错误
+
+```
+[ERROR] Failed to execute goal org.xolstice.maven.plugins:protobuf-maven-plugin:0.6.1:compile (grpc-build) on project apm-network: Unable to resolve artifact: Missing:
+[ERROR] 1) com.google.protobuf:protoc:exe:osx-aarch_64:3.14.0
+[ERROR] 1 required artifact is missing.
+```
+
+ptotobuf3.14.0和protoc-gen-grpc-java1.30.0没有aarch64的版本，根据[grpc社区issue](https://github.com/grpc/grpc-java/issues/7690)的建议下载x86版本并使用rosetta转译
+
+1. 打开`doris/fe/fe-core/pom.xml`
+2. 将`<protocArtifact>com.google.protobuf:protoc:${protobuf.version}</protocArtifact>`修改成`<protocArtifact>com.google.protobuf:protoc:3.14.0:exe:osx-x86_64</protocArtifact>`
+3. 将`<pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</pluginArtifact>`修改成`<pluginArtifact>io.grpc:protoc-gen-grpc-java:1.30.0:exe:osx-x86_64</pluginArtifact>`
+4. 打开终端输入`softwareupdate --install-rosetta`
 
 ### help文档
 

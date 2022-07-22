@@ -142,21 +142,21 @@ Status AnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status AnalyticEvalNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     DCHECK(child(0)->row_desc().is_prefix_of(row_desc()));
     _child_tuple_desc = child(0)->row_desc().tuple_descriptors()[0];
-    _curr_tuple_pool.reset(new MemPool(mem_tracker().get()));
-    _prev_tuple_pool.reset(new MemPool(mem_tracker().get()));
-    _mem_pool.reset(new MemPool(mem_tracker().get()));
+    _curr_tuple_pool.reset(new MemPool(mem_tracker()));
+    _prev_tuple_pool.reset(new MemPool(mem_tracker()));
+    _mem_pool.reset(new MemPool(mem_tracker()));
 
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
     DCHECK_EQ(_result_tuple_desc->slots().size(), _evaluators.size());
 
     for (int i = 0; i < _evaluators.size(); ++i) {
         doris_udf::FunctionContext* ctx;
-        RETURN_IF_ERROR(_evaluators[i]->prepare(
-                state, child(0)->row_desc(), _mem_pool.get(), _intermediate_tuple_desc->slots()[i],
-                _result_tuple_desc->slots()[i], mem_tracker(), &ctx));
+        RETURN_IF_ERROR(_evaluators[i]->prepare(state, child(0)->row_desc(), _mem_pool.get(),
+                                                _intermediate_tuple_desc->slots()[i],
+                                                _result_tuple_desc->slots()[i], &ctx));
         _fn_ctxs.push_back(ctx);
         state->obj_pool()->add(ctx);
     }
@@ -169,14 +169,12 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
         RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids, std::vector<bool>(2, false));
 
         if (_partition_by_eq_expr_ctx != nullptr) {
-            RETURN_IF_ERROR(
-                    _partition_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
+            RETURN_IF_ERROR(_partition_by_eq_expr_ctx->prepare(state, cmp_row_desc));
             //AddExprCtxToFree(_partition_by_eq_expr_ctx);
         }
 
         if (_order_by_eq_expr_ctx != nullptr) {
-            RETURN_IF_ERROR(
-                    _order_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
+            RETURN_IF_ERROR(_order_by_eq_expr_ctx->prepare(state, cmp_row_desc));
             //AddExprCtxToFree(_order_by_eq_expr_ctx);
         }
     }
@@ -187,13 +185,12 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
 
 Status AnalyticEvalNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     //RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(child(0)->open(state));
-    RETURN_IF_ERROR(
-            state->block_mgr2()->register_client(2, mem_tracker(), state, &_block_mgr_client));
+    RETURN_IF_ERROR(state->block_mgr2()->register_client(2, state, &_block_mgr_client));
     _input_stream.reset(new BufferedTupleStream2(state, child(0)->row_desc(), state->block_mgr2(),
                                                  _block_mgr_client, false, true));
     RETURN_IF_ERROR(_input_stream->init(id(), runtime_profile(), true));
@@ -205,7 +202,8 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
                 "Failed to acquire initial read buffer for analytic function "
                 "evaluation. Reducing query concurrency or increasing the memory limit may "
                 "help this query to complete successfully.");
-        RETURN_LIMIT_EXCEEDED(mem_tracker(), state, msg);
+        RETURN_LIMIT_EXCEEDED(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(),
+                              state, msg);
     }
 
     DCHECK_EQ(_evaluators.size(), _fn_ctxs.size());
@@ -816,7 +814,7 @@ inline int64_t AnalyticEvalNode::num_output_rows_ready() const {
 
 Status AnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     //RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(state->check_query_state("Analytic eval, while get_next."));

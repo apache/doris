@@ -47,4 +47,5 @@ public interface LogicalPlan extends Plan {
             return this;
         }
     }
+
 }

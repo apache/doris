@@ -71,7 +71,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -81,7 +80,6 @@ import org.apache.doris.common.util.QueryPlannerProfile;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -651,13 +649,6 @@ public class StmtExecutor implements ProfileWriter {
                         throw e;
                     } else {
                         resetAnalyzerAndStmt();
-                    }
-                } catch (VecNotImplException e) {
-                    if (i == analyzeTimes) {
-                        throw e;
-                    } else {
-                        resetAnalyzerAndStmt();
-                        VectorizedUtil.switchToQueryNonVec();
                     }
                 } catch (UserException e) {
                     throw e;

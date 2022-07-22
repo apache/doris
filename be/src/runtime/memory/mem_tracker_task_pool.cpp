@@ -23,24 +23,33 @@
 
 namespace doris {
 
+// When MemTracker is a negative value, it is considered that a memory leak has occurred,
+// but the actual MemTracker records inaccurately will also cause a negative value,
+// so this feature is in the experimental stage.
+const bool QUERY_MEMORY_LEAK_DETECTION = false;
+
 MemTrackerLimiter* MemTrackerTaskPool::register_task_mem_tracker_impl(const std::string& task_id,
                                                                       int64_t mem_limit,
                                                                       const std::string& label,
                                                                       MemTrackerLimiter* parent) {
     DCHECK(!task_id.empty());
     // First time this task_id registered, make a new object, otherwise do nothing.
-    // Combine create_tracker and emplace into one operation to avoid the use of locks
+    // Combine new tracker and emplace into one operation to avoid the use of locks
     // Name for task MemTrackers. '$0' is replaced with the task id.
-    _task_mem_trackers.try_emplace_l(
-            task_id, [](MemTrackerLimiter*) {},
-            MemTrackerLimiter::create_tracker(mem_limit, label, parent));
-    return get_task_mem_tracker(task_id);
+    bool new_emplace = _task_mem_trackers.lazy_emplace_l(
+            task_id, [&](MemTrackerLimiter*) {},
+            [&](const auto& ctor) {
+                ctor(task_id, new MemTrackerLimiter(mem_limit, label, parent));
+            });
+    if (new_emplace) {
+        LOG(INFO) << "Register task memory tracker, task id: " << task_id
+                  << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
+    }
+    return _task_mem_trackers[task_id];
 }
 
 MemTrackerLimiter* MemTrackerTaskPool::register_query_mem_tracker(const std::string& query_id,
                                                                   int64_t mem_limit) {
-    VLOG_FILE << "Register Query memory tracker, query id: " << query_id
-              << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
     return register_task_mem_tracker_impl(query_id, mem_limit,
                                           fmt::format("Query#queryId={}", query_id),
                                           ExecEnv::GetInstance()->query_pool_mem_tracker());
@@ -49,10 +58,8 @@ MemTrackerLimiter* MemTrackerTaskPool::register_query_mem_tracker(const std::str
 MemTrackerLimiter* MemTrackerTaskPool::register_load_mem_tracker(const std::string& load_id,
                                                                  int64_t mem_limit) {
     // In load, the query id of the fragment is executed, which is the same as the load id of the load channel.
-    VLOG_FILE << "Register Load memory tracker, load id: " << load_id
-              << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
     return register_task_mem_tracker_impl(load_id, mem_limit,
-                                          fmt::format("Load#loadId={}", load_id),
+                                          fmt::format("Load#queryId={}", load_id),
                                           ExecEnv::GetInstance()->load_pool_mem_tracker());
 }
 
@@ -70,10 +77,10 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
         if (!it->second) {
             // https://github.com/apache/incubator-doris/issues/10006
             expired_tasks.emplace_back(it->first);
-        } else if (it->second->is_leaf() == true && it->second->peak_consumption() > 0) {
+        } else if (it->second->remain_child_count() == 0 && it->second->had_child_count() != 0) {
             // No RuntimeState uses this task MemTracker, it is only referenced by this map,
             // and tracker was not created soon, delete it.
-            if (config::memory_leak_detection && it->second->consumption() != 0) {
+            if (QUERY_MEMORY_LEAK_DETECTION && it->second->consumption() != 0) {
                 // If consumption is not equal to 0 before query mem tracker is destructed,
                 // there are two possibilities in theory.
                 // 1. A memory leak occurs.
@@ -87,8 +94,7 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
             // In order to ensure that the query pool mem tracker is the sum of all currently running query mem trackers,
             // the effect of the ended query mem tracker on the query pool mem tracker should be cleared, that is,
             // the negative number of the current value of consume.
-            it->second->parent()->consume_local(-it->second->consumption(),
-                                                MemTrackerLimiter::get_process_tracker());
+            it->second->parent()->consumption_revise(-it->second->consumption());
             expired_tasks.emplace_back(it->first);
         } else {
             // Log limit exceeded query tracker.
@@ -103,11 +109,11 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
     for (auto tid : expired_tasks) {
         if (!_task_mem_trackers[tid]) {
             _task_mem_trackers.erase(tid);
-            VLOG_FILE << "Deregister null task mem tracker, task id: " << tid;
+            LOG(INFO) << "Deregister null task memory tracker, task id: " << tid;
         } else {
             delete _task_mem_trackers[tid];
             _task_mem_trackers.erase(tid);
-            VLOG_FILE << "Deregister not used task mem tracker, task id: " << tid;
+            LOG(INFO) << "Deregister not used task memory tracker, task id: " << tid;
         }
     }
 }
