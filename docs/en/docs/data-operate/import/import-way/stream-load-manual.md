@@ -302,7 +302,7 @@ Users can't cancel Stream load manually. Stream load will be cancelled automatic
 
 Users can view completed stream load tasks through `show stream load`.
 
-By default, BE does not record Stream Load records. If you want to view the records that need to be enabled on BE `enable_stream_load_record=true`, you need to restart BE here
+By default, BE does not record Stream Load records. If you want to view records that need to be enabled on BE, the configuration parameter is: `enable_stream_load_record=true`. For details, please refer to [BE Configuration Items](https://doris.apache. org/zh-CN/docs/admin-manual/config/be-config)
 
 ## Relevant System Configuration
 

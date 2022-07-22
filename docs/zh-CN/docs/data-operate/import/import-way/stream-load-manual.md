@@ -314,7 +314,7 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
 用户可以通过 `show stream load` 来查看已经完成的 stream load 任务。
 
-默认 BE 是不记录 Stream Load 的记录，如果你要查看需要再 BE 上启用记录，`enable_stream_load_record=true`，这里需要重启BE
+默认 BE 是不记录 Stream Load 的记录，如果你要查看需要在 BE 上启用记录，配置参数是：`enable_stream_load_record=true` ，具体怎么配置请参照 [BE 配置项](https://doris.apache.org/zh-CN/docs/admin-manual/config/be-config)
 
 ## 相关系统配置
 
