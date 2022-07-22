@@ -21,8 +21,24 @@
 # The tables is used to define tables
 ####################################################################
 
-table1
-table2
-table3
-table4
-table5
+inspection_agency
+inspection_equipment
+inspection_equipment_in_out
+inspection_file_info
+inspection_login_role
+inspection_login_user
+inspection_personnel
+inspection_report
+inspection_result_insulation_resistance_detail
+inspection_result_looks_detail
+inspection_result_pay_error_detail
+inspection_result_record
+inspection_result_value_errors_detail
+inspection_result_work_error_detail
+inspection_task
+inspection_task_approve
+inspection_task_related_deprecated
+inspection_task_urge
+inspection_token
+inspection_urge_agency
+inspection_user_role
