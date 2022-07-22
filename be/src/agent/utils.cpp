@@ -164,7 +164,7 @@ Status MasterServerClient::refresh_storage_policy(TGetStoragePolicyResult* resul
         LOG(WARNING) << "fail to report to master. "
                      << "host=" << _master_info.network_address.hostname
                      << ", port=" << _master_info.network_address.port
-                     << ", code=" << client_status.code();
+                     << ", code=" << client_status.code() << ", e.what: " << e.what();
         return Status::InternalError("Fail to refresh storage policy from master");
     }
 
