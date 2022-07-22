@@ -37,7 +37,9 @@ FileArrowScanner::FileArrowScanner(RuntimeState* state, RuntimeProfile* profile,
           _cur_file_reader(nullptr),
           _cur_file_eof(false),
           _batch(nullptr),
-          _arrow_batch_cur_idx(0) {}
+          _arrow_batch_cur_idx(0) {
+    _convert_arrow_block_timer = ADD_TIMER(_profile, "ConvertArrowBlockTimer");
+}
 
 FileArrowScanner::~FileArrowScanner() {
     FileArrowScanner::close();
@@ -176,6 +178,7 @@ Status FileArrowScanner::get_next(vectorized::Block* block, bool* eof) {
 }
 
 Status FileArrowScanner::_append_batch_to_block(Block* block) {
+    SCOPED_TIMER(_convert_arrow_block_timer);
     size_t num_elements = std::min<size_t>((_state->batch_size() - block->rows()),
                                            (_batch->num_rows() - _arrow_batch_cur_idx));
     for (auto i = 0; i < _file_slot_descs.size(); ++i) {
