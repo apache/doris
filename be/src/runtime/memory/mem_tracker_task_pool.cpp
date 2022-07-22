@@ -37,7 +37,7 @@ MemTrackerLimiter* MemTrackerTaskPool::register_task_mem_tracker_impl(const std:
     // Combine new tracker and emplace into one operation to avoid the use of locks
     // Name for task MemTrackers. '$0' is replaced with the task id.
     bool new_emplace = _task_mem_trackers.lazy_emplace_l(
-            task_id, [&](MemTrackerLimiter*) {},
+            task_id, [&](auto) {},
             [&](const auto& ctor) {
                 ctor(task_id, new MemTrackerLimiter(mem_limit, label, parent));
             });
@@ -67,7 +67,7 @@ MemTrackerLimiter* MemTrackerTaskPool::get_task_mem_tracker(const std::string& t
     DCHECK(!task_id.empty());
     MemTrackerLimiter* tracker = nullptr;
     // Avoid using locks to resolve erase conflicts
-    _task_mem_trackers.if_contains(task_id, [&tracker](MemTrackerLimiter* v) { tracker = v; });
+    _task_mem_trackers.if_contains(task_id, [&tracker](auto v) { tracker = v.second; });
     return tracker;
 }
 

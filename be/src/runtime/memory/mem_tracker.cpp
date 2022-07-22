@@ -81,7 +81,7 @@ MemTracker* MemTracker::get_static_mem_tracker(const std::string& label) {
     // First time this label registered, make a new object, otherwise do nothing.
     // Avoid using locks to resolve erase conflicts.
     _static_mem_trackers.lazy_emplace_l(
-            label, [&](MemTracker*) {},
+            label, [&](auto) {},
             [&](const auto& ctor) {
                 ctor(label, new MemTracker(fmt::format("[Static]-{}", label)));
             });

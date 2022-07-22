@@ -2,8 +2,9 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
-## v20220606
+## v20220726
 - Added: vectorscan 5.4.7, and a patch for compilation
+- Modified: update parallel-hashmap from 1.33 to 1.35
 
 ## v20220613
 - Modified: update libhdfs3 from 2.3.0 to 2.3.1  fix client uuid set error
