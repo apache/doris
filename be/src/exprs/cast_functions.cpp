@@ -34,15 +34,6 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/runtime/vdatetime_value.h"
 
-namespace doris::vectorized {
-template <>
-void doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>::convert_date_v2_to_dt(
-        doris::DateTimeValue* dt);
-template <>
-void doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>::convert_date_v2_to_dt(
-        doris::DateTimeValue* dt);
-} // namespace doris::vectorized
-
 namespace doris {
 
 void CastFunctions::init() {}
@@ -626,7 +617,7 @@ DateTimeVal CastFunctions::cast_to_date_val(FunctionContext* ctx, const DateV2Va
     vectorized::DateV2Value<doris::vectorized::DateV2ValueType> datev2_val =
             vectorized::DateV2Value<doris::vectorized::DateV2ValueType>::from_datev2_val(val);
     DateTimeValue datetime_value;
-    datev2_val.convert_date_v2_to_dt(&datetime_value);
+    datetime_value.convert_from_date_v2<doris::vectorized::DateV2ValueType>(&datev2_val);
     DateTimeVal result;
     datetime_value.to_datetime_val(&result);
     return result;
@@ -640,7 +631,7 @@ DateTimeVal CastFunctions::cast_to_date_val(FunctionContext* ctx, const DateTime
             vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>::from_datetimev2_val(
                     val);
     DateTimeValue datetime_value;
-    datev2_val.convert_date_v2_to_dt(&datetime_value);
+    datetime_value.convert_from_date_v2<doris::vectorized::DateTimeV2ValueType>(&datev2_val);
     DateTimeVal result;
     datetime_value.to_datetime_val(&result);
     return result;
@@ -653,7 +644,7 @@ DateTimeVal CastFunctions::cast_to_datetime_val(FunctionContext* ctx, const Date
     vectorized::DateV2Value<doris::vectorized::DateV2ValueType> datev2_val =
             vectorized::DateV2Value<doris::vectorized::DateV2ValueType>::from_datev2_val(val);
     DateTimeValue datetime_value;
-    datev2_val.convert_date_v2_to_dt(&datetime_value);
+    datetime_value.convert_from_date_v2<doris::vectorized::DateV2ValueType>(&datev2_val);
     datetime_value.set_type(TYPE_DATETIME);
     DateTimeVal result;
     datetime_value.to_datetime_val(&result);
@@ -668,7 +659,7 @@ DateTimeVal CastFunctions::cast_to_datetime_val(FunctionContext* ctx, const Date
             vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>::from_datetimev2_val(
                     val);
     DateTimeValue datetime_value;
-    datev2_val.convert_date_v2_to_dt(&datetime_value);
+    datetime_value.convert_from_date_v2<doris::vectorized::DateTimeV2ValueType>(&datev2_val);
     datetime_value.set_type(TYPE_DATETIME);
     DateTimeVal result;
     datetime_value.to_datetime_val(&result);
