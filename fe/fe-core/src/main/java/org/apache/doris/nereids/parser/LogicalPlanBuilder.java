@@ -122,6 +122,8 @@ import org.antlr.v4.runtime.RuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
+import org.apache.spark.sql.catalyst.parser.SqlBaseParser.SearchedCaseContext;
+import org.apache.spark.sql.catalyst.parser.SqlBaseParser.SimpleCaseContext;
 
 import java.util.Arrays;
 import java.util.Collections;
