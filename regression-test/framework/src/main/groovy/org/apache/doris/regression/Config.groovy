@@ -371,11 +371,18 @@ class Config {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
     }
 
-    Connection getConnection(String group) {
-        String dbUrl = buildUrl(defaultDb + '_' + group)
-        tryCreateDbIfNotExist(defaultDb + '_' + group)
+    Connection getConnectionByLastGroup(String group) {
+        String realDb = getDbByLastGroup(group)
+        String dbUrl = buildUrl(realDb)
+        tryCreateDbIfNotExist(realDb)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
+    }
+
+    String getDbByLastGroup(String group) {
+        def groupList = group.split(',')
+        String lastGroup = groupList[groupList.length - 1].replace(File.separator, '_')
+        return defaultDb + '_' + lastGroup
     }
 
     Predicate<String> getDirectoryFilter() {

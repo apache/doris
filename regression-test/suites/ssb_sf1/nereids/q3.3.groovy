@@ -16,7 +16,11 @@
 // under the License.
 
 suite("ssb_sf1_q3_3_nereids") {
-    sql 'use regression_test_ssb_sf1'
+    String realDb = context.config.getDbByLastGroup(context.group)
+    // get parent directory's group
+    realDb = realDb.substring(0, realDb.lastIndexOf("_"))
+
+    sql "use ${realDb}"
 
     sql 'set enable_nereids_planner=true'
     // nereids need vectorized

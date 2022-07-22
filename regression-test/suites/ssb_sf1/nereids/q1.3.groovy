@@ -16,7 +16,11 @@
 // under the License.
 
 suite("ssb_sf1_q1_3_nereids") {
-    sql 'use regression_test_ssb_sf1'
+    String realDb = context.config.getDbByLastGroup(context.group)
+    // get parent directory's group
+    realDb = realDb.substring(0, realDb.lastIndexOf("_"))
+
+    sql "use ${realDb}"
 
     sql 'set enable_nereids_planner=true'
     // nereids need vectorized
@@ -25,7 +29,7 @@ suite("ssb_sf1_q1_3_nereids") {
     sql 'set exec_mem_limit=2147483648*2'
 
     test {
-        sql new File(context.file.parentFile, "../sql/q1.3.sql").text
+        sql(new File(context.file.parentFile, "../sql/q1.3.sql").text)
 
         resultFile(file = "../sql/q1.3.out", tag = "q1.3")
     }
