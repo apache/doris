@@ -44,11 +44,11 @@ public class HashJoinEstimation {
         List<Expression> eqConjunctList = ExpressionUtils.extractConjunct(eqCondition);
         long rowCount = -1;
         if (joinType.isSemiOrAntiJoin()) {
-            rowCount = getSemiJoinRowCount(leftStats,rightStats,eqConjunctList, joinType);
+            rowCount = getSemiJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);
         } else if (joinType.isInnerJoin() || joinType.isOuterJoin()) {
             rowCount = getJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);
         } else {
-           throw new RuntimeException("joinType is not supported");
+            throw new RuntimeException("joinType is not supported");
         }
         statsDeriveResult.setRowCount(rowCount);
         return statsDeriveResult;
@@ -99,7 +99,7 @@ public class HashJoinEstimation {
                     break;
                 }
                 default:
-                    Preconditions.checkState(false);
+                    throw new RuntimeException("joinType is not supported");
             }
             minSelectivity = Math.min(minSelectivity, selectivity);
         }
@@ -107,7 +107,7 @@ public class HashJoinEstimation {
         return Math.round(rowCount * minSelectivity);
     }
 
-    private static long getJoinRowCount(StatsDeriveResult leftStats,StatsDeriveResult rightStats,
+    private static long getJoinRowCount(StatsDeriveResult leftStats, StatsDeriveResult rightStats,
             List<Expression> eqConjunctList, JoinType joinType) {
         long lhsCard = leftStats.getRowCount();
         long rhsCard = rightStats.getRowCount();
@@ -132,17 +132,15 @@ public class HashJoinEstimation {
                 continue;
             }
             SlotReference rightSlot = (SlotReference) left;
-            ColumnStats rightColStats = rightSlotToColumnStats.get(leftSlot);
+            ColumnStats rightColStats = rightSlotToColumnStats.get(rightSlot);
             if (rightColStats == null) {
                 continue;
             }
             double leftSideNdv = leftColStats.getNdv();
             double rightSideNdv = rightColStats.getNdv();
             long tmpNdv = Double.doubleToLongBits(Math.max(1, Math.max(leftSideNdv, rightSideNdv)));
-            long joinCard = tmpNdv == rhsCard
-                    ? lhsCard
-                    : CheckedMath.checkedMultiply(
-                            Math.round((lhsCard / Math.max(1, Math.max(leftSideNdv, rightSideNdv)))), rhsCard);
+            long joinCard = tmpNdv == rhsCard ? lhsCard : CheckedMath.checkedMultiply(
+                    Math.round((lhsCard / Math.max(1, Math.max(leftSideNdv, rightSideNdv)))), rhsCard);
             if (result == -1) {
                 result = joinCard;
             } else {
