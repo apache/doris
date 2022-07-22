@@ -42,7 +42,7 @@ MemTrackerLimiter* MemTrackerTaskPool::register_task_mem_tracker_impl(const std:
                 ctor(task_id, new MemTrackerLimiter(mem_limit, label, parent));
             });
     if (new_emplace) {
-        LOG(INFO) << "Register task memory tracker, task id: " << task_id
+        LOG(INFO) << "Register query/load memory tracker, query/load id: " << task_id
                   << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
     }
     return _task_mem_trackers[task_id];
@@ -109,11 +109,11 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
     for (auto tid : expired_tasks) {
         if (!_task_mem_trackers[tid]) {
             _task_mem_trackers.erase(tid);
-            LOG(INFO) << "Deregister null task memory tracker, task id: " << tid;
+            LOG(INFO) << "Deregister null query/load memory tracker, query/load id: " << tid;
         } else {
             delete _task_mem_trackers[tid];
             _task_mem_trackers.erase(tid);
-            LOG(INFO) << "Deregister not used task memory tracker, task id: " << tid;
+            LOG(INFO) << "Deregister not used query/load memory tracker, query/load id: " << tid;
         }
     }
 }

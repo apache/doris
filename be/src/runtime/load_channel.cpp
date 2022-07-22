@@ -50,7 +50,7 @@ LoadChannel::~LoadChannel() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
-    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
+    // SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
     int64_t index_id = params.index_id();
     std::shared_ptr<TabletsChannel> channel;
     {
@@ -137,7 +137,7 @@ bool LoadChannel::is_finished() {
 
 Status LoadChannel::cancel() {
     std::lock_guard<std::mutex> l(_lock);
-    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
+    // SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
     for (auto& it : _tablets_channels) {
         it.second->cancel();
     }

@@ -270,8 +270,11 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     return Status::OK();
 }
 
-#define RETURN_LIMIT_EXCEEDED(tracker, ...) return tracker->mem_limit_exceeded(__VA_ARGS__);
-#define RETURN_IF_LIMIT_EXCEEDED(tracker, state, msg) \
-    if (tracker->any_limit_exceeded()) RETURN_LIMIT_EXCEEDED(tracker, state, msg);
+#define RETURN_LIMIT_EXCEEDED(state, msg, ...)                                                   \
+    return thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->mem_limit_exceeded( \
+            state, msg, ##__VA_ARGS__);
+#define RETURN_IF_LIMIT_EXCEEDED(state, msg)                                                    \
+    if (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->any_limit_exceeded()) \
+        RETURN_LIMIT_EXCEEDED(state, msg);
 
 } // namespace doris

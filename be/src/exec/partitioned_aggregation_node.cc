@@ -411,8 +411,7 @@ Status PartitionedAggregationNode::CopyStringData(const SlotDescriptor& slot_des
                     "Cannot perform aggregation at node with id $0."
                     " Failed to allocate $1 output bytes.",
                     _id, sv->len);
-            RETURN_LIMIT_EXCEEDED(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(),
-                                  state_, details, sv->len, rst);
+            RETURN_LIMIT_EXCEEDED(state_, details, sv->len, rst);
         }
         memcpy(new_ptr, sv->ptr, sv->len);
         sv->ptr = new_ptr;
@@ -851,8 +850,7 @@ Status PartitionedAggregationNode::Partition::Spill(bool more_aggregate_rows) {
     // TODO(ml): enable spill
     std::stringstream msg;
     msg << "New partitioned Aggregation in spill";
-    RETURN_LIMIT_EXCEEDED(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(),
-                          parent->state_, msg.str());
+    RETURN_LIMIT_EXCEEDED(parent->state_, msg.str());
 
     RETURN_IF_ERROR(SerializeStreamForSpilling());
 
