@@ -410,6 +410,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::get_data() c
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::get_data_at(
         size_t offset) const {
+    assert(offset < _slice.size());
     UInt8 null_flag = 0;
     if (_nullmap) {
         null_flag = _nullmap[offset];
@@ -729,7 +730,11 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
             collection_value->set_null_signs(
                     const_cast<bool*>(reinterpret_cast<const bool*>(item_null_map + offset)));
         }
-        collection_value->set_data(const_cast<void*>(_item_convertor->get_data_at(offset)));
+        // get_data_at should use offset - offsets[start_index] since
+        // start_index may be changed after OlapColumnDataConvertorArray::set_source_column.
+        // Using just offset may access the memory out of _item_convertor's data range,
+        collection_value->set_data(
+                const_cast<void*>(_item_convertor->get_data_at(offset - offsets[start_index])));
     }
     return Status::OK();
 }
