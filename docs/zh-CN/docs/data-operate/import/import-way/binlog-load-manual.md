@@ -466,7 +466,7 @@ binlog_desc
 
 ## 案例实战
 
-[Apache Doris Binlog Load使用方法及示例](https://doris.apache.org/zh-CN/article/articles/doris-binlog-load.md)
+[Apache Doris Binlog Load使用方法及示例](https://doris.apache.org/zh-CN/blogs/PracticalCases/doris-binlog-load.html)
 
 ## 相关参数
 
