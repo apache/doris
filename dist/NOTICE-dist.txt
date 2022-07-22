@@ -359,7 +359,7 @@ possession, or use, and re-export of encryption software, to see if this is
 permitted.
 
 =====================================================
- Notice file for: commons-digester-1.8.1
+ Notice file for: commons-digester-2.1
 =====================================================
 
 Apache Commons Digester
@@ -5808,7 +5808,7 @@ The Apache Software Foundation (http://www.apache.org/).
 
 
 =====================================================
- Notice file for: commons-validator-1.4.1
+ Notice file for: commons-validator-1.7
 =====================================================
 
 Apache Commons Validator
@@ -10861,7 +10861,7 @@ The Apache Software Foundation (http://www.apache.org/).
 
 
 =====================================================
- Notice file for: commons-beanutils-1.8.3
+ Notice file for: commons-beanutils-1.9.4
 =====================================================
 
 Apache Commons BeanUtils

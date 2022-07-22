@@ -670,7 +670,7 @@ The Apache Software License, Version 2.0
     * Apache Commons Pool:
         - org.apache.commons:commons-pool2:2.2 (http://commons.apache.org/proper/commons-pool/)
     * Apache Commons Validator:
-        - commons-validator:commons-validator:1.4.1 (http://commons.apache.org/proper/commons-validator/)
+        - commons-validator:commons-validator:1.7(http://commons.apache.org/proper/commons-validator/)
     * Apache Curator:
         - org.apache.curator:apache-curator:2.7.1 (http://curator.apache.org)
     * Apache Derby Database Engine and Embedded JDBC Driver:
@@ -785,7 +785,7 @@ The Apache Software License, Version 2.0
     * Code Generation Library:
         - cglib:cglib:2.2 (http://cglib.sourceforge.net/)
     * Commons BeanUtils:
-        - commons-beanutils:commons-beanutils:1.8.3 (http://commons.apache.org/beanutils/)
+        - commons-beanutils:commons-beanutils:1.9.4 (http://commons.apache.org/beanutils/)
     * Commons BeanUtils Core:
         - commons-beanutils:commons-beanutils-core:1.8.0 (http://commons.apache.org/beanutils/)
     * Commons Compress:
@@ -797,7 +797,7 @@ The Apache Software License, Version 2.0
     * Commons Daemon:
         - commons-daemon:commons-daemon:1.0.13 (http://commons.apache.org/daemon/)
     * Commons Digester:
-        - commons-digester:commons-digester:1.8.1 (http://commons.apache.org/digester/)
+        - commons-digester:commons-digester:2.1 (http://commons.apache.org/digester/)
     * Commons IO:
         - commons-io:commons-io:2.4 (http://commons.apache.org/io/)
     * Commons Lang:
