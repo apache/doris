@@ -85,7 +85,7 @@ public class RewriteBottomUpJob extends Job {
                             .getMemo()
                             .copyIn(after, group, rule.isRewrite());
                     groupExpr.setApplied(rule);
-                    pushTask(new RewriteBottomUpJob(group, rules, context, false));
+                    // pushTask(new RewriteBottomUpJob(group, rules, context, false));
                     return;
                 }
             }

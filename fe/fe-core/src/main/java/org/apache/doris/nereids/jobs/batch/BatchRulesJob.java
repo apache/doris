@@ -48,7 +48,6 @@ public abstract class BatchRulesJob {
         for (RuleFactory ruleFactory : ruleFactories) {
             rules.addAll(ruleFactory.buildRules());
         }
-        Collections.reverse(rules); // 看起来没啥用
         return new RewriteBottomUpJob(
                 plannerContext.getMemo().getRoot(),
                 rules,
@@ -60,7 +59,6 @@ public abstract class BatchRulesJob {
         for (RuleFactory ruleFactory : ruleFactories) {
             rules.addAll(ruleFactory.buildRules());
         }
-        Collections.reverse(rules);
         return new RewriteTopDownJob(
                 plannerContext.getMemo().getRoot(),
                 rules,
