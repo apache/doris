@@ -92,6 +92,11 @@ struct AggregationMethodSerialized {
         for (auto& column : key_columns) pos = column->deserialize_and_insert_from_arena(pos);
     }
 
+    static void insert_keys_into_columns(std::vector<StringRef>& keys, MutableColumns& key_columns,
+                                         const size_t num_rows, const Sizes&) {
+        for (auto& column : key_columns) column->deserialize_vec(keys, num_rows);
+    }
+
     void init_once() {
         if (!inited) {
             inited = true;
@@ -136,6 +141,12 @@ struct AggregationMethodStringNoCache {
         key_columns[0]->insert_data(key.data, key.size);
     }
 
+    static void insert_keys_into_columns(std::vector<StringRef>& keys, MutableColumns& key_columns,
+                                         const size_t num_rows, const Sizes&) {
+        key_columns[0]->reserve(num_rows);
+        key_columns[0]->insert_many_strings(keys.data(), num_rows);
+    }
+
     void init_once() {
         if (!inited) {
             inited = true;
@@ -172,6 +183,16 @@ struct AggregationMethodOneNumber {
         const auto* key_holder = reinterpret_cast<const char*>(&key);
         auto* column = static_cast<ColumnVectorHelper*>(key_columns[0].get());
         column->insert_raw_data<sizeof(FieldType)>(key_holder);
+    }
+
+    static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
+                                         const size_t num_rows, const Sizes&) {
+        key_columns[0]->reserve(num_rows);
+        auto* column = static_cast<ColumnVectorHelper*>(key_columns[0].get());
+        for (size_t i = 0; i != num_rows; ++i) {
+            const auto* key_holder = reinterpret_cast<const char*>(&keys[i]);
+            column->insert_raw_data<sizeof(FieldType)>(key_holder);
+        }
     }
 
     void init_once() {
@@ -275,6 +296,13 @@ struct AggregationMethodKeysFixed {
         }
     }
 
+    static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
+                                         const size_t num_rows, const Sizes& key_sizes) {
+        for (size_t i = 0; i != num_rows; ++i) {
+            insert_key_into_columns(keys[i], key_columns, key_sizes);
+        }
+    }
+
     void init_once() {
         if (!inited) {
             inited = true;
@@ -310,6 +338,17 @@ struct AggregationMethodSingleNullableColumn : public SingleColumnMethod {
             col->insert_data(key.data, key.size);
         } else {
             col->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+        }
+    }
+
+    static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
+                                         const size_t num_rows, const Sizes&) {
+        auto col = key_columns[0].get();
+        col->reserve(num_rows);
+        if constexpr (std::is_same_v<Key, StringRef>) {
+            col->insert_many_strings(keys.data(), num_rows);
+        } else {
+            col->insert_many_raw_data(reinterpret_cast<char*>(keys.data()), num_rows);
         }
     }
 };

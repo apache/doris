@@ -136,6 +136,11 @@ void AggFnEvaluator::insert_result_info(AggregateDataPtr place, IColumn* column)
     _function->insert_result_into(place, *column);
 }
 
+void AggFnEvaluator::insert_result_info_vec(const std::vector<AggregateDataPtr>& places,
+                                            size_t offset, IColumn* column, const size_t num_rows) {
+    _function->insert_result_into_vec(places, offset, *column, num_rows);
+}
+
 void AggFnEvaluator::reset(AggregateDataPtr place) {
     _function->reset(place);
 }
