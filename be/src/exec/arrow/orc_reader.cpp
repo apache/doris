@@ -37,6 +37,14 @@ ORCReaderWrap::ORCReaderWrap(FileReader* file_reader, int64_t batch_size,
     _cur_file_eof = false;
 }
 
+ORCReaderWrap::~ORCReaderWrap() {
+    _closed = true;
+    _queue_writer_cond.notify_one();
+    if (_thread.joinable()) {
+        _thread.join();
+    }
+}
+
 Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
                                   const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                   const std::vector<ExprContext*>& conjunct_ctxs,
@@ -96,14 +104,11 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
     RETURN_IF_ERROR(column_indices(tuple_slot_descs));
     if (config::orc_predicate_push_down) {
         _strip_reader.reset(new StripeReader(conjunct_ctxs, this));
-        _strip_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids, _current_group, _total_groups);
+        _strip_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids,
+                                          _current_group, _total_groups);
     }
 
-    bool eof = false;
-    RETURN_IF_ERROR(_next_stripe_reader(&eof));
-    if (eof) {
-        return Status::EndOfFile("end of file");
-    }
+    _thread = std::thread(&ORCReaderWrap::prefetch_batch, this);
 
     return Status::OK();
 }
@@ -144,22 +149,64 @@ Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
 }
 
 Status ORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) {
-    *eof = false;
-    do {
-        auto st = _rb_reader->ReadNext(batch);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to get next batch, errmsg=" << st;
-            return Status::InternalError(st.ToString());
+    std::unique_lock<std::mutex> lock(_mtx);
+    while (!_closed && _queue.empty()) {
+        if (_batch_eof) {
+            _include_column_ids.clear();
+            *eof = true;
+            _batch_eof = false;
+            return Status::OK();
         }
-        if (*batch == nullptr) {
-            // try next stripe
-            RETURN_IF_ERROR(_next_stripe_reader(eof));
-            if (*eof) {
-                break;
+        _queue_reader_cond.wait_for(lock, std::chrono::seconds(1));
+    }
+    if (UNLIKELY(_closed)) {
+        return Status::InternalError(_status.message());
+    }
+    *batch = _queue.front();
+    _queue.pop_front();
+    _queue_writer_cond.notify_one();
+    return Status::OK();
+}
+
+void ORCReaderWrap::prefetch_batch() {
+    auto insert_batch = [this](const auto& batch) {
+        std::unique_lock<std::mutex> lock(_mtx);
+        while (!_closed && _queue.size() == _max_queue_size) {
+            _queue_writer_cond.wait_for(lock, std::chrono::seconds(1));
+        }
+        if (UNLIKELY(_closed)) {
+            return;
+        }
+        _queue.push_back(batch);
+        _queue_reader_cond.notify_one();
+    };
+    int current_group = _current_group;
+    int total_groups = _total_groups;
+    while (true) {
+        if (_closed || current_group >= total_groups) {
+            _batch_eof = true;
+            _queue_reader_cond.notify_one();
+
+            return;
+        }
+        if (config::orc_predicate_push_down) {
+            auto filter_group_set = _strip_reader->filter_groups();
+            if (filter_group_set.end() != filter_group_set.find(current_group)) {
+                // find filter group, skip
+                current_group++;
+                continue;
             }
         }
-    } while (*batch == nullptr);
-    return Status::OK();
+
+        arrow::Result<std::shared_ptr<arrow::RecordBatch>> maybe_batch =
+                _reader->ReadStripe(current_group, _include_column_ids);
+
+        arrow::RecordBatchVector batches;
+        batches.emplace_back(maybe_batch.ValueOrDie());
+
+        std::for_each(batches.begin(), batches.end(), insert_batch);
+        current_group++;
+    }
 }
 
 } // namespace doris
