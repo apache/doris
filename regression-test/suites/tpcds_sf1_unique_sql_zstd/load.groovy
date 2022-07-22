@@ -52,21 +52,13 @@ suite("load") {
         sql """ DROP TABLE IF EXISTS $table """
     }
 
-    sql "set global exec_mem_limit=8G;"
-
     for (String table in tables) {
         sql new File("""${context.file.parent}/ddl/${table}.sql""").text
     }
 
-    for (String tableName in tables) {
+    sql "set global exec_mem_limit=8G;"
 
-        String fileName = """${context.sf1DataPath}/tpcds/sf1/${tableName}.dat.gz"""
-        if (!new File(fileName).isAbsolute()) {
-            fileName = new File(context.dataPath, fileName).getAbsolutePath()
-        }
-        if (!new File(fileName).exists()) {
-            fileName  = """${url}/tpcds/sf1/${tableName}.dat.gz"""
-        }
+    for (String tableName in tables) {
         streamLoad {
             // you can skip db declaration, because a default db has already been
             // specified in ${DORIS_HOME}/conf/regression-conf.groovy
@@ -87,7 +79,7 @@ suite("load") {
 
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file fileName
+            file """${context.sf1DataPath}/tpcds/sf1/${tableName}.dat.gz"""
 
             time 10000 // limit inflight 10s
 
