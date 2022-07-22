@@ -30,6 +30,7 @@ import com.google.common.collect.Sets;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Expression rewrite helper class.
@@ -83,9 +84,11 @@ public class ExpressionUtils {
     /**
      * Use AND/OR to combine expressions together.
      */
-    public static Expression combine(Class<? extends Expression> type, List<Expression> expressions) {
+    public static Expression combine(Class<? extends Expression> type, List<Expression> inputExpressions) {
         Preconditions.checkArgument(type == And.class || type == Or.class);
-        Objects.requireNonNull(expressions, "expressions is null");
+        Objects.requireNonNull(inputExpressions, "expressions is null");
+
+        List<Expression> expressions = inputExpressions.stream().filter(Objects::nonNull).collect(Collectors.toList());
 
         Expression shortCircuit = (type == And.class ? BooleanLiteral.FALSE : BooleanLiteral.TRUE);
         Expression skip = (type == And.class ? BooleanLiteral.TRUE : BooleanLiteral.FALSE);
