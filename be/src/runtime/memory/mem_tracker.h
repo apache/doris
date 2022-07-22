@@ -73,8 +73,9 @@ public:
 
 public:
     bool limit_exceeded(int64_t limit) const { return limit >= 0 && limit < consumption(); }
+    // Return true, no exceeded limit
     bool check_limit(int64_t limit, int64_t bytes) const {
-        return limit >= 0 && limit < consumption() + bytes;
+        return limit >= 0 && limit > consumption() + bytes;
     }
 
     // Usually, a negative values means that the statistics are not accurate,
