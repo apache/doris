@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 
 import com.google.common.collect.Lists;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -34,7 +33,7 @@ public class OrderSpec {
     private final List<OrderKey> orderKeys;
 
     public OrderSpec() {
-        this.orderKeys = new ArrayList<>();
+        this.orderKeys = Lists.newArrayList();
     }
 
     public OrderSpec(List<OrderKey> orderKeys) {
@@ -50,6 +49,7 @@ public class OrderSpec {
         if (this.orderKeys.size() < other.getOrderKeys().size()) {
             return false;
         }
+
         for (int i = 0; i < other.getOrderKeys().size(); ++i) {
             if (!this.orderKeys.get(i).matches(other.getOrderKeys().get(i))) {
                 return false;
@@ -67,5 +67,17 @@ public class OrderSpec {
 
     public List<OrderKey> getOrderKeys() {
         return orderKeys;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        OrderSpec that = (OrderSpec) o;
+        return orderKeys.equals(that.orderKeys);
     }
 }

@@ -126,9 +126,10 @@ public class CostCalculator {
                         0);
             }
 
+            // TODO: network 0?
             return new CostEstimate(
                     (leftStatistics.computeColumnSize(leftIds) + rightStatistics.computeColumnSize(rightIds)) / 2,
-                    0,
+                    rightStatistics.computeColumnSize(rightIds),
                     0);
         }
 
