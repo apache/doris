@@ -787,7 +787,7 @@ under the License.
                             <!-- <protocCommand>${doris.thirdparty}/installed/bin/protoc</protocCommand> -->
                             <!--You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools-->
                             <!--                            <protocArtifact>com.google.protobuf:protoc:${protobuf.version}</protocArtifact>-->
-                            <protocArtifact>com.google.protobuf:protoc:3.14.0:exe:osx-x86_64</protocArtifact>
+                            <protocArtifact>com.google.protobuf:protoc:${protobuf.version}</protocArtifact>
                             <protocVersion>${protobuf.version}</protocVersion>
                             <inputDirectories>
                                 <include>${doris.home}/gensrc/proto</include>
@@ -799,7 +799,7 @@ under the License.
                                 <outputTarget>
                                     <type>grpc-java</type>
                                     <!--                                    <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</pluginArtifact>-->
-                                    <pluginArtifact>io.grpc:protoc-gen-grpc-java:1.30.0:exe:osx-x86_64</pluginArtifact>
+                                    <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</pluginArtifact>
                                 </outputTarget>
                             </outputTargets>
                         </configuration>
