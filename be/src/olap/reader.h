@@ -82,7 +82,7 @@ public:
         std::vector<FunctionFilter> function_filters;
 
         // For primary-key table
-        DeleteBitmap* delete_bitmap{nullptr};
+        DeleteBitmap* delete_bitmap {nullptr};
 
         std::vector<RowsetReaderSharedPtr> rs_readers;
         std::vector<uint32_t> return_columns;
