@@ -44,6 +44,7 @@ public:
 
 private:
     Status _next_stripe_reader(bool* eof);
+    Status _seek_start_stripe();
 
 private:
     // orc file reader object
