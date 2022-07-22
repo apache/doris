@@ -401,9 +401,8 @@ Status ExprContext::get_const_value(RuntimeState* state, Expr& expr, AnyVal** co
             Status rst;
             char* ptr_copy = reinterpret_cast<char*>(_pool->try_allocate(sv->len, &rst));
             if (ptr_copy == nullptr) {
-                RETURN_LIMIT_EXCEEDED(
-                        thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker(), state,
-                        "Could not allocate constant string value", sv->len, rst);
+                RETURN_LIMIT_EXCEEDED(state, "Could not allocate constant string value", sv->len,
+                                      rst);
             }
             memcpy(ptr_copy, sv->ptr, sv->len);
             sv->ptr = reinterpret_cast<uint8_t*>(ptr_copy);
