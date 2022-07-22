@@ -123,7 +123,7 @@ public class NereidsPlanner extends Planner {
     }
 
     private void finalizeAnalyze() {
-        new FinalizeAnalyzeJob(plannerContext).execute();
+
     }
 
     /**
