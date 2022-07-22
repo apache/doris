@@ -1,28 +1,8 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
-
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
@@ -40,6 +20,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -51,16 +32,14 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     private final List<String> testSql = Lists.newArrayList(
             "SELECT * FROM T1",
-            "SELECT * FROM T1 ORDER BY ID",
             "SELECT * FROM T1 JOIN T2 ON T1.ID = T2.ID",
             "SELECT * FROM T1 T",
             "SELECT T.ID FROM T1 T",
             "SELECT * FROM (SELECT * FROM T1 T) T2",
             "SELECT T1.ID ID FROM T1",
             "SELECT T.ID FROM T1 T",
-            "SELECT A.ID, B.SCORE FROM T1 A, T2 B WHERE A.ID = B.ID GROUP BY A.ID ORDER BY A.ID",
-            "SELECT X.ID FROM (SELECT * FROM T1 A JOIN (SELECT ID ID1 FROM T1) AS B ON A.ID = B.ID1) X WHERE X.SCORE < 20",
-            "SELECT X.ID + X.SCORE FROM (SELECT * FROM T1 A JOIN (SELECT SUM(ID + 1) ID1 FROM T1 T GROUP BY ID) AS B ON A.ID = B.ID1 ORDER BY A.ID DESC) X WHERE X.ID - X.SCORE < 20"
+            "SELECT A.ID, B.SCORE FROM T1 A, T2 B WHERE A.ID = B.ID",
+            "SELECT X.ID FROM (SELECT * FROM (T1) A JOIN (SELECT ID ID1 FROM T1) AS B ON A.ID = B.ID1) X WHERE B.SCORE < 20"
     );
 
     @Override
@@ -94,68 +73,19 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
      * TODO: check bound plan and expression details.
      */
     @Test
-    public void testAnalyzeAllCase() {
-        for (String sql : testSql) {
-            System.out.println("*****\nStart test: " + sql + "\n*****\n");
-            checkAnalyze(sql);
-        }
-    }
-
-    @Test
     public void testAnalyze() {
-        checkAnalyze(testSql.get(5));
+        checkAnalyze(testSql.get(8));
     }
 
     @Test
     public void testParse() {
-        for (String sql : testSql) {
-            System.out.println(parser.parseSingle(sql).treeString());
-        }
-    }
-
-    @Test
-    public void testFinalizeAnalyze() {
-        finalizeAnalyze(testSql.get(10));
-    }
-
-    @Test
-    public void testFinalizeAnalyzeAllCase() {
-        for (String sql : testSql) {
-            System.out.println("*****\nStart test: " + sql + "\n*****\n");
-            finalizeAnalyze(sql);
-        }
-    }
-
-    @Test
-    public void testPlan() throws AnalysisException {
-        System.out.println(new NereidsPlanner(connectContext).plan(
-                parser.parseSingle(testSql.get(10)),
-                new PhysicalProperties(),
-                connectContext
-        ).treeString());
+        System.out.println(parser.parseSingle(testSql.get(3)).treeString());
     }
 
     private void checkAnalyze(String sql) {
         LogicalPlan analyzed = analyze(sql);
         System.out.println(analyzed.treeString());
         Assertions.assertTrue(checkBound(analyzed));
-    }
-
-    private void finalizeAnalyze(String sql) {
-        Memo memo = new Memo(parser.parseSingle(sql));
-        PlannerContext plannerContext = new PlannerContext(memo, connectContext);
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
-        plannerContext.setCurrentJobContext(jobContext);
-
-        executeRewriteBottomUpJob(plannerContext,
-                new BindFunction(),
-                new BindRelation(),
-                new BindSubQueryAlias(),
-                new BindSlotReference(),
-                new ProjectToGlobalAggregate());
-        System.out.println(memo.copyOut().treeString());
-        new FinalizeAnalyzeJob(plannerContext).execute();
-        System.out.println(memo.copyOut().treeString());
     }
 
     private LogicalPlan analyze(String sql) {
@@ -226,24 +156,3 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     }
 }
 
-/*
-CREATE TABLE T1 (
-    ID bigint,
-    SCORE bigint
-)
-DUPLICATE KEY(id)
-DISTRIBUTED BY HASH(id) BUCKETS 1
-PROPERTIES (
-    "replication_num" = "1"
-);
-
-CREATE TABLE T2 (
-    ID bigint,
-    SCORE bigint
-)
-DUPLICATE KEY(id)
-DISTRIBUTED BY HASH(id) BUCKETS 1
-PROPERTIES (
-    "replication_num" = "1"
-);
- */
