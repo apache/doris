@@ -122,6 +122,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1000,7 +1001,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TGetStoragePolicyResult refreshStoragePolicy() throws TException {
-        LOG.debug("refresh storage policy request");
         TGetStoragePolicyResult result = new TGetStoragePolicyResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
@@ -1049,8 +1049,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     result.addToResultEntrys(rEntry);
                 }
         );
+        if (policyList.size() == 0) {
+            result.setResultEntrys(new ArrayList<>());
+        }
 
-        LOG.info("refresh storage policy request: {}", result);
+        LOG.debug("refresh storage policy request: {}", result);
         return result;
     }
 }
