@@ -402,10 +402,9 @@ public class DateLiteral extends LiteralExpr {
             second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
             microsecond = getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0);
             if (type.isDatetimeV2()) {
-                this.type = ScalarType.createDatetimeV2Type(6);
-            } else {
-                this.type = type;
+                this.roundFloor(((ScalarType) type).getScalarScale());
             }
+            this.type = type;
         } catch (Exception ex) {
             throw new AnalysisException("date literal [" + s + "] is invalid: " + ex.getMessage());
         }
