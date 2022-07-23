@@ -51,7 +51,7 @@ import java.util.List;
 import java.util.Optional;
 
 // TODO: need more detailed test
-public class EqualsTest {
+public class PlanEqualsTest {
     /* *************************** Logical *************************** */
     @Test
     public void testLogicalAggregate(@Mocked Plan child) {
