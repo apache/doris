@@ -61,6 +61,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_DATE;
     } else if (0 == upper_type_str.compare("DATEV2")) {
         type = OLAP_FIELD_TYPE_DATEV2;
+    } else if (0 == upper_type_str.compare("DATETIMEV2")) {
+        type = OLAP_FIELD_TYPE_DATETIMEV2;
     } else if (0 == upper_type_str.compare("DATETIME")) {
         type = OLAP_FIELD_TYPE_DATETIME;
     } else if (0 == upper_type_str.compare("DECIMAL32")) {
@@ -180,6 +182,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case OLAP_FIELD_TYPE_DATETIME:
         return "DATETIME";
 
+    case OLAP_FIELD_TYPE_DATETIMEV2:
+        return "DATETIMEV2";
+
     case OLAP_FIELD_TYPE_DECIMAL:
         return "DECIMAL";
 
@@ -275,6 +280,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::DATEV2:
         return 4;
     case TPrimitiveType::DATETIME:
+        return 8;
+    case TPrimitiveType::DATETIMEV2:
         return 8;
     case TPrimitiveType::FLOAT:
         return 4;

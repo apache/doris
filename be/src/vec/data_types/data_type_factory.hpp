@@ -65,6 +65,7 @@ public:
                     {"Date", std::make_shared<DataTypeDate>()},
                     {"DateV2", std::make_shared<DataTypeDateV2>()},
                     {"DateTime", std::make_shared<DataTypeDateTime>()},
+                    {"DateTimeV2", std::make_shared<DataTypeDateTimeV2>()},
                     {"String", std::make_shared<DataTypeString>()},
                     {"Decimal", std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)},
                     {"Decimal32", std::make_shared<DataTypeDecimal<Decimal32>>(

@@ -105,33 +105,89 @@ using FunctionMinutesDiff = FunctionDateOrDateTimeComputation<MintueSDiffImpl<
         VecDateTimeValue, VecDateTimeValue, DataTypeDateTime, DataTypeDateTime, Int64, Int64>>;
 using FunctionSecondsDiff = FunctionDateOrDateTimeComputation<SecondsDiffImpl<
         VecDateTimeValue, VecDateTimeValue, DataTypeDateTime, DataTypeDateTime, Int64, Int64>>;
-using FunctionDateDiffV2 = FunctionDateOrDateTimeComputation<
-        DateDiffImpl<DateV2Value, DateV2Value, DataTypeDateV2, DataTypeDateV2, UInt32, UInt32>>;
-using FunctionTimeDiffV2 = FunctionDateOrDateTimeComputation<
-        TimeDiffImpl<DateV2Value, DateV2Value, DataTypeDateV2, DataTypeDateV2, UInt32, UInt32>>;
-using FunctionYearsDiffV2 = FunctionDateOrDateTimeComputation<
-        YearsDiffImpl<DateV2Value, DateV2Value, DataTypeDateV2, DataTypeDateV2, UInt32, UInt32>>;
-using FunctionMonthsDiffV2 = FunctionDateOrDateTimeComputation<
-        MonthsDiffImpl<DateV2Value, DateV2Value, DataTypeDateV2, DataTypeDateV2, UInt32, UInt32>>;
-using FunctionDaysDiffV2 = FunctionDateOrDateTimeComputation<
-        DaysDiffImpl<DateV2Value, DateV2Value, DataTypeDateV2, DataTypeDateV2, UInt32, UInt32>>;
-using FunctionWeeksDiffV2 = FunctionDateOrDateTimeComputation<
-        WeeksDiffImpl<DateV2Value, DateV2Value, DataTypeDateV2, DataTypeDateV2, UInt32, UInt32>>;
-using FunctionHoursDiffV2 = FunctionDateOrDateTimeComputation<
-        HoursDiffImpl<DateV2Value, DateV2Value, DataTypeDateV2, DataTypeDateV2, UInt32, UInt32>>;
-using FunctionMinutesDiffV2 = FunctionDateOrDateTimeComputation<
-        MintueSDiffImpl<DateV2Value, DateV2Value, DataTypeDateV2, DataTypeDateV2, UInt32, UInt32>>;
-using FunctionSecondsDiffV2 = FunctionDateOrDateTimeComputation<
-        SecondsDiffImpl<DateV2Value, DateV2Value, DataTypeDateV2, DataTypeDateV2, UInt32, UInt32>>;
 
 using FunctionToYearWeekTwoArgs = FunctionDateOrDateTimeComputation<
         ToYearWeekTwoArgsImpl<VecDateTimeValue, DataTypeDateTime, Int64>>;
 using FunctionToYearWeekTwoArgsV2 = FunctionDateOrDateTimeComputation<
-        ToYearWeekTwoArgsImpl<DateV2Value, DataTypeDateV2, UInt32>>;
+        ToYearWeekTwoArgsImpl<DateV2Value<DateV2ValueType>, DataTypeDateV2, UInt32>>;
 using FunctionToWeekTwoArgs = FunctionDateOrDateTimeComputation<
         ToWeekTwoArgsImpl<VecDateTimeValue, DataTypeDateTime, Int64>>;
-using FunctionToWeekTwoArgsV2 =
-        FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<DateV2Value, DataTypeDateV2, UInt32>>;
+using FunctionToWeekTwoArgsV2 = FunctionDateOrDateTimeComputation<
+        ToWeekTwoArgsImpl<DateV2Value<DateV2ValueType>, DataTypeDateV2, UInt32>>;
+
+using FunctionDatetimeV2AddSeconds = FunctionDateOrDateTimeComputation<
+        AddSecondsImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2AddMinutes = FunctionDateOrDateTimeComputation<
+        AddMinutesImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2AddHours = FunctionDateOrDateTimeComputation<
+        AddHoursImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2AddDays = FunctionDateOrDateTimeComputation<
+        AddDaysImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2AddWeeks = FunctionDateOrDateTimeComputation<
+        AddWeeksImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2AddMonths = FunctionDateOrDateTimeComputation<
+        AddMonthsImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+
+using FunctionDatetimeV2AddQuarters = FunctionDateOrDateTimeComputation<
+        AddQuartersImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2AddYears = FunctionDateOrDateTimeComputation<
+        AddYearsImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+
+using FunctionDatetimeV2SubSeconds = FunctionDateOrDateTimeComputation<
+        SubtractSecondsImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2SubMinutes = FunctionDateOrDateTimeComputation<
+        SubtractMinutesImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2SubHours = FunctionDateOrDateTimeComputation<
+        SubtractHoursImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2SubDays = FunctionDateOrDateTimeComputation<
+        SubtractDaysImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2SubWeeks = FunctionDateOrDateTimeComputation<
+        SubtractWeeksImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2SubMonths = FunctionDateOrDateTimeComputation<
+        SubtractMonthsImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2SubQuarters = FunctionDateOrDateTimeComputation<
+        SubtractQuartersImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+using FunctionDatetimeV2SubYears = FunctionDateOrDateTimeComputation<
+        SubtractYearsImpl<DataTypeDateTimeV2, UInt64, DataTypeDateTimeV2>>;
+
+#define FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, TYPE1, TYPE2, ARG1, ARG2, DATE_VALUE1, \
+                                      DATE_VALUE2)                                       \
+    using NAME##_##TYPE1##_##TYPE2 = FunctionDateOrDateTimeComputation<                  \
+            IMPL<DATE_VALUE1, DATE_VALUE2, TYPE1, TYPE2, ARG1, ARG2>>;
+
+#define ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL)                                              \
+    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTimeV2, DataTypeDateTimeV2, UInt64,      \
+                                  UInt64, DateV2Value<DateTimeV2ValueType>,                        \
+                                  DateV2Value<DateTimeV2ValueType>)                                \
+    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTimeV2, DataTypeDateV2, UInt64, UInt32,  \
+                                  DateV2Value<DateTimeV2ValueType>, DateV2Value<DateV2ValueType>)  \
+    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateV2, DataTypeDateTimeV2, UInt32, UInt64,  \
+                                  DateV2Value<DateV2ValueType>, DateV2Value<DateTimeV2ValueType>)  \
+    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTimeV2, DataTypeDateTime, UInt64, Int64, \
+                                  DateV2Value<DateTimeV2ValueType>, VecDateTimeValue)              \
+    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTime, DataTypeDateTimeV2, Int64, UInt64, \
+                                  VecDateTimeValue, DateV2Value<DateTimeV2ValueType>)              \
+    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateTime, DataTypeDateV2, Int64, UInt32,     \
+                                  VecDateTimeValue, DateV2Value<DateV2ValueType>)                  \
+    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateV2, DataTypeDateTime, UInt32, Int64,     \
+                                  DateV2Value<DateV2ValueType>, VecDateTimeValue)                  \
+    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, DataTypeDateV2, DataTypeDateV2, UInt32, UInt32,      \
+                                  DateV2Value<DateV2ValueType>, DateV2Value<DateV2ValueType>)
+
+ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2DateDiff, DateDiffImpl)
+ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2TimeDiff, TimeDiffImpl)
+ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2YearsDiff, YearsDiffImpl)
+ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2MonthsDiff, MonthsDiffImpl)
+ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2WeeksDiff, WeeksDiffImpl)
+ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2HoursDiff, HoursDiffImpl)
+ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2MinutesDiff, MintueSDiffImpl)
+ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2SecondsDiff, SecondsDiffImpl)
+ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2DaysDiff, DaysDiffImpl)
+
+using FunctionDatetimeV2ToYearWeekTwoArgs = FunctionDateOrDateTimeComputation<
+        ToYearWeekTwoArgsImpl<DateV2Value<DateTimeV2ValueType>, DataTypeDateTimeV2, UInt64>>;
+using FunctionDatetimeV2ToWeekTwoArgs = FunctionDateOrDateTimeComputation<
+        ToWeekTwoArgsImpl<DateV2Value<DateTimeV2ValueType>, DataTypeDateTimeV2, UInt64>>;
 
 struct NowFunctionName {
     static constexpr auto name = "now";
@@ -202,6 +258,15 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddYearsV2>();
     factory.register_function<FunctionAddQuartersV2>();
 
+    factory.register_function<FunctionDatetimeV2AddSeconds>();
+    factory.register_function<FunctionDatetimeV2AddMinutes>();
+    factory.register_function<FunctionDatetimeV2AddHours>();
+    factory.register_function<FunctionDatetimeV2AddDays>();
+    factory.register_function<FunctionDatetimeV2AddWeeks>();
+    factory.register_function<FunctionDatetimeV2AddMonths>();
+    factory.register_function<FunctionDatetimeV2AddYears>();
+    factory.register_function<FunctionDatetimeV2AddQuarters>();
+
     factory.register_function<FunctionSubSeconds>();
     factory.register_function<FunctionSubMinutes>();
     factory.register_function<FunctionSubHours>();
@@ -221,6 +286,15 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubQuartersV2>();
     factory.register_function<FunctionSubWeeksV2>();
 
+    factory.register_function<FunctionDatetimeV2SubSeconds>();
+    factory.register_function<FunctionDatetimeV2SubMinutes>();
+    factory.register_function<FunctionDatetimeV2SubHours>();
+    factory.register_function<FunctionDatetimeV2SubDays>();
+    factory.register_function<FunctionDatetimeV2SubMonths>();
+    factory.register_function<FunctionDatetimeV2SubYears>();
+    factory.register_function<FunctionDatetimeV2SubQuarters>();
+    factory.register_function<FunctionDatetimeV2SubWeeks>();
+
     factory.register_function<FunctionDateDiff>();
     factory.register_function<FunctionTimeDiff>();
     factory.register_function<FunctionYearsDiff>();
@@ -230,59 +304,36 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionHoursDiff>();
     factory.register_function<FunctionMinutesDiff>();
     factory.register_function<FunctionSecondsDiff>();
-    factory.register_function<FunctionDateDiffV2>();
-    factory.register_function<FunctionTimeDiffV2>();
-    factory.register_function<FunctionYearsDiffV2>();
-    factory.register_function<FunctionMonthsDiffV2>();
-    factory.register_function<FunctionWeeksDiffV2>();
-    factory.register_function<FunctionDaysDiffV2>();
-    factory.register_function<FunctionHoursDiffV2>();
-    factory.register_function<FunctionMinutesDiffV2>();
-    factory.register_function<FunctionSecondsDiffV2>();
 
-    // Functions below make dateV2 be compatible with V1
-    factory.register_function<FunctionDateOrDateTimeComputation<DateDiffImpl<
-            VecDateTimeValue, DateV2Value, DataTypeDateTime, DataTypeDateV2, Int64, UInt32>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<TimeDiffImpl<
-            VecDateTimeValue, DateV2Value, DataTypeDateTime, DataTypeDateV2, Int64, UInt32>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<YearsDiffImpl<
-            VecDateTimeValue, DateV2Value, DataTypeDateTime, DataTypeDateV2, Int64, UInt32>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<MonthsDiffImpl<
-            VecDateTimeValue, DateV2Value, DataTypeDateTime, DataTypeDateV2, Int64, UInt32>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<WeeksDiffImpl<
-            VecDateTimeValue, DateV2Value, DataTypeDateTime, DataTypeDateV2, Int64, UInt32>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<DaysDiffImpl<
-            VecDateTimeValue, DateV2Value, DataTypeDateTime, DataTypeDateV2, Int64, UInt32>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<HoursDiffImpl<
-            VecDateTimeValue, DateV2Value, DataTypeDateTime, DataTypeDateV2, Int64, UInt32>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<MintueSDiffImpl<
-            VecDateTimeValue, DateV2Value, DataTypeDateTime, DataTypeDateV2, Int64, UInt32>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<SecondsDiffImpl<
-            VecDateTimeValue, DateV2Value, DataTypeDateTime, DataTypeDateV2, Int64, UInt32>>>();
+#define REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, TYPE1, TYPE2) \
+    factory.register_function<NAME##_##TYPE1##_##TYPE2>();
 
-    factory.register_function<FunctionDateOrDateTimeComputation<DateDiffImpl<
-            DateV2Value, VecDateTimeValue, DataTypeDateV2, DataTypeDateTime, UInt32, Int64>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<TimeDiffImpl<
-            DateV2Value, VecDateTimeValue, DataTypeDateV2, DataTypeDateTime, UInt32, Int64>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<YearsDiffImpl<
-            DateV2Value, VecDateTimeValue, DataTypeDateV2, DataTypeDateTime, UInt32, Int64>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<MonthsDiffImpl<
-            DateV2Value, VecDateTimeValue, DataTypeDateV2, DataTypeDateTime, UInt32, Int64>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<WeeksDiffImpl<
-            DateV2Value, VecDateTimeValue, DataTypeDateV2, DataTypeDateTime, UInt32, Int64>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<DaysDiffImpl<
-            DateV2Value, VecDateTimeValue, DataTypeDateV2, DataTypeDateTime, UInt32, Int64>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<HoursDiffImpl<
-            DateV2Value, VecDateTimeValue, DataTypeDateV2, DataTypeDateTime, UInt32, Int64>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<MintueSDiffImpl<
-            DateV2Value, VecDateTimeValue, DataTypeDateV2, DataTypeDateTime, UInt32, Int64>>>();
-    factory.register_function<FunctionDateOrDateTimeComputation<SecondsDiffImpl<
-            DateV2Value, VecDateTimeValue, DataTypeDateV2, DataTypeDateTime, UInt32, Int64>>>();
+#define REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME)                                 \
+    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTimeV2, DataTypeDateTimeV2) \
+    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTimeV2, DataTypeDateV2)     \
+    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateTimeV2)     \
+    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTimeV2, DataTypeDateTime)   \
+    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateTime)       \
+    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateV2, DataTypeDateV2)         \
+    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTime, DataTypeDateV2)       \
+    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, DataTypeDateTime, DataTypeDateTimeV2)
+
+    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2DateDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2TimeDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2YearsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2MonthsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2WeeksDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2HoursDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2MinutesDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2SecondsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2DaysDiff)
 
     factory.register_function<FunctionToYearWeekTwoArgs>();
     factory.register_function<FunctionToWeekTwoArgs>();
     factory.register_function<FunctionToYearWeekTwoArgsV2>();
     factory.register_function<FunctionToWeekTwoArgsV2>();
+    factory.register_function<FunctionDatetimeV2ToYearWeekTwoArgs>();
+    factory.register_function<FunctionDatetimeV2ToWeekTwoArgs>();
 
     factory.register_function<FunctionNow>();
     factory.register_function<FunctionCurrentTimestamp>();

@@ -1051,6 +1051,11 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType;
             *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const SrcType*>(src);
             return Status::OK();
+        } else if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2) {
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIMEV2>::CppType;
+            *reinterpret_cast<CppType*>(dest) =
+                    (*reinterpret_cast<const SrcType*>(src) >> doris::vectorized::TIME_PART_LENGTH);
+            return Status::OK();
         }
 
         if (src_type->type() == FieldType::OLAP_FIELD_TYPE_INT) {
@@ -1119,8 +1124,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>
     }
     static std::string to_string(const void* src) {
         CppType tmp = *reinterpret_cast<const CppType*>(src);
-        doris::vectorized::DateV2Value value =
-                binary_cast<CppType, doris::vectorized::DateV2Value>(tmp);
+        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> value = binary_cast<
+                CppType, doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>(tmp);
         string format = "%Y-%m-%d";
         string res;
         res.resize(12);
@@ -1142,6 +1147,13 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>
             return Status::OK();
         }
 
+        if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2) {
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIMEV2>::CppType;
+            SrcType src_value = *reinterpret_cast<const SrcType*>(src);
+            *reinterpret_cast<CppType*>(dest) = src_value >> doris::vectorized::TIME_PART_LENGTH;
+            return Status::OK();
+        }
+
         if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType;
             SrcType value = *reinterpret_cast<const SrcType*>(src);
@@ -1155,7 +1167,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>
         if (src_type->type() == FieldType::OLAP_FIELD_TYPE_INT) {
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_INT>::CppType;
             SrcType src_value = *reinterpret_cast<const SrcType*>(src);
-            doris::vectorized::DateV2Value dt;
+            doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> dt;
             if (!dt.from_date_int64(src_value)) {
                 return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
             }
@@ -1174,7 +1186,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>
             }
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR>::CppType;
             auto src_value = *reinterpret_cast<const SrcType*>(src);
-            doris::vectorized::DateV2Value dt;
+            doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> dt;
             for (const auto& format : DATE_FORMATS) {
                 if (dt.from_date_format_str(format.c_str(), format.length(), src_value.get_data(),
                                             src_value.get_size())) {
@@ -1195,6 +1207,87 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>
     static void set_to_min(void* buf) {
         // min is 0 * 16 * 32 + 1 * 32 + 1;
         *reinterpret_cast<CppType*>(buf) = doris::vectorized::MIN_DATE_V2;
+    }
+};
+
+template <>
+struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIMEV2>
+        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DATETIMEV2> {
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_value;
+        std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
+
+        if (datetimev2_value.from_date_format_str(date_format.data(), date_format.size(),
+                                                  scan_key.data(), scan_key.size())) {
+            *reinterpret_cast<CppType*>(buf) = datetimev2_value.to_date_int_val();
+        } else {
+            *reinterpret_cast<CppType*>(buf) = doris::vectorized::MIN_DATETIME_V2;
+        }
+
+        return Status::OK();
+    }
+    static std::string to_string(const void* src) {
+        CppType tmp = *reinterpret_cast<const CppType*>(src);
+        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> value =
+                binary_cast<CppType,
+                            doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>(
+                        tmp);
+        string format = "%Y-%m-%d %H:%i:%s.%f";
+        string res;
+        res.resize(30);
+        res.reserve(30);
+        value.to_format_string(format.c_str(), format.size(), res.data());
+        return res;
+    }
+    static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
+                               MemPool* mem_pool, size_t variable_len = 0) {
+        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_value;
+        if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType;
+            SrcType src_value = *reinterpret_cast<const SrcType*>(src);
+            //only need part one
+            SrcType part1 = src_value / 1000000L;
+            CppType year = static_cast<CppType>((part1 / 10000L) % 10000);
+            CppType mon = static_cast<CppType>((part1 / 100) % 100);
+            CppType mday = static_cast<CppType>(part1 % 100);
+
+            CppType part2 = src_value % 1000000L;
+            CppType hour = static_cast<int>((part2 / 10000L) % 10000);
+            CppType min = static_cast<int>((part2 / 100) % 100);
+            CppType sec = static_cast<int>(part2 % 100);
+            datetimev2_value.set_time(year, mon, mday, hour, min, sec, 0);
+            *reinterpret_cast<CppType*>(dest) = datetimev2_value.to_date_int_val();
+            return Status::OK();
+        }
+
+        if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType;
+            SrcType value = *reinterpret_cast<const SrcType*>(src);
+            int day = static_cast<int>(value & 31);
+            int mon = static_cast<int>(value >> 5 & 15);
+            int year = static_cast<int>(value >> 9);
+            datetimev2_value.set_time(year, mon, day, 0, 0, 0, 0);
+            *reinterpret_cast<CppType*>(dest) = datetimev2_value.to_date_int_val();
+            return Status::OK();
+        }
+
+        if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATEV2) {
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType;
+            SrcType value = *reinterpret_cast<const SrcType*>(src);
+            *reinterpret_cast<CppType*>(dest) = (uint64_t)value
+                                                << doris::vectorized::TIME_PART_LENGTH;
+            return Status::OK();
+        }
+        return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
+    }
+    static void set_to_max(void* buf) {
+        // max is 9999 * 16 * 32 + 12 * 32 + 31;
+        *reinterpret_cast<CppType*>(buf) = doris::vectorized::MAX_DATETIME_V2;
+    }
+    static void set_to_min(void* buf) {
+        // min is 0 * 16 * 32 + 1 * 32 + 1;
+        *reinterpret_cast<CppType*>(buf) = doris::vectorized::MIN_DATETIME_V2;
     }
 };
 
@@ -1255,6 +1348,18 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>
             int mon = static_cast<int>((value & 0x1E0) >> 5);
             int year = static_cast<int>((value & 0xFFFFFE00) >> 9);
             *reinterpret_cast<CppType*>(dest) = (year * 10000L + mon * 100L + day) * 1000000;
+            return Status::OK();
+        } else if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2) {
+            using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType;
+            auto value = *reinterpret_cast<const SrcType*>(src);
+
+            doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_value;
+            datetimev2_value.from_datetime(value);
+            doris::vectorized::VecDateTimeValue to_value;
+            to_value.set_time(datetimev2_value.year(), datetimev2_value.month(),
+                              datetimev2_value.day(), datetimev2_value.hour(),
+                              datetimev2_value.minute(), datetimev2_value.second());
+            *reinterpret_cast<CppType*>(dest) = to_value.to_datetime_int64();
             return Status::OK();
         }
         return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
