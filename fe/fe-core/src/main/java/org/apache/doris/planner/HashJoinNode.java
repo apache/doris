@@ -60,6 +60,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -157,8 +158,9 @@ public class HashJoinNode extends PlanNode {
     /**
      * This constructor is used by new optimizer.
      */
-    public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, JoinOperator joinOp, List<Expr> eqJoinConjuncts,
-            List<Expr> otherJoinConjuncts) {
+    public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, JoinOperator joinOp,
+            List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts, List<Expr> srcToOutputList,
+            TupleDescriptor intermediateTuple, TupleDescriptor outputTuple) {
         super(id, "HASH JOIN", StatisticalType.HASH_JOIN_NODE);
         Preconditions.checkArgument(eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty());
         Preconditions.checkArgument(otherJoinConjuncts != null);
@@ -209,6 +211,9 @@ public class HashJoinNode extends PlanNode {
         } else if (joinOp.equals(JoinOperator.RIGHT_OUTER_JOIN)) {
             nullableTupleIds.addAll(outer.getTupleIds());
         }
+        vIntermediateTupleDescList = Lists.newArrayList(intermediateTuple);
+        vOutputTupleDesc = outputTuple;
+        vSrcToOutputSMap = new ExprSubstitutionMap(srcToOutputList, Collections.emptyList());
     }
 
     public List<BinaryPredicate> getEqJoinConjuncts() {
