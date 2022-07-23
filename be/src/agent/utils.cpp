@@ -124,7 +124,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
         LOG(WARNING) << "fail to report to master. "
                      << "host=" << _master_info.network_address.hostname
                      << ", port=" << _master_info.network_address.port
-                     << ", code=" << client_status.code();
+                     << ", code=" << client_status.code() << ", reason=" << e.what();
         return Status::InternalError("Fail to report to master");
     }
 
@@ -161,10 +161,10 @@ Status MasterServerClient::refresh_storage_policy(TGetStoragePolicyResult* resul
         }
     } catch (TException& e) {
         client.reopen(config::thrift_rpc_timeout_ms);
-        LOG(WARNING) << "fail to report to master. "
+        LOG(WARNING) << "fail to refresh storge policy. "
                      << "host=" << _master_info.network_address.hostname
                      << ", port=" << _master_info.network_address.port
-                     << ", code=" << client_status.code() << ", e.what: " << e.what();
+                     << ", code=" << client_status.code() << ", reason=" << e.what();
         return Status::InternalError("Fail to refresh storage policy from master");
     }
 
