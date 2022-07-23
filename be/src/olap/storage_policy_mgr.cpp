@@ -24,53 +24,62 @@
 
 namespace doris {
 
-void StoragePolicyMgr::update(const std::string& name, StoragePolicyPtr policy) {
-    std::lock_guard<std::mutex> l(_mutex);
-    auto it = _policy_map.find(name);
-    if (it != _policy_map.end()) {
-        // just support change ak, sk, cooldown_ttl, cooldown_datetime
-        LOG(INFO) << "update storage policy name: " << name;
-        auto s3_fs = std::dynamic_pointer_cast<io::S3FileSystem>(
-                io::FileSystemMap::instance()->get(name));
-        DCHECK(s3_fs);
-        s3_fs->set_ak(policy->s3_ak);
-        s3_fs->set_sk(policy->s3_sk);
-        s3_fs->connect();
-        it->second = std::move(policy);
-    } else {
-        // can't find name's policy, so do nothing.
+void StoragePolicyMgr::update(const std::string& name, const StoragePolicyPtr& policy) {
+    std::shared_ptr<io::S3FileSystem> s3_fs;
+    {
+        std::lock_guard<std::mutex> l(_mutex);
+        auto it = _policy_map.find(name);
+        if (it != _policy_map.end()) {
+            LOG(INFO) << "update storage policy name: " << name;
+            it->second = policy;
+            s3_fs = std::dynamic_pointer_cast<io::S3FileSystem>(
+                    io::FileSystemMap::instance()->get(name));
+            DCHECK(s3_fs);
+            s3_fs->set_ak(policy->s3_ak);
+            s3_fs->set_sk(policy->s3_sk);
+        }
+    }
+    if (s3_fs) {
+        auto st = s3_fs->connect();
+        if (!st.ok()) {
+            LOG(ERROR) << st;
+        }
     }
 }
 
-void StoragePolicyMgr::periodic_put(const std::string& name, StoragePolicyPtr policy) {
-    std::lock_guard<std::mutex> l(_mutex);
-    auto it = _policy_map.find(name);
-    if (it == _policy_map.end()) {
-        LOG(INFO) << "add storage policy name: " << name << " to map";
-        std::map<std::string, std::string> aws_properties = {
-                {S3_AK, policy->s3_ak},
-                {S3_SK, policy->s3_sk},
-                {S3_ENDPOINT, policy->s3_endpoint},
-                {S3_REGION, policy->s3_region},
-                {S3_MAX_CONN_SIZE, std::to_string(policy->s3_max_conn)},
-                {S3_REQUEST_TIMEOUT_MS, std::to_string(policy->s3_request_timeout_ms)},
-                {S3_CONN_TIMEOUT_MS, std::to_string(policy->s3_conn_timeout_ms)}};
-        auto s3_fs = std::make_shared<io::S3FileSystem>(aws_properties, policy->bucket,
-                                                        policy->root_path, name);
-        s3_fs->connect();
-        io::FileSystemMap::instance()->insert(name, std::move(s3_fs));
-        _policy_map.emplace(name, std::move(policy));
-    } else if (it->second->md5_sum != policy->md5_sum) {
-        // fe change policy
-        // just support change ak, sk, cooldown_ttl, cooldown_datetime
-        LOG(INFO) << "update storage policy name: " << name;
-        auto s3_fs = std::dynamic_pointer_cast<io::S3FileSystem>(
-                io::FileSystemMap::instance()->get(name));
-        DCHECK(s3_fs);
-        s3_fs->set_ak(policy->s3_ak);
-        s3_fs->set_sk(policy->s3_sk);
-        s3_fs->connect();
-        it->second = std::move(policy);
+void StoragePolicyMgr::periodic_put(const std::string& name, const StoragePolicyPtr& policy) {
+    std::shared_ptr<io::S3FileSystem> s3_fs;
+    {
+        std::lock_guard<std::mutex> l(_mutex);
+        auto it = _policy_map.find(name);
+        if (it == _policy_map.end()) {
+            LOG(INFO) << "add storage policy name: " << name << " to map";
+            S3Conf s3_conf;
+            s3_conf.ak = policy->s3_ak;
+            s3_conf.sk = policy->s3_sk;
+            s3_conf.endpoint = policy->s3_endpoint;
+            s3_conf.region = policy->s3_region;
+            s3_conf.max_connections = policy->s3_max_conn;
+            s3_conf.request_timeout_ms = policy->s3_request_timeout_ms;
+            s3_conf.connect_timeout_ms = policy->s3_conn_timeout_ms;
+            s3_fs = std::make_shared<io::S3FileSystem>(std::move(s3_conf), name);
+            io::FileSystemMap::instance()->insert(name, s3_fs);
+            _policy_map.emplace(name, policy);
+        } else if (it->second->md5_sum != policy->md5_sum) {
+            LOG(INFO) << "update storage policy name: " << name;
+            it->second = policy;
+            s3_fs = std::dynamic_pointer_cast<io::S3FileSystem>(
+                    io::FileSystemMap::instance()->get(name));
+            DCHECK(s3_fs);
+            s3_fs->set_ak(policy->s3_ak);
+            s3_fs->set_sk(policy->s3_sk);
+        }
+    }
+    if (s3_fs) {
+        auto st = s3_fs->connect();
+        if (!st.ok()) {
+            LOG(ERROR) << st;
+        }
     }
 }
 

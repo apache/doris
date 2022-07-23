@@ -421,15 +421,16 @@ class S3ClientMockGetErrorData : public S3ClientMock {
 TEST_F(BetaRowsetTest, ReadTest) {
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
     BetaRowset rowset(nullptr, "", rowset_meta);
-    std::map<std::string, std::string> properties {
-            {"AWS_ACCESS_KEY", "ak"},
-            {"AWS_SECRET_KEY", "ak"},
-            {"AWS_ENDPOINT", "endpoint"},
-            {"AWS_REGION", "region"},
-    };
+    S3Conf s3_conf;
+    s3_conf.ak = "ak";
+    s3_conf.sk = "sk";
+    s3_conf.endpoint = "endpoint";
+    s3_conf.region = "region";
+    s3_conf.bucket = "bucket";
+    s3_conf.prefix = "prefix";
     io::ResourceId resource_id = "test_resourse_id";
     std::shared_ptr<io::S3FileSystem> fs =
-            std::make_shared<io::S3FileSystem>(properties, "bucket", "test prefix", resource_id);
+            std::make_shared<io::S3FileSystem>(std::move(s3_conf), resource_id);
     Aws::SDKOptions aws_options = Aws::SDKOptions {};
     Aws::InitAPI(aws_options);
     // failed to head object

@@ -70,6 +70,9 @@ Status S3FileReader::read_at(size_t offset, Slice result, size_t* bytes_read) {
     request.SetResponseStreamFactory(AwsWriteableStreamFactory(to, bytes_req));
 
     auto client = _fs->get_client();
+    if (!client) {
+        return Status::InternalError("init s3 client error");
+    }
     auto outcome = client->GetObject(request);
     if (!outcome.IsSuccess()) {
         return Status::IOError(fmt::format("failed to read from {}: {}", _path.native(),

@@ -296,8 +296,6 @@ public:
 
     RowsetSharedPtr pick_cooldown_rowset();
 
-    bool need_cooldown();
-
     bool need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
 
     // Physically remove remote rowsets.
