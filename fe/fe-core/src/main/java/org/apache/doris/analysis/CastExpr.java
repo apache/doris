@@ -98,16 +98,15 @@ public class CastExpr extends Expr {
         isImplicit = true;
 
         children.add(e);
-        if (isImplicit) {
-            try {
-                analyze();
-            } catch (AnalysisException ex) {
-                LOG.warn("Implicit casts fail", ex);
-                Preconditions.checkState(false,
-                        "Implicit casts should never throw analysis exception.");
-            }
-            analysisDone();
+
+        try {
+            analyze();
+        } catch (AnalysisException ex) {
+            LOG.warn("Implicit casts fail", ex);
+            Preconditions.checkState(false,
+                    "Implicit casts should never throw analysis exception.");
         }
+        analysisDone();
     }
 
     /**

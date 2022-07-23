@@ -26,15 +26,17 @@ namespace doris::vectorized {
 
 class AggregateFunctionSimpleFactory;
 
-void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_combinator_sort(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_null(AggregateFunctionSimpleFactory& factory);
+
+void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_min_max_by(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_count(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_uniq(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_lead_lag(AggregateFunctionSimpleFactory& factory);
@@ -82,6 +84,8 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_window_lead_lag(instance);
         register_aggregate_function_HLL_union_agg(instance);
         register_aggregate_function_percentile_approx(instance);
+
+        register_aggregate_function_combinator_sort(instance);
     });
     return instance;
 }

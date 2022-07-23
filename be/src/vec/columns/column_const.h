@@ -52,6 +52,8 @@ public:
 
     const char* get_family_name() const override { return "Const"; }
 
+    void resize(size_t new_size) override { s = new_size; }
+
     MutableColumnPtr clone_resized(size_t new_size) const override {
         return ColumnConst::create(data, new_size);
     }

@@ -20,9 +20,6 @@
 
 #include "vec/aggregate_functions/aggregate_function_distinct.h"
 
-#include <algorithm>
-#include <boost/algorithm/string.hpp>
-
 #include "vec/aggregate_functions/aggregate_function_combinator.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
@@ -89,9 +86,6 @@ void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFact
                        [](const auto& e) { return remove_nullable(e); });
         auto function_combinator = std::make_shared<AggregateFunctionCombinatorDistinct>();
         auto transform_arguments = function_combinator->transform_arguments(nested_types);
-        if (!boost::algorithm::starts_with(name, DISTINCT_FUNCTION_PREFIX)) {
-            return AggregateFunctionPtr();
-        }
         auto nested_function_name = name.substr(DISTINCT_FUNCTION_PREFIX.size());
         auto nested_function = factory.get(nested_function_name, transform_arguments, params);
         return function_combinator->transform_aggregate_function(nested_function, types, params,
