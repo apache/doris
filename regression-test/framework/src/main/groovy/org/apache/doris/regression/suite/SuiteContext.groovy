@@ -34,7 +34,7 @@ class SuiteContext implements Closeable {
     public final File file
     public final String suiteName
     public final String group
-    public final String dbName
+    public final String dbNameSuffix
     public final ThreadLocal<Connection> threadLocalConn = new ThreadLocal<>()
     public final Config config
     public final File dataPath
@@ -76,7 +76,7 @@ class SuiteContext implements Closeable {
         this.realOutputFile = new File(new File(config.realDataPath), realOutputRelativePath)
         this.dataPath = this.outputFile.getParentFile().getCanonicalFile()
 
-        this.dbName = config.getDbNameByFile(file)
+        this.dbNameSuffix = config.getDbNameByFile(file)
         // - flowName: tpcds_sf1.sql.q47.q47, flowId: tpcds_sf1/sql/q47.sql#q47
         log.info("flowName: ${flowName}, flowId: ${flowId}".toString())
     }
@@ -111,7 +111,7 @@ class SuiteContext implements Closeable {
     Connection getConnection() {
         def threadConn = threadLocalConn.get()
         if (threadConn == null) {
-            threadConn = config.getConnectionByDbName(dbName)
+            threadConn = config.getConnectionByDbNameSuffix(dbNameSuffix)
             threadLocalConn.set(threadConn)
         }
         return threadConn

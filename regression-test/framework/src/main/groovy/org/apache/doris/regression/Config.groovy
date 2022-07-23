@@ -371,8 +371,9 @@ class Config {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
     }
 
-    Connection getConnectionByDbName(String dbName) {
-        String dbUrl = buildUrl(defaultDb + '_' + dbName)
+    Connection getConnectionByDbNameSuffix(String dbNameSuffix) {
+        String dbName = defaultDb + '_' + dbNameSuffix
+        String dbUrl = buildUrl(dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
@@ -384,7 +385,7 @@ class Config {
             dir = dir.substring(0, dir.indexOf(File.separator + "sql"))
         }
 
-        return dir.replace(File.separator, '_')
+        return defaultDb + '_' + dir.replace(File.separator, '_')
     }
 
     Predicate<String> getDirectoryFilter() {
