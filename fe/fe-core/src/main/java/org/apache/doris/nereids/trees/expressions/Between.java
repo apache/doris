@@ -80,7 +80,7 @@ public class Between extends Expression implements TernaryExpression {
     }
 
     public Expression getLowerBound() {
-        return  lowerBound;
+        return lowerBound;
     }
 
     public Expression getUpperBound() {
@@ -101,10 +101,11 @@ public class Between extends Expression implements TernaryExpression {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        Between between = (Between) o;
-        return Objects.equals(compareExpr, between.compareExpr)
-                && Objects.equals(lowerBound, between.lowerBound)
-                && Objects.equals(upperBound, between.upperBound);
+        Between that = (Between) o;
+        return Objects.equals(compareExpr, that.compareExpr)
+                && Objects.equals(lowerBound, that.lowerBound)
+                && Objects.equals(upperBound, that.upperBound)
+                && Objects.equals(children, that.children);
     }
 
     @Override

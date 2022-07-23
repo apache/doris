@@ -74,7 +74,7 @@ public class UnboundSlot extends Slot implements Unbound {
             return false;
         }
         UnboundSlot other = (UnboundSlot) o;
-        return nameParts.equals(other.getNameParts());
+        return nameParts.equals(other.nameParts);
     }
 
     @Override

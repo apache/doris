@@ -98,12 +98,11 @@ public class Alias extends NamedExpression implements UnaryExpression {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
-        Alias alias = (Alias) o;
-        return exprId.equals(alias.exprId) && name.equals(alias.name)
-                && qualifier.equals(alias.qualifier) && children.equals(alias.children);
+        Alias that = (Alias) o;
+        return exprId.equals(that.exprId)
+                && name.equals(that.name)
+                && qualifier.equals(that.qualifier)
+                && child().equals(that.child());
     }
 
     @Override
@@ -116,14 +115,13 @@ public class Alias extends NamedExpression implements UnaryExpression {
         return child().toString() + " AS `" + name + "`#" + exprId;
     }
 
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitAlias(this, context);
-    }
-
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Alias(exprId, children.get(0), name);
     }
 
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitAlias(this, context);
+    }
 }
