@@ -108,8 +108,7 @@ class SuiteContext implements Closeable {
     Connection getConnection() {
         def threadConn = threadLocalConn.get()
         if (threadConn == null) {
-            def groupList = group.split(',')
-            threadConn = config.getConnection(groupList[groupList.length - 1].replace(File.separator, '_'))
+            threadConn = config.getConnectionByLastGroup(group)
             threadLocalConn.set(threadConn)
         }
         return threadConn

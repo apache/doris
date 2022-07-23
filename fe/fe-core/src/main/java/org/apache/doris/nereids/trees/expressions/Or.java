@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+
 import com.google.common.base.Preconditions;
 
 import java.util.List;
@@ -39,6 +41,11 @@ public class Or extends CompoundPredicate {
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new Or(children.get(0), children.get(1));
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitOr(this, context);
     }
 
     @Override
