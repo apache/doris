@@ -116,10 +116,7 @@ StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
     static constexpr auto s = sizeof(arr[0]);
 
     auto pos = arena.alloc_continue(s, begin);
-    // Value of `NULL` may be 1 or JOIN_NULL_HINT, we serialize both to 1.
-    // Because we need same key for both `NULL` values while processing `group by`.
-    UInt8* val = reinterpret_cast<UInt8*>(pos);
-    *val = (arr[n] ? 1 : 0);
+    memcpy(pos, &arr[n], s);
 
     if (arr[n]) return StringRef(pos, s);
 
@@ -127,11 +124,6 @@ StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
 
     /// serialize_value_into_arena may reallocate memory. Have to use ptr from nested_ref.data and move it back.
     return StringRef(nested_ref.data - s, nested_ref.size + s);
-}
-
-void ColumnNullable::insert_join_null_data() {
-    get_nested_column().insert_default();
-    get_null_map_data().push_back(JOIN_NULL_HINT);
 }
 
 const char* ColumnNullable::deserialize_and_insert_from_arena(const char* pos) {

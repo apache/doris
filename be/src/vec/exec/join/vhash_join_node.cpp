@@ -23,6 +23,7 @@
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
 #include "vec/core/materialize_block.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/template_helpers.hpp"
@@ -178,6 +179,12 @@ struct ProcessHashTableProbe {
               _items_counts(join_node->_items_counts),
               _build_block_offsets(join_node->_build_block_offsets),
               _build_block_rows(join_node->_build_block_rows),
+              _tuple_is_null_left_flags(
+                      reinterpret_cast<ColumnUInt8&>(*join_node->_tuple_is_null_left_flag_column)
+                              .get_data()),
+              _tuple_is_null_right_flags(
+                      reinterpret_cast<ColumnUInt8&>(*join_node->_tuple_is_null_right_flag_column)
+                              .get_data()),
               _rows_returned_counter(join_node->_rows_returned_counter),
               _search_hashtable_timer(join_node->_search_hashtable_timer),
               _build_side_output_timer(join_node->_build_side_output_timer),
@@ -214,7 +221,7 @@ struct ProcessHashTableProbe {
                                 if (_build_block_offsets[j] == -1) {
                                     DCHECK(mcol[i + column_offset]->is_nullable());
                                     assert_cast<ColumnNullable*>(mcol[i + column_offset].get())
-                                            ->insert_join_null_data();
+                                            ->insert_default();
                                 } else {
                                     auto& column = *_build_blocks[_build_block_offsets[j]]
                                                             .get_by_position(i)
@@ -246,9 +253,19 @@ struct ProcessHashTableProbe {
                 }
             }
         }
+
+        // Dispose right tuple is null flags columns
+        if constexpr (probe_all && !have_other_join_conjunct) {
+            _tuple_is_null_right_flags.resize(size);
+            auto* __restrict null_data = _tuple_is_null_right_flags.data();
+            for (int i = 0; i < size; ++i) {
+                null_data[i] = _build_block_rows[i] == -1;
+            }
+        }
     }
 
     // output probe side result column
+    template <bool have_other_join_conjunct = false>
     void probe_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags,
                                   int size) {
         for (int i = 0; i < output_slot_flags.size(); ++i) {
@@ -258,6 +275,10 @@ struct ProcessHashTableProbe {
             } else {
                 mcol[i]->resize(size);
             }
+        }
+
+        if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN && !have_other_join_conjunct) {
+            _tuple_is_null_left_flags.resize_fill(size, 0);
         }
     }
     // Only process the join with no other join conjunt, because of no other join conjunt
@@ -484,7 +505,8 @@ struct ProcessHashTableProbe {
         }
         {
             SCOPED_TIMER(_probe_side_output_timer);
-            probe_side_output_column(mcol, _join_node->_left_output_slot_flags, current_offset);
+            probe_side_output_column<true>(mcol, _join_node->_left_output_slot_flags,
+                                           current_offset);
         }
         output_block->swap(mutable_block.to_block());
 
@@ -500,6 +522,9 @@ struct ProcessHashTableProbe {
                 auto new_filter_column = ColumnVector<UInt8>::create();
                 auto& filter_map = new_filter_column->get_data();
 
+                auto null_map_column = ColumnVector<UInt8>::create(column->size(), 0);
+                auto* __restrict null_map_data = null_map_column->get_data().data();
+
                 for (int i = 0; i < column->size(); ++i) {
                     auto join_hit = visited_map[i] != nullptr;
                     auto other_hit = column->get_bool(i);
@@ -514,6 +539,7 @@ struct ProcessHashTableProbe {
                                     ->get_null_map_data()[i] = true;
                         }
                     }
+                    null_map_data[i] = !join_hit || !other_hit;
 
                     if (join_hit) {
                         *visited_map[i] |= other_hit;
@@ -525,6 +551,12 @@ struct ProcessHashTableProbe {
                             filter_map[i - 1] = false;
                     } else {
                         filter_map.push_back(true);
+                    }
+                }
+
+                for (int i = 0; i < column->size(); ++i) {
+                    if (filter_map[i]) {
+                        _tuple_is_null_right_flags.emplace_back(null_map_data[i]);
                     }
                 }
                 output_block->get_by_position(result_column_id).column =
@@ -571,12 +603,20 @@ struct ProcessHashTableProbe {
                 output_block->get_by_position(result_column_id).column =
                         std::move(new_filter_column);
             } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
-                                 JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
-                                 JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN) {
+                                 JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN) {
                 for (int i = 0; i < column->size(); ++i) {
                     DCHECK(visited_map[i]);
                     *visited_map[i] |= column->get_bool(i);
                 }
+            } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN) {
+                auto filter_size = 0;
+                for (int i = 0; i < column->size(); ++i) {
+                    DCHECK(visited_map[i]);
+                    auto result = column->get_bool(i);
+                    *visited_map[i] |= result;
+                    filter_size += result;
+                }
+                _tuple_is_null_left_flags.resize_fill(filter_size, 0);
             } else {
                 // inner join do nothing
             }
@@ -642,10 +682,9 @@ struct ProcessHashTableProbe {
         if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
                       JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
             for (int i = 0; i < right_col_idx; ++i) {
-                for (int j = 0; j < block_size; ++j) {
-                    assert_cast<ColumnNullable*>(mcol[i].get())->insert_join_null_data();
-                }
+                assert_cast<ColumnNullable*>(mcol[i].get())->insert_many_defaults(block_size);
             }
+            _tuple_is_null_left_flags.resize_fill(block_size, 1);
         }
         *eos = iter == hash_table_ctx.hash_table.end();
 
@@ -667,6 +706,10 @@ private:
     std::vector<uint32_t>& _items_counts;
     std::vector<int8_t>& _build_block_offsets;
     std::vector<int>& _build_block_rows;
+    // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
+    ColumnUInt8::Container& _tuple_is_null_left_flags;
+    // only need set the tuple is null in LEFT_OUTER_JOIN and FULL_OUTER_JOIN
+    ColumnUInt8::Container& _tuple_is_null_right_flags;
 
     ProfileCounter* _rows_returned_counter;
     ProfileCounter* _search_hashtable_timer;
@@ -726,7 +769,6 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     if (tnode.hash_join_node.join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
         return Status::InternalError("Do not support null aware left anti join");
     }
-    _row_desc_for_other_join_conjunt = RowDescriptor(child(0)->row_desc(), child(1)->row_desc());
 
     const bool build_stores_null = _join_op == TJoinOp::RIGHT_OUTER_JOIN ||
                                    _join_op == TJoinOp::FULL_OUTER_JOIN ||
@@ -797,6 +839,11 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_output_slots_flags(child(0)->row_desc().tuple_descriptors(), _left_output_slot_flags);
     init_output_slots_flags(child(1)->row_desc().tuple_descriptors(), _right_output_slot_flags);
 
+    // only use in outer join as the bool column to mark for function of `tuple_is_null`
+    if (_is_outer_join) {
+        _tuple_is_null_left_flag_column = ColumnUInt8::create();
+        _tuple_is_null_right_flag_column = ColumnUInt8::create();
+    }
     return Status::OK();
 }
 
@@ -997,9 +1044,11 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
         return Status::OK();
     }
 
+    _add_tuple_is_null_column(&temp_block);
     RETURN_IF_ERROR(
             VExprContext::filter_block(_vconjunct_ctx_ptr, &temp_block, temp_block.columns()));
     RETURN_IF_ERROR(_build_output_block(&temp_block, output_block));
+    _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
 
     return st;
@@ -1437,6 +1486,38 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
     }
 
     return Status::OK();
+}
+
+void HashJoinNode::_add_tuple_is_null_column(doris::vectorized::Block* block) {
+    if (_is_outer_join) {
+        auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
+        auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
+        auto& left_null_map = reinterpret_cast<ColumnUInt8&>(*p0);
+        auto& right_null_map = reinterpret_cast<ColumnUInt8&>(*p1);
+        auto left_size = left_null_map.size();
+        auto right_size = right_null_map.size();
+
+        if (left_size == 0) {
+            DCHECK_EQ(right_size, block->rows());
+            left_null_map.get_data().resize_fill(right_size, 0);
+        }
+        if (right_size == 0) {
+            DCHECK_EQ(left_size, block->rows());
+            right_null_map.get_data().resize_fill(left_size, 0);
+        }
+
+        block->insert({std::move(p0), std::make_shared<vectorized::DataTypeUInt8>(),
+                       "left_tuples_is_null"});
+        block->insert({std::move(p1), std::make_shared<vectorized::DataTypeUInt8>(),
+                       "right_tuples_is_null"});
+    }
+}
+
+void HashJoinNode::_reset_tuple_is_null_column() {
+    if (_is_outer_join) {
+        reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_left_flag_column).clear();
+        reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_right_flag_column).clear();
+    }
 }
 
 } // namespace doris::vectorized

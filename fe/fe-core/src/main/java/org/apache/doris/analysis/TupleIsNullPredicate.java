@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.thrift.TNullSide;
 import org.apache.doris.thrift.TTupleIsNullPredicate;
 
 import com.google.common.base.Joiner;
@@ -41,17 +42,22 @@ import java.util.Objects;
  * The given tupleIds must be materialized and nullable at the appropriate PlanNode.
  */
 public class TupleIsNullPredicate extends Predicate {
-
     private List<TupleId> tupleIds = Lists.newArrayList();
+    private TNullSide nullSide = null;
 
     public TupleIsNullPredicate(List<TupleId> tupleIds) {
         Preconditions.checkState(tupleIds != null && !tupleIds.isEmpty());
         this.tupleIds.addAll(tupleIds);
     }
 
+    public TupleIsNullPredicate(TNullSide nullSide) {
+        this.nullSide = nullSide;
+    }
+
     protected TupleIsNullPredicate(TupleIsNullPredicate other) {
         super(other);
         tupleIds.addAll(other.tupleIds);
+        nullSide = other.nullSide;
     }
 
     @Override
@@ -83,8 +89,12 @@ public class TupleIsNullPredicate extends Predicate {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.TUPLE_IS_NULL_PRED;
         msg.tuple_is_null_pred = new TTupleIsNullPredicate();
+        msg.tuple_is_null_pred.setTupleIds(Lists.newArrayList());
         for (TupleId tid : tupleIds) {
             msg.tuple_is_null_pred.addToTupleIds(tid.asInt());
+        }
+        if (nullSide != null) {
+            msg.tuple_is_null_pred.setNullSide(nullSide);
         }
     }
 
@@ -136,6 +146,26 @@ public class TupleIsNullPredicate extends Predicate {
     }
 
     /**
+     * Makes each input expr nullable, if necessary, by wrapping it as follows:
+     * IF(TupleIsNull(nullSide), NULL, expr)
+     * <p>
+     * The given inputExprs are expected to be bound
+     * by null side tuple id once fully substituted against base tables. However, inputExprs may not yet
+     * be fully substituted at this point.
+     * <p>
+     * Returns a new list with the nullable exprs. only use in vectorized exec engine
+     */
+    public static List<Expr> wrapExprs(List<Expr> inputExprs,
+                                       TNullSide nullSide, Analyzer analyzer) throws UserException {
+        // Perform the wrapping.
+        List<Expr> result = Lists.newArrayListWithCapacity(inputExprs.size());
+        for (Expr e : inputExprs) {
+            result.add(wrapExpr(e, nullSide, analyzer));
+        }
+        return result;
+    }
+
+    /**
      * Returns a new analyzed conditional expr 'IF(TupleIsNull(tids), NULL, expr)',
      * if required to make expr nullable. Otherwise, returns expr.
      */
@@ -146,6 +176,33 @@ public class TupleIsNullPredicate extends Predicate {
         }
         List<Expr> params = Lists.newArrayList();
         params.add(new TupleIsNullPredicate(tids));
+        params.add(new NullLiteral());
+        params.add(expr);
+        Expr ifExpr = new FunctionCallExpr("if", params);
+        ifExpr.analyzeNoThrow(analyzer);
+        // The type of function which is different from the type of expr will return the incorrect result in query.
+        // Example:
+        //   the type of expr is date
+        //   the type of function is int
+        //   So, the upper fragment will receive a int value instead of date while the result expr is date.
+        // If there is no cast function, the result of query will be incorrect.
+        if (expr.getType().getPrimitiveType() != ifExpr.getType().getPrimitiveType()) {
+            ifExpr = ifExpr.uncheckedCastTo(expr.getType());
+        }
+        return ifExpr;
+    }
+
+    /**
+     * Returns a new analyzed conditional expr 'IF(TupleIsNull(nullSide), NULL, expr)',
+     * if required to make expr nullable. Otherwise, returns expr. only use in vectorized exec engine
+     */
+    public static Expr wrapExpr(Expr expr, TNullSide nullSide, Analyzer analyzer)
+            throws UserException {
+        if (!requiresNullWrapping(expr, analyzer)) {
+            return expr;
+        }
+        List<Expr> params = Lists.newArrayList();
+        params.add(new TupleIsNullPredicate(nullSide));
         params.add(new NullLiteral());
         params.add(expr);
         Expr ifExpr = new FunctionCallExpr("if", params);
