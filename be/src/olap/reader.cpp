@@ -570,6 +570,11 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             predicate = new PREDICATE<uint32_t>(index, value, opposite);                           \
             break;                                                                                 \
         }                                                                                          \
+        case OLAP_FIELD_TYPE_DATETIMEV2: {                                                         \
+            uint64_t value = timestamp_from_datetime_v2(cond);                                     \
+            predicate = new PREDICATE<uint64_t>(index, value, opposite);                           \
+            break;                                                                                 \
+        }                                                                                          \
         case OLAP_FIELD_TYPE_DATETIME: {                                                           \
             uint64_t value = timestamp_from_datetime(cond);                                        \
             predicate = new PREDICATE<uint64_t>(index, value, opposite);                           \
@@ -858,6 +863,19 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
                 predicate = new InListPredicate<uint32_t>(index, std::move(values), opposite);
             } else {
                 predicate = new NotInListPredicate<uint32_t>(index, std::move(values), opposite);
+            }
+            break;
+        }
+        case OLAP_FIELD_TYPE_DATETIMEV2: {
+            phmap::flat_hash_set<uint64_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                uint64_t value = timestamp_from_datetime_v2(cond_val);
+                values.insert(value);
+            }
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<uint64_t>(index, std::move(values), opposite);
+            } else {
+                predicate = new NotInListPredicate<uint64_t>(index, std::move(values), opposite);
             }
             break;
         }
