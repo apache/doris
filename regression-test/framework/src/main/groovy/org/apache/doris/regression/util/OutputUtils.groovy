@@ -148,7 +148,11 @@ class OutputUtils {
     }
 
     static OutputBlocksIterator iterator(File file) {
-        def it = new ReusableIterator<String>(new LineIteratorAdaptor(new LineIterator(new FileReader(file))))
+        return iterator(new LineIterator(new FileReader(file)));
+    }
+
+    static OutputBlocksIterator iterator(LineIterator closeableIterator) {
+        def it = new ReusableIterator<String>(new LineIteratorAdaptor(closeableIterator))
         return new OutputBlocksIterator(it)
     }
 

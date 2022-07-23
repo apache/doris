@@ -62,5 +62,10 @@ public abstract class Rule {
         return ruleType.getRuleTypeClass() == RuleTypeClass.REWRITE;
     }
 
+    @Override
+    public String toString() {
+        return getRuleType().toString();
+    }
+
     public abstract List<Plan> transform(Plan node, PlannerContext context) throws TransformException;
 }

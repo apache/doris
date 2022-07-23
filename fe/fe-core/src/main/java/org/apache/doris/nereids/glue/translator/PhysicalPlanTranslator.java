@@ -354,9 +354,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toList());
 
+            TupleDescriptor outputDescriptor = context.generateTupleDesc();
+            List<Expr> srcToOutput = hashJoin.getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .peek(s -> context.createSlotDesc(outputDescriptor, s))
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .collect(Collectors.toList());
+
             HashJoinNode hashJoinNode = new HashJoinNode(context.nextPlanNodeId(), leftFragmentPlanRoot,
-                    rightFragmentPlanRoot,
-                    JoinType.toJoinOperator(joinType), execEqConjunctList, Lists.newArrayList());
+                    rightFragmentPlanRoot, JoinType.toJoinOperator(joinType), execEqConjunctList, Lists.newArrayList(),
+                    srcToOutput, outputDescriptor, outputDescriptor);
 
             hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
             hashJoinNode.setChild(0, leftFragmentPlanRoot);

@@ -132,10 +132,13 @@ public class Memo {
     private GroupExpression insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
             boolean rewrite, LogicalProperties logicalProperties) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
-        if (existedGroupExpression != null
-                && existedGroupExpression.getOwnerGroup().getLogicalProperties().equals(logicalProperties)) {
+        if (existedGroupExpression != null) {
+            Group mergedGroup = existedGroupExpression.getOwnerGroup();
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
-                mergeGroup(target, existedGroupExpression.getOwnerGroup());
+                mergedGroup = mergeGroup(target, existedGroupExpression.getOwnerGroup());
+            }
+            if (rewrite) {
+                mergedGroup.setLogicalProperties(logicalProperties);
             }
             return existedGroupExpression;
         }
@@ -164,10 +167,11 @@ public class Memo {
      *
      * @param source source group
      * @param destination destination group
+     * @return merged group
      */
-    private void mergeGroup(Group source, Group destination) {
+    private Group mergeGroup(Group source, Group destination) {
         if (source.equals(destination)) {
-            return;
+            return source;
         }
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
         groupExpressions.values().forEach(groupExpression -> {
@@ -205,6 +209,7 @@ public class Memo {
             source.movePhysicalExpressionOwnership(destination);
             groups.remove(source);
         }
+        return destination;
     }
 
     /**
