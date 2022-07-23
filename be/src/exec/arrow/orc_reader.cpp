@@ -201,10 +201,7 @@ void ORCReaderWrap::prefetch_batch() {
         arrow::Result<std::shared_ptr<arrow::RecordBatch>> maybe_batch =
                 _reader->ReadStripe(current_group, _include_column_ids);
 
-        arrow::RecordBatchVector batches;
-        batches.emplace_back(maybe_batch.ValueOrDie());
-
-        std::for_each(batches.begin(), batches.end(), insert_batch);
+        insert_batch(maybe_batch.ValueOrDie());
         current_group++;
     }
 }
