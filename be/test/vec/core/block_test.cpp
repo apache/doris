@@ -114,10 +114,10 @@ TEST(BlockTest, RowBatchCovertToBlock) {
         memcpy(tuple->get_slot(slot_desc->tuple_offset()), &k7, column_descs[6].size);
 
         slot_desc = tuple_desc->slots()[7];
-        vectorized::DateV2Value k8;
+        vectorized::DateV2Value<doris::vectorized::DateV2ValueType> k8;
         std::string now_date("2020-12-02");
         k8.from_date_str(now_date.c_str(), now_date.size());
-        k8.date_add_interval(time_interval, vectorized::TimeUnit::DAY);
+        k8.date_add_interval(time_interval, vectorized::TimeUnit::DAY, k8);
         memcpy(tuple->get_slot(slot_desc->tuple_offset()), &k8, column_descs[7].size);
 
         tuple_row->set_tuple(0, tuple);
@@ -166,12 +166,12 @@ TEST(BlockTest, RowBatchCovertToBlock) {
         EXPECT_EQ(k7, date_time_value);
 
         larget_int = column8->operator[](i).get<vectorized::UInt32>();
-        vectorized::DateV2Value k8;
+        vectorized::DateV2Value<doris::vectorized::DateV2ValueType> k8;
         memcpy(reinterpret_cast<vectorized::Int128*>(&k8), &larget_int, column_descs[7].size);
-        vectorized::DateV2Value date_v2_value;
+        vectorized::DateV2Value<doris::vectorized::DateV2ValueType> date_v2_value;
         std::string now_date("2020-12-02");
         date_v2_value.from_date_str(now_date.c_str(), now_date.size());
-        date_v2_value.date_add_interval(time_interval, vectorized::TimeUnit::DAY);
+        date_v2_value.date_add_interval(time_interval, vectorized::TimeUnit::DAY, date_v2_value);
 
         EXPECT_EQ(k8, date_v2_value);
 
@@ -475,7 +475,7 @@ TEST(BlockTest, dump_data) {
     auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
     auto& date_v2_data = column_vector_date_v2->get_data();
     for (int i = 0; i < 1024; ++i) {
-        vectorized::DateV2Value value;
+        vectorized::DateV2Value<doris::vectorized::DateV2ValueType> value;
         value.from_date((uint32_t)((2022 << 9) | (6 << 5) | 6));
         date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
     }

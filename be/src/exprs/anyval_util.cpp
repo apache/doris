@@ -38,6 +38,7 @@ using doris_udf::DateTimeVal;
 using doris_udf::StringVal;
 using doris_udf::AnyVal;
 using doris_udf::DateV2Val;
+using doris_udf::DateTimeV2Val;
 
 Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor& type,
                         const std::string& mem_limit_exceeded_msg, AnyVal** result) {
@@ -109,8 +110,10 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_DATEV2:
         return pool->add(new DateV2Val);
 
-    case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
+        return pool->add(new DateTimeV2Val);
+
+    case TYPE_DATETIME:
         return pool->add(new DateTimeVal);
 
     case TYPE_ARRAY:
@@ -154,11 +157,13 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
         out.type = FunctionContext::TYPE_DATE;
         break;
     case TYPE_DATETIME:
-    case TYPE_DATETIMEV2:
         out.type = FunctionContext::TYPE_DATETIME;
         break;
     case TYPE_DATEV2:
         out.type = FunctionContext::TYPE_DATEV2;
+        break;
+    case TYPE_DATETIMEV2:
+        out.type = FunctionContext::TYPE_DATETIMEV2;
         break;
     case TYPE_DECIMAL32:
         out.type = FunctionContext::TYPE_DECIMAL32;
