@@ -1349,6 +1349,7 @@ void HashJoinNode::_hash_table_init() {
         case TYPE_DOUBLE:
         case TYPE_DATETIME:
         case TYPE_DATE:
+        case TYPE_DATETIMEV2:
             _hash_table_variants.emplace<I64HashTableContext>();
             break;
         case TYPE_LARGEINT:

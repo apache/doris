@@ -34,10 +34,10 @@ int64_t str_to_date_time(std::string datetime_str, bool data_time) {
 }
 
 uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format) {
-    DateV2Value v;
+    DateV2Value<DateV2ValueType> v;
     v.from_date_format_str(datetime_format.c_str(), datetime_format.size(), datetime_str.c_str(),
                            datetime_str.size());
-    return binary_cast<DateV2Value, UInt32>(v);
+    return binary_cast<DateV2Value<DateV2ValueType>, UInt32>(v);
 }
 
 size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t index,
@@ -216,7 +216,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const std::any&
     } else if (type.is_date_v2()) {
         static std::string date_time_format("%Y-%m-%d");
         auto datetime_str = std::any_cast<std::string>(cell);
-        DateV2Value v;
+        DateV2Value<DateV2ValueType> v;
         v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
                                datetime_str.c_str(), datetime_str.size());
         column->insert_data(reinterpret_cast<char*>(&v), 0);

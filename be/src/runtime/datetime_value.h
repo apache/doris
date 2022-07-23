@@ -570,8 +570,14 @@ private:
     friend class UnusedClass;
     friend void doris::vectorized::VecDateTimeValue::convert_vec_dt_to_dt(DateTimeValue* dt);
     friend void doris::vectorized::VecDateTimeValue::convert_dt_to_vec_dt(DateTimeValue* dt);
-    friend void doris::vectorized::DateV2Value::convert_date_v2_to_dt(DateTimeValue* dt);
-    friend void doris::vectorized::DateV2Value::convert_dt_to_date_v2(DateTimeValue* dt);
+    friend void doris::vectorized::DateV2Value<
+            doris::vectorized::DateV2ValueType>::convert_date_v2_to_dt(DateTimeValue* dt);
+    friend void doris::vectorized::DateV2Value<
+            doris::vectorized::DateV2ValueType>::convert_dt_to_date_v2(DateTimeValue* dt);
+    friend void doris::vectorized::DateV2Value<
+            doris::vectorized::DateTimeV2ValueType>::convert_date_v2_to_dt(DateTimeValue* dt);
+    friend void doris::vectorized::DateV2Value<
+            doris::vectorized::DateTimeV2ValueType>::convert_dt_to_date_v2(DateTimeValue* dt);
 
     void from_packed_time(int64_t packed_time) {
         _microsecond = packed_time % (1LL << 24);
