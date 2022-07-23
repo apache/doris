@@ -76,7 +76,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
      * @return stale planner's expr
      */
     public static Expr translate(Expression expression, PlanTranslatorContext context) {
-        Expr staleExpr =  expression.accept(INSTANCE, context);
+        Expr staleExpr = expression.accept(INSTANCE, context);
         try {
             staleExpr.finalizeForNereids();
         } catch (org.apache.doris.common.AnalysisException e) {
