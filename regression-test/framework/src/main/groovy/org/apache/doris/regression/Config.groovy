@@ -378,10 +378,13 @@ class Config {
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
     }
 
-    String getDbByLastGroup(String group) {
-        def groupList = group.split(',')
-        String lastGroup = groupList[groupList.length - 1].replace(File.separator, '_')
-        return defaultDb + '_' + lastGroup
+    String getDbNameByFile(File suiteFile) {
+        String dir = new File(suitePath).relativePath(suiteFile.parentFile)
+        if (dir.indexOf(File.separator + "sql") > 0) {
+            dir = dir.substring(0, dir.indexOf(File.separator + "sql"))
+        }
+
+        return dir.replace(File.separator, '_')
     }
 
     Predicate<String> getDirectoryFilter() {
