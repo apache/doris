@@ -113,7 +113,7 @@ struct MakeDateImpl {
 
                 TimeInterval interval(DAY, r - 1, false);
                 res_val = VecDateTimeValue::from_datetime_val(ts_val);
-                if (!res_val.date_add_interval(interval, DAY)) {
+                if (!res_val.date_add_interval<DAY>(interval)) {
                     null_map[i] = 1;
                     continue;
                 }
@@ -122,7 +122,7 @@ struct MakeDateImpl {
                 DateV2Value<DateV2ValueType>* value = new (&res[i]) DateV2Value<DateV2ValueType>();
                 value->set_time(l, 1, 1);
                 TimeInterval interval(DAY, r - 1, false);
-                if (!value->date_add_interval(interval, DAY, *value)) {
+                if (!value->date_add_interval<DAY>(interval, *value)) {
                     null_map[i] = 1;
                 }
             }

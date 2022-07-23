@@ -565,19 +565,36 @@ public:
                _month > 0 && _day > 0;
     }
 
+    template <typename T>
+    void convert_from_date_v2(doris::vectorized::DateV2Value<T>* dt) {
+        if constexpr (doris::vectorized::DateV2Value<T>::is_datetime) {
+            this->_type = TIME_DATETIME;
+            this->_hour = dt->hour();
+            this->_minute = dt->minute();
+            this->_second = dt->second();
+        } else {
+            this->_type = TIME_DATE;
+            this->_hour = 0;
+            this->_minute = 0;
+            this->_second = 0;
+        }
+        this->_neg = 0;
+        this->_year = dt->year();
+        this->_month = dt->month();
+        this->_day = dt->day();
+        this->_microsecond = 0;
+    }
+
+    template <typename T>
+    void convert_to_date_v2(doris::vectorized::DateV2Value<T>* dt) {
+        dt->set_time(dt->year(), dt->month(), dt->_day, dt->hour(), dt->minute(), dt->second(), 0);
+    }
+
 private:
     // Used to make sure sizeof DateTimeValue
     friend class UnusedClass;
     friend void doris::vectorized::VecDateTimeValue::convert_vec_dt_to_dt(DateTimeValue* dt);
     friend void doris::vectorized::VecDateTimeValue::convert_dt_to_vec_dt(DateTimeValue* dt);
-    friend void doris::vectorized::DateV2Value<
-            doris::vectorized::DateV2ValueType>::convert_date_v2_to_dt(DateTimeValue* dt);
-    friend void doris::vectorized::DateV2Value<
-            doris::vectorized::DateV2ValueType>::convert_dt_to_date_v2(DateTimeValue* dt);
-    friend void doris::vectorized::DateV2Value<
-            doris::vectorized::DateTimeV2ValueType>::convert_date_v2_to_dt(DateTimeValue* dt);
-    friend void doris::vectorized::DateV2Value<
-            doris::vectorized::DateTimeV2ValueType>::convert_dt_to_date_v2(DateTimeValue* dt);
 
     void from_packed_time(int64_t packed_time) {
         _microsecond = packed_time % (1LL << 24);

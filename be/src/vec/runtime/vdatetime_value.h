@@ -458,7 +458,8 @@ public:
     uint32_t year_week(uint8_t mode) const;
 
     // Add interval
-    bool date_add_interval(const TimeInterval& interval, TimeUnit unit);
+    template <TimeUnit unit>
+    bool date_add_interval(const TimeInterval& interval);
 
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
@@ -526,17 +527,17 @@ public:
         switch (_type) {
         case TIME_DATE: {
             TimeInterval interval(DAY, 1, false);
-            date_add_interval(interval, DAY);
+            date_add_interval<DAY>(interval);
             break;
         }
         case TIME_DATETIME: {
             TimeInterval interval(SECOND, 1, false);
-            date_add_interval(interval, SECOND);
+            date_add_interval<SECOND>(interval);
             break;
         }
         case TIME_TIME: {
             TimeInterval interval(SECOND, 1, false);
-            date_add_interval(interval, SECOND);
+            date_add_interval<SECOND>(interval);
             break;
         }
         }
@@ -907,11 +908,12 @@ public:
     uint32_t year_week(uint8_t mode) const;
 
     // Add interval
-    template <typename TO>
-    bool date_add_interval(const TimeInterval& interval, TimeUnit unit, DateV2Value<TO>& to_value);
+    template <TimeUnit unit, typename TO>
+    bool date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value);
 
-    bool date_add_interval(const TimeInterval& interval, TimeUnit unit) {
-        return this->date_add_interval(interval, unit, *this);
+    template <TimeUnit unit>
+    bool date_add_interval(const TimeInterval& interval) {
+        return this->date_add_interval<unit>(interval, *this);
     }
 
     //unix_timestamp is called with a timezone argument,
@@ -1006,10 +1008,10 @@ public:
     DateV2Value<T>& operator++() {
         if constexpr (is_datetime) {
             TimeInterval interval(SECOND, 1, false);
-            date_add_interval(interval, SECOND, *this);
+            date_add_interval<SECOND>(interval, *this);
         } else {
             TimeInterval interval(DAY, 1, false);
-            date_add_interval(interval, DAY, *this);
+            date_add_interval<DAY>(interval, *this);
         }
         return *this;
     }
@@ -1051,9 +1053,6 @@ public:
                         (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
         return time_diff;
     }
-
-    void convert_date_v2_to_dt(doris::DateTimeValue* dt);
-    void convert_dt_to_date_v2(doris::DateTimeValue* dt);
 
     bool can_cast_to_date_without_loss_accuracy() {
         return this->hour() == 0 && this->minute() == 0 && this->second() == 0 &&

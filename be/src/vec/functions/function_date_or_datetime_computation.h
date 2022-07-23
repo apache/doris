@@ -39,12 +39,12 @@ inline ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
     TimeInterval interval(unit, delta, false);
     if constexpr (std::is_same_v<VecDateTimeValue, DateValueType> ||
                   std::is_same_v<DateValueType, ResultDateValueType>) {
-        is_null = !ts_value.date_add_interval(interval, unit);
+        is_null = !(ts_value.template date_add_interval<unit>(interval));
 
         return binary_cast<ResultDateValueType, ResultType>(ts_value);
     } else {
         ResultDateValueType res;
-        is_null = !ts_value.date_add_interval(interval, unit, res);
+        is_null = !(ts_value.template date_add_interval<unit>(interval, res));
 
         return binary_cast<ResultDateValueType, ResultType>(res);
     }

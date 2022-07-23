@@ -239,7 +239,7 @@ struct TimeRound {
                                                    : count);
         bool is_neg = step < 0;
         TimeInterval interval(Impl::Unit, is_neg ? -step : step, is_neg);
-        is_null = !ts1.date_add_interval(interval, Impl::Unit);
+        is_null = !ts1.date_add_interval<Impl::Unit>(interval);
         return;
     }
 
