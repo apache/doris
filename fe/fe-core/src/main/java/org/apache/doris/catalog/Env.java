@@ -2890,6 +2890,11 @@ public class Env {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
+            if (olapTable.getUseLightSchemaChange() != null) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
+                sb.append(olapTable.getUseLightSchemaChange()).append("\"");
+            }
+
             // storage policy
             if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
