@@ -16,14 +16,19 @@
 # under the License.
 #
 ---
-name: Build Extensions
+name: Build Broker
 on:
   pull_request:
-  push:
+    paths:
+      - 'fs_brokers/**'
+
+concurrency:
+  group: ${{ github.head_ref || github.ref_name }} (Build Broker)
+  cancel-in-progress: true
 
 jobs:
-  build-extension:
-    name: "Build Extensions"
+  build-broker:
+    name: "Build Broker"
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -31,11 +36,6 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@master
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v1
-      with:
-        node-version: 16.14.0
 
     - name: Setup java
       uses: actions/setup-java@v2
@@ -54,8 +54,3 @@ jobs:
     - name: Build broker
       run: |
         cd fs_brokers/apache_hdfs_broker/ && /bin/bash build.sh
-
-    - name: Build docs
-      run: |
-        cd docs &&  /bin/bash build_help_zip.sh && export NODE_OPTIONS="--max-old-space-size=8192" && npm install && npm run build
-

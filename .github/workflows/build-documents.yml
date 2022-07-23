@@ -15,33 +15,34 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-
 ---
-name: BE Code Formatter
+name: Build Documents
 on:
   pull_request:
     paths:
-      - 'be/src/**'
-      - 'be/test/**'
-  push:
-    paths:
-      - 'be/src/**'
-      - 'be/test/**'
+      - 'docs/**'
+
+concurrency:
+  group: ${{ github.head_ref || github.ref_name }} (Build Documents)
+  cancel-in-progress: true
 
 jobs:
-  clang-format:
-    name: "Clang Formatter"
+  build-documents:
+    name: "Build Documents"
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: actions/checkout@v2
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - name: "Format it!"
-        uses: ./.github/actions/clang-format-lint-action
-        id: be_clang_format
-        with:
-          source: 'be/src be/test'
-          clangFormatVersion: 13
-          inplace: False
+    - name: Checkout
+      uses: actions/checkout@master
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v1
+      with:
+        node-version: 16.14.0
+
+    - name: Build docs
+      run: |
+        cd docs &&  /bin/bash build_help_zip.sh && export NODE_OPTIONS="--max-old-space-size=8192" && npm install && npm run build
+
