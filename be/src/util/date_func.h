@@ -30,5 +30,6 @@ uint64_t timestamp_from_datetime(const std::string& datetime_str);
 uint24_t timestamp_from_date(const std::string& date_str);
 int32_t time_to_buffer_from_double(double time, char* buffer);
 uint32_t timestamp_from_date_v2(const std::string& date_str);
+uint64_t timestamp_from_datetime_v2(const std::string& date_str);
 
 } // namespace doris

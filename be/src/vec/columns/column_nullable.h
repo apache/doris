@@ -181,6 +181,7 @@ public:
 
     bool is_date_type() const override { return get_nested_column().is_date_type(); }
     bool is_date_v2_type() const override { return get_nested_column().is_date_v2_type(); }
+    bool is_datetime_v2_type() const override { return get_nested_column().is_datetime_v2_type(); }
     bool is_datetime_type() const override { return get_nested_column().is_datetime_type(); }
     bool is_decimalv2_type() const override { return get_nested_column().is_decimalv2_type(); }
     void set_date_type() override { get_nested_column().set_date_type(); }

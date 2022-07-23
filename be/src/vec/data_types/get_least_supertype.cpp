@@ -149,13 +149,17 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
     {
         UInt32 have_date_v2 = type_ids.count(TypeIndex::DateV2);
 
-        if (have_date_v2) {
-            if (type_ids.size() != have_date_v2) {
-                LOG(FATAL) << get_exception_message_prefix(types)
-                           << " because some of them are DateV2 and some of them are not";
+        UInt32 have_datetime_v2 = type_ids.count(TypeIndex::DateTimeV2);
+
+        if (have_date_v2 || have_datetime_v2) {
+            bool all_datev2_or_datetimev2 = type_ids.size() == (have_date_v2 + have_datetime_v2);
+            if (!all_datev2_or_datetimev2) {
+                LOG(FATAL)
+                        << get_exception_message_prefix(types)
+                        << " because some of them are DateV2/DateTimeV2 and some of them are not";
             }
 
-            return std::make_shared<DataTypeDateV2>();
+            return std::make_shared<DataTypeDateTimeV2>();
         }
     }
 

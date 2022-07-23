@@ -167,7 +167,8 @@ struct TypeDescriptor {
 
     bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
 
-    bool is_date_v2_type() const { return type == TYPE_DATEV2 || type == TYPE_DATETIMEV2; }
+    bool is_date_v2_type() const { return type == TYPE_DATEV2; }
+    bool is_datetime_v2_type() const { return type == TYPE_DATETIMEV2; }
 
     bool is_decimal_type() const { return (type == TYPE_DECIMALV2); }
 

@@ -355,7 +355,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         EXPECT_EQ(v, dt);
     }
     {
-        vectorized::DateV2Value data_time_value;
+        vectorized::DateV2Value<doris::vectorized::DateV2ValueType> data_time_value;
         const char* date = "20210407";
         data_time_value.from_date_str(date, strlen(date));
         uint32_t dt;

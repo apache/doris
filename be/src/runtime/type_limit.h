@@ -48,14 +48,32 @@ struct type_limit<DateTimeValue> {
 };
 
 template <>
-struct type_limit<doris::vectorized::DateV2Value> {
-    static doris::vectorized::DateV2Value min() {
+struct type_limit<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>> {
+    static doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> min() {
         uint32_t min = doris::vectorized::MIN_DATE_V2;
-        return binary_cast<uint32_t, doris::vectorized::DateV2Value>(min);
+        return binary_cast<uint32_t,
+                           doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>(min);
     }
-    static doris::vectorized::DateV2Value max() {
+    static doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> max() {
         uint32_t max = doris::vectorized::MAX_DATE_V2;
-        return binary_cast<uint32_t, doris::vectorized::DateV2Value>(max);
+        return binary_cast<uint32_t,
+                           doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>(max);
+    }
+};
+
+template <>
+struct type_limit<doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>> {
+    static doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> min() {
+        uint64_t min = doris::vectorized::MIN_DATETIME_V2;
+        return binary_cast<uint64_t,
+                           doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>(
+                min);
+    }
+    static doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> max() {
+        uint64_t max = doris::vectorized::MAX_DATETIME_V2;
+        return binary_cast<uint64_t,
+                           doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>(
+                max);
     }
 };
 

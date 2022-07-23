@@ -40,8 +40,29 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    static void cast_to_date(const UInt32& from, Int64& to);
-    static void cast_to_date_time(const UInt32& from, Int64& to);
+    static void cast_to_date(const UInt32 from, Int64& to);
+    static void cast_to_date_time(const UInt32 from, Int64& to);
+    static void cast_to_date_time_v2(const UInt32 from, UInt64& to);
+};
+
+class DataTypeDateTimeV2 final : public DataTypeNumberBase<UInt64> {
+public:
+    TypeIndex get_type_id() const override { return TypeIndex::DateTimeV2; }
+    const char* get_family_name() const override { return "DateTimeV2"; }
+    std::string do_get_name() const override { return "DateTimeV2"; }
+
+    bool can_be_used_as_version() const override { return true; }
+    bool can_be_inside_nullable() const override { return true; }
+
+    bool equals(const IDataType& rhs) const override;
+    std::string to_string(const IColumn& column, size_t row_num) const override;
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+
+    MutableColumnPtr create_column() const override;
+
+    static void cast_to_date(const UInt64 from, Int64& to);
+    static void cast_to_date_time(const UInt64 from, Int64& to);
+    static void cast_to_date_v2(const UInt64 from, UInt32& to);
 };
 
 } // namespace doris::vectorized

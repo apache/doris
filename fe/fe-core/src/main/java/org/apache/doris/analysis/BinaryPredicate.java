@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
@@ -306,6 +307,18 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
+    private Type dateV2ComparisonResultType(ScalarType t1, ScalarType t2) {
+        if (!t1.isDatetimeV2() && !t2.isDatetimeV2()) {
+            return Type.DATETIMEV2;
+        } else if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
+            return ScalarType.createDatetimeV2Type(Math.max(t1.getScalarScale(), t2.getScalarScale()));
+        } else if (t1.isDatetimeV2()) {
+            return t1;
+        } else {
+            return t2;
+        }
+    }
+
     private Type getCmpType() throws AnalysisException {
         PrimitiveType t1 = getChild(0).getType().getResultType().getPrimitiveType();
         PrimitiveType t2 = getChild(1).getType().getResultType().getPrimitiveType();
@@ -320,7 +333,15 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
 
         if (canCompareDate(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
-            return Type.DATETIME;
+            if (!(getChild(0).getType().isDateV2() || getChild(0).getType().isDatetimeV2()
+                    || getChild(1).getType().isDateV2() || getChild(1).getType().isDatetimeV2())) {
+                return Type.DATETIME;
+            } else {
+                Preconditions.checkArgument(getChild(0).getType() instanceof ScalarType
+                        && getChild(1).getType() instanceof ScalarType);
+                return dateV2ComparisonResultType((ScalarType) getChild(0).getType(),
+                        (ScalarType) getChild(1).getType());
+            }
         }
 
         // Following logical is compatible with MySQL:

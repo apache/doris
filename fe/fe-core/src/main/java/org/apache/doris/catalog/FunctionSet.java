@@ -1388,19 +1388,6 @@ public class FunctionSet<T> {
                 "",
                 "",
                 true, false, true, true));
-        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
-                Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATEV2, Type.BOOLEAN),
-                Type.INT,
-                Type.VARCHAR,
-                true,
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                true, false, true, true));
 
         for (Type t : Type.getSupportedTypes()) {
             if (t.isNull()) {

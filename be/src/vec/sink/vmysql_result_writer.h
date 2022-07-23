@@ -50,7 +50,7 @@ private:
 
     template <PrimitiveType type, bool is_nullable>
     Status _add_one_column(const ColumnPtr& column_ptr, std::unique_ptr<TFetchDataResult>& result,
-                           const DataTypePtr& nested_type_ptr = nullptr);
+                           const DataTypePtr& nested_type_ptr = nullptr, int scale = -1);
     int _add_one_cell(const ColumnPtr& column_ptr, size_t row_idx, const DataTypePtr& type,
                       MysqlRowBuffer& buffer);
 

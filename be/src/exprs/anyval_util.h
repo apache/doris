@@ -185,7 +185,14 @@ public:
             return val;
         } else if constexpr (std::is_same_v<Val, DateV2Val>) {
             DateV2Val val;
-            type_limit<doris::vectorized::DateV2Value>::min().to_datev2_val(&val);
+            type_limit<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>::min()
+                    .to_datev2_val(&val);
+            return val;
+        } else if constexpr (std::is_same_v<Val, DateTimeV2Val>) {
+            DateTimeV2Val val;
+            type_limit<
+                    doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>::min()
+                    .to_datetimev2_val(&val);
             return val;
         } else {
             return Val(type_limit<decltype(std::declval<Val>().val)>::min());
@@ -212,7 +219,14 @@ public:
             return val;
         } else if constexpr (std::is_same_v<Val, DateV2Val>) {
             DateV2Val val;
-            type_limit<doris::vectorized::DateV2Value>::max().to_datev2_val(&val);
+            type_limit<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>::max()
+                    .to_datev2_val(&val);
+            return val;
+        } else if constexpr (std::is_same_v<Val, DateTimeV2Val>) {
+            DateTimeV2Val val;
+            type_limit<
+                    doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>::max()
+                    .to_datetimev2_val(&val);
             return val;
         } else {
             return Val(type_limit<decltype(std::declval<Val>().val)>::max());
@@ -256,6 +270,8 @@ public:
 
         case TYPE_DATEV2:
             return sizeof(doris_udf::DateV2Val);
+        case TYPE_DATETIMEV2:
+            return sizeof(doris_udf::DateTimeV2Val);
         case TYPE_DATE:
         case TYPE_DATETIME:
             return sizeof(doris_udf::DateTimeVal);
@@ -303,6 +319,8 @@ public:
             return alignof(DateTimeVal);
         case TYPE_DATEV2:
             return alignof(DateV2Val);
+        case TYPE_DATETIMEV2:
+            return alignof(DateTimeV2Val);
         case TYPE_DECIMALV2:
             return alignof(DecimalV2Val);
         case TYPE_ARRAY:
@@ -425,8 +443,15 @@ public:
                     reinterpret_cast<doris_udf::DateTimeVal*>(dst));
 
         case TYPE_DATEV2:
-            reinterpret_cast<const doris::vectorized::DateV2Value*>(slot)->to_datev2_val(
-                    reinterpret_cast<doris_udf::DateV2Val*>(dst));
+            reinterpret_cast<
+                    const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(slot)
+                    ->to_datev2_val(reinterpret_cast<doris_udf::DateV2Val*>(dst));
+            return;
+        case TYPE_DATETIMEV2:
+            reinterpret_cast<
+                    const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                    slot)
+                    ->to_datev2_val(reinterpret_cast<doris_udf::DateV2Val*>(dst));
             return;
         case TYPE_ARRAY:
             reinterpret_cast<const CollectionValue*>(slot)->to_collection_val(

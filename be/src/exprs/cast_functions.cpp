@@ -34,6 +34,15 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/runtime/vdatetime_value.h"
 
+namespace doris::vectorized {
+template <>
+void doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>::convert_date_v2_to_dt(
+        doris::DateTimeValue* dt);
+template <>
+void doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>::convert_date_v2_to_dt(
+        doris::DateTimeValue* dt);
+} // namespace doris::vectorized
+
 namespace doris {
 
 void CastFunctions::init() {}
@@ -614,7 +623,22 @@ DateTimeVal CastFunctions::cast_to_date_val(FunctionContext* ctx, const DateV2Va
     if (val.is_null) {
         return DateTimeVal::null();
     }
-    vectorized::DateV2Value datev2_val = vectorized::DateV2Value::from_datev2_val(val);
+    vectorized::DateV2Value<doris::vectorized::DateV2ValueType> datev2_val =
+            vectorized::DateV2Value<doris::vectorized::DateV2ValueType>::from_datev2_val(val);
+    DateTimeValue datetime_value;
+    datev2_val.convert_date_v2_to_dt(&datetime_value);
+    DateTimeVal result;
+    datetime_value.to_datetime_val(&result);
+    return result;
+}
+
+DateTimeVal CastFunctions::cast_to_date_val(FunctionContext* ctx, const DateTimeV2Val& val) {
+    if (val.is_null) {
+        return DateTimeVal::null();
+    }
+    vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datev2_val =
+            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>::from_datetimev2_val(
+                    val);
     DateTimeValue datetime_value;
     datev2_val.convert_date_v2_to_dt(&datetime_value);
     DateTimeVal result;
@@ -626,7 +650,23 @@ DateTimeVal CastFunctions::cast_to_datetime_val(FunctionContext* ctx, const Date
     if (val.is_null) {
         return DateTimeVal::null();
     }
-    vectorized::DateV2Value datev2_val = vectorized::DateV2Value::from_datev2_val(val);
+    vectorized::DateV2Value<doris::vectorized::DateV2ValueType> datev2_val =
+            vectorized::DateV2Value<doris::vectorized::DateV2ValueType>::from_datev2_val(val);
+    DateTimeValue datetime_value;
+    datev2_val.convert_date_v2_to_dt(&datetime_value);
+    datetime_value.set_type(TYPE_DATETIME);
+    DateTimeVal result;
+    datetime_value.to_datetime_val(&result);
+    return result;
+}
+
+DateTimeVal CastFunctions::cast_to_datetime_val(FunctionContext* ctx, const DateTimeV2Val& val) {
+    if (val.is_null) {
+        return DateTimeVal::null();
+    }
+    vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datev2_val =
+            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>::from_datetimev2_val(
+                    val);
     DateTimeValue datetime_value;
     datev2_val.convert_date_v2_to_dt(&datetime_value);
     datetime_value.set_type(TYPE_DATETIME);
@@ -638,7 +678,7 @@ DateTimeVal CastFunctions::cast_to_datetime_val(FunctionContext* ctx, const Date
 #define CAST_TO_DATEV2(from_type)                                                             \
     DateV2Val CastFunctions::cast_to_datev2_val(FunctionContext* ctx, const from_type& val) { \
         if (val.is_null) return DateV2Val::null();                                            \
-        doris::vectorized::DateV2Value date_value;                                            \
+        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> date_value;        \
         if (!date_value.from_date_int64(val.val)) return DateV2Val::null();                   \
         DateV2Val result;                                                                     \
         date_value.to_datev2_val(&result);                                                    \
@@ -656,6 +696,28 @@ DateTimeVal CastFunctions::cast_to_datetime_val(FunctionContext* ctx, const Date
 
 CAST_NUMERIC_TYPES_TO_DATEV2();
 
+#define CAST_TO_DATETIMEV2(from_type)                                                      \
+    DateTimeV2Val CastFunctions::cast_to_datetimev2_val(FunctionContext* ctx,              \
+                                                        const from_type& val) {            \
+        if (val.is_null) return DateTimeV2Val::null();                                     \
+        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> date_value; \
+        if (!date_value.from_date_int64(val.val)) return DateTimeV2Val::null();            \
+        DateTimeV2Val result;                                                              \
+        date_value.to_datetimev2_val(&result);                                             \
+        return result;                                                                     \
+    }
+
+#define CAST_NUMERIC_TYPES_TO_DATETIMEV2() \
+    CAST_TO_DATETIMEV2(TinyIntVal);        \
+    CAST_TO_DATETIMEV2(SmallIntVal);       \
+    CAST_TO_DATETIMEV2(IntVal);            \
+    CAST_TO_DATETIMEV2(BigIntVal);         \
+    CAST_TO_DATETIMEV2(LargeIntVal);       \
+    CAST_TO_DATETIMEV2(FloatVal);          \
+    CAST_TO_DATETIMEV2(DoubleVal);
+
+CAST_NUMERIC_TYPES_TO_DATETIMEV2();
+
 DateV2Val CastFunctions::cast_to_datev2_val(FunctionContext* ctx, const DateV2Val& val) {
     if (val.is_null) {
         return DateV2Val::null();
@@ -667,7 +729,7 @@ DateV2Val CastFunctions::cast_to_datev2_val(FunctionContext* ctx, const StringVa
     if (val.is_null) {
         return DateV2Val::null();
     }
-    doris::vectorized::DateV2Value date_value;
+    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> date_value;
     if (!date_value.from_date_str((char*)val.ptr, val.len)) {
         return DateV2Val::null();
     }
@@ -683,10 +745,76 @@ DateV2Val CastFunctions::cast_to_datev2_val(FunctionContext* ctx, const DateTime
     }
     vectorized::VecDateTimeValue date_value = vectorized::VecDateTimeValue::from_datetime_val(val);
 
-    doris::vectorized::DateV2Value datev2_val;
+    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> datev2_val;
     datev2_val.from_date(date_value.to_date_v2());
     DateV2Val result;
     datev2_val.to_datev2_val(&result);
+    return result;
+}
+
+DateV2Val CastFunctions::cast_to_datev2_val(FunctionContext* ctx, const DateTimeV2Val& val) {
+    if (val.is_null) {
+        return DateV2Val::null();
+    }
+    doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetime_value =
+            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>::from_datetimev2_val(
+                    val);
+
+    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> datev2_val;
+    datev2_val.set_date_uint32(datetime_value.to_date_int_val() >>
+                               doris::vectorized::TIME_PART_LENGTH);
+    DateV2Val result;
+    datev2_val.to_datev2_val(&result);
+    return result;
+}
+
+DateTimeV2Val CastFunctions::cast_to_datetimev2_val(FunctionContext* ctx,
+                                                    const DateTimeV2Val& val) {
+    if (val.is_null) {
+        return DateTimeV2Val::null();
+    }
+    return val;
+}
+
+DateTimeV2Val CastFunctions::cast_to_datetimev2_val(FunctionContext* ctx, const StringVal& val) {
+    if (val.is_null) {
+        return DateTimeV2Val::null();
+    }
+    doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> date_value;
+    if (!date_value.from_date_str((char*)val.ptr, val.len)) {
+        return DateTimeV2Val::null();
+    }
+    // Return null if 'val' did not parse
+    DateTimeV2Val result;
+    date_value.to_datetimev2_val(&result);
+    return result;
+}
+
+DateTimeV2Val CastFunctions::cast_to_datetimev2_val(FunctionContext* ctx, const DateTimeVal& val) {
+    if (val.is_null) {
+        return DateTimeV2Val::null();
+    }
+    vectorized::VecDateTimeValue date_value = vectorized::VecDateTimeValue::from_datetime_val(val);
+
+    doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datev2_val;
+    datev2_val.from_date(date_value.to_datetime_v2());
+    DateTimeV2Val result;
+    datev2_val.to_datetimev2_val(&result);
+    return result;
+}
+
+DateTimeV2Val CastFunctions::cast_to_datetimev2_val(FunctionContext* ctx, const DateV2Val& val) {
+    if (val.is_null) {
+        return DateTimeV2Val::null();
+    }
+    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> date_value =
+            vectorized::DateV2Value<doris::vectorized::DateV2ValueType>::from_datev2_val(val);
+
+    doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_val;
+    datetimev2_val.set_datetime_uint64((uint64_t)date_value.to_date_int_val()
+                                       << doris::vectorized::TIME_PART_LENGTH);
+    DateTimeV2Val result;
+    datetimev2_val.to_datetimev2_val(&result);
     return result;
 }
 

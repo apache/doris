@@ -162,8 +162,16 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
                *reinterpret_cast<const DateTimeValue*>(v2);
 
     case TYPE_DATEV2:
-        return *reinterpret_cast<const vectorized::DateV2Value*>(v1) <
-               *reinterpret_cast<const vectorized::DateV2Value*>(v2);
+        return *reinterpret_cast<
+                       const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(v1) <
+               *reinterpret_cast<
+                       const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(v2);
+
+    case TYPE_DATETIMEV2:
+        return *reinterpret_cast<
+                       const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(v1) <
+               *reinterpret_cast<
+                       const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(v2);
 
     case TYPE_DECIMALV2:
         return reinterpret_cast<const PackedInt128*>(v1)->value <
@@ -226,8 +234,17 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
                *reinterpret_cast<const DateTimeValue*>(v2);
 
     case TYPE_DATEV2:
-        return *reinterpret_cast<const vectorized::DateV2Value*>(v1) ==
-               *reinterpret_cast<const vectorized::DateV2Value*>(v2);
+        return *reinterpret_cast<
+                       const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(v1) ==
+               *reinterpret_cast<
+                       const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(v2);
+
+    case TYPE_DATETIMEV2:
+        return *reinterpret_cast<
+                       const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                       v1) ==
+               *reinterpret_cast<
+                       const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(v2);
 
     case TYPE_DECIMALV2:
         return reinterpret_cast<const PackedInt128*>(v1)->value ==
@@ -301,6 +318,9 @@ inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& typ
     case TYPE_DATEV2:
         return HashUtil::hash(v, 4, seed);
 
+    case TYPE_DATETIMEV2:
+        return HashUtil::hash(v, 8, seed);
+
     case TYPE_DECIMALV2:
         return HashUtil::hash(v, 16, seed);
     case TYPE_DECIMAL32:
@@ -366,6 +386,9 @@ inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType&
 
     case TYPE_DATEV2:
         return HashUtil::fnv_hash(v, 4, seed);
+
+    case TYPE_DATETIMEV2:
+        return HashUtil::fnv_hash(v, 8, seed);
 
     case TYPE_DECIMALV2:
         return HashUtil::fnv_hash(v, 16, seed);
@@ -436,7 +459,16 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
         return HashUtil::zlib_crc_hash(buf, len, seed);
     }
     case TYPE_DATEV2: {
-        const vectorized::DateV2Value* date_v2_val = (const vectorized::DateV2Value*)v;
+        const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>* date_v2_val =
+                (const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*)v;
+        char buf[64];
+        int len = date_v2_val->to_buffer(buf);
+        return HashUtil::zlib_crc_hash(buf, len, seed);
+    }
+
+    case TYPE_DATETIMEV2: {
+        const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>* date_v2_val =
+                (const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*)v;
         char buf[64];
         int len = date_v2_val->to_buffer(buf);
         return HashUtil::zlib_crc_hash(buf, len, seed);
@@ -502,8 +534,17 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const TypeDescri
         int len = date_val->to_buffer(buf);
         return HashUtil::zlib_crc_hash(buf, len, seed);
     }
+
     case TYPE_DATEV2: {
-        auto* date_v2_val = (const vectorized::DateV2Value*)v;
+        auto* date_v2_val = (const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*)v;
+        char buf[64];
+        int date_v2_len = date_v2_val->to_buffer(buf);
+        return HashUtil::zlib_crc_hash(buf, date_v2_len, seed);
+    }
+
+    case TYPE_DATETIMEV2: {
+        auto* date_v2_val =
+                (const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*)v;
         char buf[64];
         int date_v2_len = date_v2_val->to_buffer(buf);
         return HashUtil::zlib_crc_hash(buf, date_v2_len, seed);

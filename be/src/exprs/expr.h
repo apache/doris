@@ -106,6 +106,7 @@ public:
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
     virtual DateV2Val get_datev2_val(ExprContext* context, TupleRow*);
+    virtual DateTimeV2Val get_datetimev2_val(ExprContext* context, TupleRow*);
     virtual CollectionVal get_array_val(ExprContext* context, TupleRow*);
 
     virtual Decimal32Val get_decimal32_val(ExprContext* context, TupleRow*);
@@ -516,7 +517,8 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
         }
     } else if constexpr (T == TYPE_DATEV2) {
-        auto origin_value = reinterpret_cast<const doris::vectorized::DateV2Value*>(data);
+        auto origin_value = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
         origin_value->to_string(convert_buffer);
@@ -524,6 +526,17 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_date_literal(date_literal);
         (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATEV2));
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        auto origin_value = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2));
     } else if constexpr (T == TYPE_DECIMALV2) {
         auto origin_value = reinterpret_cast<const DecimalV2Value*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);

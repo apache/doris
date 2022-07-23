@@ -707,6 +707,14 @@ Status VOlapScanNode::normalize_conjuncts() {
             break;
         }
 
+        case TYPE_DATETIMEV2: {
+            ColumnValueRange<TYPE_DATETIMEV2> range(slots[slot_idx]->col_name(),
+                                                    slots[slot_idx]->type().precision,
+                                                    slots[slot_idx]->type().scale);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
         case TYPE_DECIMALV2: {
             ColumnValueRange<TYPE_DECIMALV2> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
@@ -946,8 +954,10 @@ Status VOlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescri
 }
 
 static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
-    if ((slot->type().is_date_type() || slot->type().is_date_v2_type()) &&
-        (expr->type().is_date_type() || expr->type().is_date_v2_type())) {
+    if ((slot->type().is_date_type() || slot->type().is_date_v2_type() ||
+         slot->type().is_datetime_v2_type()) &&
+        (expr->type().is_date_type() || expr->type().is_date_v2_type() ||
+         expr->type().is_datetime_v2_type())) {
         return true;
     }
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
@@ -1060,6 +1070,7 @@ Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<primitive_type>&
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_DATETIME:
+    case TYPE_DATETIMEV2:
     case TYPE_TINYINT:
     case TYPE_SMALLINT:
     case TYPE_INT:
@@ -1080,10 +1091,13 @@ Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<primitive_type>&
         break;
     }
     case TYPE_DATEV2: {
-        DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
-        if (!date_value.check_loss_accuracy_cast_to_date()) {
-            doris::vectorized::DateV2Value date_v2;
-            date_v2.convert_dt_to_date_v2(&date_value);
+        DateV2Value<DateTimeV2ValueType> datetimev2_value =
+                *reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(value);
+        if (datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
+            DateV2Value<DateV2ValueType> date_v2;
+            date_v2.set_date_uint32(
+                    binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(datetimev2_value) >>
+                    TIME_PART_LENGTH);
             if constexpr (primitive_type == PrimitiveType::TYPE_DATEV2) {
                 func(temp_range, &date_v2);
             } else {
@@ -1439,14 +1453,17 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                     break;
                 }
                 case TYPE_DATEV2: {
-                    DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
-                    if (date_value.check_loss_accuracy_cast_to_date()) {
+                    DateV2Value<DateTimeV2ValueType> datetimev2_value =
+                            *reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(value);
+                    doris::vectorized::DateV2Value<DateV2ValueType> date_v2;
+                    date_v2.set_date_uint32(binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(
+                                                    datetimev2_value) >>
+                                            TIME_PART_LENGTH);
+                    if (!datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
                         if (pred->op() == TExprOpcode::LT || pred->op() == TExprOpcode::GE) {
-                            ++date_value;
+                            ++date_v2;
                         }
                     }
-                    doris::vectorized::DateV2Value date_v2;
-                    date_v2.convert_dt_to_date_v2(&date_value);
                     if constexpr (T == PrimitiveType::TYPE_DATEV2) {
                         range->add_range(to_olap_filter_type(pred->op(), child_idx), date_v2);
                         break;
@@ -1463,6 +1480,7 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 case TYPE_VARCHAR:
                 case TYPE_HLL:
                 case TYPE_DATETIME:
+                case TYPE_DATETIMEV2:
                 case TYPE_SMALLINT:
                 case TYPE_INT:
                 case TYPE_BIGINT:

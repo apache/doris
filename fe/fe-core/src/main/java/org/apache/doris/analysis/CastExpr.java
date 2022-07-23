@@ -173,6 +173,9 @@ public class CastExpr extends Expr {
                 if (toType.getPrimitiveType() == PrimitiveType.DATEV2) {
                     typeName = "datev2_val";
                 }
+                if (toType.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
+                    typeName = "datetimev2_val";
+                }
                 String beSymbol = "doris::" + beClass + "::cast_to_"
                         + typeName;
                 functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(getFnName(toType),

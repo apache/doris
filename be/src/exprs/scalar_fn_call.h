@@ -85,6 +85,7 @@ protected:
     virtual doris_udf::StringVal get_string_val(ExprContext* context, TupleRow*) override;
     virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*) override;
     virtual doris_udf::DateV2Val get_datev2_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::DateTimeV2Val get_datetimev2_val(ExprContext* context, TupleRow*) override;
     virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
     virtual CollectionVal get_array_val(ExprContext* context, TupleRow*) override;
 

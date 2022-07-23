@@ -259,6 +259,7 @@ struct TypeId<Int128> {
 using Date = Int64;
 using DateTime = Int64;
 using DateV2 = UInt32;
+using DateTimeV2 = UInt64;
 
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).

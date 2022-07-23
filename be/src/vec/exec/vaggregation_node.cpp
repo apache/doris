@@ -148,6 +148,7 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
         case TYPE_DOUBLE:
         case TYPE_DATE:
         case TYPE_DATETIME:
+        case TYPE_DATETIMEV2:
             _agg_data.init(AggregatedDataVariants::Type::int64_key, is_nullable);
             return;
         case TYPE_LARGEINT:

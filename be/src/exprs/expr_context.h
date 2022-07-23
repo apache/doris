@@ -124,6 +124,7 @@ public:
     // ArrayVal GetArrayVal(TupleRow* row);
     DateTimeVal get_datetime_val(TupleRow* row);
     DateV2Val get_datev2_val(TupleRow* row);
+    DateTimeV2Val get_datetimev2_val(TupleRow* row);
     DecimalV2Val get_decimalv2_val(TupleRow* row);
 
     /// Frees all local allocations made by fn_contexts_. This can be called when result

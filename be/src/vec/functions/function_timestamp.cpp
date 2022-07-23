@@ -62,7 +62,7 @@ struct StrToDate {
                     ts_val.cast_to_date();
                 }
             } else {
-                auto& ts_val = *reinterpret_cast<DateV2Value*>(&res[i]);
+                auto& ts_val = *reinterpret_cast<DateV2Value<DateV2ValueType>*>(&res[i]);
                 if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
                     null_map[i] = 1;
                 }
@@ -119,10 +119,10 @@ struct MakeDateImpl {
                 }
                 res_val.cast_to_date();
             } else {
-                DateV2Value* value = new (&res[i]) DateV2Value();
+                DateV2Value<DateV2ValueType>* value = new (&res[i]) DateV2Value<DateV2ValueType>();
                 value->set_time(l, 1, 1);
                 TimeInterval interval(DAY, r - 1, false);
-                if (!value->date_add_interval(interval, DAY)) {
+                if (!value->date_add_interval(interval, DAY, *value)) {
                     null_map[i] = 1;
                 }
             }
@@ -171,7 +171,7 @@ public:
                 ts_value = VecDateTimeValue::from_datetime_val(ts_val);
             } else {
                 const auto& cur_data = data_col->get_data()[i];
-                auto& ts_value = *reinterpret_cast<DateV2Value*>(&res_data[i]);
+                auto& ts_value = *reinterpret_cast<DateV2Value<DateV2ValueType>*>(&res_data[i]);
                 if (!ts_value.get_date_from_daynr(cur_data)) {
                     null_map->get_data()[i] = 1;
                 }
@@ -259,7 +259,8 @@ struct UnixTimeStampDateImpl {
                     col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
                 }
             } else {
-                const DateV2Value& ts_value = reinterpret_cast<const DateV2Value&>(*source.data);
+                const DateV2Value<DateV2ValueType>& ts_value =
+                        reinterpret_cast<const DateV2Value<DateV2ValueType>&>(*source.data);
                 int64_t timestamp;
                 if (!ts_value.unix_timestamp(&timestamp,
                                              context->impl()->state()->timezone_obj())) {
