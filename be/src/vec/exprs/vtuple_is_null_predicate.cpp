@@ -28,54 +28,24 @@
 namespace doris::vectorized {
 
 VTupleIsNullPredicate::VTupleIsNullPredicate(const TExprNode& node)
-        : VExpr(node),
-          _expr_name(function_name),
-          _tuple_ids(node.tuple_is_null_pred.tuple_ids.begin(),
-                     node.tuple_is_null_pred.tuple_ids.end()) {}
+        : VExpr(node), _expr_name(function_name) {
+    DCHECK(node.tuple_is_null_pred.__isset.null_side);
+    _is_left_null_side = node.tuple_is_null_pred.null_side == TNullSide::LEFT;
+    _column_to_check = 0;
+}
 
 Status VTupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
     RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
     DCHECK_EQ(0, _children.size());
-    DCHECK_GT(_tuple_ids.size(), 0);
-
-    _column_to_check.reserve(_tuple_ids.size());
-    // Resolve tuple ids to column id, one tuple only need check one column to speed up
-    for (auto tuple_id : _tuple_ids) {
-        uint32_t loc = 0;
-        for (auto& tuple_desc : desc.tuple_descriptors()) {
-            if (tuple_desc->id() == tuple_id) {
-                _column_to_check.emplace_back(loc);
-                break;
-            }
-            loc += tuple_desc->slots().size();
-        }
-    }
+    _column_to_check =
+            _is_left_null_side ? desc.num_materialized_slots() : desc.num_materialized_slots() + 1;
 
     return Status::OK();
 }
 
 Status VTupleIsNullPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
-    size_t num_columns_without_result = block->columns();
-    auto target_rows = block->rows();
-    auto ans = ColumnVector<UInt8>::create(target_rows, 1);
-    auto* __restrict ans_map = ans->get_data().data();
-
-    for (auto col_id : _column_to_check) {
-        auto* __restrict null_map =
-                reinterpret_cast<const ColumnNullable&>(*block->get_by_position(col_id).column)
-                        .get_null_map_column()
-                        .get_data()
-                        .data();
-
-        for (int i = 0; i < target_rows; ++i) {
-            ans_map[i] &= null_map[i] == JOIN_NULL_HINT;
-        }
-    }
-
-    // prepare a column to save result
-    block->insert({std::move(ans), _data_type, _expr_name});
-    *result_column_id = num_columns_without_result;
+    *result_column_id = _column_to_check;
     return Status::OK();
 }
 
@@ -86,16 +56,7 @@ const std::string& VTupleIsNullPredicate::expr_name() const {
 std::string VTupleIsNullPredicate::debug_string() const {
     std::stringstream out;
     out << "TupleIsNullPredicate(_column_to_check=[";
-
-    bool first = true;
-    for (int i = 0; i < _column_to_check.size(); ++i) {
-        if (first) {
-            out << _column_to_check[i];
-            first = false;
-        } else {
-            out << ", " << _column_to_check[i];
-        }
-    }
+    out << _column_to_check;
     out << "])";
     return out.str();
 }

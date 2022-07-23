@@ -41,8 +41,8 @@ public:
 
 private:
     std::string _expr_name;
-    std::vector<TupleId> _tuple_ids;
-    std::vector<uint32_t> _column_to_check;
+    bool _is_left_null_side;
+    uint32_t _column_to_check;
 
 private:
     static const constexpr char* function_name = "tuple_is_null";
