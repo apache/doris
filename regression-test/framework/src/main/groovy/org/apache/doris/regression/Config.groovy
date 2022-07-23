@@ -371,10 +371,9 @@ class Config {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
     }
 
-    Connection getConnectionByLastGroup(String group) {
-        String realDb = getDbByLastGroup(group)
-        String dbUrl = buildUrl(realDb)
-        tryCreateDbIfNotExist(realDb)
+    Connection getConnectionByDbName(String name) {
+        String dbUrl = buildUrl(name)
+        tryCreateDbIfNotExist(name)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
     }
