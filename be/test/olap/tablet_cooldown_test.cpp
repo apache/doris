@@ -51,27 +51,31 @@ static const std::string PREFIX = "tablet_cooldown_test";
 class TabletCooldownTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
-        std::map<std::string, std::string> properties = {
-                {S3_AK, AK}, {S3_SK, SK}, {S3_ENDPOINT, ENDPOINT}, {S3_REGION, REGION}};
-        auto s3_fs = std::make_shared<io::S3FileSystem>(properties, BUCKET, PREFIX, kResourceId);
-        s3_fs->connect();
+        S3Conf s3_conf;
+        s3_conf.ak = AK;
+        s3_conf.sk = SK;
+        s3_conf.endpoint = ENDPOINT;
+        s3_conf.region = REGION;
+        s3_conf.bucket = BUCKET;
+        s3_conf.prefix = PREFIX;
+        auto s3_fs = std::make_shared<io::S3FileSystem>(std::move(s3_conf), kResourceId);
+        ASSERT_TRUE(s3_fs->connect().ok());
         io::FileSystemMap::instance()->insert(kResourceId, s3_fs);
 
-        config::storage_root_path = kTestDir;
+        constexpr uint32_t MAX_PATH_LEN = 1024;
+        char buffer[MAX_PATH_LEN];
+        EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
+        config::storage_root_path = std::string(buffer) + "/" + kTestDir;
         config::min_file_descriptor_number = 1000;
 
-        FileUtils::remove_all(kTestDir);
-        FileUtils::create_dir(kTestDir);
+        FileUtils::remove_all(config::storage_root_path);
+        FileUtils::create_dir(config::storage_root_path);
 
-        std::vector<StorePath> paths {{kTestDir, -1}};
+        std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
         EngineOptions options;
         options.store_paths = paths;
-
-        ExecEnv::GetInstance()->_storage_policy_mgr = new StoragePolicyMgr();
-
         doris::StorageEngine::open(options, &k_engine);
-        k_engine->start_bg_threads();
     }
 
     static void TearDownTestSuite() {

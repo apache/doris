@@ -58,15 +58,15 @@ class ExecEnv;
 class StoragePolicyMgr {
 public:
     using StoragePolicyPtr = std::shared_ptr<StoragePolicy>;
-    StoragePolicyMgr() {}
+    StoragePolicyMgr() = default;
 
     ~StoragePolicyMgr() = default;
 
     // fe push update policy to be
-    void update(const std::string& name, StoragePolicyPtr policy);
+    void update(const std::string& name, const StoragePolicyPtr& policy);
 
     // periodic pull from fe
-    void periodic_put(const std::string& name, StoragePolicyPtr policy);
+    void periodic_put(const std::string& name, const StoragePolicyPtr& policy);
 
     StoragePolicyPtr get(const std::string& name);
 

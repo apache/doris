@@ -54,10 +54,15 @@ static const std::string PREFIX = "prefix";
 class TabletCloneTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
-        std::map<std::string, std::string> properties = {
-                {S3_AK, AK}, {S3_SK, SK}, {S3_ENDPOINT, ENDPOINT}, {S3_REGION, REGION}};
-        auto s3_fs = std::make_shared<io::S3FileSystem>(properties, BUCKET, PREFIX, kResourceId);
-        s3_fs->connect();
+        S3Conf s3_conf;
+        s3_conf.ak = AK;
+        s3_conf.sk = SK;
+        s3_conf.endpoint = ENDPOINT;
+        s3_conf.region = REGION;
+        s3_conf.bucket = BUCKET;
+        s3_conf.prefix = PREFIX;
+        auto s3_fs = std::make_shared<io::S3FileSystem>(std::move(s3_conf), kResourceId);
+        ASSERT_TRUE(s3_fs->connect().ok());
         io::FileSystemMap::instance()->insert(kResourceId, s3_fs);
 
         config::storage_root_path = kTestDir;
