@@ -1465,24 +1465,17 @@ int64_t VecDateTimeValue::second_diff(const DateV2Value<T>& rhs) const {
     return day_diff * 3600 * 24 + time_diff;
 }
 
-bool VecDateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit unit) {
+template <TimeUnit unit>
+bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
     if (!is_valid_date()) return false;
 
     int sign = interval.is_neg ? -1 : 1;
-    switch (unit) {
-    case SECOND:
-    case MINUTE:
-    case HOUR:
-    case SECOND_MICROSECOND:
-    case MINUTE_MICROSECOND:
-    case MINUTE_SECOND:
-    case HOUR_MICROSECOND:
-    case HOUR_SECOND:
-    case HOUR_MINUTE:
-    case DAY_MICROSECOND:
-    case DAY_SECOND:
-    case DAY_MINUTE:
-    case DAY_HOUR: {
+
+    if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR) ||
+                  (unit == SECOND_MICROSECOND) || (unit == MINUTE_MICROSECOND) ||
+                  (unit == MINUTE_SECOND) || (unit == HOUR_MICROSECOND) || (unit == HOUR_SECOND) ||
+                  (unit == HOUR_MINUTE) || (unit == DAY_MICROSECOND) || (unit == DAY_SECOND) ||
+                  (unit == DAY_MINUTE) || (unit == DAY_HOUR)) {
         // This may change the day information
 
         int64_t seconds = (_day - 1) * 86400L + _hour * 3600L + _minute * 60 + _second +
@@ -1502,18 +1495,13 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit 
             return false;
         }
         _type = TIME_DATETIME;
-        break;
-    }
-    case DAY:
-    case WEEK: {
+    } else if constexpr ((unit == DAY) || (unit == WEEK)) {
         // This only change day information, not change second information
         int64_t day_nr = daynr() + interval.day * sign;
         if (!get_date_from_daynr(day_nr)) {
             return false;
         }
-        break;
-    }
-    case YEAR: {
+    } else if constexpr (unit == YEAR) {
         // This only change year information
         _year += sign * interval.year;
         if (_year > 9999) {
@@ -1522,11 +1510,7 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit 
         if (_month == 2 && _day == 29 && !doris::is_leap(_year)) {
             _day = 28;
         }
-        break;
-    }
-    case MONTH:
-    case QUARTER:
-    case YEAR_MONTH: {
+    } else if constexpr (unit == QUARTER || unit == MONTH || unit == YEAR_MONTH) {
         // This will change month and year information, maybe date.
         int64_t months = _year * 12 + _month - 1 + sign * (12 * interval.year + interval.month);
         _year = months / 12;
@@ -1540,9 +1524,8 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit 
                 _day++;
             }
         }
-        break;
     }
-    }
+
     return true;
 }
 
@@ -2385,61 +2368,20 @@ bool DateV2Value<T>::get_date_from_daynr(uint64_t daynr) {
 }
 
 template <typename T>
-template <typename TO>
-bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, TimeUnit unit,
-                                       DateV2Value<TO>& to_value) {
+template <TimeUnit unit, typename TO>
+bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value) {
     if (!is_valid_date()) return false;
 
-    switch (unit) {
-    case SECOND:
-    case MINUTE:
-    case HOUR:
-    case SECOND_MICROSECOND:
-    case MINUTE_MICROSECOND:
-    case MINUTE_SECOND:
-    case HOUR_MICROSECOND:
-    case HOUR_SECOND:
-    case HOUR_MINUTE:
-    case DAY_MICROSECOND:
-    case DAY_SECOND:
-    case DAY_MINUTE:
-    case DAY_HOUR: {
-        if constexpr (DateV2Value<TO>::is_datetime) {
-            // This may change the day information
-            int64_t seconds = (this->day() - 1) * 86400L + this->hour() * 3600L +
-                              this->minute() * 60 + this->second() + interval.day * 86400 +
-                              interval.hour * 3600 + interval.minute * 60 + interval.second;
-            uint64_t microsecond = interval.microsecond + this->microsecond();
-            if (microsecond > 1000000) {
-                seconds += 1;
-                microsecond %= 1000000;
-            }
-            int64_t days = seconds / 86400;
-            seconds %= 86400L;
-            if (seconds < 0) {
-                seconds += 86400L;
-                days--;
-            }
-            to_value.set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, microsecond);
-            int64_t day_nr = doris::calc_daynr(this->year(), this->month(), 1) + days;
-            if (!to_value.get_date_from_daynr(day_nr)) {
-                return false;
-            }
-            break;
-        } else {
-            LOG(FATAL) << "Invalid interval to add " << int(unit) << " for date!";
-        }
-    }
-    case DAY:
-    case WEEK: {
-        // This only change day information, not change second information
+    if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR) ||
+                  (unit == SECOND_MICROSECOND) || (unit == MINUTE_MICROSECOND) ||
+                  (unit == MINUTE_SECOND) || (unit == HOUR_MICROSECOND) || (unit == HOUR_SECOND) ||
+                  (unit == HOUR_MINUTE) || (unit == DAY_MICROSECOND) || (unit == DAY_SECOND) ||
+                  (unit == DAY_MINUTE) || (unit == DAY_HOUR) || (unit == DAY) || (unit == WEEK)) {
         uint32_t day_nr = daynr() + interval.day;
         if (!to_value.get_date_from_daynr(day_nr)) {
             return false;
         }
-        break;
-    }
-    case YEAR: {
+    } else if constexpr (unit == YEAR) {
         // This only change year information
         to_value.template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ + interval.year);
         if (to_value.year() > 9999) {
@@ -2449,11 +2391,7 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, TimeUnit un
             !doris::is_leap(to_value.year())) {
             to_value.template set_time_unit<TimeUnit::DAY>(28);
         }
-        break;
-    }
-    case MONTH:
-    case QUARTER:
-    case YEAR_MONTH: {
+    } else if constexpr (unit == QUARTER || unit == MONTH || unit == YEAR_MONTH) {
         // This will change month and year information, maybe date.
         int64_t months = date_v2_value_.year_ * 12 + date_v2_value_.month_ - 1 +
                          12 * interval.year + interval.month;
@@ -2468,8 +2406,6 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, TimeUnit un
                 to_value.template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1);
             }
         }
-        break;
-    }
     }
     return true;
 }
@@ -2566,38 +2502,6 @@ void DateV2Value<T>::set_time(uint8_t hour, uint8_t minute, uint8_t second, uint
         date_v2_value_.microsecond_ = microsecond;
     } else {
         LOG(FATAL) << "Invalid operation 'set_time' for date!";
-    }
-}
-
-template <typename T>
-void DateV2Value<T>::convert_date_v2_to_dt(doris::DateTimeValue* dt) {
-    if constexpr (is_datetime) {
-        dt->_type = TIME_DATETIME;
-        dt->_hour = this->hour();
-        dt->_minute = this->minute();
-        dt->_second = this->second();
-    } else {
-        dt->_type = TIME_DATE;
-        dt->_hour = 0;
-        dt->_minute = 0;
-        dt->_second = 0;
-    }
-    dt->_neg = 0;
-    dt->_year = date_v2_value_.year_;
-    dt->_month = date_v2_value_.month_;
-    dt->_day = date_v2_value_.day_;
-    dt->_microsecond = 0;
-}
-
-template <typename T>
-void DateV2Value<T>::convert_dt_to_date_v2(doris::DateTimeValue* dt) {
-    date_v2_value_.year_ = dt->_year;
-    date_v2_value_.month_ = dt->_month;
-    date_v2_value_.day_ = dt->_day;
-    if constexpr (is_datetime) {
-        date_v2_value_.hour_ = dt->hour();
-        date_v2_value_.minute_ = dt->minute();
-        date_v2_value_.second_ = dt->second();
     }
 }
 
@@ -3022,21 +2926,44 @@ template int64_t VecDateTimeValue::second_diff<DateV2ValueType>(
 template int64_t VecDateTimeValue::second_diff<DateTimeV2ValueType>(
         const DateV2Value<DateTimeV2ValueType>& rhs) const;
 
-template bool doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>::date_add_interval<
-        doris::vectorized::DateTimeV2ValueType>(
-        doris::vectorized::TimeInterval const&, doris::vectorized::TimeUnit,
-        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>&);
-template bool doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>::date_add_interval<
-        doris::vectorized::DateV2ValueType>(
-        doris::vectorized::TimeInterval const&, doris::vectorized::TimeUnit,
-        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>&);
+#define DELARE_DATE_ADD_INTERVAL(DateValueType1, DateValueType2)                                 \
+    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
+            TimeUnit::SECOND, DateValueType2>(doris::vectorized::TimeInterval const&,            \
+                                              doris::vectorized::DateV2Value<DateValueType2>&);  \
+    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
+            TimeUnit::MINUTE, DateValueType2>(doris::vectorized::TimeInterval const&,            \
+                                              doris::vectorized::DateV2Value<DateValueType2>&);  \
+    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
+            TimeUnit::HOUR, DateValueType2>(doris::vectorized::TimeInterval const&,              \
+                                            doris::vectorized::DateV2Value<DateValueType2>&);    \
+    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
+            TimeUnit::DAY, DateValueType2>(doris::vectorized::TimeInterval const&,               \
+                                           doris::vectorized::DateV2Value<DateValueType2>&);     \
+    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
+            TimeUnit::MONTH, DateValueType2>(doris::vectorized::TimeInterval const&,             \
+                                             doris::vectorized::DateV2Value<DateValueType2>&);   \
+    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
+            TimeUnit::YEAR, DateValueType2>(doris::vectorized::TimeInterval const&,              \
+                                            doris::vectorized::DateV2Value<DateValueType2>&);    \
+    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
+            TimeUnit::QUARTER, DateValueType2>(doris::vectorized::TimeInterval const&,           \
+                                               doris::vectorized::DateV2Value<DateValueType2>&); \
+    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
+            TimeUnit::WEEK, DateValueType2>(doris::vectorized::TimeInterval const&,              \
+                                            doris::vectorized::DateV2Value<DateValueType2>&);
 
-template bool doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>::
-        date_add_interval<doris::vectorized::DateTimeV2ValueType>(
-                doris::vectorized::TimeInterval const&, doris::vectorized::TimeUnit,
-                doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>&);
-template bool doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>::
-        date_add_interval<doris::vectorized::DateV2ValueType>(
-                doris::vectorized::TimeInterval const&, doris::vectorized::TimeUnit,
-                doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>&);
+DELARE_DATE_ADD_INTERVAL(DateV2ValueType, DateV2ValueType)
+DELARE_DATE_ADD_INTERVAL(DateV2ValueType, DateTimeV2ValueType)
+DELARE_DATE_ADD_INTERVAL(DateTimeV2ValueType, DateV2ValueType)
+DELARE_DATE_ADD_INTERVAL(DateTimeV2ValueType, DateTimeV2ValueType)
+
+template bool VecDateTimeValue::date_add_interval<TimeUnit::SECOND>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::MINUTE>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::HOUR>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::DAY>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::MONTH>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::YEAR>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::QUARTER>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::WEEK>(const TimeInterval& interval);
+
 } // namespace doris::vectorized

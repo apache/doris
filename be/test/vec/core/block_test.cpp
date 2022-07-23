@@ -110,14 +110,14 @@ TEST(BlockTest, RowBatchCovertToBlock) {
         std::string now_time("2020-12-02");
         k7.from_date_str(now_time.c_str(), now_time.size());
         vectorized::TimeInterval time_interval(vectorized::TimeUnit::DAY, k1, false);
-        k7.date_add_interval(time_interval, vectorized::TimeUnit::DAY);
+        k7.date_add_interval<vectorized::TimeUnit::DAY>(time_interval);
         memcpy(tuple->get_slot(slot_desc->tuple_offset()), &k7, column_descs[6].size);
 
         slot_desc = tuple_desc->slots()[7];
         vectorized::DateV2Value<doris::vectorized::DateV2ValueType> k8;
         std::string now_date("2020-12-02");
         k8.from_date_str(now_date.c_str(), now_date.size());
-        k8.date_add_interval(time_interval, vectorized::TimeUnit::DAY, k8);
+        k8.date_add_interval<vectorized::TimeUnit::DAY>(time_interval);
         memcpy(tuple->get_slot(slot_desc->tuple_offset()), &k8, column_descs[7].size);
 
         tuple_row->set_tuple(0, tuple);
@@ -161,7 +161,7 @@ TEST(BlockTest, RowBatchCovertToBlock) {
         std::string now_time("2020-12-02");
         date_time_value.from_date_str(now_time.c_str(), now_time.size());
         vectorized::TimeInterval time_interval(vectorized::TimeUnit::DAY, k1, false);
-        date_time_value.date_add_interval(time_interval, vectorized::TimeUnit::DAY);
+        date_time_value.date_add_interval<vectorized::TimeUnit::DAY>(time_interval);
 
         EXPECT_EQ(k7, date_time_value);
 
@@ -171,7 +171,7 @@ TEST(BlockTest, RowBatchCovertToBlock) {
         vectorized::DateV2Value<doris::vectorized::DateV2ValueType> date_v2_value;
         std::string now_date("2020-12-02");
         date_v2_value.from_date_str(now_date.c_str(), now_date.size());
-        date_v2_value.date_add_interval(time_interval, vectorized::TimeUnit::DAY, date_v2_value);
+        date_v2_value.date_add_interval<vectorized::TimeUnit::DAY>(time_interval);
 
         EXPECT_EQ(k8, date_v2_value);
 
