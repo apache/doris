@@ -76,12 +76,12 @@ class SuiteContext implements Closeable {
         this.realOutputFile = new File(new File(config.realDataPath), realOutputRelativePath)
         this.dataPath = this.outputFile.getParentFile().getCanonicalFile()
 
-        String dir = path
+        String dir = new File(config.suitePath).relativePath(file.parentFile)
         if (path.indexOf(File.separator + "sql") > 0) {
             dir = path.substring(0, path.indexOf(File.separator + "sql"))
         }
-        this.dbName = dir.replace(File.separator, '_');
 
+        this.dbName = dir.replace(File.separator, '_');
         // - flowName: tpcds_sf1.sql.q47.q47, flowId: tpcds_sf1/sql/q47.sql#q47
         log.info("flowName: ${flowName}, flowId: ${flowId}".toString())
     }

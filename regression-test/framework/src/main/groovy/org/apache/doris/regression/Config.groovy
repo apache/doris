@@ -371,9 +371,9 @@ class Config {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
     }
 
-    Connection getConnectionByDbName(String name) {
-        String dbUrl = buildUrl(name)
-        tryCreateDbIfNotExist(name)
+    Connection getConnectionByDbName(String dbName) {
+        String dbUrl = buildUrl(defaultDb + '_' + dbName)
+        tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
     }
