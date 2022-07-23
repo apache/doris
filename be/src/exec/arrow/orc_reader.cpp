@@ -55,7 +55,7 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         return Status::EndOfFile("Empty Orc File");
     }
     // seek file position after _reader created.
-    RETURN_IF_ERROR(seek_start_stripe());
+    RETURN_IF_ERROR(_seek_start_stripe());
 
     // map
     arrow::Result<std::shared_ptr<arrow::Schema>> maybe_schema = _reader->ReadSchema();
@@ -81,8 +81,11 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
 }
 
 Status ORCReaderWrap::_seek_start_stripe() {
-    if (_range_size <= 0) {
-        LOG(WARNING) << "A non positive _range_size means it will read all the file.";
+    // If file was from Hms table, _range_start_offset is started from 3(magic word).
+    // And if file was from load, _range_start_offset is always set to zero.
+    // So now we only support file split for hms table.
+    // TODO: support file split for loading.
+    if (_range_size <= 0 || _range_start_offset == 0) {
         return Status::OK();
     }
     int64_t row_number = 0;
