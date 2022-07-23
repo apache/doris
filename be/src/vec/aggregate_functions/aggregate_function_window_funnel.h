@@ -82,7 +82,7 @@ struct WindowFunnelState {
                 const DateValueType& first_timestamp = events_timestamp[event_idx - 1].value();
                 DateValueType last_timestamp = first_timestamp;
                 TimeInterval interval(SECOND, window, false);
-                last_timestamp.date_add_interval(interval, SECOND);
+                last_timestamp.template date_add_interval<SECOND>(interval);
 
                 if (timestamp <= last_timestamp) {
                     events_timestamp[event_idx] = first_timestamp;
