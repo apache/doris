@@ -413,11 +413,9 @@ public class PolicyMgr implements Writable {
         }
 
         Optional<Policy> policy = findPolicy(storagePolicyName, PolicyTypeEnum.STORAGE);
-
-        if (!policy.isPresent()) {
-            throw new DdlException("Storage policy(" + storagePolicyName + ") dose not exist.");
-        }
-        StoragePolicy storagePolicy = (StoragePolicy) policy.get();
+        StoragePolicy storagePolicy = (StoragePolicy) policy.orElseThrow(
+                () -> new DdlException("Storage policy(" + storagePolicyName + ") dose not exist.")
+        );
         storagePolicy.modifyProperties(properties);
 
         // log alter
