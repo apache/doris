@@ -64,13 +64,13 @@ public class RewriteDateLiteralRuleTest {
     public void testWithIntFormatDateV2() throws Exception {
         String query = "select * from " + DB_NAME + ".tb2 where k1 > 20210301";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00.000000'"));
         query = "select k1 > 20210301 from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00.000000'"));
         query = "select k1 > 20210301223344 from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:33:44'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:33:44.000000'"));
     }
 
     public void testWithStringFormatDate() throws Exception {
