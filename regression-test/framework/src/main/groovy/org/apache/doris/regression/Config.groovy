@@ -387,7 +387,7 @@ class Config {
         // e.g.
         // suites/tpcds_sf1/load.groovy
         // suites/tpcds_sf1/sql/q01.sql
-        if (dir.indexOf(File.separator + "sql" + File.separator) > 0) {
+        if (dir.indexOf(File.separator + "sql") > 0 && dir.endsWith("sql")) {
             dir = dir.substring(0, dir.indexOf(File.separator + "sql"))
         }
 
