@@ -380,7 +380,14 @@ class Config {
 
     String getDbNameByFile(File suiteFile) {
         String dir = new File(suitePath).relativePath(suiteFile.parentFile)
-        if (dir.indexOf(File.separator + "sql") > 0) {
+        // We put sql files under sql dir, so dbs and tables used by cases
+        // under sql directory should be prepared by load.groovy unbder the
+        // parent.
+        //
+        // e.g.
+        // suites/tpcds_sf1/load.groovy
+        // suites/tpcds_sf1/sql/q01.sql
+        if (dir.indexOf(File.separator + "sql" + File.separator) > 0) {
             dir = dir.substring(0, dir.indexOf(File.separator + "sql"))
         }
 
