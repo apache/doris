@@ -59,7 +59,7 @@ class StreamLoadAction implements SuiteAction {
         this.password = context.config.feHttpPassword
 
         def groupList = context.group.split(',')
-        this.db = context.config.getDbNameByFile(this.file)
+        this.db = context.config.getDbNameByFile(context.file)
 
         this.context = context
         this.headers = new LinkedHashMap<>()
