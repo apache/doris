@@ -148,11 +148,11 @@ public class ExpressionParserTest {
     }
 
     @Test
-    public void testIn() throws Exception {
-        String in = "select * from test where a in (a, b, c)";
+    public void testInSubquery() throws Exception {
+        String in = "select * from test where a in (select * from test1 where a = 0)";
         assertSql(in);
 
-        String inExpr = "a in (b, c, d)";
+        String inExpr = "a in (select * from test where b = 1)";
         assertExpr(inExpr);
     }
 }
