@@ -227,6 +227,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         return new StatsDeriveResult(resultSetCount, new HashMap<>(), new HashMap<>());
     }
 
+    // TODO: Update data size
     private StatsDeriveResult computeProject(Project project) {
         List<NamedExpression> namedExpressionList = project.getProjects();
         Set<Slot> slotSet = new HashSet<>();

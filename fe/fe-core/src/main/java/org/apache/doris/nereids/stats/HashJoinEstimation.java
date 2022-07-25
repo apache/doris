@@ -131,14 +131,14 @@ public class HashJoinEstimation {
             if (leftColStats == null) {
                 continue;
             }
-            SlotReference rightSlot = (SlotReference) left;
+            SlotReference rightSlot = (SlotReference) right;
             ColumnStats rightColStats = rightSlotToColumnStats.get(rightSlot);
             if (rightColStats == null) {
                 continue;
             }
             double leftSideNdv = leftColStats.getNdv();
             double rightSideNdv = rightColStats.getNdv();
-            long tmpNdv = Double.doubleToLongBits(Math.max(1, Math.max(leftSideNdv, rightSideNdv)));
+            long tmpNdv = (long) Math.max(1, Math.max(leftSideNdv, rightSideNdv));
             long joinCard = tmpNdv == rhsCard ? lhsCard : CheckedMath.checkedMultiply(
                     Math.round((lhsCard / Math.max(1, Math.max(leftSideNdv, rightSideNdv)))), rhsCard);
             if (result == -1) {

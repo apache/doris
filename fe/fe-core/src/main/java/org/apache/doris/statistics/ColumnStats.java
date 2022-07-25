@@ -81,8 +81,12 @@ public class ColumnStats {
         this.avgSize = other.avgSize;
         this.maxSize = other.maxSize;
         this.numNulls = other.numNulls;
-        this.minValue = (LiteralExpr) other.minValue.clone();
-        this.maxValue = (LiteralExpr) other.maxValue.clone();
+        if (other.minValue != null) {
+            this.minValue = (LiteralExpr) other.minValue.clone();
+        }
+        if (other.maxValue != null) {
+            this.maxValue = (LiteralExpr) other.maxValue.clone();
+        }
     }
 
     public ColumnStats() {

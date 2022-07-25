@@ -111,9 +111,9 @@ public class StatsDeriveResult {
     }
 
     public StatsDeriveResult multiplyDouble(double selectivity) {
+        rowCount *= selectivity;
         for (Entry<Slot, ColumnStats> entry : slotRefToColumnStatsMap.entrySet()) {
             entry.getValue().multiplyDouble(selectivity);
-            rowCount *= selectivity;
         }
         return this;
     }
