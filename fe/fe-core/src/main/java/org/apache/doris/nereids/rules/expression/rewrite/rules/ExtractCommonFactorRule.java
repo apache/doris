@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
+import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -37,6 +38,7 @@ import java.util.stream.Collectors;
  * transform (a or b) and (a or c) to a or (b and c)
  * transform (a and b) or (a and c) to a and (b or c)
  */
+@Developing
 public class ExtractCommonFactorRule extends AbstractExpressionRewriteRule {
 
     public static final ExtractCommonFactorRule INSTANCE = new ExtractCommonFactorRule();
