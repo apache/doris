@@ -311,13 +311,15 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
         TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                      \
         TYPE old_value = ref_conf_value;                                                       \
         ref_conf_value = new_value;                                                            \
-        auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);        \
-        if (validator != RegisterConfValidator::_s_field_validator->end() &&                   \
-            !(validator->second)()) {                                                          \
-            ref_conf_value = old_value;                                                        \
-            std::cerr << "validate " << (FIELD).name << "=" << new_value << " failed"          \
-                      << std::endl;                                                            \
-            return false;                                                                      \
+        if (RegisterConfValidator::_s_field_validator != nullptr) {                            \
+            auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);    \
+            if (validator != RegisterConfValidator::_s_field_validator->end() &&               \
+                !(validator->second)()) {                                                      \
+                ref_conf_value = old_value;                                                    \
+                std::cerr << "validate " << (FIELD).name << "=" << new_value << " failed"      \
+                          << std::endl;                                                        \
+                return false;                                                                  \
+            }                                                                                  \
         }                                                                                      \
         if (FILL_CONF_MAP) {                                                                   \
             std::ostringstream oss;                                                            \
@@ -358,31 +360,32 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
     return true;
 }
 
-#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                             \
-    if (strcmp((FIELD).type, #TYPE) == 0) {                                                   \
-        TYPE new_value;                                                                       \
-        if (!convert((VALUE), new_value)) {                                                   \
-            return Status::InvalidArgument("convert '{}' as {} failed", VALUE, #TYPE);        \
-        }                                                                                     \
-        TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                     \
-        TYPE old_value = ref_conf_value;                                                      \
-        ref_conf_value = new_value;                                                           \
-        auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);       \
-        if (validator != RegisterConfValidator::_s_field_validator->end() &&                  \
-            !(validator->second)()) {                                                         \
-            ref_conf_value = old_value;                                                       \
-            return Status::InvalidArgument("validate {}={} failed", (FIELD).name, new_value); \
-        }                                                                                     \
-        ref_conf_value = new_value;                                                           \
-        if (full_conf_map != nullptr) {                                                       \
-            std::ostringstream oss;                                                           \
-            oss << new_value;                                                                 \
-            (*full_conf_map)[(FIELD).name] = oss.str();                                       \
-        }                                                                                     \
-        if (PERSIST) {                                                                        \
-            persist_config(std::string((FIELD).name), VALUE);                                 \
-        }                                                                                     \
-        return Status::OK();                                                                  \
+#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                                 \
+    if (strcmp((FIELD).type, #TYPE) == 0) {                                                       \
+        TYPE new_value;                                                                           \
+        if (!convert((VALUE), new_value)) {                                                       \
+            return Status::InvalidArgument("convert '{}' as {} failed", VALUE, #TYPE);            \
+        }                                                                                         \
+        TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                         \
+        TYPE old_value = ref_conf_value;                                                          \
+        if (RegisterConfValidator::_s_field_validator != nullptr) {                               \
+            auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);       \
+            if (validator != RegisterConfValidator::_s_field_validator->end() &&                  \
+                !(validator->second)()) {                                                         \
+                ref_conf_value = old_value;                                                       \
+                return Status::InvalidArgument("validate {}={} failed", (FIELD).name, new_value); \
+            }                                                                                     \
+        }                                                                                         \
+        ref_conf_value = new_value;                                                               \
+        if (full_conf_map != nullptr) {                                                           \
+            std::ostringstream oss;                                                               \
+            oss << new_value;                                                                     \
+            (*full_conf_map)[(FIELD).name] = oss.str();                                           \
+        }                                                                                         \
+        if (PERSIST) {                                                                            \
+            persist_config(std::string((FIELD).name), VALUE);                                     \
+        }                                                                                         \
+        return Status::OK();                                                                      \
     }
 
 // write config to be_custom.conf
