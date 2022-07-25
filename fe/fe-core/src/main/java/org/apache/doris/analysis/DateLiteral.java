@@ -493,8 +493,12 @@ public class DateLiteral extends LiteralExpr {
         if (type.isDate() || type.isDateV2()) {
             return String.format("%04d-%02d-%02d", year, month, day);
         } else if (type.isDatetimeV2()) {
-            return String.format("%04d-%02d-%02d %02d:%02d:%02d.%06d",
-                    year, month, day, hour, minute, second, microsecond);
+            String tmp = String.format("%04d-%02d-%02d %02d:%02d:%02d",
+                    year, month, day, hour, minute, second);
+            if (microsecond == 0) {
+                return tmp;
+            }
+            return tmp + String.format("%06d", microsecond);
         } else {
             return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
         }
