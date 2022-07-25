@@ -19,6 +19,15 @@ public class EliminateAliasNode implements AnalysisRuleFactory {
         return ImmutableList.of(
                 RuleType.PROJECT_ELIMINATE_ALIAS_NODE.build(
                         logicalProject().then(project -> eliminateSubQueryAliasNode(project, project.children()))
+                ),
+                RuleType.FILTER_ELIMINATE_ALIAS_NODE.build(
+                        logicalFilter().then(filter -> eliminateSubQueryAliasNode(filter, filter.children()))
+                ),
+                RuleType.JOIN_ELIMINATE_ALIAS_NODE.build(
+                        logicalJoin().then(join -> eliminateSubQueryAliasNode(join, join.children()))
+                ),
+                RuleType.AGGREGATE_ELIMINATE_ALIAS_NODE.build(
+                        logicalAggregate().then(agg -> eliminateSubQueryAliasNode(agg, agg.children()))
                 )
         );
     }
@@ -26,18 +35,22 @@ public class EliminateAliasNode implements AnalysisRuleFactory {
     private LogicalPlan eliminateSubQueryAliasNode(LogicalPlan node, List<Plan> aliasNodes) {
         ArrayList<Plan> nodes = Lists.newArrayList();
         aliasNodes.forEach(child -> {
-
+                    if (checkIsSubQueryAliasNode(child)) {
+                        nodes.add(getPlan(child));
+                    } else {
+                        nodes.add(child);
+                    }
                 }
         );
-        return (LogicalPlan) node.withChildren(aliasNodes);
+        return (LogicalPlan) node.withChildren(nodes);
     }
 
     private boolean checkIsSubQueryAliasNode(Plan node) {
-        return ((GroupPlan) node.child(0)).getGroup().getLogicalExpression().getPlan().getType()
+        return ((GroupPlan) node).getGroup().getLogicalExpression().getPlan().getType()
                 == PlanType.LOGICAL_SUBQUERY_ALIAS;
     }
 
     private Plan getPlan(Plan node) {
-        return ((GroupPlan) node.child(0)).getGroup().getLogicalExpression().getPlan();
+        return ((GroupPlan) node).getGroup().getLogicalExpression().child(0).getLogicalExpression().getPlan();
     }
 }
