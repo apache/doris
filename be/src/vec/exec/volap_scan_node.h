@@ -53,8 +53,6 @@ public:
 
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
-    void set_no_agg_finalize() { _need_agg_finalize = false; }
-
     Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range, int block_row_count,
                      bool is_begin_include, bool is_end_include,
                      const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
@@ -167,26 +165,12 @@ private:
     // Keeps track of total splits and the number finished.
     ProgressUpdater _progress;
 
-    // Lock and condition variables protecting _materialized_row_batches.  Row batches are
-    // produced asynchronously by the scanner threads and consumed by the main thread in
-    // GetNext.  Row batches must be processed by the main thread in the order they are
-    // queued to avoid freeing attached resources prematurely (row batches will never depend
-    // on resources attached to earlier batches in the queue).
-    // This lock cannot be taken together with any other locks except _lock.
-    std::mutex _row_batches_lock;
-    std::condition_variable _row_batch_added_cv;
-    std::condition_variable _row_batch_consumed_cv;
-
-    std::list<RowBatch*> _materialized_row_batches;
     // to limit _materialized_row_batches_bytes < _max_scanner_queue_size_bytes / 2
     std::atomic_size_t _materialized_row_batches_bytes = 0;
 
-    std::mutex _scan_batches_lock;
-    std::condition_variable _scan_batch_added_cv;
     std::atomic_int _running_thread = 0;
     std::condition_variable _scan_thread_exit_cv;
 
-    std::list<RowBatch*> _scan_row_batches;
     // to limit _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2
     std::atomic_size_t _scan_row_batches_bytes = 0;
 
@@ -221,8 +205,6 @@ private:
     // Count the memory consumption of Rowset Reader and Tablet Reader in OlapScanner.
     std::unique_ptr<MemTracker> _scanner_mem_tracker;
     EvalConjunctsFn _eval_conjuncts_fn;
-
-    bool _need_agg_finalize = true;
 
     // the max num of scan keys of this scan request.
     // it will set as BE's config `doris_max_scan_key_num`,

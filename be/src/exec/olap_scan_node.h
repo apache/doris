@@ -55,7 +55,6 @@ public:
     Status collect_query_statistics(QueryStatistics* statistics) override;
     Status close(RuntimeState* state) override;
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
-    void set_no_agg_finalize() { _need_agg_finalize = false; }
     Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range, int block_row_count,
                      bool is_begin_include, bool is_end_include,
                      const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
@@ -266,8 +265,6 @@ protected:
     // Count the memory consumption of Rowset Reader and Tablet Reader in OlapScanner.
     std::unique_ptr<MemTracker> _scanner_mem_tracker;
     EvalConjunctsFn _eval_conjuncts_fn;
-
-    bool _need_agg_finalize = true;
 
     // the max num of scan keys of this scan request.
     // it will set as BE's config `doris_max_scan_key_num`,

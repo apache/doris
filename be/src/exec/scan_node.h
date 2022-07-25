@@ -81,6 +81,8 @@ public:
 
     bool is_scan_node() const override { return true; }
 
+    void set_no_agg_finalize() { _need_agg_finalize = false; }
+
     RuntimeProfile::Counter* bytes_read_counter() const { return _bytes_read_counter; }
     RuntimeProfile::Counter* rows_read_counter() const { return _rows_read_counter; }
     RuntimeProfile::Counter* total_throughput_counter() const { return _total_throughput_counter; }
@@ -102,6 +104,9 @@ protected:
     // Wall based aggregate read throughput [bytes/sec]
     RuntimeProfile::Counter* _total_throughput_counter;
     RuntimeProfile::Counter* _num_disks_accessed_counter;
+
+protected:
+    bool _need_agg_finalize = true;
 };
 
 } // namespace doris
