@@ -38,7 +38,7 @@ under the License.
 
 ## Stand-alone deployment
 
-**Before creating, please prepare the compiled FE/BE file, this tutorial will not repeat the compilation process.**
+**Before creating, please prepare the compiled FE / BE file, this tutorial will not repeat the compilation process.**
 
 
 **This tutorial is a mixed distribution tutorial of single node, 1FE and 1BE, only one node is needed, which is convenient for quickly experiencing Doris.**
@@ -56,9 +56,10 @@ under the License.
 2. Download binary package / self-compile FE / BE files
 
    ```shell
-   wget https://dist.apache.org/repos/dist/release/doris/version-to-deploy
+   # Select the version you want to deploy from the following address
+   https://archive.apache.org/dist/doris
    # For example the following link
-   wget https://dist.apache.org/repos/dist/release/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz
+   wget https://archive.apache.org/dist/doris/1.1/1.1.0-rc05/apache-doris-1.1.0-bin-x86-jdk8.tar.gz
    ```
    
 3. Extract the tar.gz file
@@ -66,7 +67,7 @@ under the License.
    ```shell
    tar -zxvf Downloaded binary archive
    # example
-   tar -zxvf apache-doris-1.0.0-incubating-bin.tar.gz
+   tar -zxvf apache-doris-1.1.0-bin-x86-jdk8.tar.gz
    ```
 
 4. Migrate the decompressed program files to the specified directory and rename them
@@ -75,7 +76,7 @@ under the License.
    mv [unzipped root directory] [Target path]
    cd [Target path]
    # example
-   mv apache-doris-1.0.0-incubating-bin /opt/doris
+   mv apache-doris-1.1.0-bin-x86-jdk8 /opt/doris
    cd /opt/doris
    ```
 
@@ -124,7 +125,7 @@ under the License.
    Check whether the FE startup is successful
 
    > 1. Check whether the startup is successful, and whether there is a PaloFe process under the JPS command
-   > 2. After the FE process is started, the metadata will be loaded first. Depending on the role of the FE, you will see transfer from UNKNOWN to MASTER/FOLLOWER/OBSERVER in the log. Finally, you will see the thrift server started log, and you can connect to FE through the mysql client, which means FE started successfully.
+   > 2. After the FE process is started, the metadata will be loaded first. Depending on the role of the FE, you will see transfer from UNKNOWN to MASTER/FOLLOWER/OBSERVER in the log. Finally, you will see the thrift server started log, and you can connect to FE through the MySQL client, which means FE started successfully.
    > 3. You can also check whether the startup is successful through the following connection: http://fe_host:fe_http_port/api/bootstrap If it returns: {"status":"OK","msg":"Success"}, it means the startup is successful, and the rest , there may be a problem.
    > 4. Visit http://fe_host:fe_http_port in the external environment to check whether you can access the WebUI interface. The default login account is root and the password is empty.
    >
@@ -152,7 +153,7 @@ under the License.
 
 ## Apache Doris is easy to use
 
-Doris uses the MySQL protocol for communication, and users can connect to the Doris cluster through MySQL Client or MySQL JDBC. When choosing the MySQL client version, it is recommended to use a version after 5.1, because the user name longer than 16 characters cannot be supported before 5.1. Doris SQL syntax basically covers MySQL syntax.
+Doris uses the MySQL protocol for communication, and users can connect to the Doris cluster through MySQL Client or MySQL JDBC. When choosing the MySQL Client version, it is recommended to use a version after 5.1, because the user name longer than 16 characters cannot be supported before 5.1. Doris SQL syntax basically covers MySQL syntax.
 
 ### Apache Doris Web UI access
 
@@ -193,7 +194,7 @@ Default password: empty
 
     What needs to be paid attention to is the `Alive` column, the `True` and `False` of this column represent the normal and abnormal status of the corresponding BE node
 
-3. profile query
+3. Profile query
 
     Enter QueryProfile to view the latest 100 SQL execution report information, click the specified ID in the QueryID column to view the Profile information
 
@@ -229,7 +230,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
 - View database list
 
   ```mysql
-  show databases;
+  SHOW DATABASES;
   ````
 
 - create database
@@ -402,7 +403,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
 
    The Insert Into statement is used in a similar way to the Insert Into statement in databases such as MySQL. But in Doris, all data writing is a separate import job. Therefore, Insert Into is also introduced as an import method here.
 
-   The main Insert Into commands include the following two;
+   The main Insert Into commands include the following two:
 
    - INSERT INTO tbl SELECT ...
    - INSERT INTO tbl (col1, col2, ...) VALUES (1, 2, ...), (1,3, ...);
@@ -626,7 +627,7 @@ The current UPDATE statement **only supports** row updates on the Unique model, 
 
 2. Example
 
-   The `test` table is a unique model table, which contains four columns: k1, k2, v1, v2. Where k1, k2 are keys, v1, v2 are values, and the aggregation method is Replace.
+   The `test` table is a unique model table, which contains four columns k1, k2, v1, v2. Where k1, k2 are keys, v1, v2 are values, and the aggregation method is Replace.
 
    1. Update the v1 column in the 'test' table that satisfies the conditions k1 =1 , k2 =2 to 1
 
@@ -659,7 +660,7 @@ The current UPDATE statement **only supports** row updates on the Unique model, 
 
    illustrate:
 
-    - Optional types of op include: =, >, <, >=, <=, !=, in, not in
+    - Optional types of op include: =, >, <, >=, <=, !=, in, not in.
 
     - Only conditions on the key column can be specified.
 
