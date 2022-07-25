@@ -313,7 +313,7 @@ Status FileScanNode::get_next(RuntimeState* state, vectorized::Block* block, boo
         } else {
             if (_mutable_block->empty()) {
                 // directly use scanner_block
-                *block = *scanner_block;
+                *block = std::move(*scanner_block);
             } else {
                 // copy _mutable_block firstly, then merge scanner_block into _mutable_block for next.
                 *block = _mutable_block->to_block();
