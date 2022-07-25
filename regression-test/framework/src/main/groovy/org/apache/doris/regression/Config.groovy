@@ -391,7 +391,7 @@ class Config {
             dir = dir.substring(0, dir.indexOf(File.separator + "sql"))
         }
 
-        dir.replace('-', '_')
+        dir = dir.replace('-', '_')
 
         return defaultDb + '_' + dir.replace(File.separator, '_')
     }
