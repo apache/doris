@@ -68,10 +68,8 @@ public class DateLiteral extends LiteralExpr {
     private static final DateLiteral MAX_DATETIMEV2
             = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L);
     private static final int DATEKEY_LENGTH = 8;
+    private static final int DATETIMEKEY_LENGTH = 14;
     private static final int MAX_MICROSECOND = 999999;
-    private static final int DATETIME_TO_MINUTE_STRING_LENGTH = 16;
-    private static final int DATETIME_TO_HOUR_STRING_LENGTH = 13;
-    private static final int DATETIME_TO_SECOND_STRING_LENGTH = 19;
 
     private static DateTimeFormatter DATE_TIME_FORMATTER = null;
     private static DateTimeFormatter DATE_TIME_FORMATTER_TO_MICRO_SECOND = null;
@@ -82,6 +80,8 @@ public class DateLiteral extends LiteralExpr {
      *  and data in the form of 'yyyymmdd' is generally called the datekey type.
      */
     private static DateTimeFormatter DATEKEY_FORMATTER = null;
+    // 'yyyymmddHHMMss'
+    private static DateTimeFormatter DATETIMEKEY_FORMATTER = null;
 
     private static Map<String, Integer> MONTH_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
@@ -96,6 +96,7 @@ public class DateLiteral extends LiteralExpr {
             DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter();
             DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter();
             DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter();
+            DATETIMEKEY_FORMATTER = formatBuilder("%Y%m%d%H%i%s").toFormatter();
             DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
                     .appendPattern("uuuu-MM-dd HH:mm:ss")
                     .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
@@ -324,6 +325,9 @@ public class DateLiteral extends LiteralExpr {
             if (s.length() == DATEKEY_LENGTH && !s.contains("-")) {
                 // handle format like 20210106, but should not handle 2021-1-6
                 dateTime = DATEKEY_FORMATTER.parse(s);
+            } else if (s.length() == DATETIMEKEY_LENGTH && !s.contains("-")) {
+                // handle format like 20210106, but should not handle 2021-1-6
+                dateTime = DATETIMEKEY_FORMATTER.parse(s);
             } else {
                 String[] datePart = s.contains(" ") ? s.split(" ")[0].split("-") : s.split("-");
                 DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
