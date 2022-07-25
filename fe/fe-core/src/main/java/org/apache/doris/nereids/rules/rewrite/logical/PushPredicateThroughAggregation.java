@@ -58,9 +58,8 @@ import java.util.Set;
  *                   |
  *                 scan
  * Note:
- * 1. 'a>0' could be push down, because 'a' is in group by keys;
+ *    'a>0' could be push down, because 'a' is in group by keys;
  *    but 'b>0' could not push down, because 'b' is not in group by keys.
- * 2. filter (a>0) ---> group by (a+1), 'a>0' cannot be pushed down
  *
  */
 
