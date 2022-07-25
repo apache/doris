@@ -2,15 +2,15 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 
 public class EliminateAliasNode implements AnalysisRuleFactory {
@@ -18,31 +18,26 @@ public class EliminateAliasNode implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 RuleType.PROJECT_ELIMINATE_ALIAS_NODE.build(
-                        logicalProject().then(project -> eliminateAliasNode(project, project.children()))
-                ),
-                RuleType.FILTER_ELIMINATE_ALIAS_NODE.build(
-                        logicalFilter().then(filter -> eliminateAliasNode(filter, filter.children()))
-                ),
-                RuleType.JOIN_ELIMINATE_ALIAS_NODE.build(
-                        logicalJoin().then(join -> joinEliminateAliasNode(join, join.children())
-                        )
+                        logicalProject().then(project -> eliminateSubQueryAliasNode(project, project.children()))
                 )
         );
     }
 
-    public LogicalPlan eliminateAliasNode(LogicalPlan plan, List<Plan> aliasNode) {
-        Preconditions.checkArgument(aliasNode.size() == 1);
-        List<Plan> children = aliasNode.get(0).children();
-        Preconditions.checkArgument(children.size() == 1);
-        return (LogicalPlan) plan.withChildren(children);
+    private LogicalPlan eliminateSubQueryAliasNode(LogicalPlan node, List<Plan> aliasNodes) {
+        ArrayList<Plan> nodes = Lists.newArrayList();
+        aliasNodes.forEach(child -> {
+
+                }
+        );
+        return (LogicalPlan) node.withChildren(aliasNodes);
     }
 
-    public LogicalPlan joinEliminateAliasNode(LogicalPlan plan, List<Plan> aliasNode) {
-        Preconditions.checkArgument(aliasNode.size() == 2);
-        Preconditions.checkArgument(aliasNode.stream().anyMatch(node -> node.children().size() == 1));
-        return (LogicalPlan) plan.withChildren(Lists.newArrayList(
-                aliasNode.get(0).child(0),
-                aliasNode.get(1).child(0)
-        ));
+    private boolean checkIsSubQueryAliasNode(Plan node) {
+        return ((GroupPlan) node.child(0)).getGroup().getLogicalExpression().getPlan().getType()
+                == PlanType.LOGICAL_SUBQUERY_ALIAS;
+    }
+
+    private Plan getPlan(Plan node) {
+        return ((GroupPlan) node.child(0)).getGroup().getLogicalExpression().getPlan();
     }
 }

@@ -3,6 +3,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
@@ -41,7 +42,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
             "SELECT T.ID FROM T1 T",
             "SELECT A.ID, B.SCORE FROM T1 A, T2 B WHERE A.ID = B.ID GROUP BY A.ID ORDER BY A.ID",
             "SELECT X.ID FROM (SELECT * FROM T1 A JOIN (SELECT ID ID1 FROM T1) AS B ON A.ID = B.ID1) X WHERE X.SCORE < 20",
-            "SELECT X.ID + X.SCORE FROM (SELECT * FROM T1 A JOIN (SELECT SUM(ID + 1) ID1 FROM T1 GROUP BY ID) AS B ON A.ID = B.ID1 ORDER BY A.ID DESC) X WHERE X.ID - X.SCORE < 20"
+            "SELECT X.ID + X.SCORE FROM (SELECT * FROM T1 A JOIN (SELECT SUM(ID + 1) ID1 FROM T1 T GROUP BY ID) AS B ON A.ID = B.ID1 ORDER BY A.ID DESC) X WHERE X.ID - X.SCORE < 20"
     );
 
     @Override
@@ -92,6 +93,24 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         for (String sql : testSql) {
             System.out.println(parser.parseSingle(sql).treeString());
         }
+    }
+
+    @Test
+    public void testFinalizeAnalyze() {
+        Memo memo = new Memo(parser.parseSingle(testSql.get(10)));
+        PlannerContext plannerContext = new PlannerContext(memo, connectContext);
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
+
+        executeRewriteBottomUpJob(plannerContext,
+                new BindFunction(),
+                new BindRelation(),
+                new BindSubQueryAlias(),
+                new BindSlotReference(),
+                new ProjectToGlobalAggregate());
+        System.out.println(memo.copyOut().treeString());
+        new FinalizeAnalyzeJob(plannerContext).execute();
+        System.out.println(memo.copyOut().treeString());
     }
 
     private void checkAnalyze(String sql) {
