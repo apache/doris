@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 
 import org.junit.jupiter.api.Assertions;
@@ -94,5 +95,22 @@ public class QueryOrganizationTest {
         QueryStmt secondQueryStmt = setOperationStmt.getOperands().get(1).getQueryStmt();
         Assertions.assertEquals(-1, secondQueryStmt.getLimit());
         Assertions.assertNull(secondQueryStmt.getOrderByElements());
+    }
+
+    @Test
+    public void testInvalidSyntax() throws Exception {
+        String sql = "SELECT * FROM tbl WHERE a = 1 ORDER BY b LIMIT 10 "
+                + "UNION SELECT * FROM tbl WHERE a = 2 ORDER BY b LIMIT 10";
+        org.apache.doris.analysis.SqlScanner input = new org.apache.doris.analysis.SqlScanner(
+                new StringReader(sql), 0L);
+        org.apache.doris.analysis.SqlParser parser = new org.apache.doris.analysis.SqlParser(input);
+
+        UserException thrown = Assertions.assertThrows(
+                UserException.class,
+                () -> SqlParserUtils.getFirstStmt(parser),
+                "Expected parser throw exception, but it didn't"
+        );
+
+        Assertions.assertTrue(thrown.getMessage().contains("Syntax error"));
     }
 }
