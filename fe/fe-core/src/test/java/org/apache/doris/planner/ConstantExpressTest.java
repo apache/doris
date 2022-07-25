@@ -140,7 +140,7 @@ public class ConstantExpressTest {
 
         testConstantExpressResult(
                 "select cast ('2020-01-20 00:00:00' as datetime(0));",
-                "'2020-01-20 00:00:00'");
+                "'2020-01-20 00:00:00.000000'");
     }
 
     @Test

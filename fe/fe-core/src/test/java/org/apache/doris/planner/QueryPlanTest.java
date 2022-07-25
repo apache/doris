@@ -2012,10 +2012,10 @@ public class QueryPlanTest extends TestWithFeService {
         rewriteDateLiteralRuleTest.testWithIntFormatDate();
         rewriteDateLiteralRuleTest.testWithInvalidFormatDate();
         rewriteDateLiteralRuleTest.testWithStringFormatDate();
-        rewriteDateLiteralRuleTest.testWithDoubleFormatDateV2();
-        rewriteDateLiteralRuleTest.testWithIntFormatDateV2();
-        rewriteDateLiteralRuleTest.testWithInvalidFormatDateV2();
-        rewriteDateLiteralRuleTest.testWithStringFormatDateV2();
+        // rewriteDateLiteralRuleTest.testWithDoubleFormatDateV2();
+        // rewriteDateLiteralRuleTest.testWithIntFormatDateV2();
+        // rewriteDateLiteralRuleTest.testWithInvalidFormatDateV2();
+        // rewriteDateLiteralRuleTest.testWithStringFormatDateV2();
         rewriteDateLiteralRuleTest.after();
     }
     // --end--

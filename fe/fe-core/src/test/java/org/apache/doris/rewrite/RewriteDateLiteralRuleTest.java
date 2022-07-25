@@ -64,13 +64,13 @@ public class RewriteDateLiteralRuleTest {
     public void testWithIntFormatDateV2() throws Exception {
         String query = "select * from " + DB_NAME + ".tb2 where k1 > 20210301";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00.000000'"));
         query = "select k1 > 20210301 from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00.000000'"));
         query = "select k1 > 20210301223344 from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:33:44'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:33:44.000000'"));
     }
 
     public void testWithStringFormatDate() throws Exception {
@@ -122,19 +122,19 @@ public class RewriteDateLiteralRuleTest {
     public void testWithStringFormatDateV2() throws Exception {
         String query = "select * from " + DB_NAME + ".tb2 where k1 > '2021030112334455'";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 12:33:44'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 12:33:44.000000'"));
 
         query = "select k1 > '20210301' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00.000000'"));
 
         query = "select k1 > '20210301233234.34' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 23:32:34'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 23:32:34.000000'"));
 
         query = "select * from " + DB_NAME + ".tb2 where k1 > '2021-03-01'";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00.000000'"));
 
         query = "select k1 > '2021-03-01 11:22:33' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
@@ -146,23 +146,23 @@ public class RewriteDateLiteralRuleTest {
 
         query = "select k1 > '2021-03-01 11:22' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 11:22:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 11:22:00.000000'"));
 
         query = "select k1 > '20210301T221133' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:11:33'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:11:33.000000'"));
 
         query = "select k1 > '2021-03-01dd 11:22' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00.000000'"));
 
         query = "select k1 > '80-03-01 11:22' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '1980-03-01 11:22:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '1980-03-01 11:22:00.000000'"));
 
         query = "select k1 > '12-03-01 11:22' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2012-03-01 11:22:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2012-03-01 11:22:00.000000'"));
     }
 
     public void testWithDoubleFormatDate() throws Exception {
