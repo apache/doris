@@ -109,6 +109,7 @@ public abstract class Type {
     private static final ArrayList<ScalarType> numericTypes;
     private static final ArrayList<ScalarType> supportedTypes;
     private static final ArrayList<Type> arraySubTypes;
+    private static final ArrayList<ScalarType> trivialTypes;
 
     static {
         integerTypes = Lists.newArrayList();
@@ -119,11 +120,7 @@ public abstract class Type {
         integerTypes.add(LARGEINT);
 
         numericTypes = Lists.newArrayList();
-        numericTypes.add(TINYINT);
-        numericTypes.add(SMALLINT);
-        numericTypes.add(INT);
-        numericTypes.add(BIGINT);
-        numericTypes.add(LARGEINT);
+        numericTypes.addAll(integerTypes);
         numericTypes.add(FLOAT);
         numericTypes.add(DOUBLE);
         numericTypes.add(DECIMALV2);
@@ -131,40 +128,29 @@ public abstract class Type {
         numericTypes.add(DECIMAL64);
         numericTypes.add(DECIMAL128);
 
+        trivialTypes = Lists.newArrayList();
+        trivialTypes.addAll(numericTypes);
+        trivialTypes.add(BOOLEAN);
+        trivialTypes.add(VARCHAR);
+        trivialTypes.add(STRING);
+        trivialTypes.add(CHAR);
+        trivialTypes.add(DATE);
+        trivialTypes.add(DATETIME);
+        trivialTypes.add(DATEV2);
+        trivialTypes.add(DATETIMEV2);
+        trivialTypes.add(TIME);
+        trivialTypes.add(TIMEV2);
+
         supportedTypes = Lists.newArrayList();
+        supportedTypes.addAll(trivialTypes);
         supportedTypes.add(NULL);
-        supportedTypes.add(BOOLEAN);
-        supportedTypes.add(TINYINT);
-        supportedTypes.add(SMALLINT);
-        supportedTypes.add(INT);
-        supportedTypes.add(BIGINT);
-        supportedTypes.add(LARGEINT);
-        supportedTypes.add(FLOAT);
-        supportedTypes.add(DOUBLE);
-        supportedTypes.add(VARCHAR);
         supportedTypes.add(HLL);
         supportedTypes.add(BITMAP);
         supportedTypes.add(QUANTILE_STATE);
-        supportedTypes.add(CHAR);
-        supportedTypes.add(DATE);
-        supportedTypes.add(DATETIME);
-        supportedTypes.add(DATEV2);
-        supportedTypes.add(DATETIMEV2);
-        supportedTypes.add(DECIMALV2);
-        supportedTypes.add(DECIMAL32);
-        supportedTypes.add(DECIMAL64);
-        supportedTypes.add(DECIMAL128);
-        supportedTypes.add(TIME);
-        supportedTypes.add(TIMEV2);
-        supportedTypes.add(STRING);
 
         arraySubTypes = Lists.newArrayList();
+        arraySubTypes.addAll(integerTypes);
         arraySubTypes.add(BOOLEAN);
-        arraySubTypes.add(TINYINT);
-        arraySubTypes.add(SMALLINT);
-        arraySubTypes.add(INT);
-        arraySubTypes.add(BIGINT);
-        arraySubTypes.add(LARGEINT);
         arraySubTypes.add(FLOAT);
         arraySubTypes.add(DOUBLE);
         arraySubTypes.add(DECIMALV2);
@@ -181,6 +167,10 @@ public abstract class Type {
 
     public static ArrayList<ScalarType> getNumericTypes() {
         return numericTypes;
+    }
+
+    public static ArrayList<ScalarType> getTrivialTypes() {
+        return trivialTypes;
     }
 
     public static ArrayList<ScalarType> getSupportedTypes() {
@@ -507,6 +497,20 @@ public abstract class Type {
         if (t1.isScalarType() && t2.isScalarType()) {
             return ScalarType.getAssignmentCompatibleType((ScalarType) t1, (ScalarType) t2, strict);
         }
+
+        if (t1.isArrayType() && t2.isArrayType()) {
+            ArrayType arrayType1 = (ArrayType) t1;
+            ArrayType arrayType2 = (ArrayType) t2;
+            Type itemCompatibleType = Type.getAssignmentCompatibleType(arrayType1.getItemType(),
+                    arrayType2.getItemType(), strict);
+
+            if (itemCompatibleType.isInvalid()) {
+                return itemCompatibleType;
+            }
+
+            return new ArrayType(itemCompatibleType, arrayType1.getContainsNull() || arrayType2.getContainsNull());
+        }
+
         return ScalarType.INVALID;
     }
 

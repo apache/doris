@@ -17,29 +17,116 @@
 
 package org.apache.doris.statistics;
 
+
+import org.apache.doris.statistics.StatsCategory.Category;
+import org.apache.doris.statistics.StatsGranularity.Granularity;
+
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class StatisticsTaskResult {
-    private final StatsGranularityDesc granularityDesc;
-    private final StatsCategoryDesc categoryDesc;
-    private final Map<StatsType, String> statsTypeToValue;
+    private List<TaskResult> taskResults;
 
-    public StatisticsTaskResult(StatsGranularityDesc granularityDesc, StatsCategoryDesc categoryDesc,
-                                Map<StatsType, String> statsTypeToValue) {
-        this.granularityDesc = granularityDesc;
-        this.categoryDesc = categoryDesc;
-        this.statsTypeToValue = statsTypeToValue;
+    public StatisticsTaskResult(List<TaskResult> taskResults) {
+        this.taskResults = taskResults;
     }
 
-    public StatsGranularityDesc getGranularityDesc() {
-        return granularityDesc;
+    public List<TaskResult> getTaskResults() {
+        return taskResults;
     }
 
-    public StatsCategoryDesc getCategoryDesc() {
-        return categoryDesc;
+    public void setTaskResults(List<TaskResult> taskResults) {
+        this.taskResults = taskResults;
     }
 
-    public Map<StatsType, String> getStatsTypeToValue() {
-        return statsTypeToValue;
+    public static class TaskResult {
+        private long dbId = -1L;
+        private long tableId = -1L;
+        private String partitionName = "";
+        private String columnName = "";
+
+        private Category category;
+        private Granularity granularity;
+        private Map<StatsType, String> statsTypeToValue;
+
+        public long getDbId() {
+            return dbId;
+        }
+
+        public void setDbId(long dbId) {
+            this.dbId = dbId;
+        }
+
+        public long getTableId() {
+            return tableId;
+        }
+
+        public void setTableId(long tableId) {
+            this.tableId = tableId;
+        }
+
+        public String getPartitionName() {
+            return partitionName;
+        }
+
+        public void setPartitionName(String partitionName) {
+            this.partitionName = partitionName;
+        }
+
+        public String getColumnName() {
+            return columnName;
+        }
+
+        public void setColumnName(String columnName) {
+            this.columnName = columnName;
+        }
+
+        public Category getCategory() {
+            return category;
+        }
+
+        public void setCategory(Category category) {
+            this.category = category;
+        }
+
+        public Granularity getGranularity() {
+            return granularity;
+        }
+
+        public void setGranularity(Granularity granularity) {
+            this.granularity = granularity;
+        }
+
+        public Map<StatsType, String> getStatsTypeToValue() {
+            return statsTypeToValue;
+        }
+
+        public void setStatsTypeToValue(Map<StatsType, String> statsTypeToValue) {
+            this.statsTypeToValue = statsTypeToValue;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            TaskResult that = (TaskResult) o;
+            return dbId == that.dbId
+                    && tableId == that.tableId
+                    && partitionName.equals(that.partitionName)
+                    && columnName.equals(that.columnName)
+                    && category == that.category
+                    && granularity == that.granularity;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(dbId, tableId, partitionName,
+                    columnName, category, granularity);
+        }
     }
 }

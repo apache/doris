@@ -1,4 +1,8 @@
-SELECT
+-- 目前union后跟得order没有效果，需要在外面包一层select后再order
+
+SELECT channel, item, return_ratio, return_rank, currency_rank
+FROM
+(SELECT
   'web' channel
 , web.item
 , web.return_ratio
@@ -109,5 +113,6 @@ FROM
 )  store
 WHERE (store.return_rank <= 10)
    OR (store.currency_rank <= 10)
+) r
 ORDER BY 1 ASC, 4 ASC, 5 ASC, 2 ASC
-LIMIT 100
+LIMIT 100;

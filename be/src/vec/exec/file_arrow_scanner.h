@@ -70,6 +70,7 @@ private:
     bool _cur_file_eof; // is read over?
     std::shared_ptr<arrow::RecordBatch> _batch;
     size_t _arrow_batch_cur_idx;
+    RuntimeProfile::Counter* _convert_arrow_block_timer;
 };
 
 class VFileParquetScanner final : public FileArrowScanner {
@@ -95,6 +96,7 @@ private:
     RuntimeProfile::Counter* _filtered_bytes_counter;
     RuntimeProfile::Counter* _total_rows_counter;
     RuntimeProfile::Counter* _total_groups_counter;
+    RuntimeProfile::Counter* _total_bytes_counter;
 };
 
 class VFileORCScanner final : public FileArrowScanner {

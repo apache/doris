@@ -176,6 +176,13 @@ public:
     // in this object causing the query to fail.
     uint8_t* allocate(int byte_size);
 
+    // Allocate and align memory for UDAs. All UDA allocations should use this if possible instead of
+    // malloc/new. The UDA is responsible for calling Free() on all buffers returned
+    // by Allocate().
+    // If this Allocate causes the memory limit to be exceeded, the error will be set
+    // in this object causing the query to fail.
+    uint8_t* aligned_allocate(int alignment, int byte_size);
+
     // Reallocates 'ptr' to the new byte_size. If the currently underlying allocation
     // is big enough, the original ptr will be returned. If the allocation needs to
     // grow, a new allocation is made that is at least 'byte_size' and the contents
@@ -705,6 +712,32 @@ struct DateV2Val : public AnyVal {
         return datev2_value == other.datev2_value;
     }
     bool operator!=(const DateV2Val& other) const { return !(*this == other); }
+};
+
+struct DateTimeV2Val : public AnyVal {
+    uint64_t datetimev2_value;
+
+    DateTimeV2Val() {}
+    DateTimeV2Val(uint64_t val) : datetimev2_value(val) {}
+
+    static DateTimeV2Val null() {
+        DateTimeV2Val result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const DateTimeV2Val& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return datetimev2_value == other.datetimev2_value;
+    }
+    bool operator!=(const DateTimeV2Val& other) const { return !(*this == other); }
 };
 
 // Note: there is a difference between a nullptr string (is_null == true) and an

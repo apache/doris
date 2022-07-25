@@ -18,15 +18,13 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
-import org.apache.commons.lang.StringUtils;
-
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Star expression.
@@ -35,18 +33,12 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     private final List<String> qualifier;
 
     public UnboundStar(List<String> qualifier) {
-        super(ExpressionType.UNBOUND_STAR);
-        this.qualifier = qualifier;
+        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
     }
 
     @Override
     public String toSql() {
-        String qualified = qualifier.stream().map(Utils::quoteIfNeeded).reduce((t1, t2) -> t1 + "." + t2).orElse("");
-        if (StringUtils.isNotEmpty(qualified)) {
-            return qualified + ".*";
-        } else {
-            return "*";
-        }
+        return Utils.qualifiedName(qualifier, "*");
     }
 
     @Override
@@ -57,6 +49,26 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        UnboundStar that = (UnboundStar) o;
+        return qualifier.equals(that.qualifier);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), qualifier);
     }
 
     @Override

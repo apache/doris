@@ -38,7 +38,7 @@
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "util/file_utils.h"
 #include "util/slice.h"
 
@@ -192,7 +192,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         // k2 := k1 * 10
         // k3 := 4096 * i + rid
         for (int i = 0; i < num_segments; ++i) {
-            MemPool mem_pool("BetaRowsetTest");
+            MemPool mem_pool;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 10 + i;
                 uint32_t k2 = k1 * 10;
@@ -421,15 +421,16 @@ class S3ClientMockGetErrorData : public S3ClientMock {
 TEST_F(BetaRowsetTest, ReadTest) {
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
     BetaRowset rowset(nullptr, "", rowset_meta);
-    std::map<std::string, std::string> properties {
-            {"AWS_ACCESS_KEY", "ak"},
-            {"AWS_SECRET_KEY", "ak"},
-            {"AWS_ENDPOINT", "endpoint"},
-            {"AWS_REGION", "region"},
-    };
+    S3Conf s3_conf;
+    s3_conf.ak = "ak";
+    s3_conf.sk = "sk";
+    s3_conf.endpoint = "endpoint";
+    s3_conf.region = "region";
+    s3_conf.bucket = "bucket";
+    s3_conf.prefix = "prefix";
     io::ResourceId resource_id = "test_resourse_id";
     std::shared_ptr<io::S3FileSystem> fs =
-            std::make_shared<io::S3FileSystem>(properties, "bucket", "test prefix", resource_id);
+            std::make_shared<io::S3FileSystem>(std::move(s3_conf), resource_id);
     Aws::SDKOptions aws_options = Aws::SDKOptions {};
     Aws::InitAPI(aws_options);
     // failed to head object

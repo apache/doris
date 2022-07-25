@@ -293,13 +293,15 @@ public:
                                             ? ((DataTypeNullable*)get_return_type(arguments).get())
                                                       ->get_nested_type()
                                             : get_return_type(arguments))) ||
-               (is_date_v2(return_type->is_nullable()
-                                   ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                                   : return_type) &&
-                is_date_v2(get_return_type(arguments)->is_nullable()
-                                   ? ((DataTypeNullable*)get_return_type(arguments).get())
-                                             ->get_nested_type()
-                                   : get_return_type(arguments))) ||
+               (is_date_v2_or_datetime_v2(
+                        return_type->is_nullable()
+                                ? ((DataTypeNullable*)return_type.get())->get_nested_type()
+                                : return_type) &&
+                is_date_v2_or_datetime_v2(
+                        get_return_type(arguments)->is_nullable()
+                                ? ((DataTypeNullable*)get_return_type(arguments).get())
+                                          ->get_nested_type()
+                                : get_return_type(arguments))) ||
                (is_decimal(return_type->is_nullable()
                                    ? ((DataTypeNullable*)return_type.get())->get_nested_type()
                                    : return_type) &&

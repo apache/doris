@@ -28,6 +28,7 @@
 #include "exec/text_converter.hpp"
 #include "exprs/expr_context.h"
 #include "io/buffered_reader.h"
+#include "io/file_factory.h"
 #include "io/hdfs_reader_writer.h"
 #include "util/types.h"
 #include "util/utf8_check.h"
@@ -101,8 +102,6 @@ Status FileTextScanner::get_next(Block* block, bool* eof) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
         RETURN_IF_ERROR(_cur_line_reader->read_line(&ptr, &size, &_cur_line_reader_eof));
-        std::unique_ptr<const uint8_t> u_ptr;
-        u_ptr.reset(ptr);
         if (_skip_lines > 0) {
             _skip_lines--;
             continue;
@@ -154,11 +153,8 @@ Status FileTextScanner::_open_next_reader() {
 
 Status FileTextScanner::_open_file_reader() {
     const TFileRangeDesc& range = _ranges[_next_range];
-
-    FileReader* hdfs_reader = nullptr;
-    RETURN_IF_ERROR(HdfsReaderWriter::create_reader(_params.hdfs_params, range.path,
-                                                    range.start_offset, &hdfs_reader));
-    _cur_file_reader.reset(new BufferedReader(_profile, hdfs_reader));
+    RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params, range,
+                                                    _cur_file_reader));
     return _cur_file_reader->open();
 }
 

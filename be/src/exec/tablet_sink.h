@@ -248,7 +248,7 @@ protected:
     std::string _load_info;
     std::string _name;
 
-    std::shared_ptr<MemTracker> _node_channel_tracker;
+    std::unique_ptr<MemTracker> _node_channel_tracker;
 
     TupleDescriptor* _tuple_desc = nullptr;
     NodeInfo _node_info;
@@ -321,7 +321,7 @@ public:
     IndexChannel(OlapTableSink* parent, int64_t index_id, bool is_vec)
             : _parent(parent), _index_id(index_id), _is_vectorized(is_vec) {
         _index_channel_tracker =
-                MemTracker::create_tracker(-1, "IndexChannel:indexID=" + std::to_string(_index_id));
+                std::make_unique<MemTracker>("IndexChannel:indexID=" + std::to_string(_index_id));
     }
     ~IndexChannel() = default;
 
@@ -383,12 +383,12 @@ private:
     std::unordered_map<int64_t, std::string> _failed_channels_msgs;
     Status _intolerable_failure_status = Status::OK();
 
-    std::shared_ptr<MemTracker> _index_channel_tracker;
+    std::unique_ptr<MemTracker> _index_channel_tracker;
 };
 
 template <typename Row>
 void IndexChannel::add_row(const Row& tuple, int64_t tablet_id) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_index_channel_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
     auto it = _channels_by_tablet.find(tablet_id);
     DCHECK(it != _channels_by_tablet.end()) << "unknown tablet, tablet_id=" << tablet_id;
     for (const auto& channel : it->second) {
@@ -450,7 +450,7 @@ protected:
 
     bool _is_vectorized = false;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     ObjectPool* _pool;
     const RowDescriptor& _input_row_desc;

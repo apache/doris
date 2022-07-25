@@ -57,16 +57,18 @@ public:
         }
     }
 
-    void register_distinct_function_combinator(const Creator& creator, const std::string& prefix) {
+    void register_distinct_function_combinator(const Creator& creator, const std::string& prefix,
+                                               bool nullable = false) {
+        auto& functions = nullable ? nullable_aggregate_functions : aggregate_functions;
         std::vector<std::string> need_insert;
         for (const auto& entity : aggregate_functions) {
             std::string target_value = prefix + entity.first;
-            if (aggregate_functions.find(target_value) == aggregate_functions.end()) {
+            if (functions.find(target_value) == functions.end()) {
                 need_insert.emplace_back(std::move(target_value));
             }
         }
         for (const auto& function_name : need_insert) {
-            aggregate_functions[function_name] = creator;
+            register_function(function_name, creator, nullable);
         }
     }
 

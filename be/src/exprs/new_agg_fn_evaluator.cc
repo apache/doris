@@ -28,7 +28,6 @@
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
@@ -106,7 +105,6 @@ const TypeDescriptor& NewAggFnEvaluator::intermediate_type() const {
 
 Status NewAggFnEvaluator::Create(const AggFn& agg_fn, RuntimeState* state, ObjectPool* pool,
                                  MemPool* mem_pool, NewAggFnEvaluator** result,
-                                 const std::shared_ptr<MemTracker>& tracker,
                                  const RowDescriptor& row_desc) {
     *result = nullptr;
 
@@ -123,7 +121,7 @@ Status NewAggFnEvaluator::Create(const AggFn& agg_fn, RuntimeState* state, Objec
         // TODO chenhao replace ExprContext with ScalarFnEvaluator
         ExprContext* input_eval = pool->add(new ExprContext(input_expr));
         if (input_eval == nullptr) goto cleanup;
-        input_eval->prepare(state, row_desc, tracker);
+        input_eval->prepare(state, row_desc);
         agg_fn_eval->input_evals_.push_back(input_eval);
         Expr* root = input_eval->root();
         DCHECK(root == input_expr);
@@ -162,12 +160,11 @@ cleanup:
 Status NewAggFnEvaluator::Create(const std::vector<AggFn*>& agg_fns, RuntimeState* state,
                                  ObjectPool* pool, MemPool* mem_pool,
                                  std::vector<NewAggFnEvaluator*>* evals,
-                                 const std::shared_ptr<MemTracker>& tracker,
                                  const RowDescriptor& row_desc) {
     for (const AggFn* agg_fn : agg_fns) {
         NewAggFnEvaluator* agg_fn_eval;
-        RETURN_IF_ERROR(NewAggFnEvaluator::Create(*agg_fn, state, pool, mem_pool, &agg_fn_eval,
-                                                  tracker, row_desc));
+        RETURN_IF_ERROR(
+                NewAggFnEvaluator::Create(*agg_fn, state, pool, mem_pool, &agg_fn_eval, row_desc));
         evals->push_back(agg_fn_eval);
     }
     return Status::OK();

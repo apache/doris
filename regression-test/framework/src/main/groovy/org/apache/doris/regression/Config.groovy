@@ -122,7 +122,7 @@ class Config {
         config.suitePath = FileUtils.getCanonicalPath(cmd.getOptionValue(pathOpt, config.suitePath))
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
-        config.sf1DataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(sf1DataOpt, config.sf1DataPath))
+        config.sf1DataPath = cmd.getOptionValue(sf1DataOpt, config.sf1DataPath)
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
@@ -371,11 +371,18 @@ class Config {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
     }
 
-    Connection getConnection(String group) {
-        String dbUrl = buildUrl(defaultDb + '_' + group)
-        tryCreateDbIfNotExist(defaultDb + '_' + group)
+    Connection getConnectionByLastGroup(String group) {
+        String realDb = getDbByLastGroup(group)
+        String dbUrl = buildUrl(realDb)
+        tryCreateDbIfNotExist(realDb)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
+    }
+
+    String getDbByLastGroup(String group) {
+        def groupList = group.split(',')
+        String lastGroup = groupList[groupList.length - 1].replace(File.separator, '_')
+        return defaultDb + '_' + lastGroup
     }
 
     Predicate<String> getDirectoryFilter() {

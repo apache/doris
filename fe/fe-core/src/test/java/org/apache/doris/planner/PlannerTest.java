@@ -19,7 +19,10 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -38,45 +41,28 @@ public class PlannerTest extends TestWithFeService {
         createDatabase("db1");
 
         // Create tables.
-        String tbl1 = "create table db1.tbl1("
-                          + "k1 varchar(32), "
-                          + "k2 varchar(32), "
-                          + "k3 varchar(32), "
-                          + "k4 int) "
-                          + "AGGREGATE KEY(k1, k2,k3,k4) "
-                          + "distributed by hash(k1) buckets 3 "
-                          + "properties('replication_num' = '1');";
+        String tbl1 = "create table db1.tbl1(" + "k1 varchar(32), " + "k2 varchar(32), " + "k3 varchar(32), "
+                + "k4 int) " + "AGGREGATE KEY(k1, k2,k3,k4) " + "distributed by hash(k1) buckets 3 "
+                + "properties('replication_num' = '1');";
 
-        String tbl2 = "create table db1.tbl2("
-                          + "k1 int, "
-                          + "k2 int sum) "
-                          + "AGGREGATE KEY(k1) "
-                          + "partition by range(k1) () "
-                          + "distributed by hash(k1) buckets 3 "
-                          + "properties('replication_num' = '1');";
+        String tbl2 = "create table db1.tbl2(" + "k1 int, " + "k2 int sum) " + "AGGREGATE KEY(k1) "
+                + "partition by range(k1) () " + "distributed by hash(k1) buckets 3 "
+                + "properties('replication_num' = '1');";
 
-        String tbl3 = "create table db1.tbl3 ("
-                        + "k1 date, "
-                        + "k2 varchar(128) NULL, "
-                        + "k3 varchar(5000) NULL) "
-                        + "DUPLICATE KEY(k1, k2, k3) "
-                        + "distributed by hash(k1) buckets 1 "
-                        + "properties ('replication_num' = '1');";
+        String tbl3 = "create table db1.tbl3 (" + "k1 date, " + "k2 varchar(128) NULL, " + "k3 varchar(5000) NULL) "
+                + "DUPLICATE KEY(k1, k2, k3) " + "distributed by hash(k1) buckets 1 "
+                + "properties ('replication_num' = '1');";
 
-        String tbl4 = "create table db1.tbl4("
-                + "k1 int,"
-                + " k2 int,"
-                + " v1 int)"
-                + " distributed by hash(k1)"
+        String tbl4 = "create table db1.tbl4(" + "k1 int," + " k2 int," + " v1 int)" + " distributed by hash(k1)"
                 + " properties('replication_num' = '1');";
 
-        String tbl5 = "create table db1.tbl5("
-                        + "k1 int,"
-                        + "k2 int) "
-                        + "DISTRIBUTED BY HASH(k2) "
-                        + "BUCKETS 3 PROPERTIES ('replication_num' = '1');";
+        String tbl5 = "create table db1.tbl5(" + "k1 int," + "k2 int) " + "DISTRIBUTED BY HASH(k2) "
+                + "BUCKETS 3 PROPERTIES ('replication_num' = '1');";
 
-        createTables(tbl1, tbl2, tbl3, tbl4, tbl5);
+        String tbl6 = "create table db1.tbl6(" + "k1 int," + "k2 int, " + "v1 int)" + "UNIQUE KEY (k1, k2)"
+                + "DISTRIBUTED BY HASH(k2) " + "BUCKETS 3 PROPERTIES ('replication_num' = '1');";
+
+        createTables(tbl1, tbl2, tbl3, tbl4, tbl5, tbl6);
     }
 
     @Test
@@ -496,4 +482,28 @@ public class PlannerTest extends TestWithFeService {
         stmtExecutor.execute();
     }
 
+    @Test
+    public void testUpdateUnique() throws Exception {
+        String qSQL = "update db1.tbl6 set v1=5 where k1=5";
+        UserIdentity user1 = new UserIdentity("cmy", "%");
+        user1.setIsAnalyzed();
+        // check user priv
+        connectContext.setCurrentUserIdentity(user1);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, qSQL);
+        stmtExecutor.execute();
+        QueryState state = connectContext.getState();
+        Assert.assertEquals(MysqlStateType.ERR, state.getStateType());
+        Assert.assertTrue(state.getErrorMessage()
+                .contains("you need (at least one of) the LOAD privilege(s) for this operation"));
+
+        // set to admin user
+        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
+        stmtExecutor = new StmtExecutor(connectContext, qSQL);
+        stmtExecutor.execute();
+        state = connectContext.getState();
+        // still error because we can not do real update in unit test.
+        // just check if it pass the priv check.
+        Assert.assertEquals(MysqlStateType.ERR, state.getStateType());
+        Assert.assertTrue(state.getErrorMessage().contains("failed to execute update stmt"));
+    }
 }

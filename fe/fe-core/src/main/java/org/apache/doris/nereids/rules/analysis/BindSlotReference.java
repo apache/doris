@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//  http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -26,7 +26,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -229,18 +228,22 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     case 2:
                         // Unbound slot name is `table`.`column`
                         List<String> qualifier = boundSlot.getQualifier();
+                        String name = boundSlot.getName();
                         switch (qualifier.size()) {
                             case 2:
                                 // qualifier is `db`.`table`
                                 return nameParts.get(0).equalsIgnoreCase(qualifier.get(1))
-                                    && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
+                                        && nameParts.get(1).equalsIgnoreCase(name);
                             case 1:
                                 // qualifier is `table`
                                 return nameParts.get(0).equalsIgnoreCase(qualifier.get(0))
-                                    && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
+                                        && nameParts.get(1).equalsIgnoreCase(name);
+                            case 0:
+                                // has no qualifiers
+                                return nameParts.get(1).equalsIgnoreCase(name);
                             default:
                                 throw new AnalysisException("Not supported qualifier: "
-                                    + StringUtils.join(qualifier, "."));
+                                        + StringUtils.join(qualifier, "."));
                         }
                     default:
                         throw new AnalysisException("Not supported name: "
@@ -253,8 +256,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
     /** BoundStar is used to wrap list of slots for temporary. */
     private class BoundStar extends NamedExpression {
         public BoundStar(List<Slot> children) {
-            super(ExpressionType.BOUND_STAR, children.toArray(new Slot[0]));
-            Preconditions.checkArgument(children.stream().allMatch(slot -> !(slot instanceof UnboundSlot)),
+            super(children.toArray(new Slot[0]));
+            Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),
                     "BoundStar can not wrap UnboundSlot"
             );
         }
