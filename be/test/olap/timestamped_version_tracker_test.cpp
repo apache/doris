@@ -23,8 +23,6 @@
 #include <sstream>
 
 #include "gutil/strings/substitute.h"
-#include "json2pb/json_to_pb.h"
-#include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/version_graph.h"
 
@@ -34,8 +32,7 @@ using RowsetMetaSharedContainerPtr = std::shared_ptr<std::vector<RowsetMetaShare
 
 class TestTimestampedVersionTracker : public testing::Test {
 public:
-    TestTimestampedVersionTracker() {}
-    void SetUp() {
+    void SetUp() override {
         _json_rowset_meta = R"({
             "rowset_id": 540081,
             "tablet_id": 15673,
@@ -111,7 +108,7 @@ public:
             }
         })";
     }
-    void TearDown() {}
+    void TearDown() override {}
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
         pb1->init_from_json(_json_rowset_meta);
@@ -768,29 +765,33 @@ TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc) {
     path_arr.Accept(writer);
     std::string json_result = std::string(strbuf.GetString());
 
-    auto time_zone = cctz::local_time_zone();
-    auto tp = std::chrono::system_clock::now();
-    auto time_zone_str = cctz::format("%z", tp, time_zone);
+    std::string datetime_format = "%Y-%m-%d %H:%M:%S";
+    cctz::time_zone time_zone;
+    cctz::load_time_zone("Asia/Shanghai", &time_zone);
+    std::chrono::system_clock::time_point tp;
+    cctz::parse(datetime_format, "1970-01-01 10:46:40", time_zone, &tp);
+    auto time_zone_str =
+            cctz::format(fmt::format("{} %z", datetime_format), tp, cctz::local_time_zone());
 
     std::string expect_result = R"([
     {
         "path id": "1",
-        "last create time": "1970-01-01 10:46:40 $0",
+        "last create time": "$0",
         "path list": "1 -> [2-3] -> [4-5]"
     },
     {
         "path id": "2",
-        "last create time": "1970-01-01 10:46:40 $0",
+        "last create time": "$0",
         "path list": "2 -> [6-6] -> [7-8]"
     },
     {
         "path id": "3",
-        "last create time": "1970-01-01 10:46:40 $0",
+        "last create time": "$0",
         "path list": "3 -> [6-8] -> [9-9]"
     },
     {
         "path id": "4",
-        "last create time": "1970-01-01 10:46:40 $0",
+        "last create time": "$0",
         "path list": "4 -> [10-10]"
     }
 ])";
