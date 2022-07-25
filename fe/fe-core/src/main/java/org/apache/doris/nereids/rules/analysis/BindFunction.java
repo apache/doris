@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.Count;
 import org.apache.doris.nereids.trees.expressions.functions.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.Year;
@@ -90,6 +91,12 @@ public class BindFunction implements AnalysisRuleFactory {
                     return unboundFunction;
                 }
                 return new Sum(unboundFunction.getArguments().get(0));
+            } else if (name.equalsIgnoreCase("count")) {
+                List<Expression> arguments = unboundFunction.getArguments();
+                if (arguments.size() != 1) {
+                    return unboundFunction;
+                }
+                return new Count(unboundFunction.getArguments().get(0));
             } else if (name.equalsIgnoreCase("substr") || name.equalsIgnoreCase("substring")) {
                 List<Expression> arguments = unboundFunction.getArguments();
                 if (arguments.size() == 2) {
