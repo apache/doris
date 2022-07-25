@@ -162,7 +162,7 @@ nohup ./otelcol-contrib --config=otel-collector-config.yaml &
 enable_tracing = true
 
 # enable opentelemetry collector
-enable_otel_collector=true
+trace_exporter = collector
 
 # Configure traces export to collector, 4318 is the default port for collector otlp http
 trace_export_url = http://127.0.0.1:4318/v1/traces
@@ -173,7 +173,7 @@ trace_export_url = http://127.0.0.1:4318/v1/traces
 enable_tracing = true
 
 # enable opentelemetry collector
-enable_otel_collector=true
+trace_exporter = collector
 
 # Configure traces export to collector, 4318 is the default port for collector otlp http
 trace_export_url = http://127.0.0.1:4318/v1/traces

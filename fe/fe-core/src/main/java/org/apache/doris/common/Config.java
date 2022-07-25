@@ -1638,11 +1638,14 @@ public class Config extends ConfigBase {
     public static boolean enable_tracing = false;
 
     /**
-     * Enable opentelemtry collector.
+     * Current support for exporting traces:
+     *   zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
+     *   collector: The collector can be used to receive and process traces and support export to a variety of
+     *     third-party systems.
      * If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static boolean enable_otel_collector = false;
+    public static String trace_exporter = "zipkin";
 
     /**
      * The endpoint to export spans to.

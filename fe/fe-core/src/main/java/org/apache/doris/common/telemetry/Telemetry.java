@@ -47,21 +47,27 @@ public class Telemetry {
 
     private static OpenTelemetry openTelemetry = OpenTelemetry.noop();
 
+    public enum DorisTraceExporter {
+        zipkin, collector
+    }
+
     /**
      * Initialize {@link OpenTelemetry} with {@link SdkTracerProvider}, {@link BatchSpanProcessor},
      * {@link ZipkinSpanExporter} and {@link W3CTraceContextPropagator}.
      */
-    public static void initOpenTelemetry() {
+    public static void initOpenTelemetry() throws Exception {
         if (!Config.enable_tracing) {
             return;
         }
 
         String traceExportUrl = Config.trace_export_url;
         SpanExporter spanExporter;
-        if (Config.enable_otel_collector) {
+        if (DorisTraceExporter.collector.name().equalsIgnoreCase(Config.trace_exporter)) {
             spanExporter = oltpExporter(traceExportUrl);
-        } else {
+        } else if (DorisTraceExporter.zipkin.name().equalsIgnoreCase(Config.trace_exporter)) {
             spanExporter = zipkinExporter(traceExportUrl);
+        } else {
+            throw new Exception("unknown value " + Config.trace_exporter + " of trace_exporter in fe.conf");
         }
 
         String serviceName = "FRONTEND:" + Env.getCurrentEnv().getSelfNode().first;

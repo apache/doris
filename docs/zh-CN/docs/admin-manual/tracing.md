@@ -163,7 +163,7 @@ nohup ./otelcol-contrib --config=otel-collector-config.yaml &
 enable_tracing = true
 
 # 启用opentelemetry collector。
-enable_otel_collector=true
+trace_exporter = collector
 
 # 配置traces导出到collector，4318为collector otlp http默认端口。
 trace_export_url = http://127.0.0.1:4318/v1/traces
@@ -175,7 +175,7 @@ trace_export_url = http://127.0.0.1:4318/v1/traces
 enable_tracing = true
 
 # 启用opentelemetry collector。
-enable_otel_collector=true
+trace_exporter = collector
 
 # 配置traces导出到collector，4318为collector otlp http默认端口。
 trace_export_url = http://127.0.0.1:4318/v1/traces
