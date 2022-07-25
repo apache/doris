@@ -80,7 +80,8 @@ public class DigitalVersion implements Comparable<DigitalVersion> {
             int revision = Integer.parseInt(list[2].trim());
 
             if (major >= 100 || minor >= 100 || revision >= 100) {
-                throw new IllegalArgumentException("Illegal version format: " + version);
+                throw new IllegalArgumentException(
+                        "Illegal version format: " + version + ". Expected: major.minor.revision");
             }
 
             return new DigitalVersion((byte) major, (byte) minor, (byte) revision);

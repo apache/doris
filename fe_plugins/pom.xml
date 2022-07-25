@@ -68,7 +68,7 @@ under the License.
     </modules>
     <properties>
         <log4j2.version>2.17.1</log4j2.version>
-        <doris.version>0.15-SNAPSHOT</doris.version>
+        <doris.version>1.0-SNAPSHOT</doris.version>
         <project.scm.id>github</project.scm.id>
     </properties>
     <profiles>
@@ -92,6 +92,21 @@ under the License.
                     <url>${env.CUSTOM_MAVEN_REPO}</url>
                 </pluginRepository>
             </pluginRepositories>
+        </profile>
+        <profile>
+            <id>general-env</id>
+            <activation>
+                <property>
+                    <name>!env.CUSTOM_MAVEN_REPO</name>
+                </property>
+            </activation>
+            <repositories>
+                <!-- for java-cup -->
+                <repository>
+                    <id>cloudera-public</id>
+                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                </repository>
+            </repositories>
         </profile>
     </profiles>
     <dependencyManagement>
