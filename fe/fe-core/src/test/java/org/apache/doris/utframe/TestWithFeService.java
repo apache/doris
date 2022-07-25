@@ -108,6 +108,7 @@ public abstract class TestWithFeService {
     @AfterAll
     public final void afterAll() throws Exception {
         runAfterAll();
+        Catalog.getCurrentCatalog().clear();
         cleanDorisFeDir(runningDir);
     }
 
@@ -223,7 +224,7 @@ public abstract class TestWithFeService {
         feConfMap.put("edit_log_port", String.valueOf(feEditLogPort));
         feConfMap.put("tablet_create_timeout_second", "10");
         // start fe in "DORIS_HOME/fe/mocked/"
-        MockedFrontend frontend = MockedFrontend.getInstance();
+        MockedFrontend frontend = new MockedFrontend();
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
         return feRpcPort;

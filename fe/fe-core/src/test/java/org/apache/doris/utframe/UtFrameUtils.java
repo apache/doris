@@ -168,7 +168,7 @@ public class UtFrameUtils {
         int feEditLogPort = findValidPort();
 
         // start fe in "DORIS_HOME/fe/mocked/"
-        MockedFrontend frontend = MockedFrontend.getInstance();
+        MockedFrontend frontend = new MockedFrontend();
         Map<String, String> feConfMap = Maps.newHashMap();
         // set additional fe config
         feConfMap.put("http_port", String.valueOf(feHttpPort));
