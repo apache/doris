@@ -209,11 +209,11 @@ public abstract class ExpressionVisitor<R, C> {
     }
 
     public R visitInSubquery(InSubquery in, C context) {
-        return visit(in, context);
+        return visitSubqueryExpr(in, context);
     }
 
     public R visitExistsSubquery(Exists exists, C context) {
-        return visit(exists, context);
+        return visitSubqueryExpr(exists, context);
     }
 
     public R visitSubqueryExpr(SubqueryExpr subqueryExpr, C context) {

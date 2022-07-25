@@ -43,11 +43,6 @@ public class Exists extends SubqueryExpr {
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
-        return super.nullable();
-    }
-
-    @Override
     public String toSql() {
         return "EXISTS (SUBQUERY) " + super.toSql();
     }
@@ -65,7 +60,7 @@ public class Exists extends SubqueryExpr {
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         Preconditions.checkArgument(children.get(0) instanceof SubqueryExpr);
-        return new Exists(((SubqueryExpr) children.get(0)).getSubquery());
+        return new Exists(((SubqueryExpr) children.get(0)).getQueryPlan());
     }
 
     @Override
@@ -77,11 +72,11 @@ public class Exists extends SubqueryExpr {
             return false;
         }
         Exists exists = (Exists) o;
-        return Objects.equals(this.subquery, exists.getSubquery());
+        return Objects.equals(this.queryPlan, exists.getQueryPlan());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.subquery);
+        return Objects.hash(this.queryPlan);
     }
 }

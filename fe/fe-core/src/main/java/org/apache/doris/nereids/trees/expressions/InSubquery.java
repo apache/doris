@@ -72,7 +72,7 @@ public class InSubquery extends SubqueryExpr implements BinaryExpression {
         Preconditions.checkArgument(children.size() == 2);
         Preconditions.checkArgument(children.get(0) instanceof Expression);
         Preconditions.checkArgument(children.get(1) instanceof SubqueryExpr);
-        return new InSubquery(children.get(0), ((SubqueryExpr) children.get(1)).getSubquery());
+        return new InSubquery(children.get(0), ((SubqueryExpr) children.get(1)).getQueryPlan());
     }
 
     @Override
@@ -85,11 +85,11 @@ public class InSubquery extends SubqueryExpr implements BinaryExpression {
         }
         InSubquery inSubquery = (InSubquery) o;
         return Objects.equals(this.compareExpr, inSubquery.getCompareExpr())
-                && Objects.equals(this.subquery, inSubquery.getSubquery());
+                && Objects.equals(this.queryPlan, inSubquery.getQueryPlan());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.compareExpr, this.subquery);
+        return Objects.hash(this.compareExpr, this.queryPlan);
     }
 }

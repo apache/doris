@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
@@ -32,10 +31,10 @@ import java.util.Objects;
  * Subquery Expression.
  */
 public class SubqueryExpr extends Expression {
-    protected LogicalPlan subquery;
+    protected LogicalPlan queryPlan;
 
     public SubqueryExpr(LogicalPlan subquery) {
-        this.subquery = Objects.requireNonNull(subquery, "subquery can not be null");
+        this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
     }
 
     @Override
@@ -44,32 +43,32 @@ public class SubqueryExpr extends Expression {
         // Returns the data type of the row on a single line
         // For multiple lines, struct type is returned, in the form of splicing,
         // but it seems that struct type is not currently supported
-        return BooleanType.INSTANCE;
+        throw new UnboundException("not support");
     }
 
     @Override
     public boolean nullable() throws UnboundException {
         // TODO:
         // Any child is nullable, the whole is nullable
-        return false;
+        throw new UnboundException("not support");
     }
 
     @Override
     public String toSql() {
-        return "(" + subquery.toString() + ")";
+        return "(" + queryPlan.toString() + ")";
     }
 
     @Override
     public String toString() {
-        return "(" + subquery.toString() + ")";
+        return "(" + queryPlan.toString() + ")";
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSubqueryExpr(this, context);
     }
 
-    public LogicalPlan getSubquery() {
-        return subquery;
+    public LogicalPlan getQueryPlan() {
+        return queryPlan;
     }
 
     @Override
@@ -87,7 +86,7 @@ public class SubqueryExpr extends Expression {
             return false;
         }
         SubqueryExpr other = (SubqueryExpr) o;
-        return checkEquals(subquery, other.subquery);
+        return checkEquals(queryPlan, other.queryPlan);
     }
 
     /**
@@ -123,6 +122,6 @@ public class SubqueryExpr extends Expression {
 
     @Override
     public int hashCode() {
-        return Objects.hash(subquery);
+        return Objects.hash(queryPlan);
     }
 }
