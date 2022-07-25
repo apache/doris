@@ -82,7 +82,6 @@ public class PushPredicateThroughAggregation extends OneRewriteRuleFactory {
                 if (groupBySlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);
                 } else {
-                    //TODO here
                     filterPredicates.add(conjunct);
                 }
             });
