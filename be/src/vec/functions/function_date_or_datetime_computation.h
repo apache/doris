@@ -382,6 +382,10 @@ struct DateTimeAddIntervalImpl {
                     Op::vector_constant(sources->get_data(), col_to->get_data(),
                                         null_map->get_data(),
                                         delta_const_column->get_field().get<Int64>());
+                } else if (delta_const_column->get_field().get_type() == Field::Types::UInt64) {
+                    Op::vector_constant(sources->get_data(), col_to->get_data(),
+                                        null_map->get_data(),
+                                        delta_const_column->get_field().get<UInt64>());
                 } else {
                     Op::vector_constant(sources->get_data(), col_to->get_data(),
                                         null_map->get_data(),
