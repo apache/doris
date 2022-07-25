@@ -669,7 +669,7 @@ void ExecNode::try_do_aggregate_serde_improve() {
         return;
     }
 
-    OlapScanNode* scan_node = static_cast<OlapScanNode*>(agg_node[0]->_children[0]);
+    ScanNode* scan_node = static_cast<ScanNode*>(agg_node[0]->_children[0]);
     scan_node->set_no_agg_finalize();
 }
 
