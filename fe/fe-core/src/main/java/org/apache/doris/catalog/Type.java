@@ -149,8 +149,8 @@ public abstract class Type {
         supportedTypes.add(QUANTILE_STATE);
 
         arraySubTypes = Lists.newArrayList();
-        arraySubTypes.addAll(integerTypes);
         arraySubTypes.add(BOOLEAN);
+        arraySubTypes.addAll(integerTypes);
         arraySubTypes.add(FLOAT);
         arraySubTypes.add(DOUBLE);
         arraySubTypes.add(DECIMALV2);
