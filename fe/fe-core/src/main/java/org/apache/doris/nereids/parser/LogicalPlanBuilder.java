@@ -107,8 +107,6 @@ import org.antlr.v4.runtime.RuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
-import org.apache.spark.sql.catalyst.parser.SqlBaseParser.SearchedCaseContext;
-import org.apache.spark.sql.catalyst.parser.SqlBaseParser.SimpleCaseContext;
 
 import java.util.Collections;
 import java.util.List;
@@ -181,12 +179,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create an aliased table reference. This is typically used in FROM clauses.
      */
-
     private LogicalPlan applyAlias(TableAliasContext ctx, LogicalPlan plan) {
         if (null != ctx.strictIdentifier()) {
             String alias = ctx.strictIdentifier().getText();
             if (null != ctx.identifierList()) {
-                List<String> colName = visitIdentifierSeq(ctx.identifierList().identifierSeq());
+                // List<String> colName = visitIdentifierSeq(ctx.identifierList().identifierSeq());
                 // TODO: multi-colName
             } else {
                 return new LogicalSubQueryAlias<>(alias, plan);
