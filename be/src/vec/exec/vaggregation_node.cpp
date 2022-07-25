@@ -1196,7 +1196,7 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
                 column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
             }
 
-            std::unique_ptr<char> deserialize_buffer(
+            std::unique_ptr<char[]> deserialize_buffer(
                     new char[_aggregate_evaluators[i]->function()->size_of_data() * rows]);
 
             _aggregate_evaluators[i]->function()->deserialize_vec(deserialize_buffer.get(),
