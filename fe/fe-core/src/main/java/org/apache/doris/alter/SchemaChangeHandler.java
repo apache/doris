@@ -2198,6 +2198,24 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
+        //for compatibility, we need create a finished state schema change job v2
+
+        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(jobId, db.getId(), olapTable.getId(),
+                olapTable.getName(), 1000);
+
+        for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
+            long originIndexId = entry.getKey();
+            String newIndexName = SHADOW_NAME_PRFIX + olapTable.getIndexNameById(originIndexId);
+            MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(originIndexId);
+            // 1. get new schema version/schema version hash, short key column count
+            int currentSchemaVersion = currentIndexMeta.getSchemaVersion();
+            int newSchemaVersion = currentSchemaVersion + 1;
+            // generate schema hash for new index has to generate a new schema hash not equal to current schema hash
+            schemaChangeJob.addIndexSchema(originIndexId, originIndexId, newIndexName, newSchemaVersion,
+                    currentIndexMeta.getSchemaHash(),
+                    currentIndexMeta.getShortKeyColumnCount(), entry.getValue());
+        }
+
         //update base index schema
         long baseIndexId = olapTable.getBaseIndexId();
         List<Long> indexIds = new ArrayList<Long>();
@@ -2231,10 +2249,7 @@ public class SchemaChangeHandler extends AlterHandler {
             Catalog.getCurrentCatalog().getEditLog().logModifyTableAddOrDropColumns(info);
         }
 
-        //for compatibility, we need create a finished state schema change job v2
-
-        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(jobId, db.getId(), olapTable.getId(),
-                olapTable.getName(), 1000);
+        // set Job state then add job
         schemaChangeJob.setJobState(AlterJobV2.JobState.FINISHED);
         schemaChangeJob.setFinishedTimeMs(System.currentTimeMillis());
         this.addAlterJobV2(schemaChangeJob);
