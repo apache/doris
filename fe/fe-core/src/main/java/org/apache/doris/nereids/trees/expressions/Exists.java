@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
@@ -30,11 +31,10 @@ import java.util.Objects;
 /**
  * Exists subquery expression.
  */
-public class Exists extends Expression {
-    private final Expression subquery;
+public class Exists extends SubqueryExpr {
 
-    public Exists(Expression subquery) {
-        this.subquery = subquery;
+    public Exists(LogicalPlan subquery) {
+        super(Objects.requireNonNull(subquery, "subquery can not be null"));
     }
 
     @Override
@@ -44,31 +44,28 @@ public class Exists extends Expression {
 
     @Override
     public boolean nullable() throws UnboundException {
-        return subquery.nullable();
+        return super.nullable();
     }
 
     @Override
     public String toSql() {
-        return "EXISTS (SUBQUERY) " + subquery.toSql();
+        return "EXISTS (SUBQUERY) " + super.toSql();
     }
 
     @Override
     public String toString() {
-        return "EXISTS (SUBQUERY) " + subquery.toString();
+        return "EXISTS (SUBQUERY) " + super.toString();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitExistsSubquery(this, context);
     }
 
-    public Expression getSubquery() {
-        return subquery;
-    }
-
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Exists(children.get(0));
+        Preconditions.checkArgument(children.get(0) instanceof SubqueryExpr);
+        return new Exists(((SubqueryExpr) children.get(0)).getSubquery());
     }
 
     @Override
@@ -80,11 +77,11 @@ public class Exists extends Expression {
             return false;
         }
         Exists exists = (Exists) o;
-        return Objects.equals(this.subquery, exists.subquery);
+        return Objects.equals(this.subquery, exists.getSubquery());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(subquery);
+        return Objects.hash(this.subquery);
     }
 }

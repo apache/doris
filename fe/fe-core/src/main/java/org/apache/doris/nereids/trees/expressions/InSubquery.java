@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
@@ -30,14 +31,12 @@ import java.util.Objects;
 /**
  * In predicate expression.
  */
-public class InSubquery extends Expression implements BinaryExpression {
+public class InSubquery extends SubqueryExpr implements BinaryExpression {
     private Expression compareExpr;
-    private Expression subquery;
 
-    public InSubquery(Expression compareExpression, Expression subquery) {
-        super(compareExpression, subquery);
+    public InSubquery(Expression compareExpression, LogicalPlan subquery) {
+        super(Objects.requireNonNull(subquery, "subquery can not be null"));
         this.compareExpr = compareExpression;
-        this.subquery = Objects.requireNonNull(subquery, "subquery can not be null");
     }
 
     @Override
@@ -47,17 +46,17 @@ public class InSubquery extends Expression implements BinaryExpression {
 
     @Override
     public boolean nullable() throws UnboundException {
-        return subquery.nullable() || compareExpr.nullable();
+        return super.nullable() || this.compareExpr.nullable();
     }
 
     @Override
     public String toSql() {
-        return compareExpr.toSql() + "IN (SUBQUERY) " + subquery.toSql();
+        return this.compareExpr.toSql() + "IN (SUBQUERY) " + super.toSql();
     }
 
     @Override
     public String toString() {
-        return compareExpr + "IN (SUBQUERY) " + subquery.toString();
+        return this.compareExpr + "IN (SUBQUERY) " + super.toString();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -65,17 +64,15 @@ public class InSubquery extends Expression implements BinaryExpression {
     }
 
     public Expression getCompareExpr() {
-        return compareExpr;
-    }
-
-    public Expression getSubquery() {
-        return subquery;
+        return this.compareExpr;
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new InSubquery(children.get(0), children.get(1));
+        Preconditions.checkArgument(children.get(0) instanceof Expression);
+        Preconditions.checkArgument(children.get(1) instanceof SubqueryExpr);
+        return new InSubquery(children.get(0), ((SubqueryExpr) children.get(1)).getSubquery());
     }
 
     @Override
@@ -87,12 +84,12 @@ public class InSubquery extends Expression implements BinaryExpression {
             return false;
         }
         InSubquery inSubquery = (InSubquery) o;
-        return Objects.equals(this.compareExpr, inSubquery.compareExpr)
-                && Objects.equals(this.subquery, inSubquery.subquery);
+        return Objects.equals(this.compareExpr, inSubquery.getCompareExpr())
+                && Objects.equals(this.subquery, inSubquery.getSubquery());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(compareExpr, subquery);
+        return Objects.hash(this.compareExpr, this.subquery);
     }
 }

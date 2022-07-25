@@ -32,10 +32,10 @@ import java.util.Objects;
  * Subquery Expression.
  */
 public class SubqueryExpr extends Expression {
-    private final LogicalPlan query;
+    protected LogicalPlan subquery;
 
-    public SubqueryExpr(LogicalPlan plan) {
-        this.query = plan;
+    public SubqueryExpr(LogicalPlan subquery) {
+        this.subquery = Objects.requireNonNull(subquery, "subquery can not be null");
     }
 
     @Override
@@ -56,20 +56,20 @@ public class SubqueryExpr extends Expression {
 
     @Override
     public String toSql() {
-        return "(" + query.toString() + ")";
+        return "(" + subquery.toString() + ")";
     }
 
     @Override
     public String toString() {
-        return "(" + query.toString() + ")";
+        return "(" + subquery.toString() + ")";
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSubqueryExpr(this, context);
     }
 
-    public LogicalPlan getQuery() {
-        return query;
+    public LogicalPlan getSubquery() {
+        return subquery;
     }
 
     @Override
@@ -87,7 +87,7 @@ public class SubqueryExpr extends Expression {
             return false;
         }
         SubqueryExpr other = (SubqueryExpr) o;
-        return checkEquals(query, other.query);
+        return checkEquals(subquery, other.subquery);
     }
 
     /**
@@ -123,6 +123,6 @@ public class SubqueryExpr extends Expression {
 
     @Override
     public int hashCode() {
-        return Objects.hash(query);
+        return Objects.hash(subquery);
     }
 }
