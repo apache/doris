@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.PlannerContext;
 
 import java.util.Objects;
 
@@ -44,7 +45,7 @@ public class ExprId extends Id<ExprId> {
     }
 
     /**
-     * Should be only called by {@link org.apache.doris.nereids.trees.expressions.NamedExpressionUtil}.
+     * Should be only called by {@link PlannerContext}.
      */
     public static IdGenerator<ExprId> createGenerator() {
         return new IdGenerator<ExprId>() {

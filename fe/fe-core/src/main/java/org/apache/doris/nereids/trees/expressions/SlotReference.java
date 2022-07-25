@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
@@ -38,7 +39,7 @@ public class SlotReference extends Slot {
     private final boolean nullable;
 
     public SlotReference(String name, DataType dataType, boolean nullable, List<String> qualifier) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, qualifier);
+        this(PlannerContext.get().newExprId(), name, dataType, nullable, qualifier);
     }
 
     /**

@@ -65,26 +65,32 @@ public class NereidsPlanner extends Planner {
     @Override
     public void plan(StatementBase queryStmt,
             org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException {
-        if (!(queryStmt instanceof LogicalPlanAdapter)) {
-            throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
+        try {
+            if (!(queryStmt instanceof LogicalPlanAdapter)) {
+                throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
+            }
+
+            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
+            PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), new PhysicalProperties(), ctx);
+
+            PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
+            PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
+            PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
+
+            scanNodeList = planTranslatorContext.getScanNodeList();
+            descTable = planTranslatorContext.getDescTable();
+            fragments = new ArrayList<>(planTranslatorContext.getPlanFragmentList());
+
+            // set output exprs
+            logicalPlanAdapter.setResultExprs(root.getOutputExprs());
+            ArrayList<String> columnLabelList = physicalPlan.getOutput().stream()
+                    .map(NamedExpression::getName).collect(Collectors.toCollection(ArrayList::new));
+            logicalPlanAdapter.setColLabels(columnLabelList);
+        } finally {
+            if (plannerContext != null) {
+                PlannerContext.remove();
+            }
         }
-
-        LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
-        PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), new PhysicalProperties(), ctx);
-
-        PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
-        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
-        PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
-
-        scanNodeList = planTranslatorContext.getScanNodeList();
-        descTable = planTranslatorContext.getDescTable();
-        fragments = new ArrayList<>(planTranslatorContext.getPlanFragmentList());
-
-        // set output exprs
-        logicalPlanAdapter.setResultExprs(root.getOutputExprs());
-        ArrayList<String> columnLabelList = physicalPlan.getOutput().stream()
-                .map(NamedExpression::getName).collect(Collectors.toCollection(ArrayList::new));
-        logicalPlanAdapter.setColLabels(columnLabelList);
     }
 
     /**

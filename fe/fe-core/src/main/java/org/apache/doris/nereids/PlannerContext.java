@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -40,12 +42,15 @@ import java.util.List;
  * Context used in memo.
  */
 public class PlannerContext {
+    protected static ThreadLocal<PlannerContext> threadLocalInfo = new ThreadLocal<>();
+
     private final Memo memo;
     private final ConnectContext connectContext;
     private RuleSet ruleSet;
     private JobPool jobPool;
     private final JobScheduler jobScheduler;
     private JobContext currentJobContext;
+    private final IdGenerator<ExprId> EXPR_ID_GENERATOR = ExprId.createGenerator();
 
     /**
      * Constructor of OptimizerContext.
@@ -58,10 +63,23 @@ public class PlannerContext {
         this.ruleSet = new RuleSet();
         this.jobPool = new JobStack();
         this.jobScheduler = new SimpleJobScheduler();
+        threadLocalInfo.set(this);
+    }
+
+    public static PlannerContext get() {
+        return threadLocalInfo.get();
+    }
+
+    public static void remove() {
+        threadLocalInfo.remove();
     }
 
     public void pushJob(Job job) {
         jobPool.push(job);
+    }
+
+    public ExprId newExprId() {
+        return EXPR_ID_GENERATOR.getNextId();
     }
 
     public Memo getMemo() {
