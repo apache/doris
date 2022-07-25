@@ -172,7 +172,7 @@ expression
 
 booleanExpression
     : NOT booleanExpression                                         #logicalNot
-    | EXISTS LEFT_PAREN query RIGHT_PAREN                           #exists
+    | EXISTS LEFT_PAREN query RIGHT_PAREN                           #exist
     | valueExpression predicate?                                    #predicated
     | left=booleanExpression operator=AND right=booleanExpression   #logicalBinary
     | left=booleanExpression operator=OR right=booleanExpression    #logicalBinary

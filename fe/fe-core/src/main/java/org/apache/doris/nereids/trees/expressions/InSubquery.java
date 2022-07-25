@@ -23,27 +23,21 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 /**
  * In predicate expression.
  */
-public class In extends Expression {
+public class InSubquery extends Expression implements BinaryExpression {
     private Expression compareExpr;
-    private List<Expression> inExpressions;
+    private Expression subquery;
 
-    public In(Expression compareExpression, List<Expression> inExpressions) {
-        super(ExpressionType.IN,
-                (new Builder<Expression>().add(compareExpression).addAll(inExpressions)
-                        .build().toArray(new Expression[0])));
+    public InSubquery(Expression compareExpression, Expression subquery) {
+        super(compareExpression, subquery);
         this.compareExpr = compareExpression;
-        this.inExpressions = ImmutableList.copyOf(Objects.requireNonNull(inExpressions, "in list can not be null"));
+        this.subquery = Objects.requireNonNull(subquery, "subquery can not be null");
     }
 
     @Override
@@ -53,48 +47,35 @@ public class In extends Expression {
 
     @Override
     public boolean nullable() throws UnboundException {
-        boolean nullable = false;
-        for (Expression expression : inExpressions) {
-            nullable = expression.nullable() || nullable;
-        }
-        return nullable;
+        return subquery.nullable() || compareExpr.nullable();
     }
 
     @Override
     public String toSql() {
-        return compareExpr.toSql() + " IN " + inExpressions.stream()
-                .map(Expression::toSql)
-                .collect(Collectors.joining(", ", "(", ")"));
+        return compareExpr.toSql() + " IN (SUBQUERY) " + subquery.toSql();
     }
 
     @Override
     public String toString() {
-        return compareExpr + " IN " + inExpressions.stream()
-                .map(Expression::toString)
-                .collect(Collectors.joining(",", "(", ")"));
+        return compareExpr + " IN (SUBQUERY) " + subquery.toString();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitIn(this, context);
+        return visitor.visitInSubquery(this, context);
     }
 
     public Expression getCompareExpr() {
         return compareExpr;
     }
 
-    public List<Expression> getInExpr() {
-        return inExpressions;
+    public Expression getSubquery() {
+        return subquery;
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 2);
-        Expression compareExpr = children.get(0);
-        List<Expression> inExpressions = new ArrayList<>();
-        for (int i = 1; i < children.size(); i++) {
-            inExpressions.add(children.get(i));
-        }
-        return new In(compareExpr, inExpressions);
+        Preconditions.checkArgument(children.size() == 2);
+        return new InSubquery(children.get(0), children.get(1));
     }
 
     @Override
@@ -105,13 +86,13 @@ public class In extends Expression {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        In in = (In) o;
-        return Objects.equals(compareExpr, in.compareExpr)
-                && Objects.equals(inExpressions, in.inExpressions);
+        InSubquery inSubquery = (InSubquery) o;
+        return Objects.equals(this.compareExpr, inSubquery.compareExpr)
+                && Objects.equals(this.subquery, inSubquery.subquery);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(compareExpr, inExpressions);
+        return Objects.hash(compareExpr, subquery);
     }
 }
