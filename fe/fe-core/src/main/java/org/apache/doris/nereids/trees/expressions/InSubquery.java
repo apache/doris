@@ -52,12 +52,12 @@ public class InSubquery extends Expression implements BinaryExpression {
 
     @Override
     public String toSql() {
-        return compareExpr.toSql() + " IN (SUBQUERY) " + subquery.toSql();
+        return compareExpr.toSql() + "IN (SUBQUERY) " + subquery.toSql();
     }
 
     @Override
     public String toString() {
-        return compareExpr + " IN (SUBQUERY) " + subquery.toString();
+        return compareExpr + "IN (SUBQUERY) " + subquery.toString();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

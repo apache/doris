@@ -63,7 +63,12 @@ public class Not extends Expression implements UnaryExpression {
 
     @Override
     public String toString() {
-        return "( not " + child() + ")";
+        return "( not " + child().toString() + ")";
+    }
+
+    @Override
+    public String toSql() {
+        return "( not " + child().toSql() + ")";
     }
 
     @Override

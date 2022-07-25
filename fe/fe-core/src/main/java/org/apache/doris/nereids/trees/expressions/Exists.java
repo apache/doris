@@ -49,12 +49,12 @@ public class Exists extends Expression {
 
     @Override
     public String toSql() {
-        return " EXISTS (SUBQUERY) " + subquery.toSql();
+        return "EXISTS (SUBQUERY) " + subquery.toSql();
     }
 
     @Override
     public String toString() {
-        return " EXISTS (SUBQUERY) " + subquery.toString();
+        return "EXISTS (SUBQUERY) " + subquery.toString();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
