@@ -17,9 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import org.apache.doris.analysis.IntLiteral;
+
+
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
@@ -27,7 +26,15 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.trees.expressions.*;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Literal;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -35,41 +42,38 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanRewriter;
-import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.spark.sql.catalyst.expressions.Exp;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Test;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.TestInstance;
 
 import java.util.List;
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class PushDownPredicateThroughAggregationTest {
 
-     /**
-     * origin plan:
-     *                project
-     *                  |
-     *                filter gender=1
-     *                  |
-     *               aggregation group by gender
-     *                  |
-     *               scan(student)
-     *
-     *  transformed plan:
-     *                project
-     *                  |
-     *               aggregation group by gender
-     *                  |
-     *               filter gender=1
-     *                  |
-     *               scan(student)
-     */
+    /**
+    * origin plan:
+    *                project
+    *                  |
+    *                filter gender=1
+    *                  |
+    *               aggregation group by gender
+    *                  |
+    *               scan(student)
+    *
+    *  transformed plan:
+    *                project
+    *                  |
+    *               aggregation group by gender
+    *                  |
+    *               filter gender=1
+    *                  |
+    *               scan(student)
+    */
     @Test
-    public void pushDownPredicateOneFilterTest(){
+    public void pushDownPredicateOneFilterTest() {
         Table student = new Table(0L, "student", Table.TableType.OLAP,
                 ImmutableList.<Column>of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
                         new Column("gender", Type.INT, false, AggregateType.NONE, "0", ""),
@@ -77,7 +81,6 @@ public class PushDownPredicateThroughAggregationTest {
                         new Column("age", Type.INT, true, AggregateType.NONE, "", "")));
         Plan scan = new LogicalOlapScan(student, ImmutableList.of("student"));
         Slot gender = scan.getOutput().get(1);
-        Slot name = scan.getOutput().get(2);
         Slot age = scan.getOutput().get(3);
 
         List<Expression> groupByKeys = Lists.newArrayList(age, gender);
@@ -104,9 +107,9 @@ public class PushDownPredicateThroughAggregationTest {
         Plan bottomFilter = groupExpression.getPlan();
         Assert.assertTrue(bottomFilter instanceof LogicalFilter);
         Expression greater = ((LogicalFilter<?>) bottomFilter).getPredicates();
-        Assert.assertEquals(ExpressionType.GREATER_THAN, greater.getType());
+        Assert.assertTrue(greater instanceof GreaterThan);
         Assert.assertTrue(greater.child(0) instanceof Slot);
-        Assert.assertEquals("gender",((Slot) greater.child(0)).getName());
+        Assert.assertEquals("gender", ((Slot) greater.child(0)).getName());
 
         groupExpression = groupExpression.child(0).getLogicalExpression();
         Plan scan2 = groupExpression.getPlan();
@@ -135,7 +138,7 @@ public class PushDownPredicateThroughAggregationTest {
      *               scan(student)
      */
     @Test
-    public void pushDownPredicateTwoFilterTest(){
+    public void pushDownPredicateTwoFilterTest() {
         Table student = new Table(0L, "student", Table.TableType.OLAP,
                 ImmutableList.<Column>of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
                         new Column("gender", Type.INT, false, AggregateType.NONE, "0", ""),
@@ -173,29 +176,30 @@ public class PushDownPredicateThroughAggregationTest {
         Plan upperFilter = groupExpression.getPlan();
         Assert.assertTrue(upperFilter instanceof LogicalFilter);
         Expression upperPredicates = ((LogicalFilter<?>) upperFilter).getPredicates();
-        Assert.assertEquals(ExpressionType.EQUAL_TO, upperPredicates.getType());
+        Assert.assertTrue(upperPredicates instanceof  EqualTo);
         Assert.assertTrue(upperPredicates.child(0) instanceof Slot);
-        groupExpression = groupExpression.child(0).getLogicalExpression();aggregation = groupExpression.getPlan();
+        groupExpression = groupExpression.child(0).getLogicalExpression();
+        aggregation = groupExpression.getPlan();
         Assert.assertTrue(aggregation instanceof LogicalAggregate);
-
         groupExpression = groupExpression.child(0).getLogicalExpression();
         Plan bottomFilter = groupExpression.getPlan();
         Assert.assertTrue(bottomFilter instanceof LogicalFilter);
         Expression bottomPredicates = ((LogicalFilter<?>) bottomFilter).getPredicates();
-        Assert.assertEquals(ExpressionType.AND, bottomPredicates.getType());
+        Assert.assertTrue(bottomPredicates instanceof And);
         Assert.assertEquals(2, bottomPredicates.children().size());
         Expression greater = bottomPredicates.child(0);
-        Assert.assertEquals(ExpressionType.GREATER_THAN, greater.getType());
+        Assert.assertTrue(greater instanceof GreaterThan);
         Assert.assertTrue(greater.child(0) instanceof Slot);
-        Assert.assertEquals("gender",((Slot) greater.child(0)).getName());
+        Assert.assertEquals("gender", ((Slot) greater.child(0)).getName());
         Expression less = bottomPredicates.child(1);
-        Assert.assertEquals(ExpressionType.LESS_THAN_EQUAL, less.getType());
-        Assert.assertEquals(ExpressionType.ADD, less.child(0).getType());
+        Assert.assertTrue(less instanceof LessThanEqual);
+        Assert.assertTrue(less.child(0) instanceof Add);
 
         groupExpression = groupExpression.child(0).getLogicalExpression();
         Plan scan2 = groupExpression.getPlan();
         Assert.assertTrue(scan2 instanceof LogicalOlapScan);
     }
+
     private Memo rewrite(Plan plan) {
         return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushPredicateThroughAggregation());
     }

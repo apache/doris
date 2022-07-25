@@ -92,18 +92,18 @@ public class PushPredicateThroughAggregation extends OneRewriteRuleFactory {
 
     private Plan pushDownPredicate(LogicalFilter filter, LogicalAggregate aggregate,
                                    List<Expression> pushDownPredicates, List<Expression> filterPredicates) {
-        Plan root;
+        if (pushDownPredicates.size() == 0) {
+            //nothing pushed down, just return origin plan
+            return filter;
+        }
+        LogicalFilter bottomFilter = new LogicalFilter(ExpressionUtils.and(pushDownPredicates),
+                (Plan) aggregate.child(0));
         if (filterPredicates.isEmpty()) {
             //all predicates are pushed down, just exchange filter and aggregate
-            LogicalFilter bottomFilter = new LogicalFilter(ExpressionUtils.and(pushDownPredicates),
-                    (Plan) aggregate.child(0));
-            root = aggregate.withChildren(Lists.newArrayList(bottomFilter));
+            return aggregate.withChildren(Lists.newArrayList(bottomFilter));
         } else {
-            LogicalFilter bottomFilter = new LogicalFilter(ExpressionUtils.and(pushDownPredicates),
-                    (Plan) aggregate.child(0));
             aggregate = aggregate.withChildren(Lists.newArrayList(bottomFilter));
-            root = new LogicalFilter<>(ExpressionUtils.and(filterPredicates), aggregate);
+            return new LogicalFilter<>(ExpressionUtils.and(filterPredicates), aggregate);
         }
-        return root;
     }
 }
