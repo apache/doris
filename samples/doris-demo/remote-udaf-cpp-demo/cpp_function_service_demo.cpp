@@ -92,7 +92,6 @@ public:
              result->add_double_value(avg);
         }
         response->mutable_status()->set_status_code(0);
-        //std::cout<< "result:"<< response->DebugString();
     }
 
     void check_fn(google::protobuf::RpcController* controller, const PCheckFunctionRequest* request,
