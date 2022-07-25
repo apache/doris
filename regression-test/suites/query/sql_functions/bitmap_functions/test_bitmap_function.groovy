@@ -130,9 +130,9 @@ suite("test_bitmap_function", "query") {
     sql """ insert into ${bitmapUnionTable} values(2, to_bitmap(1)); """
     sql """ insert into ${bitmapUnionTable} values(2, to_bitmap(2)); """
 
-    qt_sql """ select page_id, bitmap_union(user_id) from ${bitmapUnionTable} group by page_id """
-    qt_sql """ select page_id, bitmap_count(bitmap_union(user_id)) from ${bitmapUnionTable} group by page_id """
-    qt_sql """ select page_id, count(distinct user_id) from ${bitmapUnionTable} group by page_id """
+    qt_sql """ select page_id, bitmap_union(user_id) from ${bitmapUnionTable} group by page_id order by page_id """
+    qt_sql """ select page_id, bitmap_count(bitmap_union(user_id)) from ${bitmapUnionTable} group by page_id order by page_id """
+    qt_sql """ select page_id, count(distinct user_id) from ${bitmapUnionTable} group by page_id order by page_id """
 
     sql """ drop table ${bitmapUnionTable} """
 
