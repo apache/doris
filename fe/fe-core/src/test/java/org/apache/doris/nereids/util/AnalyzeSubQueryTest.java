@@ -39,7 +39,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
             "SELECT * FROM (SELECT * FROM T1 T) T2",
             "SELECT T1.ID ID FROM T1",
             "SELECT T.ID FROM T1 T",
-            "SELECT A.ID, B.SCORE FROM T1 A, T2 B WHERE A.ID = B.ID ORDER BY A.ID",
+            "SELECT A.ID, B.SCORE FROM T1 A, T2 B WHERE A.ID = B.ID GROUP BY A.ID ORDER BY A.ID",
             "SELECT X.ID FROM (SELECT * FROM T1 A JOIN (SELECT ID ID1 FROM T1) AS B ON A.ID = B.ID1) X WHERE X.SCORE < 20",
             "SELECT X.ID + X.SCORE FROM (SELECT * FROM T1 A JOIN (SELECT SUM(ID + 1) ID1 FROM T1 GROUP BY ID) AS B ON A.ID = B.ID1 ORDER BY A.ID DESC) X WHERE X.ID - X.SCORE < 20"
     );
@@ -84,7 +84,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testAnalyze() {
-        checkAnalyze(testSql.get(10));
+        checkAnalyze(testSql.get(5));
     }
 
     @Test
