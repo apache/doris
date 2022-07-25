@@ -614,9 +614,10 @@ public class DateLiteral extends LiteralExpr {
         } else if (this.type.equals(Type.DATE)) {
             out.writeShort(DateLiteralType.DATE.value());
             out.writeLong(makePackedDatetime());
-        } else if (this.type.equals(Type.DATETIMEV2)) {
+        } else if (this.type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
             out.writeShort(DateLiteralType.DATETIMEV2.value());
             out.writeLong(makePackedDatetimeV2());
+            out.writeInt(((ScalarType) this.type).getScalarScale());
         } else if (this.type.equals(Type.DATEV2)) {
             out.writeShort(DateLiteralType.DATEV2.value());
             out.writeLong(makePackedDatetimeV2());
@@ -672,7 +673,8 @@ public class DateLiteral extends LiteralExpr {
             this.type = Type.DATE;
         } else if (dateLiteralType == DateLiteralType.DATETIMEV2.value()) {
             fromPackedDatetime(in.readLong());
-            this.type = Type.DATETIMEV2;
+            int scale = in.readInt();
+            this.type = ScalarType.createDatetimeV2Type(scale);
         } else if (dateLiteralType == DateLiteralType.DATEV2.value()) {
             fromPackedDatetime(in.readLong());
             this.type = Type.DATEV2;
