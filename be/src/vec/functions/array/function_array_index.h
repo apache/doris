@@ -177,6 +177,9 @@ private:
         } else if (right_column.is_date_v2_type()) {
             return _execute_number<NestedColumnType, ColumnDateV2>(offsets, nested_null_map,
                                                                    nested_column, right_column);
+        } else if (right_column.is_datetime_v2_type()) {
+            return _execute_number<NestedColumnType, ColumnDateTimeV2>(offsets, nested_null_map,
+                                                                       nested_column, right_column);
         } else if (right_column.is_datetime_type()) {
             return _execute_number<NestedColumnType, ColumnDateTime>(offsets, nested_null_map,
                                                                      nested_column, right_column);
@@ -259,6 +262,9 @@ private:
                         offsets, nested_null_map, *nested_column, *right_column);
             } else if (nested_column->is_datetime_type()) {
                 return_column = _execute_number_expanded<ColumnDateTime>(
+                        offsets, nested_null_map, *nested_column, *right_column);
+            } else if (nested_column->is_datetime_v2_type()) {
+                return_column = _execute_number_expanded<ColumnDateTimeV2>(
                         offsets, nested_null_map, *nested_column, *right_column);
             }
         }

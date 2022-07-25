@@ -26,6 +26,7 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_task_pool.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -57,7 +58,7 @@ public:
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
         _env->_buffer_reservation = new ReservationTracker();
-        _env->_task_pool_mem_tracker_registry.reset(new MemTrackerTaskPool());
+        _env->_task_pool_mem_tracker_registry = new MemTrackerTaskPool();
         ThreadPoolBuilder("SendBatchThreadPool")
                 .set_min_threads(1)
                 .set_max_threads(5)
@@ -74,6 +75,7 @@ public:
         SAFE_DELETE(_env->_master_info);
         SAFE_DELETE(_env->_thread_mgr);
         SAFE_DELETE(_env->_buffer_reservation);
+        SAFE_DELETE(_env->_task_pool_mem_tracker_registry);
         if (_server) {
             _server->Stop(100);
             _server->Join();
@@ -383,8 +385,6 @@ TEST_F(OlapTableSinkTest, normal) {
     query_options.batch_size = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
     state.init_mem_trackers(TUniqueId());
-    // state._query_mem_tracker.reset(new MemTracker());
-    // state._instance_mem_tracker.reset(new MemTracker(-1, "test", state._query_mem_tracker.get()));
 
     ObjectPool obj_pool;
     TDescriptorTable tdesc_tbl;

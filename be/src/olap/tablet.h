@@ -273,8 +273,6 @@ public:
         return _cumulative_compaction_policy;
     }
 
-    std::shared_ptr<MemTracker>& get_compaction_mem_tracker(CompactionType compaction_type);
-
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->all_beta();
@@ -297,8 +295,6 @@ public:
     Status cooldown();
 
     RowsetSharedPtr pick_cooldown_rowset();
-
-    bool need_cooldown();
 
     bool need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
 

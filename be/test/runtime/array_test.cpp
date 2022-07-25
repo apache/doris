@@ -39,7 +39,6 @@
 #include "runtime/collection_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/primitive_type.h"
 #include "runtime/raw_value.h"
 #include "testutil/array_utils.h"
@@ -153,9 +152,7 @@ void validate(const Field* field, const CollectionValue* expect, const Collectio
 
 class ArrayTest : public ::testing::Test {
 public:
-    ArrayTest()
-            : _mem_tracker(new MemTracker(MAX_MEMORY_BYTES, "ArrayTest")),
-              _mem_pool(new MemPool(_mem_tracker.get())) {}
+    ArrayTest() : _mem_pool(new MemPool()) {}
 
     template <segment_v2::EncodingTypePB array_encoding, segment_v2::EncodingTypePB item_encoding>
     void test(const ColumnPB& column_pb, const std::vector<std::string>& literal_arrays) {
@@ -457,7 +454,6 @@ private:
 private:
     static constexpr size_t MAX_MEMORY_BYTES = 1024 * 1024;
     static const std::string TEST_DIR;
-    std::unique_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     ObjectPool _object_pool;
 };

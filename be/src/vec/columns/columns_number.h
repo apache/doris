@@ -40,8 +40,10 @@ using ColumnInt64 = ColumnVector<Int64>;
 using ColumnInt128 = ColumnVector<Int128>;
 
 using ColumnDate = ColumnVector<Int64>;
-using ColumnDateV2 = ColumnVector<UInt32>;
 using ColumnDateTime = ColumnVector<Int64>;
+
+using ColumnDateV2 = ColumnVector<UInt32>;
+using ColumnDateTimeV2 = ColumnVector<UInt64>;
 
 using ColumnFloat32 = ColumnVector<Float32>;
 using ColumnFloat64 = ColumnVector<Float64>;

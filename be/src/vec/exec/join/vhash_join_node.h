@@ -147,14 +147,16 @@ public:
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~HashJoinNode() override;
 
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
-    virtual Status prepare(RuntimeState* state) override;
-    virtual Status open(RuntimeState* state) override;
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
-    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-    virtual Status close(RuntimeState* state) override;
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
+    Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+    Status close(RuntimeState* state) override;
     HashTableVariants& get_hash_table_variants() { return _hash_table_variants; }
     void init_join_op();
+
+    const RowDescriptor& row_desc() const override { return _output_row_desc; }
 
 private:
     using VExprContexts = std::vector<VExprContext*>;
@@ -168,6 +170,8 @@ private:
     VExprContexts _build_expr_ctxs;
     // other expr
     std::unique_ptr<VExprContext*> _vother_join_conjunct_ptr;
+    // output expr
+    VExprContexts _output_expr_ctxs;
 
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;
@@ -178,6 +182,7 @@ private:
     std::vector<bool> _probe_not_ignore_null;
 
     std::vector<uint16_t> _probe_column_disguise_null;
+    std::vector<uint16_t> _probe_column_convert_to_null;
 
     DataTypes _right_table_data_types;
     DataTypes _left_table_data_types;
@@ -225,17 +230,21 @@ private:
     const bool _is_outer_join;
     bool _have_other_join_conjunct = false;
 
-    RowDescriptor _row_desc_for_other_join_conjunt;
+    Block _join_block;
 
     std::vector<uint32_t> _items_counts;
     std::vector<int8_t> _build_block_offsets;
     std::vector<int> _build_block_rows;
 
-    std::shared_ptr<MemTracker> _hash_table_mem_tracker;
-
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
+
+    RowDescriptor _intermediate_row_desc;
+    RowDescriptor _output_row_desc;
+
+    MutableColumnPtr _tuple_is_null_left_flag_column;
+    MutableColumnPtr _tuple_is_null_right_flag_column;
 
 private:
     void _hash_table_build_thread(RuntimeState* state, std::promise<Status>* status);
@@ -244,15 +253,29 @@ private:
 
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
 
-    Status extract_build_join_column(Block& block, NullMap& null_map, ColumnRawPtrs& raw_ptrs,
-                                     bool& ignore_null, RuntimeProfile::Counter& expr_call_timer);
+    Status _extract_build_join_column(Block& block, NullMap& null_map, ColumnRawPtrs& raw_ptrs,
+                                      bool& ignore_null, RuntimeProfile::Counter& expr_call_timer);
 
-    Status extract_probe_join_column(Block& block, NullMap& null_map, ColumnRawPtrs& raw_ptrs,
-                                     bool& ignore_null, RuntimeProfile::Counter& expr_call_timer);
+    Status _extract_probe_join_column(Block& block, NullMap& null_map, ColumnRawPtrs& raw_ptrs,
+                                      bool& ignore_null, RuntimeProfile::Counter& expr_call_timer);
 
     void _hash_table_init();
 
-    static const int _MAX_BUILD_BLOCK_COUNT = 128;
+    static constexpr auto _MAX_BUILD_BLOCK_COUNT = 128;
+
+    void _prepare_probe_block();
+
+    void _construct_mutable_join_block();
+
+    Status _build_output_block(Block* origin_block, Block* output_block);
+
+    // add tuple is null flag column to Block for filter conjunct and output expr
+    void _add_tuple_is_null_column(Block* block);
+
+    // reset the tuple is null flag column for the next call
+    void _reset_tuple_is_null_column();
+
+    static std::vector<uint16_t> _convert_block_to_null(Block& block);
 
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;

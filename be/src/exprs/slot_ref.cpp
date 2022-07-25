@@ -226,15 +226,30 @@ DateTimeVal SlotRef::get_datetime_val(ExprContext* context, TupleRow* row) {
 }
 
 DateV2Val SlotRef::get_datev2_val(ExprContext* context, TupleRow* row) {
-    DCHECK(_type.is_date_type());
+    DCHECK(_type.is_date_v2_type());
     Tuple* t = row->get_tuple(_tuple_idx);
     if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return DateV2Val::null();
     }
-    doris::vectorized::DateV2Value* tv =
-            reinterpret_cast<doris::vectorized::DateV2Value*>(t->get_slot(_slot_offset));
+    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>* tv =
+            reinterpret_cast<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
+                    t->get_slot(_slot_offset));
     DateV2Val result;
     tv->to_datev2_val(&result);
+    return result;
+}
+
+DateTimeV2Val SlotRef::get_datetimev2_val(ExprContext* context, TupleRow* row) {
+    DCHECK(_type.is_datetime_v2_type());
+    Tuple* t = row->get_tuple(_tuple_idx);
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
+        return DateTimeV2Val::null();
+    }
+    doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>* tv = reinterpret_cast<
+            doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+            t->get_slot(_slot_offset));
+    DateTimeV2Val result;
+    tv->to_datetimev2_val(&result);
     return result;
 }
 

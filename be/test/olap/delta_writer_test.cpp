@@ -34,7 +34,6 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/tuple.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
@@ -433,8 +432,7 @@ TEST_F(TestDeltaWriter, write) {
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
 
-    auto tracker = std::make_shared<MemTracker>();
-    MemPool pool(tracker.get());
+    MemPool pool;
     // Tuple 1
     {
         Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
@@ -465,7 +463,8 @@ TEST_F(TestDeltaWriter, write) {
         DecimalV2Value decimal_value;
         decimal_value.assign_from_double(1.1);
         *(DecimalV2Value*)(tuple->get_slot(slots[9]->tuple_offset())) = decimal_value;
-        ((doris::vectorized::DateV2Value*)(tuple->get_slot(slots[10]->tuple_offset())))
+        ((doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*)(tuple->get_slot(
+                 slots[10]->tuple_offset())))
                 ->from_date_str("2048-11-10", 10);
 
         *(int8_t*)(tuple->get_slot(slots[11]->tuple_offset())) = -127;
@@ -495,7 +494,8 @@ TEST_F(TestDeltaWriter, write) {
 
         *(DecimalV2Value*)(tuple->get_slot(slots[20]->tuple_offset())) = val_decimal;
 
-        ((doris::vectorized::DateV2Value*)(tuple->get_slot(slots[21]->tuple_offset())))
+        ((doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*)(tuple->get_slot(
+                 slots[21]->tuple_offset())))
                 ->from_date_str("2048-11-10", 10);
 
         res = delta_writer->write(tuple);
@@ -554,8 +554,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     DeltaWriter::open(&write_req, &delta_writer, true);
     ASSERT_NE(delta_writer, nullptr);
 
-    auto tracker = std::make_shared<MemTracker>();
-    MemPool pool(tracker.get());
+    MemPool pool;
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -598,9 +597,9 @@ TEST_F(TestDeltaWriter, vec_write) {
         decimal_value.assign_from_double(1.1);
         columns[9]->insert_data((const char*)&decimal_value, sizeof(decimal_value));
 
-        doris::vectorized::DateV2Value date_v2;
+        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> date_v2;
         date_v2.from_date_str("2048-11-10", 10);
-        auto date_v2_int = date_v2.to_date_uint32();
+        auto date_v2_int = date_v2.to_date_int_val();
         columns[10]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
 
         int8_t v1 = -127;
@@ -635,7 +634,7 @@ TEST_F(TestDeltaWriter, vec_write) {
         columns[20]->insert_data((const char*)&decimal_value, sizeof(decimal_value));
 
         date_v2.from_date_str("2048-11-10", 10);
-        date_v2_int = date_v2.to_date_uint32();
+        date_v2_int = date_v2.to_date_int_val();
         columns[21]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
 
         res = delta_writer->write(&block, {0});
@@ -701,8 +700,7 @@ TEST_F(TestDeltaWriter, sequence_col) {
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
 
-    MemTracker tracker;
-    MemPool pool(&tracker);
+    MemPool pool;
     // Tuple 1
     {
         Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
@@ -769,8 +767,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     DeltaWriter::open(&write_req, &delta_writer, true);
     ASSERT_NE(delta_writer, nullptr);
 
-    MemTracker tracker;
-    MemPool pool(&tracker);
+    MemPool pool;
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -795,9 +792,9 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
         int64_t c4_int = c4.to_int64();
         columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
 
-        doris::vectorized::DateV2Value c5;
-        c5.set_time(2022, 6, 6);
-        uint32_t c5_int = c5.to_date_uint32();
+        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> c5;
+        c5.set_time(2022, 6, 6, 0, 0, 0, 0);
+        uint32_t c5_int = c5.to_date_int_val();
         columns[4]->insert_data((const char*)&c5_int, sizeof(c5));
 
         res = delta_writer->write(&block, {0});

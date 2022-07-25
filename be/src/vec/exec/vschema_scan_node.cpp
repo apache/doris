@@ -107,7 +107,7 @@ Status VSchemaScanNode::open(RuntimeState* state) {
     }
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
 
@@ -132,7 +132,7 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     // new one mem pool
     _tuple_pool.reset(new (std::nothrow) MemPool());
@@ -414,6 +414,12 @@ Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescript
         value.convert_dt_to_vec_dt(ts_slot);
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
                 reinterpret_cast<char*>(&value), 0);
+        break;
+    }
+
+    case TYPE_DATETIMEV2: {
+        uint32_t num = *reinterpret_cast<uint64_t*>(slot);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)->insert_value(num);
         break;
     }
 

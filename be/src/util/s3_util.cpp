@@ -96,4 +96,32 @@ std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, use_virtual_addressing);
 }
 
+bool ClientFactory::is_s3_conf_valid(const S3Conf& s3_conf) {
+    return !s3_conf.ak.empty() && !s3_conf.sk.empty() && !s3_conf.endpoint.empty();
+}
+
+std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(const S3Conf& s3_conf) {
+    if (!is_s3_conf_valid(s3_conf)) {
+        return nullptr;
+    }
+    Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
+    DCHECK(!aws_cred.IsExpiredOrEmpty());
+
+    Aws::Client::ClientConfiguration aws_config;
+    aws_config.endpointOverride = s3_conf.endpoint;
+    aws_config.region = s3_conf.region;
+    if (s3_conf.max_connections > 0) {
+        aws_config.maxConnections = s3_conf.max_connections;
+    }
+    if (s3_conf.request_timeout_ms > 0) {
+        aws_config.requestTimeoutMs = s3_conf.request_timeout_ms;
+    }
+    if (s3_conf.connect_timeout_ms > 0) {
+        aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
+    }
+    return std::make_shared<Aws::S3::S3Client>(
+            std::move(aws_cred), std::move(aws_config),
+            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never);
+}
+
 } // end namespace doris

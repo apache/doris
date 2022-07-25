@@ -132,10 +132,13 @@ public class Memo {
     private GroupExpression insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
             boolean rewrite, LogicalProperties logicalProperties) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
-        if (existedGroupExpression != null
-                && existedGroupExpression.getOwnerGroup().getLogicalProperties().equals(logicalProperties)) {
+        if (existedGroupExpression != null) {
+            Group mergedGroup = existedGroupExpression.getOwnerGroup();
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
-                mergeGroup(target, existedGroupExpression.getOwnerGroup());
+                mergedGroup = mergeGroup(target, existedGroupExpression.getOwnerGroup());
+            }
+            if (rewrite) {
+                mergedGroup.setLogicalProperties(logicalProperties);
             }
             return existedGroupExpression;
         }
@@ -164,10 +167,11 @@ public class Memo {
      *
      * @param source source group
      * @param destination destination group
+     * @return merged group
      */
-    private void mergeGroup(Group source, Group destination) {
+    private Group mergeGroup(Group source, Group destination) {
         if (source.equals(destination)) {
-            return;
+            return source;
         }
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
         groupExpressions.values().forEach(groupExpression -> {
@@ -188,22 +192,24 @@ public class Memo {
                     children.set(i, destination);
                 }
             }
-            if (groupExpressions.containsKey(groupExpression)) {
-                // TODO: need to merge group recursively
+            GroupExpression that = groupExpressions.get(groupExpression);
+            if (that != null && that.getOwnerGroup() != null
+                    && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
+                // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
+                // that.getOwnerGroup() already has this groupExpression.
+                Group ownerGroup = groupExpression.getOwnerGroup();
                 groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
+                mergeGroup(ownerGroup, that.getOwnerGroup());
             } else {
                 groupExpressions.put(groupExpression, groupExpression);
             }
         }
-        for (GroupExpression groupExpression : source.getLogicalExpressions()) {
-            source.removeGroupExpression(groupExpression);
-            destination.addGroupExpression(groupExpression);
+        if (!source.equals(destination)) {
+            source.moveLogicalExpressionOwnership(destination);
+            source.movePhysicalExpressionOwnership(destination);
+            groups.remove(source);
         }
-        for (GroupExpression groupExpression : source.getPhysicalExpressions()) {
-            source.removeGroupExpression(groupExpression);
-            destination.addGroupExpression(groupExpression);
-        }
-        groups.remove(source);
+        return destination;
     }
 
     /**

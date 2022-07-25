@@ -98,7 +98,8 @@ under the License.
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>doris-flink-connector</artifactId>
+            <artifactId>flink-doris-connector-1.14_2.12</artifactId>
+            <version>1.0.3</version>
         </dependency>
         <!--After adding the following two dependencies, Flink's log will appear-->
         <dependency>

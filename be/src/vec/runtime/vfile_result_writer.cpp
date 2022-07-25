@@ -258,9 +258,18 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                 }
                 case TYPE_DATEV2: {
                     char buf[64];
-                    const DateV2Value* time_val =
-                            (const DateV2Value*)(col.column->get_data_at(i).data);
+                    const DateV2Value<DateV2ValueType>* time_val =
+                            (const DateV2Value<DateV2ValueType>*)(col.column->get_data_at(i).data);
                     time_val->to_string(buf);
+                    _plain_text_outstream << buf;
+                    break;
+                }
+                case TYPE_DATETIMEV2: {
+                    char buf[64];
+                    const DateV2Value<DateTimeV2ValueType>* time_val =
+                            (const DateV2Value<DateTimeV2ValueType>*)(col.column->get_data_at(i)
+                                                                              .data);
+                    time_val->to_string(buf, _output_vexpr_ctxs[col_id]->root()->type().scale);
                     _plain_text_outstream << buf;
                     break;
                 }
