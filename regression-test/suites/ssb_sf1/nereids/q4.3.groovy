@@ -16,7 +16,7 @@
 // under the License.
 
 suite("ssb_sf1_q4_3_nereids") {
-    String realDb = context.config.getDbByLastGroup(context.group)
+    String realDb = context.config.getDbNameByFile(context.file)
     // get parent directory's group
     realDb = realDb.substring(0, realDb.lastIndexOf("_"))
 

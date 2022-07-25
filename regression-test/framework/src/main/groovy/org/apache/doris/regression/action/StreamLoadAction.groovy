@@ -59,8 +59,7 @@ class StreamLoadAction implements SuiteAction {
         this.password = context.config.feHttpPassword
 
         def groupList = context.group.split(',')
-        def topGroup = groupList[groupList.length - 1].replace(File.separator, '_')
-        this.db = context.config.defaultDb + "_" + topGroup
+        this.db = context.config.getDbNameByFile(context.file)
 
         this.context = context
         this.headers = new LinkedHashMap<>()
