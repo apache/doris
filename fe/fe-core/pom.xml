@@ -786,7 +786,6 @@ under the License.
                         <configuration>
                             <!-- <protocCommand>${doris.thirdparty}/installed/bin/protoc</protocCommand> -->
                             <!--You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools-->
-                            <!--                            <protocArtifact>com.google.protobuf:protoc:${protobuf.version}</protocArtifact>-->
                             <protocArtifact>com.google.protobuf:protoc:${protobuf.version}</protocArtifact>
                             <protocVersion>${protobuf.version}</protocVersion>
                             <inputDirectories>
@@ -798,7 +797,6 @@ under the License.
                                 </outputTarget>
                                 <outputTarget>
                                     <type>grpc-java</type>
-                                    <!--                                    <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</pluginArtifact>-->
                                     <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</pluginArtifact>
                                 </outputTarget>
                             </outputTargets>
