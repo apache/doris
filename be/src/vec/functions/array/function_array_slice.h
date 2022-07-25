@@ -93,9 +93,6 @@ private:
             size_t off = (*src.offsets_ptr)[row - 1];
             size_t len = (*src.offsets_ptr)[row] - off;
             Int64 start = offset_column.get_int(row);
-            LOG(INFO) << "get off " << off;
-            LOG(INFO) << "get len " << len;
-            LOG(INFO) << "get start " << start;
             if (len == 0 || start == 0) {
                 dst.offsets_ptr->push_back(cur);
                 continue;
@@ -115,7 +112,6 @@ private:
             } else {
                 end = off + len;
             }
-            LOG(INFO) << "get end " << end;
             for (size_t pos = start; pos < end; ++pos) {
                 if (src.nested_nullmap_data && src.nested_nullmap_data[pos]) {
                     dst.nested_col->insert_default();
