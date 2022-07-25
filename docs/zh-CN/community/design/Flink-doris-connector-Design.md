@@ -1,13 +1,8 @@
 ---
-{
-    "title": "Flink doris connector Design",
-    "language": "en"
-}
-
-
+{ 'title': 'Flink doris connector Design', 'language': 'en' }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -23,11 +18,10 @@ software distributed under the License is distributed on an
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
-under 
+under the License.
+-->
 
 # Flink doris connector Design
-
-
 
 First of all, thanks to the author of the community Spark Doris Connector
 
@@ -62,8 +56,6 @@ Support function:
 3. You can use Flink to associate non-Doris external data source tables for association analysis
 
 example:
-
-
 
 ```java
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -256,4 +248,3 @@ public  void writeRecord(RowData row) throws IOException {
         System.out.println(loadResponse);
 }
 ```
-

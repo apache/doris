@@ -1,7 +1,7 @@
 ---
 {
-"title": "Release Preparation",
-"language": "en"
+"title": "发版准备",
+"language": "zh-CN"
 }
 ---
 
@@ -24,91 +24,90 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Release Preparation
+# 发版准备
 
-Releases of Apache projects must strictly follow the Apache Foundation release process. Related guidance and policies can be found at.
+Apache 项目的版本发布必须严格遵循 Apache 基金会的版本发布流程。相关指导和政策可参阅：
 
 * [Release Creation Process](https://infra.apache.org/release-publishing)
 * [Release Policy](https://www.apache.org/legal/release-policy.html)
 * [Publishing Maven Releases to Maven Central Repository](https://infra.apache.org/publishing-maven-artifacts.html)
 
-This document describes the main process and prep work for release. For specific Doris component release steps, you can refer to the respective documentation:
+本文档主要说明版本发布的主要流程和前期准备工作。具体 Doris 各组件的发版步骤，可以参阅各自的文档：
 
 * [Doris Core Release](./release-doris-core.md)
 * [Doris Connectors Release](./release-doris-connectors.md)
 * [Doris Manager Release](./release-doris-manager.md)
 
-There are three main forms of releases for Apache projects.
+Apache 项目的版本发布主要有以下三种形式：
 
-* Source Release: i.e. source release, this is mandatory.
-* Binary Release: e.g., release of a compiled executable. This is optional.
-* Convenience Binaries: Release to third-party platforms for user convenience, such as Maven, Docker, etc. This is also optional.
+* **Source Release：即源码发布，这个是必选项。**
+* Binary Release：即二进制发布，比如发布编译好的可执行程序。这个是可选项。
+* Convenience Binaries：为方便用户使用而发布到第三方平台的 Release。如Maven、Docker等。这个也是可选项。
 
-## Release Process
+## 发版流程
 
-Each project release requires a PMC member or Committer as the **Release Manager**.
+每个项目的发版都需要一位 PMC 成员或 Committer 作为 **Release Manager**。
 
-The overall release process is as follows.
+总体的发版流程如下：
 
-1. Environment preparation
-2. Release preparation
-	1. the community initiates DISCUSS and communicates with the community about the specific release plan
-	2. create a branch for the release
-	3. clean up the issue
-	4. merge the necessary patches into the released branch
-3. verify the branch
-	1. stability testing
-	2. verify the compilation flow of the branch code
-	3. Prepare Release Notes
-4. prepare release materials
-    1. Tagging
-    2. upload the content to be released to the [Apache Dev SVN repository](https://dist.apache.org/repos/dist/dev/doris)
-    3. preparation of other Convenience Binaries (e.g. upload to [Maven Staging repository](https://repository.apache.org/#stagingRepositories))
-4. Community Release Polling Process
-	2. Initiate a VOTE in the [Doris Community Dev Mail Group](dev@doris.apache.org).
-	3. After the vote is approved, send a Result email in the Doris community.
-5. Complete the work
-	1. Upload the signed packages to the [Apache Release repository](https://dist.apache.org/repos/dist/release/doris) and generate the relevant links.
-	2. Post the download links on the Doris website and github, and clean up the old packages on svn.
-	3. Send an Announce email to dev@doris.apache.org
+1. 环境准备
+2. 发布准备
+	1. 社区发起 DISCUSS 并与社区交流具体发布计划
+	2. 创建分支用于发布
+	3. 清理 issue
+	4. 将必要的 Patch 合并到发布的分支
+3. 验证分支
+	1. QA 稳定性测试
+	2. 验证分支代码的编译流程
+	3. 准备 Release Notes
+4. 准备发布材料
+    1. 打 Tag
+    2. 将需要发布的内容上传至 [Apache Dev SVN 仓库](https://dist.apache.org/repos/dist/dev/doris)
+    3. 其他 Convenience Binaries 的准备（如上传到 [Maven Staging 仓库](https://repository.apache.org/#stagingRepositories)）
+4. 社区发布投票流程
+	2. 在 Doris 社区 Dev 邮件组(**dev@doris.apache.org**)发起投票。
+	3. 投票通过后，在 Doris 社区发 Result 邮件。
+5. 完成工作
+	1. 上传签名的软件包到 [Apache Release 仓库](https://dist.apache.org/repos/dist/release/doris/)，并生成相关链接。
+	2. 在 Doris 官网和 github 发布下载链接，并且清理 svn 上的旧版本包。
+	3. 发送 Announce 邮件到 dev@doris.apache.org
 
-## Prepare signatures
+## 准备签名
 
-If this is your first time as Release Manager, then you need to prepare the following tools in your environment
+如果这是你第一次发布，那么你需要在你的环境中准备如下工具
 
 1. [Release Signing](https://www.apache.org/dev/release-signing.html)
 2. [gpg](https://www.apache.org/dev/openpgp.html)
 3. [svn](https://www.apache.org/dev/openpgp.html)
 
-### Prepare gpg key
+### 准备gpg key
 
-Release manager needs to create its own signature public key before release, and upload it to the public key server, then you can use this public key to sign the package to be released.
-If your KEY already exists in [KEYS](https://downloads.apache.org/doris/KEYS), then you can skip this step.
+Release manager 在发布前需要先生成自己的签名公钥，并上传到公钥服务器，之后就可以用这个公钥对准备发布的软件包进行签名。
+如果在[KEY](https://downloads.apache.org/incubator/doris/KEYS)里已经存在了你的KEY，那么你可以跳过这个步骤了。
 
-#### Installation and configuration of the signature software GnuPG
+#### 签名软件 GnuPG 的安装配置
 
 ##### GnuPG
 
-In 1991, programmer Phil Zimmermann developed the encryption software PGP in order to avoid government surveillance; it worked so well that it quickly spread and became an essential tool for many programmers. However, it was commercial software and could not be used freely. So, the Free Software Foundation decided to develop a replacement for PGP, named GnuPG, and that's how GPG came to be.
+1991年，程序员 Phil Zimmermann 为了避开政府监视，开发了加密软件PGP。这个软件非常好用，迅速流传开来，成了许多程序员的必备工具。但是，它是商业软件，不能自由使用。所以，自由软件基金会决定，开发一个PGP的替代品，取名为GnuPG。这就是GPG的由来。
 
-##### installation configuration
+##### 安装配置
 
-CentOS installation command.
+CentOS 安装命令：
 
 ```
 yum install gnupg
 ```
-
-After installation, the default configuration file gpg.conf will be placed in the home directory.
+安装完成后，默认配置文件 gpg.conf 会放在 home 目录下。
 
 ```
 ~/.gnupg/gpg.conf
 ```
 
-If this directory or file does not exist, you can just create an empty file.
+如果不存在这个目录或文件，可以直接创建一个空文件。
 
-Apache recommends SHA512 for signatures, which can be done by configuring gpg.
-Edit gpg.conf, adding the following three lines.
+Apache 签名推荐 SHA512， 可以通过配置 gpg 完成。
+编辑gpg.conf, 增加下面的三行：
 
 ```
 personal-digest-preferences SHA512
@@ -116,15 +115,15 @@ cert-digest-algo SHA512
 default-preference-list SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAST5 ZLIB BZIP2 ZIP Uncompressed
 ```
 
-#### Generate a new signature
+#### 生成新的签名
 
-##### Preparing a signature
+##### 准备签名
 
-Recommended settings for generating new signatures.
+推荐的生成新签名的设置：
 
-Here you must log in to the user account directly through a terminal such as SecureCRT, not through su - user or ssh, otherwise the password input box will not show up and an error will be reported.
+这里必须通过 SecureCRT 等终端直接登录用户账户，不能通过 su - user 或者 ssh 转，否则密码输入 box 会显示不出来而报错。
 
-First look at the version of gpg and whether it supports SHA512.
+先看下 gpg 的 version 以及是否支持 SHA512.
 
 ```
 $ gpg --version
@@ -144,7 +143,7 @@ Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
 Compression: Uncompressed, ZIP, ZLIB, BZIP2
 ```
 
-##### Generate a new signature
+##### 生成新的签名
 
 ```
 $ gpg --gen-key
@@ -184,44 +183,44 @@ You selected this USER-ID:
 Change (N)ame, (C)omment, (E)mail or (O)kay/(Q)uit? o
 ```
 
-Real name should be the same as the id shown in id.apache.org.
-Email address is the apache email address.
+其中 Real name 需保持和 id.apache.org 中显示的 id 一致。
+Email address 为 apache 的邮箱。
 
-Enter passphrase, twice, more than 8 characters.
+输入 passphrase, 一共要输入两遍，超过8个字符即可。
 
-**The secret key here must be remembered, it will be used later when signing. It will also be used for publishing other components**
+**这里的秘钥一定要记住，后面签名的时候会用到。同时也会用于其他组件的发布**
 
-**If the `gpg --gen-key` command gets stuck for a long time, try opening another terminal and execute the `find / | xargs file` command to generate enough random characters, usually after a few minutes, the gpg command will complete. **
+**如果 `gpg --gen-key` 命令卡住很久，可以尝试打开另一终端后，执行 `find / | xargs file` 命令来产生足够多的随机字符，通常在几分钟后，gpg命令就会完成。**
 
->**Notice:**
+>**注意：**
 >
->If the generation is stuck when it can be generated and cannot be completed for a long time, the following solutions can be used to solve it:
+>如果在生成可以的时候出现卡住，长时间不能完成的时候，可以通过下面的方案解决：
 >
->Install the rng-tools tool by `yum install rng-tools` to complete the installation.
->Then open a new window and execute the command: rngd -r /dev/urandom, and the key generation can be completed instantly.
+>安装 rng-tools 这个工具，通过 `yum install rng-tools` 完成安装。
+>之后再打开一个新的窗口执行命令：rngd -r /dev/urandom，生成密钥就能瞬间完成了。
 
-##### View and output
+##### 查看和输出
 
-The first line shows the public key file name (pubring.gpg), the second line shows the public key characteristics (4096 bits, hash string and generation time), the third line shows the "user ID", comments, emails, and the fourth line shows the private key characteristics.
+第一行显示公钥文件名（pubring.gpg），第二行显示公钥特征（4096位，Hash字符串和生成时间），第三行显示"用户ID"，注释，邮件，第四行显示私钥特征。
 
 ```
 $ gpg --list-keys
 /home/lide/.gnupg/pubring.gpg
 -----------------------------
-pub 4096R/33DBF2E0 2018-12-06
-uid xxx-yyyy (xxx's key) <xxx@apache.org>
-sub 4096R/0E8182E6 2018-12-06
+pub   4096R/33DBF2E0 2018-12-06
+uid                  xxx-yyy  (xxx's key) <xxx@apache.org>
+sub   4096R/0E8182E6 2018-12-06
 ```
 
-where xxx-yyyy is the user ID.
+其中 xxx-yyy 就是用户ID。
 
 ```
-gpg --armor --output public-key.txt --export [user-id]
+gpg --armor --output public-key.txt --export [用户ID]
 ```
 
 ```
-$ gpg --armor --output public-key.txt --export xxx-yyyy
-The file 'public-key.txt' already exists. Is it overwritten? (y/N)y
+$ gpg --armor --output public-key.txt --export xxx-yyy
+文件‘public-key.txt’已存在。 是否覆盖？(y/N)y
 $ cat public-key.txt
 -----BEGIN PGP PUBLIC KEY BLOCK-----
 Version: GnuPG v2.0.22 (GNU/Linux)
@@ -230,84 +229,87 @@ mQINBFwJEQ0BEACwqLluHfjBqD/RWZ4uoYxNYHlIzZvbvxAlwS2mn53BirLIU/G3
 9opMWNplvmK+3+gNlRlFpiZ7EvHsF/YJOAP59HmI2Z...
 ```
 
-#### Uploading Signed Public Keys
+#### 上传签名公钥
 
-A public key server is a server on the network dedicated to storing the user's public key. send-keys parameter can upload the public key to the server.
+公钥服务器是网络上专门储存用户公钥的服务器。send-keys 参数可以将公钥上传到服务器。
 
 ```
 gpg --send-keys xxxx --keyserver https://keyserver.ubuntu.com/
 
 ```
-where xxxx is the string after pub in the `-list-keys` result of the previous step, e.g., 33DBF2E0
+其中 xxxx 为上一步 `--list-keys` 结果中 pub 后面的字符串，如上为：33DBF2E0
 
-You can also upload the contents of the above public-key.txt via [https://keyserver.ubuntu.com/](https://keyserver.ubuntu.com/).
+也可以通过[https://keyserver.ubuntu.com/](https://keyserver.ubuntu.com/)上传上述 public-key.txt 的内容：
 
-After successful upload, you can query this [https://keyserver.ubuntu.com/](https://keyserver.ubuntu.com/) by entering 0x33DBF2E0. (Note that it needs to start with 0x)
+上传成功之后，可以通过查询这个[https://keyserver.ubuntu.com/](https://keyserver.ubuntu.com/)，输入 0x33DBF2E0 查询。（注意需要以 0x 开头）
 
-There is a delay in querying this website, you may need to wait for 1 hour.
+该网站查询有延迟，可能需要等1个小时。
 
-#### generates fingerprint and uploads it to apache user information
+#### 生成 fingerprint 并上传到 apache 用户信息中
 
-Since the public key server has no checking mechanism, anyone can upload a public key in your name, so there is no way to guarantee the reliability of the public key on the server. Usually, you can publish a public key fingerprint on your website and let other people check whether the downloaded public key is genuine or not.
+由于公钥服务器没有检查机制，任何人都可以用你的名义上传公钥，所以没有办法保证服务器上的公钥的可靠性。通常，你可以在网站上公布一个公钥指纹，让其他人核对下载到的公钥是否为真。
 
-The fingerprint parameter generates a public key fingerprint.
-
-```
-gpg --fingerprint [user-id]
-```
+fingerprint参数生成公钥指纹：
 
 ```
-$ gpg --fingerprint xxx-yyyy
-pub 4096R/33DBF2E0 2018-12-06
-      Key fingerprint = 07AA E690 B01D 1A4B 469B 0BEF 5E29 CE39 33DB F2E0
-uid xxx-yyyy (xxx's key) <xxx@apache.org>
-sub 4096R/0E8182E6 2018-12-06
+gpg --fingerprint [用户ID]
 ```
 
-Paste the fingerprint above (i.e. 07AA E690 B01D 1A4B 469B 0BEF 5E29 CE39 33DB F2E0) into your own user information at
+```
+$ gpg --fingerprint xxx-yyy
+pub   4096R/33DBF2E0 2018-12-06
+      Key fingerprint = 07AA E690 B01D 1A4B 469B  0BEF 5E29 CE39 33DB F2E0
+uid                  xxx-yyy (xxx's key) <xxx@apache.org>
+sub   4096R/0E8182E6 2018-12-06
+```
+
+将上面的 fingerprint （即 07AA E690 B01D 1A4B 469B  0BEF 5E29 CE39 33DB F2E0）粘贴到自己的用户信息中：
 
 https://id.apache.org
 
 `OpenPGP Public Key Primary Fingerprint:`
 
-> Note: Each person can have more than one Public Key.
+> 注：每个人可以有多个 Public Key。
 
-#### generates keys
+#### 生成 keys
 
-**Be careful not to delete existing content in the KEYS file, it can only be added.**
+**注意不要删除 KEYS 文件中已有的内容，这能追加新增**
 
 ```
 svn co https://dist.apache.org/repos/dist/dev/doris/
 # edit doris/KEYS file
-gpg --list-sigs [user-id] >> doris/KEYS
-gpg --armor --export [user ID] >> doris/KEYS
-svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m "UPDATE KEYS"
+gpg --list-sigs [用户 ID] >> doris/KEYS
+gpg --armor --export [用户 ID] >> doris/KEYS
+svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
 ```
 
-Note that the KEYS file should also be published to the following svn library.
+注意，KEYS 文件要同时发布到如下 svn 库。
 
 ```
 svn co https://dist.apache.org/repos/dist/release/doris
 # edit doris/KEYS file
-svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m "UPDATE KEYS"
+svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
 ```
 
-After that it will automatically sync to.
+之后会自动同步到：
 ```
 https://downloads.apache.org/doris/KEYS
 ```
 
-In subsequent release poll emails, use the KEYS file here in ``https://downloads.apache.org/doris/KEYS``.
+在后续的发版投票邮件中，要使用 `https://downloads.apache.org/doris/KEYS` 这里的 KEYS 文件。
 
-## Maven Release Preparation
 
-For components such as the Doris Connector, you need to use maven for the release.
+## Maven 发版准备
 
-1. Generate a master password
+对于 Doris Connector 等组件，需要使用 maven 进行版本发布。
+
+1. 生成主密码
 
     `mvn --encrypt-master-password <password>`
     
-    This password is only used to encrypt other passwords that follow, and the output is something like `{VSb+6+76djkH/43...} ` Then create the `~/.m2/settings-security.xml` file with the following content
+    这个密码仅用作加密后续的其他密码使用, 输出类似 `{VSb+6+76djkH/43...}`
+    
+    之后创建 `~/.m2/settings-security.xml` 文件，内容是
 
     ```
     <settingsSecurity>
@@ -315,16 +317,15 @@ For components such as the Doris Connector, you need to use maven for the releas
     </settingsSecurity>
     ```
 
-2. Encrypt apache passwords
-
+2. 加密 apache 密码
 
     `mvn --encrypt-password <password>`
     
-    The password is the password for the apache account. The output is similar to `{GRKbCylpwysHfV...}`
+    这个密码是apache 账号的密码 输出和上面类似`{GRKbCylpwysHfV...}`
     
-    Add in `~/.m2/settings.xml`
-    
-    ```
+    在 `~/.m2/settings.xml` 中加入
+
+	```
     <servers>
       <!-- To publish a snapshot of your project -->
       <server>
@@ -339,8 +340,8 @@ For components such as the Doris Connector, you need to use maven for the releas
         <password>{GRKbCylpwysHfV...}</password>
       </server>
     </servers>
-    ```
+	```
+	
+## 在社区发起 DISCUSS
 
-## Initiating DISCUSS in the community
-
-DISCUSS is not a required process before a release, but it is highly recommended to start a discussion in the dev@doris mail group before a major release. Content includes, but is not limited to, descriptions of important features, bug fixes, etc.
+DISCUSS 并不是发版前的必须流程，但强烈建议在重要版本发布前，在 dev@doris 邮件组发起讨论。内容包括但不限于重要功能的说明、Bug修复说明等。

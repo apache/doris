@@ -1,7 +1,7 @@
 ---
 {
-    "title": "验证 Apache 发布版本",
-    "language": "zh-CN"
+    "title": "Verify the Apache release version",
+    "language": "en"
 }
 ---
 
@@ -24,26 +24,26 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 验证 Apache 发布版本
+# Validate Apache Releases
 
-该验证步骤可用于发版投票时的验证，也可以用于对已发布版本的验证。
+This validation step can be used for validation during release polling and also for validation of released versions.
 
-可以按照以下步骤进行验证：
+The following steps can be followed to verify.
 
-1. [ ] 下载链接是否合法。
-2. [ ] 校验值和 PGP 签名是否合法。
-3. [ ] 是否包含 DISCLAIMER 或 DISCLAIMER-WIP 文件。
-4. [ ] 代码是否和当前发布版本相匹配。
-5. [ ] LICENSE 和 NOTICE 文件是否正确。
-6. [ ] 所有文件都携带必要的协议说明。
-7. [ ] 在源码包中不包含已经编译好的内容。
-8. [ ] 编译是否能够顺利执行。
+1. [ ] Whether the download link is legitimate.
+2. [ ] Whether the checksum and PGP signature are legitimate. 3.
+3. [ ] Whether the DISCLAIMER or DISCLAIMER-WIP is included.
+4. [ ] Whether the code matches the current release.
+5. [ ] Whether the LICENSE and NOTICE files are correct.
+6. [ ] All files carry the necessary protocol descriptions.
+7. [ ] No compiled content is included in the source package.
+8. [ ] Whether the compilation can be executed without problems.
 
-这里我们以 Doris Core 版本的验证为例。其他组件注意修改对应名称。
+Here we use the verification of the Doris Core version as an example. Note that other components have their corresponding names changed.
 
-## 1. 下载源码包、签名文件、校验值文件和 KEYS
+## 1. download the source package, signature file, checksum file and KEYS
 
-下载所有相关文件, 以 a.b.c-incubating 为示例:
+Download all relevant files, using a.b.c-incubating as an example:
 
 ``` shell
 wget https://www.apache.org/dyn/mirrors/mirrors.cgi?action=download&filename=/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz
@@ -55,18 +55,16 @@ wget https://www.apache.org/dist/incubator/doris/a.b.c-incubating/apache-doris-a
 wget https://downloads.apache.org/incubator/doris/KEYS
 ```
 
-> 如果是投票验证，则需从邮件中提供的 svn 地址获取相关文件。
+> In case of poll verification, you need to get the relevant files from the svn address provided in the email.
 
-## 2. 检查签名和校验值
+## 2. Check signature and checksum value
 
-推荐使用 GunPG，可以通过以下命令安装：
+It is recommended to use GunPG, which can be installed by the following command.
 
 ``` shell
 CentOS: yum install gnupg
 Ubuntu: apt-get install gnupg
 ```
-
-这里以 Doris 主代码 release 为例。其他 release 类似。
 
 ``` shell
 gpg --import KEYS
@@ -74,30 +72,30 @@ gpg --verify apache-doris-a.b.c-incubating-src.tar.gz.asc apache-doris-a.b.c-inc
 sha512sum --check apache-doris-a.b.c-incubating-src.tar.gz.sha512
 ```
 
-## 3. 验证源码协议头
+## 3. Verify the source protocol header
 
-这里我们使用 [skywalking-eyes](https://github.com/apache/skywalking-eyes) 进行协议验证。
+Here we use [skywalking-eyes](https://github.com/apache/skywalking-eyes) for protocol validation.
 
-进入源码根目录并执行：
+Go to the root of the source code and execute:
 
 ```
 sudo docker run -it --rm -v $(pwd):/github/workspace apache/skywalking-eyes header check
 ```
 
-运行结果如下：
+The results of the run are as follows.
 
 ```
 INFO GITHUB_TOKEN is not set, license-eye won't comment on the pull request
-INFO Loading configuraftion from file: .licenserc.yaml
+INFO Loading configuration from file: .licenserc.yaml
 INFO Totally checked 5611 files, valid: 3926, invalid: 0, ignored: 1685, fixed: 0
 ```
 
-如果 invalid 为 0，则表示验证通过。
+If invalid is 0, then the validation passes.
 
-## 4. 验证编译
+## 4. Verify compilation
 
-请参阅各组件的编译文档验证编译。
+Please see the compilation documentation of each component to verify the compilation.
 
-* Doris 主代码编译，请参阅 [编译文档](../../install/source-install/compilation.md)
-* Flink Doris Connector 编译，请参阅 [编译文档](../../ecosystem/flink-doris-connector.md)
-* Spark Doris Connector 编译，请参阅 [编译文档](../../ecosystem/spark-doris-connector.md)
+* For Doris Core, see [compilation documentation](../../install/source-install/compilation.md)
+* Flink Doris Connector, see [compilation documentation](../../ecosystem/flink-doris-connector.md)
+* Spark Doris Connector, see [compilation documentation](../../ecosystem/spark-doris-connector.md)

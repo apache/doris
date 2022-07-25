@@ -1,7 +1,7 @@
 ---
 {
-    "title": "订阅邮件列表",
-    "language": "zh-CN"
+    "title": "Subscribe Mailing Lists",
+    "language": "en"
 }
 ---
 
@@ -24,46 +24,46 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 订阅邮件列表
+# Subscribe Mailing Lists
 
-邮件列表（Mail List）是 Apache 社区最被认可的交流方式。一般来说，开源社区的提问与解答、技术讨论、事务决策等都通过邮件列表来承载。邮件列表异步、广播的特性，也非常适合开源社区的沟通交流。那么，如何订阅 Apache Doris (incubating) 的邮件列表呢？主要包括以下五个步骤。
+Mail List is the most recognized form of communication in Apache community. Generally speaking, open source community questions and answers, technical discussions, transaction decisions are carried through mailing lists. The asynchronous and broadcasting features of mailing lists are also very suitable for communication in open source communities. So how do you subscribe to Apache Doris mailing lists? It mainly includes the following five steps.
 
-## 1. 发送订阅邮件
+## 1. Send Subscription Mail
 
-打开自己的邮箱，新建邮件，向`dev-subscribe@doris.apache.org`发送一封邮件（邮件主题和内容任意）
+Open your own email, create a new email, and send an email to `dev-subscribe@doris.apache.org` (subject and content are arbitrary)
 
 ![step1](/images/subscribe-mail-list-step1.png)
 
-## 2. 接收来自 dev-help@doris.apache.org 的确认邮件
+## 2. Receive confirmation emails from dev-help@doris.apache.org
 
-执行完第一步之后，您将收到一封来自`dev-help@doris.apache.org`的确认邮件，邮件内容如下图所示。（**如果长时间未能收到，请确认该邮件是否已被拦截，或已经被自动归入“订阅邮件”、“垃圾邮件”、“推广邮件”等文件夹**）
+After the first step, you will receive a confirmation email from `dev-help@doris.apache.org`, which is shown below. (**If you fail to receive it for a long time, please confirm that the mail has been intercepted, or has been automatically grouped into "Subscribed Mail", "Spam Mail", "Promotional Mail" folders**)
 
 ![step2](/images/subscribe-mail-list-step2.png)
 
-## 3. 回复确认邮件
+## 3. Reply to confirmation mail
 
-​针对上一步接收到的邮件，
+For the mail received in the previous step,
 
-​**a.直接回复该邮件**
+**a. Reply to this email directly**
 
-​***或***
+***or***
 
-**b. 新建一封`收件人`为上一步中的`回复地址`的邮件**
+**B. Create a new `recipient` e-mail for the `reply address` in the previous step**
 
-​均可，内容主题不限
+Every subject is acceptable.
 
 ![step3](/images/subscribe-mail-list-step3.png)
 
 
-## 4. 接收欢迎邮件
+## 4. Receiving Welcome Emails
 
-​完成第三步之后，将会受到一封标题为**WELCOME to dev@doris.apache.org**的欢迎邮件。至此，订阅邮件列表的工作已经完成了，社区的动态都会通过邮件的方式通知您。
+After completing the third step, you will receive a welcome email entitled **WELCOME to dev@doris.apache.org**. So far, the work of subscribing to mailing lists has been completed, and community dynamics will be notified by mail.
 
 ![step4](/images/subscribe-mail-list-step4.png)
 
 
-## 5. 发起邮件讨论（可选）
+## 5. Initiate e-mail discussion (optional)
 
-​成功订阅邮件列表后，若想发起讨论，直接往`dev@doris.apache.org`发送邮件即可。所有订阅了邮件列表的人都会收到邮件。
+After successfully subscribing to the mailing list, if you want to initiate a discussion, send an email directly to `dev@doris.apache.org`. Anyone who subscribes to the mailing list receives the mail.
 ​
 ​

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "为 Doris 做贡献",
-    "language": "zh-CN"
+    "title": "Contribute to Doris",
+    "language": "en"
 }
 ---
 
@@ -24,61 +24,62 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 为 Doris 做贡献
+# Contribute to Doris
 
-非常感谢您对 Doris 项目感兴趣，我们非常欢迎您对 Doris 项目的各种建议、意见（包括批评）、评论和贡献。
+Thank you very much for your interest in the Doris project. We welcome your suggestions, comments (including criticisms), comments and contributions to the Doris project.
 
-您对 Doris 的各种建议、意见、评论可以直接通过 GitHub 的 [Issues](https://github.com/apache/incubator-doris/issues/new/choose) 提出。
+Your suggestions, comments and comments on Doris can be made directly through GitHub's [Issues](https://github.com/apache/doris/issues/new/choose).
 
-参与 Doris 项目并为其作出贡献的方法有很多：代码实现、测试编写、流程工具改进、文档完善等等。任何贡献我们都会非常欢迎，并将您加入贡献者列表，进一步，有了足够的贡献后，您还可以有机会成为 Apache 的 Committer，拥有 Apache 邮箱，并被收录到 [Apache Committer 列表中](http://people.apache.org/committer-index.html)。
+There are many ways to participate in and contribute to Doris projects: code implementation, test writing, process tool improvement, document improvement, and so on. Any contribution will be welcomed and you will be added to the list of contributors. Further, with sufficient contributions, you will have the opportunity to become a Committer of Apache with Apache mailbox and be included in the list of [Apache Committers](http://people.apache.org/committer-index.html).
 
-任何问题，您都可以联系我们得到及时解答，联系方式包括微信、Gitter（GitHub提供的即时聊天工具）、邮件等等。
+Any questions, you can contact us to get timely answers, including Wechat, Gitter (GitHub instant messaging tool), e-mail and so on.
 
-## 初次接触
+## Initial contact
 
-初次来到 Doris 社区，您可以：
+For the first time in Doris community, you can:
 
-* 关注 Doris [Github 代码库](https://github.com/apache/incubator-doris)
-* 订阅我们的 [邮件列表](../subscribe-mail-list.md)； 
-* 加入 Doris 微信群(加微信号：morningman-cmy, 备注：加入Doris群) 随时提问；
-* 加入 [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg);
+* Follow [Doris Github](https://github.com/apache/doris)
+* Subscribe to our [mailing list](./subscribe-mail-list);
+* Join Doris Wechat Group (add WeChat-ID: morningman-cmy, note: join Doris Group) and ask questions at any time.
+* Enter Doris's [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
 
-通过以上方式及时了解 Doris 项目的开发动态并为您关注的话题发表意见。
+Learn the development trends of Doris project in time and give your opinions on the topics you are concerned about.
 
-## Doris 的代码和文档
+## Doris's code and documentation
 
-正如您在 [GitHub](https://github.com/apache/incubator-doris) 上看到的，Apache Doris (incubating) 的代码库主要包括三部分：Frontend (FE), Backend (BE) 和 Broker (为了支持 HDFS 等外部存储系统上的文件读取)。文档主要是 Doris 网站和 GitHub 上的 wiki，还有运行 Doris 的时候的在线帮助手册。这些组件的详细情况参见下表：
+As you can see from [GitHub](https://github.com/apache/doris), Apache Doris (incubating) code base mainly consists of three parts: Frontend (FE), Backend (BE) and Broker (to support file reading on external storage systems such as HDFS). Documents are mainly the wiki on Doris website and GitHub, as well as the online help manual when running Doris. Details of these components can be found in the following table:
 
-| 组件名称 | 组件描述 | 相关语言 |
+| Component Name | Component Description | Related Language|
 |--------|----------------------------|----------|
-| [Frontend daemon (FE)](https://github.com/apache/incubator-doris)| 由“查询协调器”和“元数据管理器”组成 | Java|
-| [Backend daemon (BE)](https://github.com/apache/incubator-doris) | 负责存储数据和执行查询片段 | C++|
-| [Broker](https://github.com/apache/incubator-doris) | 读取 HDFS 数据到 Doris | Java |
-| [Website](https://github.com/apache/incubator-doris-website) | Doris 网站 | Markdown |
-| [Manager](https://github.com/apache/incubator-doris-manager) | Doris Manager | Java |
-| [Flink-Connector](https://github.com/apache/incubator-doris-flink-connector) | Doris Flink Connector | Java |
-| [Spark-Connector](https://github.com/apache/incubator-doris-spark-connector) | Doris Spark Connector | Java |
-| Doris 运行时 help 文档 | 运行 Doris 的时候的在线帮助手册 | Markdown |
+| [Frontend daemon (FE)](https://github.com/apache/doris) | consists of a query coordinator and a metadata manager | Java|
+| [Backend daemon (BE)](https://github.com/apache/doris) | Responsible for storing data and executing query fragments | C++|
+| [Broker](https://github.com/apache/doris) | Read HDFS data to Doris | Java|
+| [Website](https://github.com/apache/doris-website) | Doris Website | Markdown |
+| [Manager](https://github.com/apache/doris-manager) | Doris Manager | Java |
+| [Flink-Connector](https://github.com/apache/doris-flink-connector) | Doris Flink Connector | Java |
+| [Spark-Connector](https://github.com/apache/doris-spark-connector) | Doris Spark Connector | Java |
+| Doris Runtime Help Document | Online Help Manual at Doris Runtime | Markdown|
 
-## 改进文档
+## Improving documentation
 
-文档是您了解 Apache Doris 的最主要的方式，也是我们最需要帮助的地方！
+Documentation is the most important way for you to understand Apache Doris, and it's where we need help most!
 
-浏览文档，可以加深您对 Doris 的了解，也可以帮助您理解 Doris 的功能和技术细节，如果您发现文档有问题，请及时联系我们；
+Browse the document, you can deepen your understanding of Doris, can also help you understand Doris's function and technical details, if you find that the document has problems, please contact us in time;
 
-如果您对改进文档的质量感兴趣，不论是修订一个页面的地址、更正一个链接、以及写一篇更优秀的入门文档，我们都非常欢迎！
+If you are interested in improving the quality of documents, whether it is revising the address of a page, correcting a link, and writing a better introductory document, we are very welcome!
 
-我们的文档大多数是使用 markdown 格式编写的，您可以直接通过在 [GitHub](https://github.com/apache/incubator-doris) 中的 `docs/` 中修改并提交文档变更。如果提交代码变更，可以参阅 [Pull Request](./pull-request.md)。
+Most of our documents are written in markdown format, and you can modify and submit document changes directly through `docs/` in [GitHub](https://github.com/apache/doris). If you submit code changes, you can refer to [Pull Request](./pull-request).
 
-## 如果发现了一个 Bug 或问题
+## If a Bug or problem is found
 
-如果发现了一个 Bug 或问题，您可以直接通过 GitHub 的 [Issues](https://github.com/apache/incubator-doris/issues/new/choose) 提一个新的 Issue，我们会有人定期处理。
+If a Bug or problem is found, you can directly raise a new Issue through GitHub's [Issues](https://github.com/apache/doris/issues/new/choose), and we will have someone deal with it regularly.
 
-您也可以通过阅读分析代码自己修复（当然在这之前最好能和我们交流下，或许已经有人在修复同样的问题了），然后提交一个 [Pull Request](./pull-request.md)。
+You can also fix it yourself by reading the analysis code (of course, it's better to talk to us before that, maybe someone has fixed the same problem) and submit a [Pull Request](./pull-request).
 
-## 修改代码和提交PR（Pull Request）
+## Modify the code and submit PR (Pull Request)
 
-您可以下载代码，编译安装，部署运行试一试（可以参考[编译文档](../../install/source-install/compilation.md)），看看是否与您预想的一样工作。如果有问题，您可以直接联系我们，提 Issue 或者通过阅读和分析源代码自己修复。
+You can download the code, compile and install it, deploy and run it for a try (refer to the [compilation document](../../install/source-install/compilation)) to see if it works as you expected. If you have problems, you can contact us directly, ask questions or fix them by reading and analyzing the source code.
 
-无论是修复 Bug 还是增加 Feature，我们都非常欢迎。如果您希望给 Doris 提交代码，您需要从 GitHub 上 fork 代码库至您的项目空间下，为您提交的代码创建一个新的分支，添加源项目为upstream，并提交PR。
-提交PR的方式可以参考文档 [Pull Request](./pull-request.md)。
+Whether it's fixing Bugs or adding Features, we're all very welcome. If you want to submit code to Doris, you need to create a new branch for your submitted code from the fork code library on GitHub to your project space, add the source project upstream, and submit PR.
+
+About how to submit a PR refer to [Pull Request](./pull-request).

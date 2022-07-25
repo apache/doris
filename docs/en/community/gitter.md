@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Gitter Manual",
-    "language": "en"
+    "title": "Gitter 使用指南",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,36 +24,36 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Gitter Manual
+# Gitter 使用指南
 
-## Gitter introduction
+## Gitter 简介   
+   
+Gitter 是一款可支持 Markdown 的针对开发者的即时通讯软件，可无缝关联到 github，可在聊天中关联Github上的PR，可留存讨论的相关历史记录，可查询历史记录，支持中英文。
+   
+Doris 和很多其他的开源项目一样，可以使用 Gitter 作为技术交流和社区发展的即时通讯媒介，本文介绍如何使用 Gitter 参与到 Doris 的开源开发和社区发展中。
 
-Gitter is a Markdown-enabled instant messaging software for developers. It can be seamlessly linked to github, PR on Github can be linked in chat, relevant historical records of discussions can be retained, historical records can be queried, and Chinese and English can be supported.
-
-Like many other open source projects, Doris can use Gitter as an instant messaging medium for technology exchange and community development. This article describes how to use Gitter to participate in Doris's open source development and community development.
-
-## Log in using links
-
-Entering [https://gitter.im/apache-doris/Lobby](https://gitter.im/apache-doris/Lobby) in the browser  automatically jumps to the Doris community chat room interface on Gitter.
-
-Click on the `SIGN IN TO START TALKING` below to login. It can support two login modes, Github account or Twitter account. The author uses Github account to login, as follows:
-
+## 使用链接登录
+   
+在浏览器 输入 [https://gitter.im/apache-doris/Lobby](https://gitter.im/apache-doris/Lobby) ，会自动跳转到 Gitter 上 Doris 社区的聊天室界面。
+    
+点击下方的 `SIGN IN TO START TALKING` 进行登录，可支持两种登录方式，Github 账号或 Twitter 账号，笔者使用 Github 账号进行登录，如下：
+     
 ![](/images/login-gitter1.png)
+    
+点击红圈处后，输入 Github 账号和密码既可登录进聊天室，从此开始进行技术或社区讨论：
+      
+![](/images/login-gitter2.png) 
+       
+可以像使用微信一样，使用Gitter，并获得比微信更加令开发者和技术人员舒服的功能，如，直接提及某个Activity进行讨论，直接搜索历史聊天记录等。
+   
+已经加入聊天室的伙伴别忘记点击右上角的五角星进行收藏，这样会让本聊天室更容易被您自己找到。
 
-After clicking on the red circle, enter the Github account and password to log into the chat room and start technical or community discussions:
-
-![](/images/login-gitter2.png)
-
-You can use Gitter as well as Wechat, and get functions that are more comfortable for developers and technicians than Wechat, such as directly mentioning an activity for discussion, directly searching history chat records, etc.
-
-Don't forget to click on the Pentagon in the upper right corner to collect, which will make the chat room easier for you to find.
-
-## Install Mobile Client
-
-You can download Gitter's mobile client and participate in technical discussions on your mobile phone at any time and anywhere. Download links:
-
+## 安装手机客户端
+   
+您可以下载 Gitter 的手机客户端，在手机上也随时随地的参与到技术讨论中，下载链接：
+   
 [https://gitter.im/home](https://gitter.im/home)
-
-## Search Gitter and join Doris Community Chat Room
-
-Partners already using Gitter log in directly to search for `apache-doris` and can join the chat room when they find it. Other functions are used in the same chapter, which is not discussed here.
+   
+## 在 Gitter 上搜索并加入 Doris 社区聊天室
+   
+已经在使用 Gitter 的伙伴，直接登录 Gitter 后，搜索 `apache-doris` ,找到后可以加入聊天室，其他的功能使用同上一章节，这里不赘述。

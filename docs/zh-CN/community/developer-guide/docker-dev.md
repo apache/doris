@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Doris Docker 快速搭建开发环境",
-    "language": "zh-CN"
+    "title": "Doris Docker quick build development environment",
+    "language": "en"
 }
 
 ---
@@ -25,25 +25,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Doris Docker 快速搭建开发环境
+# Doris Docker quick build development environment
 
-## 相关详细文档导航
+## Related detailed document navigation
 
-- [使用 Docker 开发镜像编译](../../docs/install/source-install/compilation.md)
-- [部署](../../docs/install/install-deploy.md)
-- [VSCode Be 开发调试](./be-vscode-dev.md)
+- [Developing mirror compilation using Docker](/docs/install/source-install/compilation)
+- [Deploying Doris](/docs/install/install-deploy)
+- [VSCode Be Development Debugging](./be-vscode-dev)
 
-## 环境准备
+## Environment preparation
 
-- 安装 Docker
+- Install Docker
 - VSCode
-    - Remote 插件
+    - Remote plugin
 
-## 构建镜像
+## Build image
 
-创建 dockerfile
+create dockerfile
 
-VSCode 中使用 Ctrl-d 替换掉所有的
+VSCode replace all by using Ctrl-d
 
 - <!!! your user !!!>
 - <!!! your user password !!!>
@@ -61,7 +61,7 @@ RUN echo '<!!! root password !!!>' | passwd root --stdin
 RUN yum install -y vim net-tools man wget git mysql lsof bash-completion \
         && cp /var/local/thirdparty/installed/bin/thrift /usr/bin
 
-# 更安全的使用，创建用户而不是使用 root
+# safer usage, create new user instead of using root
 RUN yum install -y sudo \
         && useradd -ms /bin/bash <!!! your user !!!> && echo <!!! your user password !!!> | passwd <!!! your user !!!> --stdin \
         && usermod -a -G wheel <!!! your user !!!>
@@ -72,7 +72,7 @@ RUN git config --global color.ui true \
         && git config --global user.email "<!!! your git email !!!>" \
         && git config --global user.name "<!!! your git username !!!>"
 
-# 按需安装 zsh and oh my zsh, 更易于使用，不需要的移除
+# install zsh and oh my zsh, easier to use on, you can remove it if you don't need it
 USER root
 RUN yum install -y zsh \
         && chsh -s /bin/zsh <!!! your user !!!>
@@ -82,80 +82,79 @@ RUN wget https://github.com/robbyrussell/oh-my-zsh/raw/master/tools/install.sh -
         && git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
 ```
 
-运行构建命令
+run build command
 
 ```bash
 docker build -t doris .
 ```
 
-运行镜像
+run image
 
-此处按需注意 [挂载的问题](../../docs/install/source-install/compilation.md)
+note! [problems with mounting](../../docs/install/source-install/compilation)
 
-> 见链接中：建议以挂载本地 Doris 源码目录的方式运行镜像 .....
+> See the link above: It is recommended to run the image by mounting the local Doris source code directory as a volume .....
 
-由于如果是使用 windows 开发，挂载会存在跨文件系统访问的问题，请自行斟酌设置
+if you are developing on windows, mounting may cause cross-filesystem access problems, please consider setting it manually
 
 ```bash
 docker run -it doris:latest /bin/bash
 ```
 
-如果选择安装了 zsh
-运行 容器后，在 ~/.zshrc 替换 plugins 为
+if you installed zsh, replace plugins in ~/.zshrc after running the container
 
 ```
 plugins=(git zsh-autosuggestions zsh-syntax-highlighting)
 ```
 
-创建目录并下载 doris
+create directory and download doris
 
 ```bash
 su <your user>
 mkdir code && cd code
-git clone https://github.com/apache/incubator-doris.git
+git clone https://github.com/apache/doris.git
 ```
 
-## 编译
+## Compile
 
-注意:
+Note:
 
-第一次编译的时候要使用如下命令
+use the following command first time compiling
 
 ```bash
 sh build.sh --clean --be --fe --ui
 ```
 
-这是因为 build-env-for-0.15.0 版本镜像升级了 thrift(0.9 -> 0.13)，需要通过 --clean 命令强制使用新版本的 thrift 生成代码文件，否则会出现不兼容的代码。：
+it is because build-env-for-0.15.0 version image upgraded thrift(0.9 -> 0.13), so you need to use --clean command to force use new version of thrift to generate code files, otherwise it will cause incompatibilities.
 
-编译 Doris
+compile Doris
 
 ```bash
 sh build.sh
 ```
 
-## 运行
+## Run
 
-手动创建 `meta_dir` 元数据存放位置, 默认值为 `${DORIS_HOME}/doris-meta`
+manually create `meta_dir` metadata storage location, default value is `${DORIS_HOME}/doris-meta`
 
 ```bash
 mkdir meta_dir
 ```
 
-启动FE
+launch FE
 
 ```bash
 cd output/fe
 sh bin/start_fe.sh --daemon
 ```
 
-启动BE
+launch BE
 
 ```bash
 cd output/be
 sh bin/start_be.sh --daemon
 ```
 
-mysql-client 连接
+mysql-client connect
 
 ```bash
 mysql -h 127.0.0.1 -P 9030 -u root
