@@ -94,10 +94,10 @@ void register_aggregate_function_window_lead_lag(AggregateFunctionSimpleFactory&
     factory.register_function("lead", create_aggregate_function_lead<true>, true);
     factory.register_function("lag", create_aggregate_function_lag<false>);
     factory.register_function("lag", create_aggregate_function_lag<true>, true);
-    factory.register_function("first_value", create_aggregate_function_first<false, false>);
-    factory.register_function("first_value", create_aggregate_function_first<true, false>, true);
-    factory.register_function("last_value", create_aggregate_function_last<false, false>);
-    factory.register_function("last_value", create_aggregate_function_last<true, false>, true);
+    factory.register_function("first_value", create_aggregate_function_first<false>);
+    factory.register_function("first_value", create_aggregate_function_first<true>, true);
+    factory.register_function("last_value", create_aggregate_function_last<false>);
+    factory.register_function("last_value", create_aggregate_function_last<true>, true);
 }
 
 } // namespace doris::vectorized

@@ -527,7 +527,7 @@ private:
 };
 
 template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
-          bool result_is_nullable, bool is_copy = false>
+          bool result_is_nullable, bool is_copy = true>
 static IAggregateFunction* create_function_single_value(const String& name,
                                                         const DataTypes& argument_types,
                                                         const Array& parameters) {
@@ -570,7 +570,7 @@ static IAggregateFunction* create_function_single_value(const String& name,
     return nullptr;
 }
 
-template <bool is_nullable, bool is_copy>
+template <bool is_nullable, bool is_copy = true>
 AggregateFunctionPtr create_aggregate_function_first(const std::string& name,
                                                      const DataTypes& argument_types,
                                                      const Array& parameters,
@@ -580,7 +580,7 @@ AggregateFunctionPtr create_aggregate_function_first(const std::string& name,
                                          is_copy>(name, argument_types, parameters));
 }
 
-template <bool is_nullable, bool is_copy>
+template <bool is_nullable, bool is_copy = true>
 AggregateFunctionPtr create_aggregate_function_first_non_null_value(const std::string& name,
                                                                     const DataTypes& argument_types,
                                                                     const Array& parameters,
@@ -590,7 +590,7 @@ AggregateFunctionPtr create_aggregate_function_first_non_null_value(const std::s
                                          is_nullable, is_copy>(name, argument_types, parameters));
 }
 
-template <bool is_nullable, bool is_copy>
+template <bool is_nullable, bool is_copy = true>
 AggregateFunctionPtr create_aggregate_function_last(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const Array& parameters,
@@ -600,7 +600,7 @@ AggregateFunctionPtr create_aggregate_function_last(const std::string& name,
                                          is_copy>(name, argument_types, parameters));
 }
 
-template <bool is_nullable, bool is_copy>
+template <bool is_nullable, bool is_copy = true>
 AggregateFunctionPtr create_aggregate_function_last_non_null_value(const std::string& name,
                                                                    const DataTypes& argument_types,
                                                                    const Array& parameters,
