@@ -97,7 +97,25 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testFinalizeAnalyze() {
-        Memo memo = new Memo(parser.parseSingle(testSql.get(10)));
+        finalizeAnalyze(testSql.get(10));
+    }
+
+    @Test
+    public void testFinalizeAnalyzeAllCase() {
+        for (String sql : testSql) {
+            System.out.println("*****\nStart test: " + sql + "\n*****\n");
+            finalizeAnalyze(sql);
+        }
+    }
+
+    private void checkAnalyze(String sql) {
+        LogicalPlan analyzed = analyze(sql);
+        System.out.println(analyzed.treeString());
+        Assertions.assertTrue(checkBound(analyzed));
+    }
+
+    private void finalizeAnalyze(String sql) {
+        Memo memo = new Memo(parser.parseSingle(sql));
         PlannerContext plannerContext = new PlannerContext(memo, connectContext);
         JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
         plannerContext.setCurrentJobContext(jobContext);
@@ -111,12 +129,6 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         System.out.println(memo.copyOut().treeString());
         new FinalizeAnalyzeJob(plannerContext).execute();
         System.out.println(memo.copyOut().treeString());
-    }
-
-    private void checkAnalyze(String sql) {
-        LogicalPlan analyzed = analyze(sql);
-        System.out.println(analyzed.treeString());
-        Assertions.assertTrue(checkBound(analyzed));
     }
 
     private LogicalPlan analyze(String sql) {
