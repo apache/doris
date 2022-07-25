@@ -230,7 +230,6 @@ private:
     const bool _is_outer_join;
     bool _have_other_join_conjunct = false;
 
-    RowDescriptor _row_desc_for_other_join_conjunt;
     Block _join_block;
 
     std::vector<uint32_t> _items_counts;
@@ -243,6 +242,9 @@ private:
 
     RowDescriptor _intermediate_row_desc;
     RowDescriptor _output_row_desc;
+
+    MutableColumnPtr _tuple_is_null_left_flag_column;
+    MutableColumnPtr _tuple_is_null_right_flag_column;
 
 private:
     void _hash_table_build_thread(RuntimeState* state, std::promise<Status>* status);
@@ -266,6 +268,12 @@ private:
     void _construct_mutable_join_block();
 
     Status _build_output_block(Block* origin_block, Block* output_block);
+
+    // add tuple is null flag column to Block for filter conjunct and output expr
+    void _add_tuple_is_null_column(Block* block);
+
+    // reset the tuple is null flag column for the next call
+    void _reset_tuple_is_null_column();
 
     static std::vector<uint16_t> _convert_block_to_null(Block& block);
 

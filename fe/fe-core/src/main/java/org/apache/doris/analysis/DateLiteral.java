@@ -397,7 +397,11 @@ public class DateLiteral extends LiteralExpr {
             minute = getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR, 0);
             second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
             microsecond = getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0);
-            this.type = type;
+            if (type.isDatetimeV2()) {
+                this.type = ScalarType.createDatetimeV2Type(6);
+            } else {
+                this.type = type;
+            }
         } catch (Exception ex) {
             throw new AnalysisException("date literal [" + s + "] is invalid: " + ex.getMessage());
         }
@@ -489,14 +493,27 @@ public class DateLiteral extends LiteralExpr {
         if (type.isDate() || type.isDateV2()) {
             return String.format("%04d-%02d-%02d", year, month, day);
         } else if (type.isDatetimeV2()) {
-            String s = String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
-            if (((ScalarType) type).decimalScale() == 0) {
-                return s;
-            }
-            return s + "." + getDecimalNumber();
+            return String.format("%04d-%02d-%02d %02d:%02d:%02d.%06d",
+                    year, month, day, hour, minute, second, microsecond);
         } else {
             return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
         }
+    }
+
+    public void roundCeiling(int newScale) {
+        Preconditions.checkArgument(type.isDatetimeV2());
+        long remain = Double.valueOf(microsecond % (Math.pow(10, 6 - newScale))).longValue();
+        if (remain != 0) {
+            microsecond = Double.valueOf((microsecond + (Math.pow(10, 6 - newScale)))
+                    / (Math.pow(10, 6 - newScale))).longValue();
+        }
+        type = ScalarType.createDatetimeV2Type(newScale);
+    }
+
+    public void roundFloor(int newScale) {
+        Preconditions.checkArgument(type.isDatetimeV2());
+        microsecond = Double.valueOf(microsecond / (Math.pow(10, 6 - newScale))).longValue();
+        type = ScalarType.createDatetimeV2Type(newScale);
     }
 
     public long getDecimalNumber() {

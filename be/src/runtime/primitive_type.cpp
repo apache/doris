@@ -642,6 +642,8 @@ int get_slot_size(PrimitiveType type) {
     case TYPE_DOUBLE:
     case TYPE_TIME:
     case TYPE_DECIMAL64:
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMEV2:
         return 8;
 
     case TYPE_LARGEINT:
@@ -649,8 +651,6 @@ int get_slot_size(PrimitiveType type) {
 
     case TYPE_DATE:
     case TYPE_DATETIME:
-    case TYPE_DATETIMEV2:
-    case TYPE_TIMEV2:
         // This is the size of the slot, the actual size of the data is 12.
         return sizeof(DateTimeValue);
 

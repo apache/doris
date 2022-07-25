@@ -51,7 +51,6 @@ public class SlotReference extends Slot {
      * @param qualifier slot reference qualifier
      */
     public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier) {
-        super(ExpressionType.SLOT_REFERENCE);
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;
@@ -110,6 +109,7 @@ public class SlotReference extends Slot {
         SlotReference that = (SlotReference) o;
         return nullable == that.nullable
                 && exprId.equals(that.exprId)
+                && dataType.equals(that.dataType)
                 && name.equals(that.name)
                 && qualifier.equals(that.qualifier);
     }

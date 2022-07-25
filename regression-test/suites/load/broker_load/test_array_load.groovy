@@ -65,7 +65,7 @@ suite("test_array_load", "load") {
     }
 
     def load_array_data = {strip_flag, read_flag, format_flag, exprs, json_paths, 
-                            json_root, where_expr, fuzzy_flag, file_name ->
+                            json_root, where_expr, fuzzy_flag, column_sep, file_name ->
         // load the json data
         streamLoad {
             table "tbl_test_array_load"
@@ -79,6 +79,7 @@ suite("test_array_load", "load") {
             set 'json_root', json_root
             set 'where', where_expr
             set 'fuzzy_parse', fuzzy_flag
+            set 'column_separator', column_sep
             file file_name // import json file
             time 10000 // limit inflight 10s
 
@@ -101,7 +102,27 @@ suite("test_array_load", "load") {
         def result1= sql """
                         LOAD LABEL ${label} (
                             DATA INFILE("${hdfsFilePath}")
-                            INTO TABLE ${testTablex} 
+                            INTO TABLE ${testTablex}
+                            FORMAT as "${format}")
+                        with BROKER "${brokerName}" (
+                        "username"="${hdfsUser}",
+                        "password"="${hdfsPasswd}")
+                        PROPERTIES  (
+                        "timeout"="1200",
+                        "max_filter_ratio"="0.1");
+                        """
+        
+        assertTrue(result1.size() == 1)
+        assertTrue(result1[0].size() == 1)
+        assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
+    }
+
+    def load_from_hdfs1 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
+        def result1= sql """
+                        LOAD LABEL ${label} (
+                            DATA INFILE("${hdfsFilePath}")
+                            INTO TABLE ${testTablex}
+                            COLUMNS TERMINATED BY "/"
                             FORMAT as "${format}")
                         with BROKER "${brokerName}" (
                         "username"="${hdfsUser}",
@@ -116,13 +137,30 @@ suite("test_array_load", "load") {
         assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
     }
     
+    def check_load_result = {checklabel, testTablex ->
+        max_try_milli_secs = 10000
+        while(max_try_milli_secs) {
+            result = sql "show load where label = '${checklabel}'"
+            if(result[0][2] == "FINISHED") {
+                qt_select "select * from ${testTablex} order by k1"
+                break
+            } else {
+                sleep(1000) // wait 1 second every time
+                max_try_milli_secs -= 1000
+                if(max_try_milli_secs <= 0) {
+                    assertEquals(1, 2)
+                }
+            }
+        }
+    }
+
     // case1: import array data in json format and enable vectorized engine
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
         
         create_test_table.call(testTable, true)
 
-        load_array_data.call('true', '', 'json', '', '', '', '', '', 'simple_array.json')
+        load_array_data.call('true', '', 'json', '', '', '', '', '', '', 'simple_array.json')
         
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
@@ -137,7 +175,37 @@ suite("test_array_load", "load") {
         
         create_test_table.call(testTable, false)
 
-        load_array_data.call('true', '', 'json', '', '', '', '', '', 'simple_array.json')
+        load_array_data.call('true', '', 'json', '', '', '', '', '', '', 'simple_array.json')
+        
+        // select the table and check whether the data is correct
+        qt_select "select * from ${testTable} order by k1"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+    
+    // case3: import array data in csv format and enable vectorized engine
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        
+        create_test_table.call(testTable, true)
+
+        load_array_data.call('true', '', 'csv', '', '', '', '', '', '/', 'simple_array.csv')
+        
+        // select the table and check whether the data is correct
+        qt_select "select * from ${testTable} order by k1"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // case4: import array data in csv format and disable vectorized engine
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        
+        create_test_table.call(testTable, false)
+
+        load_array_data.call('true', '', 'csv', '', '', '', '', '', '/', 'simple_array.csv')
         
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
@@ -152,44 +220,134 @@ suite("test_array_load", "load") {
         brokerName =getBrokerName()
         hdfsUser = getHdfsUser()
         hdfsPasswd = getHdfsPasswd()
-        def hdfs_file_path = uploadToHdfs "broker_load/simple_object_array.json"
-        def format = "json" 
-
-        // case3: import array data by hdfs and enable vectorized engine
+        def hdfs_json_file_path = uploadToHdfs "broker_load/simple_object_array.json"
+        def hdfs_csv_file_path = uploadToHdfs "broker_load/simple_array.csv"
+        def hdfs_orc_file_path = uploadToHdfs "broker_load/simple_array.orc"
+        def hdfs_parquet_file_path = uploadToHdfs "broker_load/simple_array.parquet"
+ 
+        // case5: import array data by hdfs and enable vectorized engine
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
             
             create_test_table.call(testTable, true)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs.call(testTable, test_load_label, hdfs_file_path, format,
+            load_from_hdfs.call(testTable, test_load_label, hdfs_json_file_path, "json",
                                 brokerName, hdfsUser, hdfsPasswd)
             
-            // wait to load finished
-            sleep(5000)
-            
-            // select the table and check whether the data is correct
-            qt_select "select * from ${testTable} order by k1"
+            check_load_result.call(test_load_label, testTable)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
 
-        // case4: import array data by hdfs and disable vectorized engine
+        // case6: import array data by hdfs and disable vectorized engine
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
             
             create_test_table.call(testTable, false)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs.call(testTable, test_load_label, hdfs_file_path, format,
+            load_from_hdfs.call(testTable, test_load_label, hdfs_json_file_path, "json",
                                 brokerName, hdfsUser, hdfsPasswd)
             
-            // wait to load finished
-            sleep(5000)
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+
+        // case7: import array data by hdfs in csv format and enable vectorized
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable, true)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
+                                brokerName, hdfsUser, hdfsPasswd)
+                        
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+
+        // case8: import array data by hdfs in csv format and disable vectorized
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable, false)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
+                                brokerName, hdfsUser, hdfsPasswd)
             
-            // select the table and check whether the data is correct
-            qt_select "select * from ${testTable} order by k1"
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+
+        // case9: import array data by hdfs in orc format and enable vectorized
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable, true)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path, "orc",
+                                brokerName, hdfsUser, hdfsPasswd)
+            
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+
+        // case10: import array data by hdfs in orc format and disable vectorized
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable, false)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path, "orc",
+                                brokerName, hdfsUser, hdfsPasswd)
+            
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+
+        // case11: import array data by hdfs in parquet format and enable vectorized
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable, true)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_parquet_file_path, "parquet",
+                                brokerName, hdfsUser, hdfsPasswd)
+            
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+
+        // case12: import array data by hdfs in parquet format and disable vectorized
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable, false)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_parquet_file_path, "parquet",
+                                brokerName, hdfsUser, hdfsPasswd)
+            
+            check_load_result.call(test_load_label, testTable)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")

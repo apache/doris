@@ -44,6 +44,10 @@ under the License.
     <module name="FileTabCharacter">
         <property name="eachLine" value="true"/>
     </module>
+    <module name="Header">
+        <property name="headerFile" value="check/checkstyle/checkstyle-apache-header.txt"/>
+        <property name="fileExtensions" value="java"/>
+    </module>
     <module name="LineLength">
         <property name="fileExtensions" value="java"/>
         <property name="max" value="120"/>

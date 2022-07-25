@@ -270,7 +270,7 @@ public class ColumnDef {
                 throw new AnalysisException("Array type column default value only support null");
             }
         }
-        if (isKey() && type.getPrimitiveType() == PrimitiveType.STRING) {
+        if (isKey() && type.getPrimitiveType() == PrimitiveType.STRING && isOlap) {
             throw new AnalysisException("String Type should not be used in key column[" + getName()
                     + "].");
         }

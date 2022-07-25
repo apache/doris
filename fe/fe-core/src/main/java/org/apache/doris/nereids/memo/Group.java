@@ -265,4 +265,35 @@ public class Group {
     public String toString() {
         return "Group[" + groupId + "]";
     }
+
+    /**
+     * move the ownerGroup of all logical expressions to target group
+     * if this.equals(target), do nothing.
+     * @param target the new owner group of expressions
+     */
+    public void moveLogicalExpressionOwnership(Group target) {
+        if (equals(target)) {
+            return;
+        }
+        for (GroupExpression expression : logicalExpressions) {
+            target.addGroupExpression(expression);
+        }
+        logicalExpressions.clear();
+    }
+
+    /**
+     * move the ownerGroup of all physical expressions to target group
+     * if this.equals(target), do nothing.
+     * @param target the new owner group of expressions
+     */
+    public void movePhysicalExpressionOwnership(Group target) {
+        if (equals(target)) {
+            return;
+        }
+        for (GroupExpression expression : physicalExpressions) {
+            target.addGroupExpression(expression);
+        }
+        physicalExpressions.clear();
+    }
+
 }

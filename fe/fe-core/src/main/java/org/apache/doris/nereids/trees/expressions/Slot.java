@@ -24,10 +24,6 @@ import java.util.List;
  */
 public abstract class Slot extends NamedExpression implements LeafExpression {
 
-    public Slot(ExpressionType type) {
-        super(type);
-    }
-
     @Override
     public Slot toSlot() {
         return this;

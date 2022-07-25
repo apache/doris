@@ -223,6 +223,9 @@ Status BitmapIndexWriter::create(const TypeInfo* type_info,
     case OLAP_FIELD_TYPE_DATEV2:
         res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DATEV2>(type_info));
         break;
+    case OLAP_FIELD_TYPE_DATETIMEV2:
+        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DATETIMEV2>(type_info));
+        break;
     case OLAP_FIELD_TYPE_LARGEINT:
         res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_LARGEINT>(type_info));
         break;

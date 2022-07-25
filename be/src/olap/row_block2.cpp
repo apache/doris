@@ -250,6 +250,11 @@ Status RowBlockV2::_copy_data_to_column(int cid,
         insert_data_directly(cid, column_int);
         break;
     }
+    case OLAP_FIELD_TYPE_DATETIMEV2: {
+        auto column_int = assert_cast<vectorized::ColumnVector<vectorized::UInt64>*>(column);
+        insert_data_directly(cid, column_int);
+        break;
+    }
     case OLAP_FIELD_TYPE_DATETIME: {
         auto column_int = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column);
 
@@ -532,6 +537,11 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
     }
     case OLAP_FIELD_TYPE_DATEV2: {
         auto column_int = assert_cast<vectorized::ColumnVector<vectorized::UInt32>*>(column);
+        insert_data_directly(batch, column_int, start, len);
+        break;
+    }
+    case OLAP_FIELD_TYPE_DATETIMEV2: {
+        auto column_int = assert_cast<vectorized::ColumnVector<vectorized::UInt64>*>(column);
         insert_data_directly(batch, column_int, start, len);
         break;
     }
