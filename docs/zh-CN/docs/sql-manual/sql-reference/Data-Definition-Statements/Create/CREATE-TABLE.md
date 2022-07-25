@@ -313,6 +313,12 @@ distribution_info
     
         `"function_column.sequence_type" = 'Date'`
     
+    * `light_schema_change`
+
+        Doris默认使用light schema change优化。如果不想使用该优化需要指定为false。
+    
+        `"light_schema_change" = 'false'`
+
     * 动态分区相关
     
         动态分区相关参数如下：

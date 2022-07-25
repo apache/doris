@@ -311,6 +311,12 @@ distribution_info
         The default compression method for Doris tables is LZ4. After version 1.1, it is supported to specify the compression method as ZSTD to obtain a higher compression ratio.
     
         `"compression"="zstd"`
+
+    * `light_schema_change`
+
+        Doris would use light schema change optimization by default. It is supported to turn off the optimization by set the property as false.
+    
+        `"light_schema_change"="false"`
     
     * Dynamic partition related
     
