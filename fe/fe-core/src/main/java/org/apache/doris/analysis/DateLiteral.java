@@ -498,7 +498,7 @@ public class DateLiteral extends LiteralExpr {
             if (microsecond == 0) {
                 return tmp;
             }
-            return tmp + String.format("%06d", microsecond);
+            return tmp + String.format(".%06d", microsecond);
         } else {
             return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
         }
