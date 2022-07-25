@@ -51,6 +51,16 @@ ARRAY<T> array_slice(ARRAY<T> arr, BIGINT off, BIGINT len)
 ```
 mysql> set enable_vectorized_engine=true;
 
+mysql> select k2, k2[2:2] from array_type_table_nullable;
++-----------------+-------------------------+
+| k2              | array_slice(`k2`, 2, 2) |
++-----------------+-------------------------+
+| [1, 2, 3]       | [2, 3]                  |
+| [1, NULL, 3]    | [NULL, 3]               |
+| [2, 3]          | [3]                     |
+| NULL            | NULL                    |
++-----------------+-------------------------+
+
 mysql> select k2, array_slice(k2, 2, 2) from array_type_table_nullable;
 +-----------------+-------------------------+
 | k2              | array_slice(`k2`, 2, 2) |
@@ -60,6 +70,16 @@ mysql> select k2, array_slice(k2, 2, 2) from array_type_table_nullable;
 | [2, 3]          | [3]                     |
 | NULL            | NULL                    |
 +-----------------+-------------------------+
+
+mysql> select k2, k2[2:2] from array_type_table_nullable_varchar;
++----------------------------+-------------------------+
+| k2                         | array_slice(`k2`, 2, 2) |
++----------------------------+-------------------------+
+| ['hello', 'world', 'c++']  | ['world', 'c++']        |
+| ['a1', 'equals', 'b1']     | ['equals', 'b1']        |
+| ['hasnull', NULL, 'value'] | [NULL, 'value']         |
+| ['hasnull', NULL, 'value'] | [NULL, 'value']         |
++----------------------------+-------------------------+
 
 mysql> select k2, array_slice(k2, 2, 2) from array_type_table_nullable_varchar;
 +----------------------------+-------------------------+
@@ -75,7 +95,7 @@ mysql> select k2, array_slice(k2, 2, 2) from array_type_table_nullable_varchar;
 当指定off为负数:
 
 ```
-mysql> select k2, array_slice(k2, -2, 1) from array_type_table_two_array;
+mysql> select k2, k2[-2:1] from array_type_table_nullable;
 +-----------+--------------------------+
 | k2        | array_slice(`k2`, -2, 1) |
 +-----------+--------------------------+
@@ -85,7 +105,27 @@ mysql> select k2, array_slice(k2, -2, 1) from array_type_table_two_array;
 | [2, 3]    | [2]                      |
 +-----------+--------------------------+
 
-mysql> select k2, array_slice(k2, -2, 2) from array_type_table_two_array_nullable_varchar;
+mysql> select k2, array_slice(k2, -2, 1) from array_type_table_nullable;
++-----------+--------------------------+
+| k2        | array_slice(`k2`, -2, 1) |
++-----------+--------------------------+
+| [1, 2, 3] | [2]                      |
+| [1, 2, 3] | [2]                      |
+| [2, 3]    | [2]                      |
+| [2, 3]    | [2]                      |
++-----------+--------------------------+
+
+mysql> select k2, k2[-2:2] from array_type_table_nullable_varchar;
++----------------------------+--------------------------+
+| k2                         | array_slice(`k2`, -2, 2) |
++----------------------------+--------------------------+
+| ['hello', 'world', 'c++']  | ['world', 'c++']         |
+| ['a1', 'equals', 'b1']     | ['equals', 'b1']         |
+| ['hasnull', NULL, 'value'] | [NULL, 'value']          |
+| ['hasnull', NULL, 'value'] | [NULL, 'value']          |
++----------------------------+--------------------------+
+
+mysql> select k2, array_slice(k2, -2, 2) from array_type_table_nullable_varchar;
 +----------------------------+--------------------------+
 | k2                         | array_slice(`k2`, -2, 2) |
 +----------------------------+--------------------------+

@@ -42,15 +42,15 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(arguments[0]))
-        << "First argument for function: " << name
-        << " should be DataTypeArray but it has type " << arguments[0]->get_name() << ".";
+                << "First argument for function: " << name
+                << " should be DataTypeArray but it has type " << arguments[0]->get_name() << ".";
         DCHECK(is_integer(arguments[1]))
-        << "Second argument for function: " << name
-        << " should be Integer but it has type " << arguments[1]->get_name() << ".";
+                << "Second argument for function: " << name
+                << " should be Integer but it has type " << arguments[1]->get_name() << ".";
         if (arguments.size() > 2) {
             DCHECK(is_integer(arguments[2]))
-            << "Third argument for function: " << name
-            << " should be Integer but it has type " << arguments[2]->get_name() << ".";
+                    << "Third argument for function: " << name
+                    << " should be Integer but it has type " << arguments[2]->get_name() << ".";
         }
         return arguments[0];
     }
@@ -70,8 +70,8 @@ public:
         ColumnArrayExecutionData src;
         if (!extract_column_array_info(*array_column, src)) {
             return Status::RuntimeError(
-                    fmt::format("execute failed, unsupported types for function {}({}, {})", get_name(),
-                                block.get_by_position(arguments[0]).type->get_name(),
+                    fmt::format("execute failed, unsupported types for function {}({}, {})",
+                                get_name(), block.get_by_position(arguments[0]).type->get_name(),
                                 block.get_by_position(arguments[1]).type->get_name()));
         }
         // prepare dst array column

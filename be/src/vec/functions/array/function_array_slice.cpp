@@ -21,9 +21,10 @@
 
 namespace doris::vectorized {
 
-    void register_function_array_slice(SimpleFunctionFactory& factory) {
-        factory.register_function<FunctionArraySlice>();
-    }
+void register_function_array_slice(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArraySlice>();
+    factory.register_alias(FunctionArraySlice::name, "%element_slice%");
+}
 
 } // namespace doris::vectorized
 
