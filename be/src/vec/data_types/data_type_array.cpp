@@ -168,7 +168,14 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
             temp_char = rb.position() + nested_str_len;
         }
 
+        // dispose the case of ["123"] or ['123']
         ReadBuffer read_buffer(rb.position(), nested_str_len);
+        auto begin_char = *rb.position();
+        auto end_char = *(rb.position() + nested_str_len - 1);
+        if (begin_char == end_char && (begin_char == '"' || begin_char == '\'')) {
+            read_buffer = ReadBuffer(rb.position() + 1, nested_str_len - 2);
+        }
+
         auto st = nested->from_string(read_buffer, &nested_column);
         if (!st.ok()) {
             // we should do revert if error
