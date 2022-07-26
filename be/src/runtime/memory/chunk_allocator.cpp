@@ -97,7 +97,7 @@ public:
     }
 
     void push_free_chunk(uint8_t* ptr, size_t size) {
-        int idx = BitUtil::Log2Floor64(size);
+        int idx = BitUtil::Log2Ceiling64(size);
         // Poison this chunk to make asan can detect invalid access
         ASAN_POISON_MEMORY_REGION(ptr, size);
         std::lock_guard<SpinLock> l(_lock);
@@ -139,6 +139,8 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
 }
 
 Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, bool check_limits) {
+    DCHECK(BitUtil::RoundUpToPowerOfTwo(size) == size);
+
     MemTracker* reset_tracker =
             tracker ? tracker : tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get();
     // In advance, transfer the memory ownership of allocate from ChunkAllocator::tracker to the parameter tracker.

@@ -62,12 +62,6 @@ public:
 
     ChunkAllocator(size_t reserve_limit);
 
-    // Allocate a Chunk with a power-of-two length "size".
-    // Return true if success and allocated chunk is saved in "chunk".
-    // Otherwise return false.
-    Status allocate(size_t size, Chunk* chunk, MemTracker* tracker = nullptr,
-                    bool check_limits = false);
-
     Status allocate_align(size_t size, Chunk* chunk, MemTracker* tracker = nullptr,
                           bool check_limits = false);
 
@@ -81,6 +75,8 @@ public:
     void free(uint8_t* data, size_t size, MemTracker* tracker = nullptr);
 
 private:
+    friend class MemPool;
+
     static ChunkAllocator* _s_instance;
 
     size_t _reserve_bytes_limit;
@@ -94,6 +90,11 @@ private:
     std::shared_ptr<MetricEntity> _chunk_allocator_metric_entity;
 
     std::shared_ptr<MemTracker> _mem_tracker;
+
+    // Allocate a Chunk with a power-of-two length "size".
+    // Return true if success and allocated chunk is saved in "chunk".
+    // Otherwise return false.
+    Status allocate(size_t size, Chunk* Chunk);
 };
 
 } // namespace doris
