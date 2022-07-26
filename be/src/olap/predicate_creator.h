@@ -38,20 +38,20 @@ public:
 };
 
 template <typename CppType, PredicateType PT, typename ConditionType>
-class IntergerPredicateCreator : public PredicateCreator<ConditionType> {
+class IntegerPredicateCreator : public PredicateCreator<ConditionType> {
 public:
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             phmap::flat_hash_set<CppType> values;
-            for (auto condition : conditions) {
+            for (const auto& condition : conditions) {
                 values.insert(convert(condition));
             }
             return new InListPredicateBase<CppType, PT>(index, std::move(values), opposite);
-        } else if constexpr (PredicateTypeTraits::is_comparison(PT)) {
+        } else {
+            static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<CppType, PT>(index, convert(conditions), opposite);
         }
-        return nullptr;
     }
 
 private:
@@ -69,15 +69,15 @@ public:
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             phmap::flat_hash_set<CppType> values;
-            for (auto condition : conditions) {
+            for (const auto& condition : conditions) {
                 values.insert(convert(column, condition));
             }
             return new InListPredicateBase<CppType, PT>(index, std::move(values), opposite);
-        } else if constexpr (PredicateTypeTraits::is_comparison(PT)) {
+        } else {
+            static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<CppType, PT>(index, convert(column, conditions),
                                                             opposite);
         }
-        return nullptr;
     }
 
 private:
@@ -98,15 +98,15 @@ public:
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             phmap::flat_hash_set<StringValue> values;
-            for (auto condition : conditions) {
+            for (const auto& condition : conditions) {
                 values.insert(convert(column, condition, pool));
             }
             return new InListPredicateBase<StringValue, PT>(index, std::move(values), opposite);
-        } else if constexpr (PredicateTypeTraits::is_comparison(PT)) {
+        } else {
+            static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<StringValue, PT>(
                     index, convert(column, conditions, pool), opposite);
         }
-        return nullptr;
     }
 
 private:
@@ -128,21 +128,21 @@ private:
 template <typename CppType, PredicateType PT, typename ConditionType>
 struct CustomPredicateCreator : public PredicateCreator<ConditionType> {
 public:
-    CustomPredicateCreator(std::function<CppType(const std::string& condition)> convert)
+    CustomPredicateCreator(const std::function<CppType(const std::string& condition)>& convert)
             : _convert(convert) {};
 
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, MemPool* pool) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             phmap::flat_hash_set<CppType> values;
-            for (auto condition : conditions) {
+            for (const auto& condition : conditions) {
                 values.insert(_convert(condition));
             }
             return new InListPredicateBase<CppType, PT>(index, std::move(values), opposite);
-        } else if constexpr (PredicateTypeTraits::is_comparison(PT)) {
+        } else {
+            static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<CppType, PT>(index, _convert(conditions), opposite);
         }
-        return nullptr;
     }
 
 private:
@@ -153,19 +153,19 @@ template <PredicateType PT, typename ConditionType>
 inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& type) {
     switch (type) {
     case OLAP_FIELD_TYPE_TINYINT: {
-        return std::make_unique<IntergerPredicateCreator<int8_t, PT, ConditionType>>();
+        return std::make_unique<IntegerPredicateCreator<int8_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_SMALLINT: {
-        return std::make_unique<IntergerPredicateCreator<int16_t, PT, ConditionType>>();
+        return std::make_unique<IntegerPredicateCreator<int16_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_INT: {
-        return std::make_unique<IntergerPredicateCreator<int32_t, PT, ConditionType>>();
+        return std::make_unique<IntegerPredicateCreator<int32_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_BIGINT: {
-        return std::make_unique<IntergerPredicateCreator<int64_t, PT, ConditionType>>();
+        return std::make_unique<IntegerPredicateCreator<int64_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_LARGEINT: {
-        return std::make_unique<IntergerPredicateCreator<int128_t, PT, ConditionType>>();
+        return std::make_unique<IntegerPredicateCreator<int128_t, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_DECIMAL: {
         return std::make_unique<CustomPredicateCreator<decimal12_t, PT, ConditionType>>(
@@ -236,9 +236,7 @@ template <PredicateType PT>
 inline ColumnPredicate* create_comparison_predicate(const TabletColumn& column, int index,
                                                     const std::string& condition, bool opposite,
                                                     MemPool* pool) {
-    if (!PredicateTypeTraits::is_comparison(PT)) {
-        LOG(FATAL) << "input PredicateType is invalid, PredicateType=" << int(PT);
-    }
+    static_assert(PredicateTypeTraits::is_comparison(PT));
     return create_predicate<PT, std::string>(column, index, condition, opposite, pool);
 }
 
@@ -250,9 +248,7 @@ inline ColumnPredicate* create_list_predicate(const TabletColumn& column, int in
         LOG(FATAL) << "Failed to create list preacate! input column type is invalid";
         return nullptr;
     }
-    if (!PredicateTypeTraits::is_list(PT)) {
-        LOG(FATAL) << "input PredicateType is invalid, PredicateType=" << int(PT);
-    }
+    static_assert(PredicateTypeTraits::is_list(PT));
     return create_predicate<PT, std::vector<std::string>>(column, index, conditions, opposite,
                                                           pool);
 }
