@@ -243,7 +243,7 @@ public class PushDownPredicateTest {
     }
 
     private Memo rewrite(Plan plan) {
-        Plan normalized_plan = PlanRewriter.topDownRewrite(plan, new ConnectContext(), new NormalizeExpressions());
-        return PlanRewriter.topDownRewriteMemo(normalized_plan, new ConnectContext(), new PushPredicateThroughJoin());
+        Plan normalizedPlan = PlanRewriter.topDownRewrite(plan, new ConnectContext(), new NormalizeExpressions());
+        return PlanRewriter.topDownRewriteMemo(normalizedPlan, new ConnectContext(), new PushPredicateThroughJoin());
     }
 }
