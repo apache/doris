@@ -78,7 +78,7 @@ public:
         Block temporary_block({
                 null_column_arg0,
                 block.get_by_position(arguments[1]),
-                nested_column_arg0,
+                col_left, // need use the original column to keep the nullable info
                 block.get_by_position(result),
         });
 
