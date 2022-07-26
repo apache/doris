@@ -427,6 +427,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         if (comment != null) {
                             colDef.setComment(comment);
                         }
+                        if (column.isKey()) {
+                            if (table instanceof OlapTable) {
+                                desc.setColumnKey(((OlapTable) table).getKeysType().toMetadata());
+                            }
+                        }
                         columns.add(colDef);
                     }
                 } finally {

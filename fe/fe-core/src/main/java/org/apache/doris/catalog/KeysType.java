@@ -79,4 +79,19 @@ public enum KeysType {
                 return null;
         }
     }
+
+    public String toMetadata() {
+        switch (this) {
+            case PRIMARY_KEYS:
+                return "PRI";
+            case DUP_KEYS:
+                return "DUP";
+            case UNIQUE_KEYS:
+                return "UNI";
+            case AGG_KEYS:
+                return "AGG";
+            default:
+                return null;
+        }
+    }
 }
