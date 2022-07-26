@@ -21,17 +21,16 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Literal;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.statistics.ColumnStats;
 
-import static org.apache.doris.nereids.trees.expressions.ExpressionType.OR;
 
 import java.util.Map;
 
@@ -41,10 +40,10 @@ import java.util.Map;
  */
 public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double, Void> {
 
-    private final Map<Slot, ColumnStats> slotRefToStatsMap;
+    private final Map<Slot, ColumnStats> slotRefToStats;
 
-    public FilterSelectivityCalculator(Map<Slot, ColumnStats> slotRefToStatsMap) {
-        this.slotRefToStatsMap = slotRefToStatsMap;
+    public FilterSelectivityCalculator(Map<Slot, ColumnStats> slotRefToStats) {
+        this.slotRefToStats = slotRefToStats;
     }
 
     public double estimate(Expression expression) {
@@ -64,10 +63,9 @@ public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double
         Expression rightExpr = compoundPredicate.child(1);
         double leftSel = 1;
         double rightSel = 1;
-        ExpressionType expressionType = compoundPredicate.getType();
         leftSel =  estimate(leftExpr);
         rightSel = estimate(rightExpr);
-        return OR.equals(expressionType)? leftSel + rightSel - leftSel * rightSel : leftSel * rightSel;
+        return compoundPredicate instanceof Or ? leftSel + rightSel - leftSel * rightSel : leftSel * rightSel;
     }
 
     @Override
@@ -79,7 +77,10 @@ public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double
     @Override
     public Double visitEqualTo(EqualTo equalTo, Void context) {
         SlotReference left = (SlotReference) equalTo.left();
-        ColumnStats columnStats = slotRefToStatsMap.get(left);
+        ColumnStats columnStats = slotRefToStats.get(left);
+        if (columnStats == null) {
+            return Expression.DEFAULT_SELECTIVITY;
+        }
         long ndv = columnStats.getNdv();
         return ndv < 0 ? Expression.DEFAULT_SELECTIVITY : ndv == 0 ? 0 : 1.0 / columnStats.getNdv();
     }

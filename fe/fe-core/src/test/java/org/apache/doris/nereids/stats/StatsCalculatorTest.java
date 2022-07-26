@@ -70,9 +70,7 @@ public class StatsCalculatorTest {
         List<Expression> groupByExprList = new ArrayList<>();
         groupByExprList.add(slot1);
         AggregateFunction sum = new Sum(slot2);
-        StatsDeriveResult childStats = new StatsDeriveResult();
-        childStats.setRowCount(20);
-        childStats.setSlotRefToColumnStatsMap(slotColumnStatsMap);
+        StatsDeriveResult childStats = new StatsDeriveResult(20, slotColumnStatsMap);
         Alias alias = new Alias(sum, "a");
         Group childGroup = new Group();
         childGroup.setLogicalProperties(new LogicalProperties(new Supplier<List<Slot>>() {
@@ -108,10 +106,7 @@ public class StatsCalculatorTest {
         Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
         slotColumnStatsMap.put(slot1, columnStats1);
         slotColumnStatsMap.put(slot2, columnStats2);
-        StatsDeriveResult childStats = new StatsDeriveResult();
-        childStats.setRowCount(10000);
-        childStats.setSlotRefToColumnStatsMap(slotColumnStatsMap);
-
+        StatsDeriveResult childStats = new StatsDeriveResult(10000, slotColumnStatsMap);
 
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(1));
         EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(2));
@@ -168,21 +163,17 @@ public class StatsCalculatorTest {
         Map<Slot, ColumnStats> slotColumnStatsMap2 = new HashMap<>();
         slotColumnStatsMap2.put(slot2, columnStats2);
 
-        StatsDeriveResult leftStats = new StatsDeriveResult();
         final long leftRowCount = 5000;
-        leftStats.setRowCount(leftRowCount);
-        leftStats.setSlotRefToColumnStatsMap(slotColumnStatsMap1);
+        StatsDeriveResult leftStats = new StatsDeriveResult(leftRowCount, slotColumnStatsMap1);
 
-        StatsDeriveResult rightStats = new StatsDeriveResult();
         final long rightRowCount = 10000;
-        rightStats.setRowCount(rightRowCount);
-        rightStats.setSlotRefToColumnStatsMap(slotColumnStatsMap2);
+        StatsDeriveResult rightStats = new StatsDeriveResult(rightRowCount, slotColumnStatsMap2);
 
         EqualTo equalTo = new EqualTo(slot1, slot2);
-        StatsDeriveResult semiJoinStats = HashJoinEstimation.estimate(leftStats,
+        StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats,
                 rightStats, equalTo, JoinType.LEFT_SEMI_JOIN);
         Assert.assertEquals(leftRowCount, semiJoinStats.getRowCount());
-        StatsDeriveResult innerJoinStats = HashJoinEstimation.estimate(leftStats,
+        StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats,
                 rightStats, equalTo, JoinType.INNER_JOIN);
         Assert.assertEquals(2500000, innerJoinStats.getRowCount());
 

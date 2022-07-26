@@ -92,7 +92,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
 
-    public static final String ENABLE_CBO = "enable_cbo";
+    public static final String ENABLE_NEREIDS_CBO = "enable_nereids_cbo";
 
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
@@ -433,7 +433,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
     private boolean enableJoinReorderBasedCost = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_CBO)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_CBO)
     private boolean enableCBO = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE)

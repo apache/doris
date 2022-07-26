@@ -59,7 +59,7 @@ public class Utils {
      *        stale code from old optimizer that could throw
      *        a checked exception
      */
-    public static void exec(FuncWrapper f) {
+    public static void execWithUncheckedException(FuncWrapper f) {
         try {
             f.exec();
         } catch (Exception e) {

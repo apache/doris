@@ -35,7 +35,7 @@ import java.util.Map;
  * Estimate hash join stats.
  * TODO: Update other props in the ColumnStats properly.
  */
-public class HashJoinEstimation {
+public class JoinEstimation {
 
     public static StatsDeriveResult estimate(StatsDeriveResult leftStats, StatsDeriveResult rightStats,
             Expression eqCondition, JoinType joinType) {
@@ -47,6 +47,9 @@ public class HashJoinEstimation {
             rowCount = getSemiJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);
         } else if (joinType.isInnerJoin() || joinType.isOuterJoin()) {
             rowCount = getJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);
+        } else if (joinType.isCrossJoin()) {
+            rowCount = CheckedMath.checkedMultiply(leftStats.getRowCount(),
+                    rightStats.getRowCount());
         } else {
             throw new RuntimeException("joinType is not supported");
         }
@@ -68,8 +71,8 @@ public class HashJoinEstimation {
             }
             rowCount = leftStats.getRowCount();
         }
-        Map<Slot, ColumnStats> leftSlotToColStats = leftStats.getSlotRefToColumnStatsMap();
-        Map<Slot, ColumnStats> rightSlotToColStats = rightStats.getSlotRefToColumnStatsMap();
+        Map<Slot, ColumnStats> leftSlotToColStats = leftStats.getSlotToColumnStats();
+        Map<Slot, ColumnStats> rightSlotToColStats = rightStats.getSlotToColumnStats();
         double minSelectivity = 1.0;
         for (Expression eqJoinPredicate : eqConjunctList) {
             long lhsNdv = leftSlotToColStats.get(eqJoinPredicate.child(0)).getNdv();
@@ -111,8 +114,8 @@ public class HashJoinEstimation {
             List<Expression> eqConjunctList, JoinType joinType) {
         long lhsCard = leftStats.getRowCount();
         long rhsCard = rightStats.getRowCount();
-        Map<Slot, ColumnStats> leftSlotToColumnStats = leftStats.getSlotRefToColumnStatsMap();
-        Map<Slot, ColumnStats> rightSlotToColumnStats = rightStats.getSlotRefToColumnStatsMap();
+        Map<Slot, ColumnStats> leftSlotToColumnStats = leftStats.getSlotToColumnStats();
+        Map<Slot, ColumnStats> rightSlotToColumnStats = rightStats.getSlotToColumnStats();
         if (lhsCard == -1 || rhsCard == -1) {
             return lhsCard;
         }

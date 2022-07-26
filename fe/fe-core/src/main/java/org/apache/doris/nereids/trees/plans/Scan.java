@@ -26,9 +26,8 @@ import java.util.List;
 
 public interface Scan {
     List<Expression> getExpressions();
-    default Table getTable(){
-        throw new RuntimeException("Unimplemented");
-    };
+
+    Table getTable();
 
     default List<Slot> getOutput() {
         return Collections.emptyList();

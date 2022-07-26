@@ -17,17 +17,16 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
+
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.trees.Filter;
+import org.apache.doris.nereids.trees.plans.Filter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Aggregate;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.Project;
 import org.apache.doris.nereids.trees.plans.Scan;
@@ -70,7 +69,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     public void estimate() {
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
-        groupExpression.getParent().setStatistics(stats);
+        groupExpression.getOwnerGroup().setStatistics(stats);
         Plan plan = groupExpression.getPlan();
         long limit = plan.getLimit();
         if (limit != -1) {
@@ -102,18 +101,14 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitLogicalSort(LogicalSort<Plan> sort, Void context) {
-        return groupExpression.getChildStats(0);
+        return groupExpression.getCopyOfChildStats(0);
     }
 
     @Override
     public StatsDeriveResult visitLogicalJoin(LogicalJoin<Plan, Plan> join, Void context) {
-        return HashJoinEstimation.estimate(groupExpression.getChildStats(0), groupExpression.getChildStats(1),
+        return JoinEstimation.estimate(groupExpression.getCopyOfChildStats(0),
+                groupExpression.getCopyOfChildStats(1),
                 join.getCondition().get(), join.getJoinType());
-    }
-
-    @Override
-    public StatsDeriveResult visitGroupPlan(GroupPlan groupPlan, Void context) {
-        return super.visitGroupPlan(groupPlan, context);
     }
 
     @Override
@@ -128,12 +123,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitPhysicalHeapSort(PhysicalHeapSort<Plan> sort, Void context) {
-        return groupExpression.getChildStats(0);
+        return groupExpression.getCopyOfChildStats(0);
     }
 
     @Override
     public StatsDeriveResult visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, Void context) {
-        return HashJoinEstimation.estimate(groupExpression.getChildStats(0), groupExpression.getChildStats(1),
+        return JoinEstimation.estimate(groupExpression.getCopyOfChildStats(0),
+                groupExpression.getCopyOfChildStats(1),
                 hashJoin.getCondition().get(), hashJoin.getJoinType());
     }
 
@@ -151,13 +147,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitPhysicalDistribution(PhysicalDistribution<Plan> distribution,
             Void context) {
-        return groupExpression.getChildStats(0);
+        return groupExpression.getCopyOfChildStats(0);
     }
 
     private StatsDeriveResult computeFilter(Filter filter) {
-        StatsDeriveResult stats = groupExpression.getChildStats(0);
+        StatsDeriveResult stats = groupExpression.getCopyOfChildStats(0);
         FilterSelectivityCalculator selectivityCalculator =
-                new FilterSelectivityCalculator(stats.getSlotRefToColumnStatsMap());
+                new FilterSelectivityCalculator(stats.getSlotToColumnStats());
         double selectivity = selectivityCalculator.estimate(filter.getPredicates());
         stats.multiplyDouble(selectivity);
         return stats;
@@ -169,32 +165,30 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     private StatsDeriveResult computeScan(Scan scan) {
         Table table = scan.getTable();
         TableStats tableStats = Utils.execWithReturnVal(() ->
-                Catalog.getCurrentCatalog().getStatisticsManager().getStatistics().getTableStats(table.getId())
+                Env.getCurrentEnv().getStatisticsManager().getStatistics().getTableStats(table.getId())
         );
         Map<Slot, ColumnStats> slotToColumnStats = new HashMap<>();
         Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());
         for (SlotReference slotReference : slotSet) {
-            Column column = slotReference.getColumn();
-            if (column == null) {
-                // TODO: should we throw an exception here?
-                continue;
+            String colName = slotReference.getName();
+            if (colName == null) {
+                throw new RuntimeException("Column name of SlotReference shouldn't be null here");
             }
-            String columnName = column.getName();
-            ColumnStats columnStats = tableStats.getColumnStats(columnName);
+            ColumnStats columnStats = tableStats.getColumnStats(colName);
             slotToColumnStats.put(slotReference, columnStats);
         }
         long rowCount = tableStats.getRowCount();
         StatsDeriveResult stats = new StatsDeriveResult((long)(rowCount),
                 new HashMap<>(), new HashMap<>());
-        stats.setSlotRefToColumnStatsMap(slotToColumnStats);
+        stats.setSlotToColumnStats(slotToColumnStats);
         return stats;
     }
 
     private StatsDeriveResult computeAggregate(Aggregate aggregate) {
-        List<Expression> groupByExprList = aggregate.getGroupByExpressionList();
-        StatsDeriveResult childStats = groupExpression.getChildStats(0);
-        Map<Slot, ColumnStats> childSlotColumnStatsMap = childStats.getSlotRefToColumnStatsMap();
+        List<Expression> groupByExprList = aggregate.getGroupByExpressions();
+        StatsDeriveResult childStats = groupExpression.getCopyOfChildStats(0);
+        Map<Slot, ColumnStats> childSlotColumnStatsMap = childStats.getSlotToColumnStats();
         long resultSetCount = -1;
         for (Expression expression : groupByExprList) {
             List<SlotReference> slotRefList = expression.collect(SlotReference.class::isInstance);
@@ -212,7 +206,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             }
         }
         Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
-        List<NamedExpression> namedExpressionList = aggregate.getOutputExpressionList();
+        List<NamedExpression> namedExpressionList = aggregate.getOutputExpressions();
         // TODO: 1. Should estimate the output unit size by the type of corresponding AggregateFunction
         //       2. Should handle alias, literal of the output expression
         for (NamedExpression namedExpression : namedExpressionList) {
@@ -220,9 +214,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 slotColumnStatsMap.put((SlotReference) namedExpression, new ColumnStats());
             }
         }
-        StatsDeriveResult statsDeriveResult = new StatsDeriveResult();
-        statsDeriveResult.setRowCount(resultSetCount);
-
+        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, slotColumnStatsMap);
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
         return new StatsDeriveResult(resultSetCount, new HashMap<>(), new HashMap<>());
     }
@@ -235,8 +227,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             List<SlotReference> slotReferenceList = namedExpression.collect(SlotReference.class::isInstance);
             slotSet.addAll(slotReferenceList);
         }
-        StatsDeriveResult stat = groupExpression.getChildStats(0);
-        Map<Slot, ColumnStats> slotColumnStatsMap = stat.getSlotRefToColumnStatsMap();
+        StatsDeriveResult stat = groupExpression.getCopyOfChildStats(0);
+        Map<Slot, ColumnStats> slotColumnStatsMap = stat.getSlotToColumnStats();
         slotColumnStatsMap.entrySet().removeIf(entry -> !slotSet.contains(entry.getKey()));
         return stat;
     }
