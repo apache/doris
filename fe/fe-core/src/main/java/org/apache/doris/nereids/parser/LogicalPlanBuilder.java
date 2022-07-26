@@ -172,7 +172,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Command visitExplain(ExplainContext ctx) {
         LogicalPlan logicalPlan = plan(ctx.query());
-        ExplainLevel explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
+        ExplainLevel explainLevel = ExplainLevel.NORMAL;
+        if (ctx.level != null) {
+            explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
+        }
         return new ExplainCommand(explainLevel, logicalPlan);
     }
 
