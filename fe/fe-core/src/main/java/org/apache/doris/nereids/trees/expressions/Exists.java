@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 
@@ -26,22 +29,38 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Not expression: not a.
+ * Exists subquery expression.
  */
-public class Not extends Expression implements UnaryExpression {
+public class Exists extends SubqueryExpr {
 
-    public Not(Expression child) {
-        super(child);
+    public Exists(LogicalPlan subquery) {
+        super(Objects.requireNonNull(subquery, "subquery can not be null"));
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
-        return child().nullable();
+    public DataType getDataType() throws UnboundException {
+        return BooleanType.INSTANCE;
     }
 
     @Override
+    public String toSql() {
+        return "EXISTS (SUBQUERY) " + super.toSql();
+    }
+
+    @Override
+    public String toString() {
+        return "EXISTS (SUBQUERY) " + super.toString();
+    }
+
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitNot(this, context);
+        return visitor.visitExistsSubquery(this, context);
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        Preconditions.checkArgument(children.get(0) instanceof SubqueryExpr);
+        return new Exists(((SubqueryExpr) children.get(0)).getQueryPlan());
     }
 
     @Override
@@ -52,28 +71,12 @@ public class Not extends Expression implements UnaryExpression {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        Not other = (Not) o;
-        return Objects.equals(child(), other.child());
+        Exists exists = (Exists) o;
+        return Objects.equals(this.queryPlan, exists.getQueryPlan());
     }
 
     @Override
     public int hashCode() {
-        return child().hashCode();
-    }
-
-    @Override
-    public String toString() {
-        return "( not " + child().toString() + ")";
-    }
-
-    @Override
-    public String toSql() {
-        return "( not " + child().toSql() + ")";
-    }
-
-    @Override
-    public Not withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Not(children.get(0));
+        return Objects.hash(this.queryPlan);
     }
 }

@@ -17,16 +17,7 @@
 
 package org.apache.doris.nereids.ssb;
 
-import org.apache.doris.nereids.analyzer.Unbound;
-import org.apache.doris.nereids.rules.rewrite.logical.TestAnalyzer;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
 
 public class AnalyzeSSBTest extends SSBTestBase {
     /**
@@ -95,43 +86,5 @@ public class AnalyzeSSBTest extends SSBTestBase {
     @Test
     public void q4_3() {
         checkAnalyze(SSBUtils.Q4_3);
-    }
-
-    private void checkAnalyze(String sql) {
-        LogicalPlan analyzed = new TestAnalyzer(connectContext).analyze(sql);
-        Assertions.assertTrue(checkBound(analyzed));
-    }
-
-    /**
-     * PlanNode and its expressions are all bound.
-     */
-    private boolean checkBound(LogicalPlan plan) {
-        if (plan instanceof Unbound) {
-            return false;
-        }
-
-        List<Plan> children = plan.children();
-        for (Plan child : children) {
-            if (!checkBound((LogicalPlan) child)) {
-                return false;
-            }
-        }
-
-        List<Expression> expressions = plan.getExpressions();
-        return expressions.stream().allMatch(this::checkExpressionBound);
-    }
-
-    private boolean checkExpressionBound(Expression expr) {
-        if (expr instanceof Unbound) {
-            return false;
-        }
-
-        List<Expression> children = expr.children();
-        for (Expression child : children) {
-            if (!checkExpressionBound(child)) {
-                return false;
-            }
-        }
-        return true;
     }
 }
