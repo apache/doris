@@ -45,8 +45,8 @@ public:
                 << "First argument for function: " << name
                 << " should be DataTypeArray but it has type " << arguments[0]->get_name() << ".";
         DCHECK(is_integer(arguments[1]))
-                << "Second argument for function: " << name
-                << " should be Integer but it has type " << arguments[1]->get_name() << ".";
+                << "Second argument for function: " << name << " should be Integer but it has type " 
+                << arguments[1]->get_name() << ".";
         if (arguments.size() > 2) {
             DCHECK(is_integer(arguments[2]))
                     << "Third argument for function: " << name
