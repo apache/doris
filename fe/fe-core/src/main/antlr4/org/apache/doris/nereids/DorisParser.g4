@@ -202,6 +202,7 @@ primaryExpression
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
+    | identifier LEFT_PAREN ASTERISK RIGHT_PAREN                                               #functionCall
     | identifier LEFT_PAREN (DISTINCT? arguments+=expression
       (COMMA arguments+=expression)*)? RIGHT_PAREN                                             #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression

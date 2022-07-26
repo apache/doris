@@ -24,7 +24,9 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.Count;
+import org.apache.doris.nereids.trees.expressions.functions.Min;
 import org.apache.doris.nereids.trees.expressions.functions.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.Year;
@@ -96,7 +98,19 @@ public class BindFunction implements AnalysisRuleFactory {
                 if (arguments.size() != 1) {
                     return unboundFunction;
                 }
-                return new Count(unboundFunction.getArguments().get(0));
+                return new Count(unboundFunction.isStar(), unboundFunction.getArguments().get(0));
+            } else if (name.equalsIgnoreCase("min")) {
+                List<Expression> arguments = unboundFunction.getArguments();
+                if (arguments.size() != 1) {
+                    return unboundFunction;
+                }
+                return new Min(unboundFunction.getArguments().get(0));
+            } else if (name.equalsIgnoreCase("avg")) {
+                List<Expression> arguments = unboundFunction.getArguments();
+                if (arguments.size() != 1) {
+                    return unboundFunction;
+                }
+                return new Avg(unboundFunction.getArguments().get(0));
             } else if (name.equalsIgnoreCase("substr") || name.equalsIgnoreCase("substring")) {
                 List<Expression> arguments = unboundFunction.getArguments();
                 if (arguments.size() == 2) {

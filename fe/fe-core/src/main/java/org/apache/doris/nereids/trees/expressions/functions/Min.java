@@ -17,73 +17,39 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.UnaryExpression;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
-/** count agg function. */
-public class Count extends AggregateFunction implements UnaryExpression {
+/** min agg function. */
+public class Min extends AggregateFunction implements UnaryExpression {
 
-    private final boolean isStar;
-
-    public Count(boolean isStar, Expression child) {
-        super("count", child);
-        this.isStar = isStar;
-    }
-
-    public boolean isStar() {
-        return isStar;
+    public Min(Expression child) {
+        super("min", child);
     }
 
     @Override
     public DataType getDataType() {
-        return BigIntType.INSTANCE;
+        return child().getDataType();
     }
 
     @Override
     public boolean nullable() {
-        return false;
+        return child().nullable();
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Count(isStar, children.get(0));
+        return new Min(children.get(0));
     }
 
     @Override
     public DataType getIntermediateType() {
         return getDataType();
-    }
-
-    @Override
-    public String toSql() throws UnboundException {
-        if (isStar) {
-            return "count(*)";
-        }
-        String args = children()
-                .stream()
-                .map(Expression::toSql)
-                .collect(Collectors.joining(", "));
-        return "count(" + args + ")";
-    }
-
-    @Override
-    public String toString() {
-        if (isStar) {
-            return "count(*)";
-        }
-        String args = children()
-                .stream()
-                .map(Expression::toString)
-                .collect(Collectors.joining(", "));
-        return "count(" + args + ")";
     }
 }

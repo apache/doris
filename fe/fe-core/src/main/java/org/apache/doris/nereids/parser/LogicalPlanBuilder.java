@@ -123,6 +123,7 @@ import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -453,7 +454,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public UnboundFunction visitExtract(DorisParser.ExtractContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.field.getText();
-            return new UnboundFunction(functionName, false, Arrays.asList(getExpression(ctx.source)));
+            return new UnboundFunction(functionName, false, false, Arrays.asList(getExpression(ctx.source)));
         });
     }
 
@@ -464,8 +465,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             //      the function information is obtained by parsing the catalog. This method is more scalable.
             String functionName = ctx.identifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
-            List<Expression> params = visit(ctx.expression(), Expression.class);
-            return new UnboundFunction(functionName, isDistinct, params);
+            boolean isStar = ctx.ASTERISK() != null;
+            List<Expression> tempParams = visit(ctx.expression(), Expression.class);
+            List<Expression> params = new ArrayList<>();
+            // Transform COUNT(*) into COUNT(1).
+            tempParams.stream().forEach(expression -> {
+                if (expression instanceof UnboundStar && functionName.equalsIgnoreCase("count") && !isDistinct) {
+                    params.add(new IntegerLiteral(1));
+                } else {
+                    params.add(expression);
+                }
+            });
+            return new UnboundFunction(functionName, isDistinct, isStar, params);
         });
     }
 
