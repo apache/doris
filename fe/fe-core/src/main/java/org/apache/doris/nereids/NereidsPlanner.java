@@ -105,25 +105,12 @@ public class NereidsPlanner extends Planner {
                 // cascades style optimize phase.
                 .setJobContext(outputProperties);
 
-    /**
-     * The actual execution of the plan, including the generation and execution of the job.
-     * @return PhysicalPlan.
-     */
-    private PhysicalPlan doPlan() {
-        analyze();
         finalizeAnalyze();
         rewrite();
         optimize();
 
         // Get plan directly. Just for SSB.
         return getRoot().extractPlan();
-    }
-
-    /**
-     * Analyze: bind references according to metadata in the catalog, perform semantic analysis, etc.
-     */
-    private void analyze() {
-        new AnalyzeRulesJob(plannerContext).execute();
     }
 
     private void finalizeAnalyze() {
