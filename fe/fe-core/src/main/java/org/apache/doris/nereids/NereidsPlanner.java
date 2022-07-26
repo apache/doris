@@ -116,13 +116,6 @@ public class NereidsPlanner extends Planner {
         return getRoot().extractPlan();
     }
 
-    /**
-     * Analyze: bind references according to metadata in the catalog, perform semantic analysis, etc.
-     */
-    private void analyze() {
-        new AnalyzeRulesJob(plannerContext).execute();
-    }
-
     private void finalizeAnalyze() {
         new FinalizeAnalyzeJob(plannerContext).execute();
     }
