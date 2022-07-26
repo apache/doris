@@ -39,20 +39,6 @@ public class Utils {
     }
 
     /**
-     * Fully qualified identifier name parts, i.e., concat qualifier and name into a list.
-     */
-    public static List<String> qualifiedNameParts(List<String> qualifier, String name) {
-        return new ImmutableList.Builder<String>().addAll(qualifier).add(name).build();
-    }
-
-    /**
-     * Fully qualified identifier name, concat qualifier and name with `.` as separator.
-     */
-    public static String qualifiedName(List<String> qualifier, String name) {
-        return StringUtils.join(qualifiedNameParts(qualifier, name), ".");
-    }
-
-    /**
      * Helper function to eliminate unnecessary checked exception caught requirement from the main logic of translator.
      *
      * @param f function which would invoke the logic of
@@ -86,4 +72,17 @@ public class Utils {
         R get() throws Exception;
     }
 
+    /**
+     * Fully qualified identifier name parts, i.e., concat qualifier and name into a list.
+     */
+    public static List<String> qualifiedNameParts(List<String> qualifier, String name) {
+        return new ImmutableList.Builder<String>().addAll(qualifier).add(name).build();
+    }
+
+    /**
+     * Fully qualified identifier name, concat qualifier and name with `.` as separator.
+     */
+    public static String qualifiedName(List<String> qualifier, String name) {
+        return StringUtils.join(qualifiedNameParts(qualifier, name), ".");
+    }
 }

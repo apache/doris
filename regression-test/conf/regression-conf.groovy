@@ -60,6 +60,3 @@ hdfsFs = "hdfs://127.0.0.1:9000"
 hdfsUser = "doris-test"
 hdfsPasswd = ""
 brokerName = "broker_name"
-
-s3Endpoint = "cos.ap-beijing.myqcloud.com"
-s3BucketName = "doris-build-1308700295"
