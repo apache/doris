@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
 
 /**
@@ -45,6 +47,30 @@ public class StringLiteral extends Literal {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitStringLiteral(this, context);
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (getDataType().equals(targetType)) {
+            return this;
+        }
+        if (targetType.isDateType()) {
+            return convertToDate(targetType);
+        } else if (targetType.isIntType()) {
+            return new IntegerLiteral(Integer.parseInt(value));
+        }
+        //todo other target type cast
+        return this;
+    }
+
+    private DateLiteral convertToDate(DataType targetType) throws AnalysisException {
+        DateLiteral dateLiteral = null;
+        if (targetType.isDate()) {
+            dateLiteral = new DateLiteral(value);
+        } else if (targetType.isDateTime()) {
+            dateLiteral = new DateTimeLiteral(value);
+        }
+        return dateLiteral;
     }
 
     @Override

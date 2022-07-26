@@ -52,6 +52,12 @@ public abstract class DataType {
                     return VarcharType.createVarcharType(scalarType.getLength());
                 case STRING:
                     return StringType.INSTANCE;
+                case DATE:
+                    return DateType.INSTANCE;
+                case DATETIME:
+                    return DateTimeType.INSTANCE;
+                case DECIMALV2:
+                    return DecimalType.createDecimalType(scalarType.decimalPrecision(), scalarType.decimalScale());
                 case NULL_TYPE:
                     return NullType.INSTANCE;
                 default:
@@ -86,5 +92,21 @@ public abstract class DataType {
     @Override
     public int hashCode() {
         return 0;
+    }
+
+    public boolean isDate() {
+        return this instanceof DateType;
+    }
+
+    public boolean isIntType() {
+        return this instanceof IntegerType;
+    }
+
+    public boolean isDateTime() {
+        return this instanceof DateTimeType;
+    }
+
+    public boolean isDateType() {
+        return isDate() || isDateTime();
     }
 }

@@ -17,41 +17,22 @@
 
 package org.apache.doris.nereids.types;
 
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
-import java.util.Objects;
-
 /**
- * Varchar type in Nereids.
+ * Datetime type in Nereids.
  */
-public class VarcharType extends PrimitiveType {
-    private final int len;
+public class DateTimeType extends PrimitiveType {
 
-    public VarcharType(int len) {
-        this.len = len;
-    }
-
-    public static VarcharType createVarcharType(int len) {
-        return new VarcharType(len);
-    }
+    public static DateTimeType INSTANCE = new DateTimeType();
 
     @Override
     public Type toCatalogDataType() {
-        return ScalarType.createVarcharType(len);
+        return Type.DATETIME;
     }
 
     @Override
     public boolean equals(Object o) {
-        if (!super.equals(o)) {
-            return false;
-        }
-        VarcharType that = (VarcharType) o;
-        return len == that.len;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), len);
+        return o instanceof DateTimeType;
     }
 }

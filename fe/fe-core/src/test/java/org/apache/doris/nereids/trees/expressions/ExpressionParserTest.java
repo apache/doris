@@ -176,4 +176,34 @@ public class ExpressionParserTest {
         String notExistExpr = "not exists (select * from test where b = 1)";
         assertExpr(notExistExpr);
     }
+
+    @Test
+    public void testInterval() {
+        String interval = "tt > date '1991-05-01' + interval '1' day";
+        assertExpr(interval);
+
+        interval = "tt > '1991-05-01' + interval '1' day";
+        assertExpr(interval);
+
+        interval = "tt > '1991-05-01' + interval 1 day";
+        assertExpr(interval);
+
+        interval = "tt > '1991-05-01' - interval 1 day";
+        assertExpr(interval);
+
+        interval = "tt > date '1991-05-01' - interval '1' day";
+        assertExpr(interval);
+
+        interval = "tt > interval '1' day + '1991-05-01'";
+        assertExpr(interval);
+
+        interval = "tt > interval '1' day + date '1991-05-01'";
+        assertExpr(interval);
+
+        interval = "tt > '1991-05-01'  - interval 2*1 day";
+        assertExpr(interval);
+
+        interval = "tt > now() - interval 1+1 day";
+        assertExpr(interval);
+    }
 }

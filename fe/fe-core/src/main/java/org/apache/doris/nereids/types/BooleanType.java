@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Type;
 /**
  * Boolean type in Nereids.
  */
-public class BooleanType extends DataType {
+public class BooleanType extends PrimitiveType {
     public static BooleanType INSTANCE = new BooleanType();
 
     @Override

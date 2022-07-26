@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Type;
 /**
  * Null data type in Nereids.
  */
-public class NullType extends DataType {
+public class NullType extends PrimitiveType {
     public static NullType INSTANCE = new NullType();
 
     @Override

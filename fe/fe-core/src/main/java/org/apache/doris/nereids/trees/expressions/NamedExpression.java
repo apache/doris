@@ -47,11 +47,6 @@ public abstract class NamedExpression extends Expression {
         throw new UnboundException("qualifier");
     }
 
-    @Override
-    public boolean isConstant() {
-        return false;
-    }
-
     /**
      * Get qualified name of NamedExpression.
      *
