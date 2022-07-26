@@ -482,6 +482,8 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     }
     *rowid = index_iterator->get_current_ordinal();
 
+    // find the key in primary key index, and the is_include is false, so move
+    // to the next row.
     if (exact_match && !is_include) {
         *rowid += 1;
     }
