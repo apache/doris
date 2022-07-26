@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -34,11 +37,18 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsManager;
 import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.TableStats;
 
 import com.google.common.base.Supplier;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -176,6 +186,55 @@ public class StatsCalculatorTest {
         StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats,
                 rightStats, equalTo, JoinType.INNER_JOIN);
         Assert.assertEquals(2500000, innerJoinStats.getRowCount());
+    }
+
+    @Mocked
+    ConnectContext context;
+    @Mocked
+    Env env;
+    @Mocked
+    StatisticsManager statisticsManager;
+
+    @Test
+    public void testOlapScan() {
+        ColumnStats columnStats1 = new ColumnStats();
+        columnStats1.setNdv(10);
+        columnStats1.setNumNulls(5);
+        ColumnStats columnStats2 = new ColumnStats();
+        columnStats2.setNdv(20);
+        columnStats1.setNumNulls(10);
+        ColumnStats columnStats3 = new ColumnStats();
+        columnStats3.setNdv(50);
+        columnStats3.setNumNulls(20);
+        long tableId1 = 0;
+        String tableName1 = "t1";
+        TableStats tableStats1 = new TableStats();
+        tableStats1.putColumnStats("c1", columnStats1);
+        long tableId2 = 1;
+        String tableName2 = "t2";
+        TableStats tableStats2 = new TableStats();
+        tableStats2.putColumnStats("c2", columnStats2);
+        tableStats2.putColumnStats("c3", columnStats3);
+        Statistics statistics = new Statistics();
+        statistics.putTableStats(tableId1, tableStats1);
+        statistics.putTableStats(tableId2, tableStats2);
+
+        new Expectations() {{
+            ConnectContext.get();
+            result = context;
+            context.getEnv();
+            result = env;
+            env.getStatisticsJobManager();
+            result = statisticsManager;
+            statisticsManager.getStatistics();
+            result = statistics;
+        }};
+
+        Table table1 = new Table(tableId1, tableName1, TableType.OLAP, Collections.emptyList());
+        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(table1, Collections.emptyList());
+        Table table2 = new Table(tableId2, tableName2, TableType.OLAP, Collections.emptyList());
+        LogicalOlapScan logicalOlapScan2 = new LogicalOlapScan(table2, Collections.emptyList());
+
 
     }
 

@@ -247,4 +247,11 @@ public class TableStats {
             }
         }
     }
+
+    /**
+     * This method is for unit test.
+     */
+    public void putColumnStats(String name, ColumnStats columnStats) {
+        nameToColumnStats.put(name, columnStats);
+    }
 }
