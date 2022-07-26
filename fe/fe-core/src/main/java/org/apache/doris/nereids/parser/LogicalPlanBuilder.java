@@ -67,7 +67,9 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.properties.LimitAndOffset;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.QueryOrganization;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -111,10 +113,12 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -565,14 +569,50 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * @return List of OrderKey
      */
     @Override
-    public List<OrderKey> visitQueryOrganization(QueryOrganizationContext ctx) {
+    public QueryOrganization visitQueryOrganization(QueryOrganizationContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
+            List<OrderKey> orderKeys;
             if (ctx.sortClause().ORDER() != null) {
-                return visit(ctx.sortClause().sortItem(), OrderKey.class);
+                orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
             } else {
-                return ImmutableList.of();
+                orderKeys = ImmutableList.of();
             }
+            Optional<LimitAndOffset> limitAndOffset;
+            if (ctx.limitClause().LIMIT() != null) {
+                limitAndOffset = Optional.of(
+                        visit(Lists.newArrayList(ctx.limitClause()), LimitAndOffset.class).get(0));
+            } else {
+                limitAndOffset = Optional.empty();
+            }
+            return new QueryOrganization(orderKeys, limitAndOffset);
         });
+    }
+
+    /**
+     * get OrderKey.
+     *
+     * @param ctx LimitClauseContext
+     * @return LimitAndOffset
+     */
+    @Override
+    public LimitAndOffset visitLimitClause(DorisParser.LimitClauseContext ctx) {
+        //TODO add LONG_VALUE type
+        if (ctx.OFFSET() != null) {
+            //pattern: limit 5 offset 100
+            Preconditions.checkArgument(ctx.INTEGER_VALUE().size() == 2);
+            return new LimitAndOffset(Long.parseLong(ctx.INTEGER_VALUE(0).getText()),
+                    Long.parseLong(ctx.INTEGER_VALUE(1).getText()));
+        } else if (ctx.COMMA() != null) {
+            //pattern: limit 100, 5; offset=100, limit=5
+            Preconditions.checkArgument(ctx.INTEGER_VALUE().size() == 2);
+            return new LimitAndOffset(Long.parseLong(ctx.INTEGER_VALUE(1).getText()),
+                    Long.parseLong(ctx.INTEGER_VALUE(0).getText()));
+        } else {
+            //pattern: limit 5;
+            Preconditions.checkArgument(ctx.INTEGER_VALUE().size() == 1);
+            return new LimitAndOffset(Long.parseLong(ctx.INTEGER_VALUE(0).getText()),
+                    0);
+        }
     }
 
     @Override
@@ -662,8 +702,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withQueryOrganization(LogicalPlan children, QueryOrganizationContext ctx) {
-        List<OrderKey> orderKeys = visitQueryOrganization(ctx);
-        return orderKeys.isEmpty() ? children : new LogicalSort(orderKeys, children);
+        QueryOrganization queryOrganization = visitQueryOrganization(ctx);
+        List<OrderKey> orderKeys = queryOrganization.getOrderKeys();
+        LogicalPlan root = orderKeys.isEmpty() ? children : new LogicalSort(orderKeys, children);
+        Optional<LimitAndOffset> limitAndOffset = queryOrganization.getLimitAndOffset();
+        if (limitAndOffset.isPresent()) {
+            if (limitAndOffset.get().getOffset() != 0 && orderKeys.size() == 0) {
+                throw new IllegalStateException("OFFSET requires an ORDER BY clause");
+            }
+            root = new LogicalLimit(limitAndOffset.get().getLimit(),
+                    limitAndOffset.get().getOffset(),
+                    root);
+        }
+        return root;
     }
 
     /**

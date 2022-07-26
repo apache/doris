@@ -110,7 +110,7 @@ havingClause
     ;
 
 queryOrganization
-    : sortClause
+    : sortClause limitClause
     ;
 
 sortClause
@@ -119,6 +119,12 @@ sortClause
 
 sortItem
     :  expression ordering = (ASC | DESC)?
+    ;
+
+limitClause
+    : (LIMIT INTEGER_VALUE)?
+    | (LIMIT INTEGER_VALUE OFFSET INTEGER_VALUE)?
+    | (LIMIT INTEGER_VALUE COMMA INTEGER_VALUE)?
     ;
 
 joinType
@@ -383,6 +389,7 @@ ansiNonReserved
     | LIKE
     | ILIKE
     | LIMIT
+    | OFFSET
     | LINES
     | LIST
     | LOAD

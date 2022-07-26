@@ -15,38 +15,42 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.properties;
 
 /**
- * Types for all Plan in Nereids.
+ * limit clause, represents the limit and offset
+ * select * from t limit 5; //limit only
+ * select * from t order by a limit 5, 100 // limit=5 and offset=100
+ * select * from t order by a limit 5 offset 100 // limit=5 and offset = 100
+ * `offset` must be used with `order by`
  */
-public enum PlanType {
-    UNKNOWN,
+public class LimitAndOffset {
+    private long limit = 0;
 
-    // logical plan
-    LOGICAL_UNBOUND_RELATION,
-    LOGICAL_BOUND_RELATION,
-    LOGICAL_PROJECT,
-    LOGICAL_FILTER,
-    LOGICAL_JOIN,
-    LOGICAL_AGGREGATE,
-    LOGICAL_SORT,
-    LOGICAL_LIMIT,
-    LOGICAL_OLAP_SCAN,
-    LOGICAL_APPLY,
-    LOGICAL_CORRELATED_JOIN,
-    LOGICAL_ENFORCE_SINGLE_ROW,
-    GROUP_PLAN,
+    private long offset = 0;
 
-    // physical plan
-    PHYSICAL_OLAP_SCAN,
-    PHYSICAL_PROJECT,
-    PHYSICAL_FILTER,
-    PHYSICAL_BROADCAST_HASH_JOIN,
-    PHYSICAL_AGGREGATE,
-    PHYSICAL_SORT,
-    PHYSICAL_LIMIT,
-    PHYSICAL_HASH_JOIN,
-    PHYSICAL_EXCHANGE,
-    PHYSICAL_DISTRIBUTION;
+    public LimitAndOffset(long limit, long offset) {
+        this.limit = limit;
+        this.offset = offset;
+    }
+
+    public long getOffset() {
+        return offset;
+    }
+
+    public void setOffset(long offset) {
+        this.offset = offset;
+    }
+
+    public long getLimit() {
+        return limit;
+    }
+
+    public void setLimit(long limit) {
+        this.limit = limit;
+    }
+
+
+
+
 }
