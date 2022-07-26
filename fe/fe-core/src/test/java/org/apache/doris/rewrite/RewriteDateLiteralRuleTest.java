@@ -140,7 +140,7 @@ public class RewriteDateLiteralRuleTest {
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 11:22:33'"));
 
-        query = "select k1 > '2021-03-01  16:22:33' from " + DB_NAME + ".tb2";
+        query = "select k1 > '2021-03-01 16:22:33' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 16:22:33'"));
 
@@ -152,7 +152,7 @@ public class RewriteDateLiteralRuleTest {
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:11:33'"));
 
-        query = "select k1 > '2021-03-01dd 11:22' from " + DB_NAME + ".tb2";
+        query = "select k1 > '2021-03-01 11:22' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
 
