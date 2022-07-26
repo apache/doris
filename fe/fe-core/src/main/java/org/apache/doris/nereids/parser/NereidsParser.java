@@ -53,6 +53,8 @@ public class NereidsParser {
         List<LogicalPlan> logicalPlans = parseMultiple(originStr);
         List<StatementBase> statementBases = new ArrayList<>();
         for (LogicalPlan logicalPlan : logicalPlans) {
+            // TODO: this is a trick to support explain. Since we do not support any other command in a short time.
+            //     It is acceptable. In the future, we need to refactor this.
             ExplainOptions explainOptions = null;
             if (logicalPlan instanceof ExplainCommand) {
                 ExplainCommand explainCommand = (ExplainCommand) logicalPlan;

@@ -17,11 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 
 /**
  * explain command.
@@ -52,16 +48,5 @@ public class ExplainCommand implements Command {
 
     public LogicalPlan getLogicalPlan() {
         return logicalPlan;
-    }
-
-    @Override
-    public void run(ConnectContext connectContext) {
-        NereidsPlanner planner = new NereidsPlanner(connectContext);
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan);
-        try {
-            planner.plan(logicalPlanAdapter, connectContext.getSessionVariable().toThrift());
-        } catch (UserException e) {
-            throw new RuntimeException(e);
-        }
     }
 }

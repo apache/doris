@@ -24,80 +24,77 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 import java.util.Optional;
 
 /**
- * command.
+ * All DDL and DML commands' super class.
  */
 public interface Command extends LogicalPlan {
 
-    void run(ConnectContext connectContext);
-
     @Override
     default Optional<GroupExpression> getGroupExpression() {
-        return Optional.empty();
+        throw new RuntimeException("Command do not implement getGroupExpression");
     }
 
     @Override
     default List<Plan> children() {
-        return null;
+        throw new RuntimeException("Command do not implement children");
     }
 
     @Override
     default Plan child(int index) {
-        return null;
+        throw new RuntimeException("Command do not implement child");
     }
 
     @Override
     default int arity() {
-        return 0;
+        throw new RuntimeException("Command do not implement arity");
     }
 
     @Override
     default Plan withChildren(List<Plan> children) {
-        return null;
+        throw new RuntimeException("Command do not implement withChildren");
     }
 
     @Override
     default PlanType getType() {
-        return null;
+        throw new RuntimeException("Command do not implement getType");
     }
 
     @Override
     default List<Expression> getExpressions() {
-        return null;
+        throw new RuntimeException("Command do not implement getExpressions");
     }
 
     @Override
     default LogicalProperties getLogicalProperties() {
-        return null;
+        throw new RuntimeException("Command do not implement getLogicalProperties");
     }
 
     @Override
     default List<Slot> getOutput() {
-        return null;
+        throw new RuntimeException("Command do not implement getOutput");
     }
 
     @Override
     default String treeString() {
-        return null;
+        throw new RuntimeException("Command do not implement treeString");
     }
 
     @Override
     default Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return null;
+        throw new RuntimeException("Command do not implement withGroupExpression");
     }
 
     @Override
     default Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return null;
+        throw new RuntimeException("Command do not implement withLogicalProperties");
     }
 
     @Override
     default long getLimit() {
-        return 0;
+        throw new RuntimeException("Command do not implement getLimit");
     }
 }
