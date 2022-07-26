@@ -2263,15 +2263,15 @@ int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
         /* Second */
         *buffer++ = (char)('0' + (date_v2_value_.second_ / 10));
         *buffer++ = (char)('0' + (date_v2_value_.second_ % 10));
-        if (scale != 0) {
+        if (scale != 0 && date_v2_value_.microsecond_ > 0) {
             *buffer++ = '.';
-        }
-        /* Microsecond */
-        uint32_t ms = date_v2_value_.microsecond_;
-        int ms_width = scale == -1 ? 6 : std::min(6, scale);
-        for (int i = 0; i < ms_width; i++) {
-            *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
-            ms %= (uint32_t)std::pow(10, 5 - i);
+            /* Microsecond */
+            uint32_t ms = date_v2_value_.microsecond_;
+            int ms_width = scale == -1 ? 6 : std::min(6, scale);
+            for (int i = 0; i < ms_width; i++) {
+                *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
+                ms %= (uint32_t)std::pow(10, 5 - i);
+            }
         }
     }
     return buffer - start;
