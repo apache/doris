@@ -108,7 +108,7 @@ public abstract class TestWithFeService {
     @AfterAll
     public final void afterAll() throws Exception {
         runAfterAll();
-        Catalog.getCurrentCatalog().clear();
+        //Catalog.getCurrentCatalog().clear();
         cleanDorisFeDir(runningDir);
     }
 
