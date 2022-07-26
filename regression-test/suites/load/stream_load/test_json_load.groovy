@@ -130,6 +130,23 @@ suite("test_json_load", "load") {
         assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
     }
 
+    def check_load_result = {checklabel, testTablex ->
+        max_try_milli_secs = 10000
+        while(max_try_milli_secs) {
+            result = sql "show load where label = '${checklabel}'"
+            if(result[0][2] == "FINISHED") {
+                qt_select "select * from ${testTablex} order by id"
+                break
+            } else {
+                sleep(1000) // wait 1 second every time
+                max_try_milli_secs -= 1000
+                if(max_try_milli_secs <= 0) {
+                    assertEquals(1, 2)
+                }
+            }
+        }
+    }
+
     // case1: import simple json
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
@@ -138,17 +155,7 @@ suite("test_json_load", "load") {
 
         load_json_data.call('true', '', 'json', '', '', '', '', '', 'simple_json.json')
 
-        // select the table and check whether the data is correct
-        def result3 = sql "select * from test_json_load order by id"
-        assertTrue(result3.size() == 11)
-        assertTrue(result3[0].size() == 3)
-        assertTrue(result3[0][0] == 1)
-        assertTrue(result3[0][1] == "beijing")
-        assertTrue(result3[0][2] == 2345671)
-        assertTrue(result3[9].size() == 3)
-        assertTrue(result3[9][0] == 10)
-        assertTrue(result3[9][1] == "hefei")
-        assertTrue(result3[9][2] == 23456710)
+        qt_select "select * from ${testTable} order by id"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -162,16 +169,7 @@ suite("test_json_load", "load") {
 
         load_json_data.call('true', '', 'json', 'id= id * 10', '', '', '', '', 'simple_json.json')
 
-        def result3 = sql "select * from test_json_load order by id"
-        assertTrue(result3.size() == 11)
-        assertTrue(result3[0].size() == 3)
-        assertTrue(result3[0][0] == 10)
-        assertTrue(result3[0][1] == "beijing")
-        assertTrue(result3[0][2] == 2345671)
-        assertTrue(result3[9].size() == 3)
-        assertTrue(result3[9][0] == 100)
-        assertTrue(result3[9][1] == "hefei")
-        assertTrue(result3[9][2] == 23456710)
+        qt_select "select * from ${testTable} order by id"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -186,14 +184,7 @@ suite("test_json_load", "load") {
         load_json_data.call('true', '', 'json', '', '[\"$.id\", \"$.code\"]',
                             '', '', '', 'simple_json.json')
 
-        def result3 = sql "select * from test_json_load order by id"
-        assertTrue(result3.size() == 11)
-        assertTrue(result3[0].size() == 2)
-        assertTrue(result3[0][0] == 1)
-        assertTrue(result3[0][1] == 2345671)
-        assertTrue(result3[9].size() == 2)
-        assertTrue(result3[9][0] == 10)
-        assertTrue(result3[9][1] == 23456710)
+        qt_select "select * from ${testTable} order by id"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -208,14 +199,7 @@ suite("test_json_load", "load") {
         load_json_data.call('true', '', 'json', 'code = id * 10 + 200', '[\"$.id\"]',
                             '', '', '', 'simple_json.json')
 
-        def result3 = sql "select * from test_json_load order by id"
-        assertTrue(result3.size() == 11)
-        assertTrue(result3[0].size() == 2)
-        assertTrue(result3[0][0] == 1)
-        assertTrue(result3[0][1] == 210)
-        assertTrue(result3[9].size() == 2)
-        assertTrue(result3[9][0] == 10)
-        assertTrue(result3[9][1] == 300)
+        qt_select "select * from ${testTable} order by id"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -230,14 +214,7 @@ suite("test_json_load", "load") {
         load_json_data.call('true', 'true', 'json', '', '[\"$.id\", \"$.code\"]',
                             '', '', '', 'multi_line_json.json')
         
-        def result3 = sql "select * from test_json_load order by id"
-        assertTrue(result3.size() == 11)
-        assertTrue(result3[0].size() == 2)
-        assertTrue(result3[0][0] == 1)
-        assertTrue(result3[0][1] == 1454547)
-        assertTrue(result3[9].size() == 2)
-        assertTrue(result3[9][0] == 10)
-        assertTrue(result3[9][1] == 2345676)
+        qt_select "select * from ${testTable} order by id"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -252,14 +229,7 @@ suite("test_json_load", "load") {
         load_json_data.call('true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '', '', '', 'multi_line_json.json')
 
-        def result3 = sql "select * from test_json_load order by id"
-        assertTrue(result3.size() == 11)
-        assertTrue(result3[0].size() == 2)
-        assertTrue(result3[0][0] == 10)
-        assertTrue(result3[0][1] == 1454547)
-        assertTrue(result3[9].size() == 2)
-        assertTrue(result3[9][0] == 100)
-        assertTrue(result3[9][1] == 2345676)
+        qt_select "select * from ${testTable} order by id"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -274,17 +244,8 @@ suite("test_json_load", "load") {
         load_json_data.call('true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '', 'id > 50', '', 'multi_line_json.json')
 
-        def result3 = sql "select * from test_json_load order by id"
-        assertTrue(result3.size() == 6)
-        assertTrue(result3[0].size() == 2)
-        assertTrue(result3[0][0] == 60)
-        assertTrue(result3[0][1] == 2345672)
-        assertTrue(result3[4].size() == 2)
-        assertTrue(result3[4][0] == 100)
-        assertTrue(result3[4][1] == 2345676)
-        assertTrue(result3[5].size() == 2)
-        assertTrue(result3[5][0] == 200)
-        assertTrue(result3[5][1] == 755)
+        qt_select "select * from ${testTable} order by id"
+
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
@@ -298,17 +259,8 @@ suite("test_json_load", "load") {
         load_json_data.call('true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '', 'id > 50', 'true', 'multi_line_json.json')
 
-        def result3 = sql "select * from test_json_load order by id"
-        assertTrue(result3.size() == 6)
-        assertTrue(result3[0].size() == 2)
-        assertTrue(result3[0][0] == 60)
-        assertTrue(result3[0][1] == 2345672)
-        assertTrue(result3[4].size() == 2)
-        assertTrue(result3[4][0] == 100)
-        assertTrue(result3[4][1] == 2345676)
-        assertTrue(result3[5].size() == 2)
-        assertTrue(result3[5][0] == 200)
-        assertTrue(result3[5][1] == 755)
+        qt_select "select * from ${testTable} order by id"
+
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
@@ -322,16 +274,8 @@ suite("test_json_load", "load") {
         load_json_data.call('', 'true', 'json', 'id= id * 10', '',
                             '$.item', '', 'true', 'nest_json.json')
 
-        def result3 = sql "select * from test_json_load order by id"
-        assertTrue(result3.size() == 3)
-        assertTrue(result3[0].size() == 3)
-        assertTrue(result3[0][0] == 10)
-        assertTrue(result3[0][1] == "beijing")
-        assertTrue(result3[0][2] == 2345671)
-        assertTrue(result3[1].size() == 3)
-        assertTrue(result3[1][0] == 20)
-        assertTrue(result3[1][1] == "shanghai")
-        assertTrue(result3[1][2] == 2345672)
+        qt_select "select * from ${testTable} order by id"
+
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
@@ -355,19 +299,7 @@ suite("test_json_load", "load") {
             load_from_hdfs1.call(testTable, test_load_label, hdfs_file_path, format,
                                 brokerName, hdfsUser, hdfsPasswd)
             
-            // wait to load finished
-            sleep(5000)
-    
-            def result3 = sql "select * from test_json_load order by id"
-            assertTrue(result3.size() == 9)
-            assertTrue(result3[0].size() == 3)
-            assertTrue(result3[0][0] == 2)
-            assertTrue(result3[0][1] == "shanghai")
-            assertTrue(result3[0][2] == 2345672)
-            assertTrue(result3[7].size() == 3)
-            assertTrue(result3[7][0] == 9)
-            assertTrue(result3[7][1] == "xian")
-            assertTrue(result3[7][2] == 2345679)
+            check_load_result.call(test_load_label, testTable)
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
@@ -382,19 +314,7 @@ suite("test_json_load", "load") {
             load_from_hdfs2.call(testTable, test_load_label, hdfs_file_path, format,
                                 brokerName, hdfsUser, hdfsPasswd)
             
-            // wait to load finished
-            sleep(5000)
-    
-            def result3 = sql "select * from test_json_load order by id"
-            assertTrue(result3.size() == 4)
-            assertTrue(result3[0].size() == 3)
-            assertTrue(result3[0][0] == 2)
-            assertTrue(result3[0][1] == "shanghai")
-            assertTrue(result3[0][2] == 2345672)
-            assertTrue(result3[2].size() == 3)
-            assertTrue(result3[2][0] == 4)
-            assertTrue(result3[2][1] == "shenzhen")
-            assertTrue(result3[2][2] == 2345674)
+            check_load_result.call(test_load_label, testTable)
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
