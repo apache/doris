@@ -41,7 +41,8 @@ fi
 
 #mkdir files to store tables and tables.sql
 mkdir -p files
-rm -rf ./files/tables tables.sql
+rm -rf ./files/tables
+rm -rf ./files/tables.sql
 
 #get tables from mysql databases
 echo "use $d_mysql; show tables;" |mysql -h$mysql  -uroot -p$mysql_password 2>/dev/null >> ./files/tables
