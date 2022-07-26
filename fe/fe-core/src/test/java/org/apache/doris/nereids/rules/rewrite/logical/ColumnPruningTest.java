@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
+import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -60,7 +61,7 @@ public class ColumnPruningTest extends TestWithFeService {
     public void testPruneColumns1() {
         String sql
                 = "select id,name,grade from student left join score on student.id = score.sid where score.grade > 60";
-        Plan plan = new TestAnalyzer(connectContext).analyze(sql);
+        Plan plan = new NereidsAnalyzer(connectContext).analyze(sql);
         Plan out = rewrite(plan);
 
         System.out.println(out.treeString());
@@ -95,7 +96,7 @@ public class ColumnPruningTest extends TestWithFeService {
         String sql
                 = "select name,sex,cid,grade from student left join score on student.id = score.sid "
                 + "where score.grade > 60";
-        Plan plan = new TestAnalyzer(connectContext).analyze(sql);
+        Plan plan = new NereidsAnalyzer(connectContext).analyze(sql);
         Plan out = rewrite(plan);
 
         Plan l1 = out.child(0).child(0);
@@ -124,7 +125,7 @@ public class ColumnPruningTest extends TestWithFeService {
     @Test
     public void testPruneColumns3() {
         String sql = "select id,name from student where age > 18";
-        Plan plan = new TestAnalyzer(connectContext).analyze(sql);
+        Plan plan = new NereidsAnalyzer(connectContext).analyze(sql);
         Plan out = rewrite(plan);
 
         Plan l1 = out.child(0).child(0);
@@ -145,7 +146,7 @@ public class ColumnPruningTest extends TestWithFeService {
         String sql
                 = "select name,cname,grade from student left join score on student.id = score.sid left join course "
                 + "on score.cid = course.cid where score.grade > 60";
-        Plan plan = new TestAnalyzer(connectContext).analyze(sql);
+        Plan plan = new NereidsAnalyzer(connectContext).analyze(sql);
         Plan out = rewrite(plan);
 
         Plan l1 = out.child(0).child(0);

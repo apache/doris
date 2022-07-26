@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.ssb;
 
+import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.TestAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -82,7 +82,7 @@ public class SSBJoinReorderTest extends SSBTestBase {
     }
 
     private void test(String sql, List<String> expectJoinConditions, List<String> expectFilterPredicates) {
-        LogicalPlan analyzed = new TestAnalyzer(connectContext).analyze(sql);
+        LogicalPlan analyzed = new NereidsAnalyzer(connectContext).analyze(sql);
         LogicalPlan plan = testJoinReorder(analyzed);
         new PlanChecker(expectJoinConditions, expectFilterPredicates).check(plan);
     }
