@@ -92,6 +92,11 @@ public:
         return _sk_index_decoder->upper_bound(key);
     }
 
+    const PrimaryKeyIndexReader* get_primary_key_index() const {
+        DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
+        return _pk_index_reader.get();
+    }
+
     // This will return the last row block in this segment.
     // NOTE: Before call this function , client should assure that
     // this segment is not empty.
@@ -106,6 +111,8 @@ public:
     // only used by UT
     const SegmentFooterPB& footer() const { return _footer; }
 
+    Status load_index();
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, const TabletSchema* tablet_schema);
@@ -113,9 +120,6 @@ private:
     Status _open();
     Status _parse_footer();
     Status _create_column_readers();
-    // Load and decode short key index.
-    // May be called multiple times, subsequent calls will no op.
-    Status _load_index();
 
 private:
     friend class SegmentIterator;
