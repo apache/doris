@@ -23,7 +23,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.rules.expression.rewrite.NormalizeExpression;
+import org.apache.doris.nereids.rules.expression.rewrite.NormalizeExpressions;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
@@ -243,7 +243,7 @@ public class PushDownPredicateTest {
     }
 
     private Memo rewrite(Plan plan) {
-        Plan normalized_plan = PlanRewriter.topDownRewrite(plan, new ConnectContext(), new NormalizeExpression());
+        Plan normalized_plan = PlanRewriter.topDownRewrite(plan, new ConnectContext(), new NormalizeExpressions());
         return PlanRewriter.topDownRewriteMemo(normalized_plan, new ConnectContext(), new PushPredicateThroughJoin());
     }
 }
