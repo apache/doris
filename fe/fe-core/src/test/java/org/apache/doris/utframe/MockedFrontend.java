@@ -36,7 +36,6 @@ import java.util.Map;
 
 /*
  * This class is used to start a Frontend process locally, for unit test.
- * This is a singleton class. There can be only one instance of this class globally.
  * Usage:
  *      MockedFrontend mockedFrontend = MockedFrontend.getInstance();
  *      mockedFrontend.init(confMap);
@@ -85,16 +84,8 @@ public class MockedFrontend {
         MIN_FE_CONF.put("sys_log_verbose_modules", "org");
     }
 
-    private static class SingletonHolder {
-        private static final MockedFrontend INSTANCE = new MockedFrontend();
-    }
-
-    public static MockedFrontend getInstance() {
-        return SingletonHolder.INSTANCE;
-    }
-
     public int getRpcPort() {
-        return Integer.valueOf(finalFeConf.get("rpc_port"));
+        return Integer.parseInt(finalFeConf.get("rpc_port"));
     }
 
     private boolean isInit = false;
