@@ -275,8 +275,9 @@ public class OlapScanNode extends ScanNode {
         String situation;
         boolean update;
         CHECK: { // CHECKSTYLE IGNORE THIS LINE
-            if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
-                situation = "The key type of table is duplicate.";
+            if (olapTable.getKeysType() == KeysType.DUP_KEYS || (olapTable.getKeysType() == KeysType.UNIQUE_KEYS
+                    && olapTable.getEnableUniqueKeyMergeOnWrite())) {
+                situation = "The key type of table is duplicate, or unique key with merge-on-write.";
                 update = true;
                 break CHECK;
             }
@@ -659,7 +660,8 @@ public class OlapScanNode extends ScanNode {
     public void selectBestRollupByRollupSelector(Analyzer analyzer) throws UserException {
         // Step2: select best rollup
         long start = System.currentTimeMillis();
-        if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
+        if (olapTable.getKeysType() == KeysType.DUP_KEYS || (olapTable.getKeysType() == KeysType.UNIQUE_KEYS
+                && olapTable.getEnableUniqueKeyMergeOnWrite())) {
             // This function is compatible with the INDEX selection logic of ROLLUP,
             // so the Duplicate table here returns base index directly
             // and the selection logic of materialized view is selected in

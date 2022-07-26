@@ -62,8 +62,8 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
         } else {
             _insert_fn = &MemTable::_insert_agg;
         }
-        if (_tablet_schema->has_sequence_col()) {
-            _aggregate_two_row_fn = &MemTable::_aggregate_two_row_with_sequence;
+        if (keys_type() == KeysType::UNIQUE_KEYS && _tablet->enable_unique_key_merge_on_write()) {
+            _aggregate_two_row_fn = &MemTable::_replace_row;
         } else {
             _aggregate_two_row_fn = &MemTable::_aggregate_two_row;
         }
@@ -92,9 +92,18 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
 
 void MemTable::_init_agg_functions(const vectorized::Block* block) {
     for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
-        vectorized::AggregateFunctionPtr function =
-                _tablet_schema->column(cid).get_aggregate_function({block->get_data_type(cid)},
-                                                                   vectorized::AGG_LOAD_SUFFIX);
+        vectorized::AggregateFunctionPtr function;
+        if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+            _tablet->enable_unique_key_merge_on_write()) {
+            // In such table, non-key column's aggregation type is NONE, so we need to construct
+            // the aggregate function manually.
+            function = vectorized::AggregateFunctionSimpleFactory::instance().get(
+                    "replace_load", {block->get_data_type(cid)}, {},
+                    block->get_data_type(cid)->is_nullable());
+        } else {
+            function = _tablet_schema->column(cid).get_aggregate_function(
+                    {block->get_data_type(cid)}, vectorized::AGG_LOAD_SUFFIX);
+        }
 
         DCHECK(function != nullptr);
         _agg_functions[cid] = function;
@@ -255,14 +264,38 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
 
 void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
     ContiguousRow dst_row(_schema, row_in_skiplist);
+    if (tablet_schema()->has_sequence_col()) {
+        return agg_update_row_with_sequence(&dst_row, src_row, tablet_schema()->sequence_col_idx(),
+                                            _table_mem_pool.get());
+    }
     agg_update_row(&dst_row, src_row, _table_mem_pool.get());
 }
 
-void MemTable::_aggregate_two_row_with_sequence(const ContiguousRow& src_row,
-                                                TableKey row_in_skiplist) {
-    ContiguousRow dst_row(_schema, row_in_skiplist);
-    agg_update_row_with_sequence(&dst_row, src_row, _tablet_schema->sequence_col_idx(),
-                                 _table_mem_pool.get());
+// In the Unique Key table with primary key index, the non-key column's aggregation
+// type is NONE, to replace the data in duplicate row, we should copy the data manually.
+void MemTable::_replace_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
+    ContiguousRow dst_row(&_schema, row_in_skiplist);
+    if (tablet_schema()->has_sequence_col()) {
+        const int32_t sequence_idx = tablet_schema()->sequence_col_idx();
+        auto seq_dst_cell = dst_row.cell(sequence_idx);
+        auto seq_src_cell = src_row.cell(sequence_idx);
+        auto res = _schema.column(sequence_idx)->compare_cell(seq_dst_cell, seq_src_cell);
+        // dst sequence column larger than src, don't need to replace
+        if (res > 0) {
+            return;
+        }
+    }
+    // do replace
+    for (uint32_t cid = dst_row.schema()->num_key_columns(); cid < dst_row.schema()->num_columns();
+         ++cid) {
+        auto dst_cell = dst_row.cell(cid);
+        auto src_cell = src_row.cell(cid);
+        auto column = _schema.column(cid);
+        // Dest cell already allocated memory, use dirct_copy rather than deep_copy(which will
+        // allocate memory for dst_cell). If dst_cell's size is smaller than src_cell, direct_copy
+        // will reallocate the memory to fit the src_cell's data.
+        column->direct_copy(&dst_cell, src_cell);
+    }
 }
 
 void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist) {

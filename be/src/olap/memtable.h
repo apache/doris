@@ -132,7 +132,7 @@ public:
 private:
     void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
     void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
-    void _aggregate_two_row_with_sequence(const ContiguousRow& new_row, TableKey row_in_skiplist);
+    void _replace_row(const ContiguousRow& src_row, TableKey row_in_skiplist);
     void _insert_dup(const Tuple* tuple);
     void _insert_agg(const Tuple* tuple);
     // for vectorized
