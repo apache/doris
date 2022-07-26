@@ -114,6 +114,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("binlog", new Integer(SqlParserSymbols.KW_BINLOG));
         keywordMap.put("bitmap", new Integer(SqlParserSymbols.KW_BITMAP));
         keywordMap.put("bitmap_union", new Integer(SqlParserSymbols.KW_BITMAP_UNION));
+        keywordMap.put("ngram_bf", new Integer(SqlParserSymbols.KW_NGRAM_BF));
         keywordMap.put("quantile_state", new Integer(SqlParserSymbols.KW_QUANTILE_STATE));
         keywordMap.put("quantile_union", new Integer(SqlParserSymbols.KW_QUANTILE_UNION));
         keywordMap.put("blob", new Integer(SqlParserSymbols.KW_BLOB));

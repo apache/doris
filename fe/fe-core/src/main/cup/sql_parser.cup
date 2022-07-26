@@ -240,7 +240,7 @@ parser code {:
 
 // Total keywords of doris
 terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_APPEND, KW_AS, KW_ASC, KW_AUTHORS, KW_ARRAY,
-    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BINLOG, KW_BITMAP, KW_BITMAP_UNION, KW_QUANTILE_STATE, KW_QUANTILE_UNION, KW_BLOB, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
+    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BINLOG, KW_BITMAP, KW_BITMAP_UNION,KW_NGRAM_BF, KW_QUANTILE_STATE, KW_QUANTILE_UNION, KW_BLOB, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS, KW_CLEAN, KW_CURRENT_TIMESTAMP,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED, KW_COMPACT,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CREATION, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
@@ -518,7 +518,9 @@ nonterminal ColumnDef.DefaultValue opt_default_value;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
 nonterminal Boolean opt_external;
 nonterminal Boolean opt_force;
-nonterminal IndexDef.IndexType opt_index_type;
+nonterminal IndexDef.IndexType index_type;
+nonterminal IndexDef.IndexTypeWithArgument opt_index_type_with_arguments;
+nonterminal List<Expr> opt_index_arguments;
 
 nonterminal ShowAlterStmt.AlterType opt_alter_type;
 nonterminal Boolean opt_builtin;
@@ -1354,9 +1356,9 @@ create_stmt ::=
     {:
         RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
     :}
-    | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
+    | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type_with_arguments:indexTypeWithArguments opt_comment:comment
     {:
-        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, comment), false)));
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexTypeWithArguments, comment), false)));
     :}
     /* resource */
     | KW_CREATE opt_external:isExternal KW_RESOURCE ident_or_text:resourceName opt_properties:properties
@@ -2510,9 +2512,9 @@ column_definition ::=
     ;
 
 index_definition ::=
-    KW_INDEX opt_if_not_exists:ifNotExists ident:indexName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
+    KW_INDEX opt_if_not_exists:ifNotExists ident:indexName LPAREN ident_list:cols RPAREN opt_index_type_with_arguments:indexTypeWithArguments opt_comment:comment
     {:
-        RESULT = new IndexDef(indexName, ifNotExists, cols, indexType, comment);
+        RESULT = new IndexDef(indexName, ifNotExists, cols, indexTypeWithArguments, comment);
     :}
     ;
 
@@ -2541,13 +2543,39 @@ opt_comment ::=
     :}
     ;
 
-opt_index_type ::=
+index_type ::=
+    KW_BITMAP
+    {:
+        RESULT = IndexDef.IndexType.BITMAP;
+    :}
+    |
+    KW_NGRAM_BF
+    {:
+        RESULT = IndexDef.IndexType.NGRAM_BF;
+    :}
+    ;
+
+opt_index_type_with_arguments ::=
     {:
         RESULT = null;
     :}
-    | KW_USING KW_BITMAP
+    | KW_USING index_type:type opt_index_arguments:args
     {:
-        RESULT = IndexDef.IndexType.BITMAP;
+        RESULT = new IndexDef.IndexTypeWithArgument(type, args);
+    :}
+    ;
+
+opt_index_arguments ::=
+    {:
+        RESULT = new ArrayList<>();
+    :}
+    | LPAREN RPAREN
+    {:
+        RESULT = new ArrayList<>();
+    :}
+    | LPAREN expr_list:args RPAREN
+    {:
+        RESULT = args;
     :}
     ;
 
@@ -5576,6 +5604,8 @@ keyword ::=
     | KW_QUANTILE_STATE:id
     {: RESULT = id; :}
     | KW_BITMAP_UNION:id
+    {: RESULT = id; :}
+    | KW_NGRAM_BF:id
     {: RESULT = id; :}
     | KW_QUANTILE_UNION:id
     {: RESULT = id; :}
