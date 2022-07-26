@@ -62,6 +62,10 @@ public class ArrayType extends Type {
         return containsNull;
     }
 
+    public void setContainsNull(boolean containsNull) {
+        this.containsNull = containsNull;
+    }
+
     @Override
     public PrimitiveType getPrimitiveType() {
         return PrimitiveType.ARRAY;
