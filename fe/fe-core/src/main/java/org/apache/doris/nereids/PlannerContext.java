@@ -50,7 +50,7 @@ public class PlannerContext {
     private JobPool jobPool;
     private final JobScheduler jobScheduler;
     private JobContext currentJobContext;
-    private final IdGenerator<ExprId> EXPR_ID_GENERATOR = ExprId.createGenerator();
+    private final IdGenerator<ExprId> exprIdIdGenerator = ExprId.createGenerator();
 
     /**
      * Constructor of OptimizerContext.
@@ -79,7 +79,7 @@ public class PlannerContext {
     }
 
     public ExprId newExprId() {
-        return EXPR_ID_GENERATOR.getNextId();
+        return exprIdIdGenerator.getNextId();
     }
 
     public Memo getMemo() {
