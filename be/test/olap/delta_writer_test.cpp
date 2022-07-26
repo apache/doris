@@ -406,7 +406,7 @@ TEST_F(TestDeltaWriter, open) {
     EXPECT_EQ(Status::OK(), res);
     SAFE_DELETE(delta_writer);
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
 }
 
@@ -527,7 +527,7 @@ TEST_F(TestDeltaWriter, write) {
     }
     EXPECT_EQ(1, tablet->num_rows());
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }
@@ -673,7 +673,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     }
     ASSERT_EQ(1, tablet->num_rows());
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
     delete delta_writer;
 }
@@ -740,7 +740,7 @@ TEST_F(TestDeltaWriter, sequence_col) {
     }
     EXPECT_EQ(1, tablet->num_rows());
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }
@@ -833,7 +833,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     }
     ASSERT_EQ(1, tablet->num_rows());
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
     delete delta_writer;
 }

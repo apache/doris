@@ -220,10 +220,9 @@ TEST_F(RemoteRowsetGcTest, normal) {
     ASSERT_EQ(Status::OK(), st);
     ASSERT_TRUE(exists);
 
-    st = k_engine->tablet_manager()->drop_tablet(10005, 0);
+    st = k_engine->tablet_manager()->drop_tablet(10005, 0, true);
     ASSERT_EQ(Status::OK(), st);
-    tablet->remove_all_remote_rowsets();
-    tablet->data_dir()->perform_remote_gc();
+    tablet->data_dir()->perform_remote_tablet_gc();
     st = fs->exists(seg_path, &exists);
     ASSERT_EQ(Status::OK(), st);
     ASSERT_FALSE(exists);

@@ -40,6 +40,7 @@
 #include "io/fs/path.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta_manager.h"
@@ -820,7 +821,7 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     return Status::OK();
 }
 
-void DataDir::perform_remote_gc() {
+void DataDir::perform_remote_rowset_gc() {
     std::vector<std::pair<std::string, std::string>> gc_kvs;
     auto traverse_remote_rowset_func = [&gc_kvs](const std::string& key,
                                                  const std::string& value) -> bool {
@@ -850,6 +851,30 @@ void DataDir::perform_remote_gc() {
         }
         if (st.ok()) {
             deleted_keys.push_back(std::move(key));
+        }
+    }
+    for (const auto& key : deleted_keys) {
+        _meta->remove(META_COLUMN_FAMILY_INDEX, key);
+    }
+}
+
+void DataDir::perform_remote_tablet_gc() {
+    std::vector<std::pair<std::string, std::string>> tablet_gc_kvs;
+    auto traverse_remote_tablet_func = [&tablet_gc_kvs](const std::string& key,
+                                                        const std::string& value) -> bool {
+        tablet_gc_kvs.emplace_back(key, value);
+        return true;
+    };
+    _meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_TABLET_GC_PREFIX, traverse_remote_tablet_func);
+    std::vector<std::string> deleted_keys;
+    for (auto& [key, resource] : tablet_gc_kvs) {
+        auto tablet_id = key.substr(REMOTE_TABLET_GC_PREFIX.size());
+        auto fs = io::FileSystemMap::instance()->get(resource);
+        auto st = fs->delete_directory(DATA_PREFIX + "/" + tablet_id);
+        if (st.ok()) {
+            deleted_keys.push_back(std::move(key));
+        } else {
+            LOG(WARNING) << st;
         }
     }
     for (const auto& key : deleted_keys) {

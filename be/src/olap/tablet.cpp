@@ -1850,22 +1850,13 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const io::Re
                         tablet_id(), rowset_id.to_string()));
 }
 
-void Tablet::remove_all_remote_rowsets() {
-    std::shared_lock meta_rlock(_meta_lock);
-    DCHECK(_state == TabletState::TABLET_SHUTDOWN);
-
-    for (const auto& [_, rs] : _rs_version_map) {
-        if (!rs->is_local()) {
-            record_unused_remote_rowset(rs->rowset_id(), rs->rowset_meta()->resource_id(),
-                                        rs->num_segments());
-        }
+Status Tablet::remove_all_remote_rowsets() {
+    DCHECK(_state == TABLET_SHUTDOWN);
+    if (storage_policy().empty()) {
+        return Status::OK();
     }
-    for (const auto& [_, rs] : _stale_rs_version_map) {
-        if (!rs->is_local()) {
-            record_unused_remote_rowset(rs->rowset_id(), rs->rowset_meta()->resource_id(),
-                                        rs->num_segments());
-        }
-    }
+    auto tablet_gc_key = REMOTE_TABLET_GC_PREFIX + std::to_string(tablet_id());
+    return _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, tablet_gc_key, storage_policy());
 }
 
 const TabletSchema& Tablet::tablet_schema() const {
@@ -1915,9 +1906,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, RowLocation* row_locatio
 }
 
 void Tablet::remove_self_owned_remote_rowsets() {
-    std::shared_lock meta_rlock(_meta_lock);
-    DCHECK(_state == TabletState::TABLET_SHUTDOWN);
-
+    DCHECK(_state == TABLET_SHUTDOWN);
     for (const auto& rs : _self_owned_remote_rowsets) {
         DCHECK(!rs->is_local());
         record_unused_remote_rowset(rs->rowset_id(), rs->rowset_meta()->resource_id(),

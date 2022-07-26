@@ -722,7 +722,8 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     // clean unused rowsets in remote storage backends
     for (auto data_dir : get_stores()) {
-        data_dir->perform_remote_gc();
+        data_dir->perform_remote_rowset_gc();
+        data_dir->perform_remote_tablet_gc();
     }
 
     return res;

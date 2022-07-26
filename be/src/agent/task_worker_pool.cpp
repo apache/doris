@@ -432,7 +432,8 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
                 drop_tablet_req.tablet_id, false, &err);
         if (dropped_tablet != nullptr) {
             Status drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                    drop_tablet_req.tablet_id, drop_tablet_req.replica_id);
+                    drop_tablet_req.tablet_id, drop_tablet_req.replica_id,
+                    drop_tablet_req.is_drop_table_or_partition);
             if (!drop_status.ok()) {
                 LOG(WARNING) << "drop table failed! signature: " << agent_task_req.signature;
                 error_msgs.push_back("drop table failed!");
@@ -442,13 +443,6 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
                 StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
                         dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
                         drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
-                if (drop_tablet_req.is_drop_table_or_partition) {
-                    // We remove remote rowset directly.
-                    dropped_tablet->remove_all_remote_rowsets();
-                } else {
-                    // Remove remote rowsets which are not shared by other BE.
-                    dropped_tablet->remove_self_owned_remote_rowsets();
-                }
             }
         } else {
             status_code = TStatusCode::NOT_FOUND;
