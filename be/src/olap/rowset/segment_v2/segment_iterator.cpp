@@ -159,6 +159,7 @@ Status SegmentIterator::_init(bool is_vec) {
         _row_bitmap -= *(_opts.delete_bitmap[segment_id()]);
     }
     _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
+    // 待更新
     return Status::OK();
 }
 
