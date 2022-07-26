@@ -70,10 +70,9 @@ public class AlterPolicyStmt extends DdlStmt {
                 .getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
         Optional<Policy> hasPolicy = policiesByType.stream()
                 .filter(policy -> policy.getPolicyName().equals(this.policyName)).findAny();
-        if (!hasPolicy.isPresent()) {
-            throw new AnalysisException("Unknown storage policy: " + this.policyName);
-        }
-        StoragePolicy storagePolicy = (StoragePolicy) hasPolicy.get();
+        StoragePolicy storagePolicy = (StoragePolicy) hasPolicy.orElseThrow(
+                () -> new AnalysisException("Unknown storage policy: " + this.policyName)
+        );
 
         // default storage policy use alter storage policy to add s3 resource.
         if (!policyName.equalsIgnoreCase(StoragePolicy.DEFAULT_STORAGE_POLICY_NAME) && properties.containsKey(

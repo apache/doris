@@ -32,10 +32,7 @@ public class TypeParameter implements JavaAstNode {
 
     @Override
     public String toString() {
-        if (typeBound.isPresent()) {
-            return identifier + " extends " + typeBound.get();
-        } else {
-            return identifier;
-        }
+        return typeBound.map(bound -> identifier + " extends " + bound)
+                .orElse(identifier);
     }
 }

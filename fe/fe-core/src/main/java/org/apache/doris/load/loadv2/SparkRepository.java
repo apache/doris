@@ -342,23 +342,15 @@ public class SparkRepository {
         }
 
         public SparkLibrary getDppLibrary() {
-            SparkLibrary result = null;
             Optional<SparkLibrary> library = libraries.stream()
                     .filter(lib -> lib.libType == SparkLibrary.LibType.DPP).findFirst();
-            if (library.isPresent()) {
-                result = library.get();
-            }
-            return result;
+            return library.orElse(null);
         }
 
         public SparkLibrary getSpark2xLibrary() {
-            SparkLibrary result = null;
             Optional<SparkLibrary> library = libraries.stream()
                     .filter(lib -> lib.libType == SparkLibrary.LibType.SPARK2X).findFirst();
-            if (library.isPresent()) {
-                result = library.get();
-            }
-            return result;
+            return library.orElse(null);
         }
     }
 

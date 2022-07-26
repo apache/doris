@@ -31,10 +31,7 @@ public class TypeType implements JavaAstNode {
 
     @Override
     public String toString() {
-        if (primitiveType.isPresent()) {
-            return primitiveType.get();
-        } else {
-            return classOrInterfaceType.get().toString();
-        }
+        return primitiveType
+                .orElseGet(() -> classOrInterfaceType.get().toString());
     }
 }

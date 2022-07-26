@@ -83,7 +83,7 @@ public class PatternGeneratorAnalyzer {
         List<PatternGenerator> generators = planClassMap.entrySet()
                 .stream()
                 .map(kv -> PatternGenerator.create(this, kv.getKey(), kv.getValue()))
-                .filter(generator -> generator.isPresent())
+                .filter(Optional::isPresent)
                 .map(Optional::get)
                 .sorted((g1, g2) -> {
                     // logical first
@@ -135,9 +135,8 @@ public class PatternGeneratorAnalyzer {
             }
         } else if (typeDeclaration instanceof ClassDeclaration) {
             ClassDeclaration classDeclaration = (ClassDeclaration) typeDeclaration;
-            if (classDeclaration.extendsType.isPresent()) {
-                analyzeClass(currentParentClasses, typeDeclaration, classDeclaration.extendsType.get());
-            }
+            classDeclaration.extendsType.ifPresent(
+                    typeType -> analyzeClass(currentParentClasses, typeDeclaration, typeType));
             if (!classDeclaration.implementTypes.isEmpty()) {
                 for (TypeType implementType : classDeclaration.implementTypes) {
                     analyzeClass(currentParentClasses, typeDeclaration, implementType);

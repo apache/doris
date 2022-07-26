@@ -39,9 +39,7 @@ public class EnumDeclaration extends TypeDeclaration {
     @Override
     public String toString() {
         StringBuilder buffer = new StringBuilder();
-        if (packageName.isPresent()) {
-            buffer.append("package ").append(packageName.get()).append(";\n\n");
-        }
+        packageName.ifPresent(qualifiedName -> buffer.append("package ").append(qualifiedName).append(";\n\n"));
 
         if (!imports.isEmpty()) {
             for (ImportDeclaration importDeclaration : imports) {

@@ -854,13 +854,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     routineLoadTaskInfoList.stream()
                             .filter(entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
             if (!routineLoadTaskInfoOptional.isPresent()) {
-                switch (transactionStatus) {
-                    case COMMITTED:
-                        throw new TransactionException("txn " + txnState.getTransactionId()
-                                                       + " could not be " + transactionStatus
-                                                       + " while task " + txnState.getLabel() + " has been aborted.");
-                    default:
-                        break;
+                if (transactionStatus == TransactionStatus.COMMITTED) {
+                    throw new TransactionException("txn " + txnState.getTransactionId()
+                            + " could not be " + transactionStatus
+                            + " while task " + txnState.getLabel() + " has been aborted.");
                 }
             }
             passCheck = true;

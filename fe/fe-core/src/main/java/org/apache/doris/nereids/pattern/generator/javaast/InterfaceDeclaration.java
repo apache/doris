@@ -40,9 +40,7 @@ public class InterfaceDeclaration extends TypeDeclaration {
     @Override
     public String toString() {
         StringBuilder buffer = new StringBuilder();
-        if (packageName.isPresent()) {
-            buffer.append("package ").append(packageName.get()).append(";\n\n");
-        }
+        packageName.ifPresent(qualifiedName -> buffer.append("package ").append(qualifiedName).append(";\n\n"));
 
         if (!imports.isEmpty()) {
             for (ImportDeclaration importDeclaration : imports) {
@@ -55,9 +53,7 @@ public class InterfaceDeclaration extends TypeDeclaration {
             mod += " ";
         }
         buffer.append(mod).append("interface ").append(name);
-        if (typeParameters.isPresent()) {
-            buffer.append(typeParameters.get());
-        }
+        typeParameters.ifPresent(buffer::append);
         buffer.append(" ");
         if (!extendsTypes.isEmpty()) {
             buffer.append("extends ").append(Joiner.on(", ").join(extendsTypes)).append(" ");

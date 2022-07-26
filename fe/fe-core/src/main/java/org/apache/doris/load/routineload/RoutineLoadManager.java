@@ -207,9 +207,7 @@ public class RoutineLoadManager implements Writable {
                 Optional<RoutineLoadJob> optional = routineLoadJobList.parallelStream()
                         .filter(entity -> entity.getName().equals(name))
                         .filter(entity -> !entity.getState().isFinalState()).findFirst();
-                if (optional.isPresent()) {
-                    return true;
-                }
+                return optional.isPresent();
             }
         }
         return false;
