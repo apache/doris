@@ -47,8 +47,8 @@ public class BindFunction implements AnalysisRuleFactory {
             ),
             RuleType.BINDING_AGGREGATE_FUNCTION.build(
                 logicalAggregate().then(agg -> {
-                    List<Expression> groupBy = bind(agg.getGroupByExpressionList());
-                    List<NamedExpression> output = bind(agg.getOutputExpressionList());
+                    List<Expression> groupBy = bind(agg.getGroupByExpressions());
+                    List<NamedExpression> output = bind(agg.getOutputExpressions());
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             )

@@ -51,62 +51,53 @@ import java.util.Optional;
 public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
     private final boolean disassembled;
-    private final List<Expression> groupByExpressionList;
-    private final List<NamedExpression> outputExpressionList;
-    private final List<Expression> partitionExprList;
+    private final List<Expression> groupByExpressions;
+    private final List<NamedExpression> outputExpressions;
     private final AggPhase aggPhase;
 
     /**
      * Desc: Constructor for LogicalAggregate.
      */
-    public LogicalAggregate(List<Expression> groupByExpressionList, List<NamedExpression> outputExpressionList,
-                            CHILD_TYPE child) {
-        this(groupByExpressionList, outputExpressionList, false, AggPhase.GLOBAL, child);
+    public LogicalAggregate(
+            List<Expression> groupByExpressions,
+            List<NamedExpression> outputExpressions,
+            CHILD_TYPE child) {
+        this(groupByExpressions, outputExpressions, false, AggPhase.GLOBAL, child);
     }
 
-    public LogicalAggregate(List<Expression> groupByExpressionList,
-            List<NamedExpression> outputExpressionList,
-            boolean disassembled, AggPhase aggPhase, CHILD_TYPE child) {
-        this(groupByExpressionList, outputExpressionList, null, disassembled, aggPhase, child);
-    }
-
-    public LogicalAggregate(List<Expression> groupByExpressionList,
-                            List<NamedExpression> outputExpressionList,
-                            List<Expression> partitionExprList,
-                            boolean disassembled, AggPhase aggPhase,
-                            CHILD_TYPE child) {
-        this(groupByExpressionList, outputExpressionList, partitionExprList, disassembled, aggPhase,
-                Optional.empty(), Optional.empty(), child);
+    public LogicalAggregate(
+            List<Expression> groupByExpressions,
+            List<NamedExpression> outputExpressions,
+            boolean disassembled,
+            AggPhase aggPhase,
+            CHILD_TYPE child) {
+        this(groupByExpressions, outputExpressions, disassembled, aggPhase, Optional.empty(), Optional.empty(), child);
     }
 
     /**
      * Whole parameters constructor for LogicalAggregate.
      */
-    public LogicalAggregate(List<Expression> groupByExpressionList,
-                            List<NamedExpression> outputExpressionList,
-                            List<Expression> partitionExprList,
-                            boolean disassembled, AggPhase aggPhase,
-                            Optional<GroupExpression> groupExpression,
-                            Optional<LogicalProperties> logicalProperties,
-                            CHILD_TYPE child) {
+    public LogicalAggregate(
+            List<Expression> groupByExpressions,
+            List<NamedExpression> outputExpressions,
+            boolean disassembled,
+            AggPhase aggPhase,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties,
+            CHILD_TYPE child) {
         super(PlanType.LOGICAL_AGGREGATE, groupExpression, logicalProperties, child);
-        this.groupByExpressionList = groupByExpressionList;
-        this.outputExpressionList = outputExpressionList;
-        this.partitionExprList = partitionExprList;
+        this.groupByExpressions = groupByExpressions;
+        this.outputExpressions = outputExpressions;
         this.disassembled = disassembled;
         this.aggPhase = aggPhase;
     }
 
-    public List<Expression> getPartitionExprList() {
-        return partitionExprList == null ? groupByExpressionList : partitionExprList;
+    public List<Expression> getGroupByExpressions() {
+        return groupByExpressions;
     }
 
-    public List<Expression> getGroupByExpressionList() {
-        return groupByExpressionList;
-    }
-
-    public List<NamedExpression> getOutputExpressionList() {
-        return outputExpressionList;
+    public List<NamedExpression> getOutputExpressions() {
+        return outputExpressions;
     }
 
     public AggPhase getAggPhase() {
@@ -115,14 +106,14 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
 
     @Override
     public String toString() {
-        return "LogicalAggregate (phase: [" + aggPhase.name() + "], outputExpressionList: ["
-                + StringUtils.join(outputExpressionList, ", ")
-                + "], groupByExprList: [" + StringUtils.join(groupByExpressionList, ", ") + "])";
+        return "LogicalAggregate (phase: [" + aggPhase.name() + "], output: ["
+                + StringUtils.join(outputExpressions, ", ")
+                + "], groupBy: [" + StringUtils.join(groupByExpressions, ", ") + "])";
     }
 
     @Override
     public List<Slot> computeOutput(Plan input) {
-        return outputExpressionList.stream()
+        return outputExpressions.stream()
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());
     }
@@ -135,8 +126,8 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     @Override
     public List<Expression> getExpressions() {
         return new ImmutableList.Builder<Expression>()
-                .addAll(groupByExpressionList)
-                .addAll(outputExpressionList)
+                .addAll(groupByExpressions)
+                .addAll(outputExpressions)
                 .build();
     }
 
@@ -155,41 +146,36 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
             return false;
         }
         LogicalAggregate that = (LogicalAggregate) o;
-        return Objects.equals(groupByExpressionList, that.groupByExpressionList)
-                && Objects.equals(outputExpressionList, that.outputExpressionList)
-                && Objects.equals(partitionExprList, that.partitionExprList)
+        return Objects.equals(groupByExpressions, that.groupByExpressions)
+                && Objects.equals(outputExpressions, that.outputExpressions)
                 && aggPhase == that.aggPhase;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(groupByExpressionList, outputExpressionList, partitionExprList, aggPhase);
+        return Objects.hash(groupByExpressions, outputExpressions, aggPhase);
     }
 
     @Override
     public LogicalAggregate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalAggregate(groupByExpressionList, outputExpressionList,
-            partitionExprList, disassembled, aggPhase, children.get(0));
+        return new LogicalAggregate(groupByExpressions, outputExpressions, disassembled, aggPhase, children.get(0));
     }
 
     @Override
     public LogicalAggregate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalAggregate(groupByExpressionList, outputExpressionList,
-            partitionExprList, disassembled, aggPhase, groupExpression,
+        return new LogicalAggregate(groupByExpressions, outputExpressions, disassembled, aggPhase, groupExpression,
             Optional.of(logicalProperties), children.get(0));
     }
 
     @Override
     public LogicalAggregate<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalAggregate(groupByExpressionList, outputExpressionList,
-            partitionExprList, disassembled, aggPhase, Optional.empty(),
+        return new LogicalAggregate(groupByExpressions, outputExpressions, disassembled, aggPhase, Optional.empty(),
             logicalProperties, children.get(0));
     }
 
     public LogicalAggregate<Plan> withGroupByAndOutput(List<Expression> groupByExprList,
                                                  List<NamedExpression> outputExpressionList) {
-        return new LogicalAggregate(groupByExprList, outputExpressionList,
-            partitionExprList, disassembled, aggPhase, child());
+        return new LogicalAggregate(groupByExprList, outputExpressionList, disassembled, aggPhase, child());
     }
 }
