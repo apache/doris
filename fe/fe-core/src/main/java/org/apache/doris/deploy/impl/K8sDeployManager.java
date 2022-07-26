@@ -17,7 +17,7 @@
 
 package org.apache.doris.deploy.impl;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.deploy.DeployManager;
@@ -73,8 +73,8 @@ public class K8sDeployManager extends DeployManager {
     public static final String TEST_SERVICENAME = "palo-fe";
     // =======for test only==========
 
-    public K8sDeployManager(Catalog catalog, long intervalMs) {
-        super(catalog, intervalMs);
+    public K8sDeployManager(Env env, long intervalMs) {
+        super(env, intervalMs);
         initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE);
     }
 

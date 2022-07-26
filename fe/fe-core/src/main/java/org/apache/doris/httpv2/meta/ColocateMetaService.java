@@ -17,10 +17,10 @@
 
 package org.apache.doris.httpv2.meta;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -70,7 +70,7 @@ public class ColocateMetaService extends RestBaseController {
     private static final String GROUP_ID = "group_id";
     private static final String DB_ID = "db_id";
 
-    private static ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
+    private static ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
 
     private static GroupId checkAndGetGroupId(HttpServletRequest request) throws DdlException {
         long grpId = Long.valueOf(request.getParameter(GROUP_ID).trim());
@@ -97,7 +97,7 @@ public class ColocateMetaService extends RestBaseController {
     @RequestMapping(path = "/api/colocate", method = RequestMethod.GET)
     public Object colocate(HttpServletRequest request, HttpServletResponse response) throws DdlException {
         executeWithoutPassword(request, response);
-        return ResponseEntityBuilder.ok(Catalog.getCurrentColocateIndex());
+        return ResponseEntityBuilder.ok(Env.getCurrentColocateIndex());
     }
 
     @RequestMapping(path = "/api/colocate/group_stable", method = {RequestMethod.POST, RequestMethod.DELETE})
@@ -127,13 +127,13 @@ public class ColocateMetaService extends RestBaseController {
         List<List<Long>> backendsPerBucketSeq = new Gson().fromJson(meta, type);
         LOG.info("get buckets sequence: {}", backendsPerBucketSeq);
 
-        ColocateGroupSchema groupSchema = Catalog.getCurrentColocateIndex().getGroupSchema(groupId);
+        ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(groupId);
         if (backendsPerBucketSeq.size() != groupSchema.getBucketsNum()) {
             return ResponseEntityBuilder.okWithCommonError("Invalid bucket num. expected: "
                     + groupSchema.getBucketsNum() + ", actual: " + backendsPerBucketSeq.size());
         }
 
-        List<Long> clusterBackendIds = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
+        List<Long> clusterBackendIds = Env.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         //check the Backend id
         for (List<Long> backendIds : backendsPerBucketSeq) {
             if (backendIds.size() != groupSchema.getReplicaAlloc().getTotalReplicaNum()) {
@@ -159,10 +159,5 @@ public class ColocateMetaService extends RestBaseController {
     private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq)
             throws DdlException {
         throw new DdlException("Currently not support");
-        /*
-        colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-        ColocatePersistInfo info2 = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-        Catalog.getCurrentCatalog().getEditLog().logColocateBackendsPerBucketSeq(info2);
-         */
     }
 }

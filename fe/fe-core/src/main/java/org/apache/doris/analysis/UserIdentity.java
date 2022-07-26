@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -197,7 +197,7 @@ public class UserIdentity implements Writable {
 
     public static UserIdentity read(DataInput in) throws IOException {
         // Use Gson in the VERSION_109
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_109) {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_109) {
             UserIdentity userIdentity = new UserIdentity();
             userIdentity.readFields(in);
             return userIdentity;

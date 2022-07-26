@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.rest.manager;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -151,7 +151,7 @@ public class QueryProfileAction extends RestBaseController {
 
         // add node information
         for (List<String> query : queries) {
-            query.add(1, Catalog.getCurrentCatalog().getSelfNode().first + ":" + Config.http_port);
+            query.add(1, Env.getCurrentEnv().getSelfNode().first + ":" + Config.http_port);
         }
 
         if (!Strings.isNullOrEmpty(search)) {

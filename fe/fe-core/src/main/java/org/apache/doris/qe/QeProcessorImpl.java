@@ -98,7 +98,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
         ) {
             String user = queryInfo.getConnectContext().getQualifiedUser();
-            long maxQueryInstances = queryInfo.getConnectContext().getCatalog().getAuth().getMaxQueryInstances(user);
+            long maxQueryInstances = queryInfo.getConnectContext().getEnv().getAuth().getMaxQueryInstances(user);
             if (maxQueryInstances <= 0) {
                 maxQueryInstances = Config.default_max_query_instances;
             }

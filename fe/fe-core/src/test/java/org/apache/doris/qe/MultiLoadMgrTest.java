@@ -18,7 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.backup.CatalogMocker;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
@@ -35,7 +35,7 @@ import java.util.List;
 
 public class MultiLoadMgrTest {
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private ConnectContext context;
     @Mocked

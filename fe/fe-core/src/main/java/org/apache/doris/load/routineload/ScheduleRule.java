@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.system.SystemInfoService;
@@ -32,7 +32,7 @@ public class ScheduleRule {
     private static final Logger LOG = LogManager.getLogger(ScheduleRule.class);
 
     private static int deadBeCount(String clusterName) {
-        SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         int total = systemInfoService.getClusterBackendIds(clusterName, false).size();
         int alive = systemInfoService.getClusterBackendIds(clusterName, true).size();
         return total - alive;

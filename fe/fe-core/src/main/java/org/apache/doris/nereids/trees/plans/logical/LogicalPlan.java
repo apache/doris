@@ -41,11 +41,7 @@ public interface LogicalPlan extends Plan {
     }
 
     default <C> LogicalPlan optionalMap(Optional<C> ctx, Supplier<LogicalPlan> f) {
-        if (ctx.isPresent()) {
-            return f.get();
-        } else {
-            return this;
-        }
+        return ctx.map(a -> f.get()).orElse(this);
     }
 
 }
