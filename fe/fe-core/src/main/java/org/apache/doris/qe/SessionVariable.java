@@ -434,7 +434,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableJoinReorderBasedCost = false;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_CBO)
-    private boolean enableCBO = false;
+    private boolean enableNereidsCBO = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE)
     private boolean enableFoldConstantByBe = false;
@@ -984,12 +984,12 @@ public class SessionVariable implements Serializable, Writable {
         this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
     }
 
-    public boolean isEnableCBO() {
-        return enableCBO;
+    public boolean isEnableNereidsCBO() {
+        return enableNereidsCBO;
     }
 
-    public void setEnableCBO(boolean enableCBO) {
-        this.enableCBO = enableCBO;
+    public void setEnableNereidsCBO(boolean enableNereidsCBO) {
+        this.enableNereidsCBO = enableNereidsCBO;
     }
 
     public void setDisableJoinReorder(boolean disableJoinReorder) {

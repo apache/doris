@@ -107,7 +107,7 @@ public class NereidsPlanner extends Planner {
 
         rewrite();
         // TODO: remove this condition, when stats collector is fully developed.
-        if (ConnectContext.get().getSessionVariable().isEnableCBO()) {
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsCBO()) {
             deriveStats();
         }
         optimize();

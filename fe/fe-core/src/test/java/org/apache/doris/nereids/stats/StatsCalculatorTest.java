@@ -58,8 +58,16 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class StatsCalculatorTest {
+
+    @Mocked
+    ConnectContext context;
+    @Mocked
+    Env env;
+    @Mocked
+    StatisticsManager statisticsManager;
 
     @Test
     public void testAgg() {
@@ -188,54 +196,49 @@ public class StatsCalculatorTest {
         Assert.assertEquals(2500000, innerJoinStats.getRowCount());
     }
 
-    @Mocked
-    ConnectContext context;
-    @Mocked
-    Env env;
-    @Mocked
-    StatisticsManager statisticsManager;
-
     @Test
     public void testOlapScan() {
         ColumnStats columnStats1 = new ColumnStats();
         columnStats1.setNdv(10);
         columnStats1.setNumNulls(5);
-        ColumnStats columnStats2 = new ColumnStats();
-        columnStats2.setNdv(20);
-        columnStats1.setNumNulls(10);
-        ColumnStats columnStats3 = new ColumnStats();
-        columnStats3.setNdv(50);
-        columnStats3.setNumNulls(20);
         long tableId1 = 0;
         String tableName1 = "t1";
         TableStats tableStats1 = new TableStats();
         tableStats1.putColumnStats("c1", columnStats1);
-        long tableId2 = 1;
-        String tableName2 = "t2";
-        TableStats tableStats2 = new TableStats();
-        tableStats2.putColumnStats("c2", columnStats2);
-        tableStats2.putColumnStats("c3", columnStats3);
         Statistics statistics = new Statistics();
         statistics.putTableStats(tableId1, tableStats1);
-        statistics.putTableStats(tableId2, tableStats2);
-
+        List<String> qualifier = new ArrayList<>();
+        qualifier.add("test");
+        qualifier.add("t");
+        SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
         new Expectations() {{
-            ConnectContext.get();
-            result = context;
-            context.getEnv();
-            result = env;
-            env.getStatisticsJobManager();
-            result = statisticsManager;
-            statisticsManager.getStatistics();
-            result = statistics;
-        }};
+                ConnectContext.get();
+                result = context;
+                context.getEnv();
+                result = env;
+                env.getStatisticsManager();
+                result = statisticsManager;
+                statisticsManager.getStatistics();
+                result = statistics;
+            }};
 
         Table table1 = new Table(tableId1, tableName1, TableType.OLAP, Collections.emptyList());
-        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(table1, Collections.emptyList());
-        Table table2 = new Table(tableId2, tableName2, TableType.OLAP, Collections.emptyList());
-        LogicalOlapScan logicalOlapScan2 = new LogicalOlapScan(table2, Collections.emptyList());
-
-
+        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(table1, Collections.emptyList()).withLogicalProperties(
+                Optional.of(new LogicalProperties(new Supplier<List<Slot>>() {
+                    @Override
+                    public List<Slot> get() {
+                        return Arrays.asList(slot1);
+                    }
+                })));
+        Group childGroup = new Group();
+        GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, Arrays.asList(childGroup));
+        Group ownerGroup = new Group();
+        groupExpression.setOwnerGroup(ownerGroup);
+        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
+        statsCalculator.estimate();
+        StatsDeriveResult stats = ownerGroup.getStatistics();
+        Assert.assertEquals(1, stats.getSlotToColumnStats().size());
+        Assert.assertNotNull(stats.getSlotToColumnStats().get(slot1));
     }
 
 }
