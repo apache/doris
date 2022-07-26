@@ -19,11 +19,10 @@
 
 #include <fmt/format.h>
 #include <parallel_hashmap/phmap.h>
+#include <service/brpc_conflict.h>
 
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-
-#include <service/brpc_conflict.h>
 // After brpc_conflict.h
 #include <bthread/bthread.h>
 
@@ -205,7 +204,14 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     DCHECK(_limiter_tracker);
     if (CheckLimit) {
 #ifndef BE_TEST
-        DCHECK(!_check_attach || btls_key != EMPTY_BTLS_KEY2 || _limiter_tracker->label() != "Process");
+        // When all threads are started, `attach_limiter_tracker` is expected to be called to bind the limiter tracker.
+        // If _check_attach is true and it is not in the brpc server (the protobuf will be operated when bthread is started),
+        // it will check whether the tracker label is equal to the default "Process" when flushing.
+        // If you do not want this check, set_check_attach=true
+        // TODO(zxy) The current p0 test cannot guarantee that all threads are checked,
+        // so disable it and try to open it when memory tracking is not on time.
+        DCHECK(!_check_attach || btls_key != EMPTY_BTLS_KEY ||
+               _limiter_tracker->label() != "Process");
 #endif
         Status st = _limiter_tracker->try_consume(_untracked_mem);
         if (!st) {

@@ -67,11 +67,12 @@ MemTrackerLimiter* MemTrackerTaskPool::get_task_mem_tracker(const std::string& t
 }
 
 void MemTrackerTaskPool::logout_task_mem_tracker() {
+    // https://github.com/apache/doris/issues/10006
+    // when parallel querying, after phmap _task_mem_trackers.erase,
+    // there have been cases where the key still exists in _task_mem_trackers.
+    std::lock_guard<std::mutex> l(_logout_task_lock);
     for (auto it = _task_mem_trackers.begin(); it != _task_mem_trackers.end();) {
-        if (!it->second) {
-            // https://github.com/apache/incubator-doris/issues/10006
-            _task_mem_trackers._erase(it++);
-        } else if (it->second->remain_child_count() == 0 && it->second->had_child_count() != 0) {
+        if (it->second->remain_child_count() == 0 && it->second->had_child_count() != 0) {
             // No RuntimeState uses this task MemTracker, it is only referenced by this map,
             // and tracker was not created soon, delete it.
             //

@@ -373,8 +373,8 @@ Status DiskIoMgr::init(const int64_t mem_limit) {
             ss << "work-loop(Disk: " << i << ", Thread: " << j << ")";
             // _disk_thread_group.AddThread(new Thread("disk-io-mgr", ss.str(),
             //             &DiskIoMgr::work_loop, this, _disk_queues[i]));
-            _disk_thread_group.add_thread(new std::thread(
-                    std::bind(&DiskIoMgr::work_loop, this, _disk_queues[i])));
+            _disk_thread_group.add_thread(
+                    new std::thread(std::bind(&DiskIoMgr::work_loop, this, _disk_queues[i])));
         }
     }
     _request_context_cache.reset(new RequestContextCache(this));
