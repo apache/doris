@@ -504,7 +504,8 @@ public class ConnectContext {
 
     // kill operation with no protect.
     public void kill(boolean killConnection) {
-        LOG.warn("kill query from {}, kill connection: {}", getMysqlChannel().getRemoteHostPortString(), killConnection);
+        LOG.warn("kill query from {}, kill connection: {}", getMysqlChannel().getRemoteHostPortString(),
+                killConnection);
 
         if (killConnection) {
             isKilled = true;
@@ -552,8 +553,9 @@ public class ConnectContext {
     // Helper to dump connection information.
     public ThreadInfo toThreadInfo(boolean isFull) {
         if (threadInfo == null) {
-            threadInfo = new ThreadInfo(isFull);
+            threadInfo = new ThreadInfo();
         }
+        threadInfo.isFull = isFull;
         return threadInfo;
     }
 
@@ -583,11 +585,7 @@ public class ConnectContext {
     }
 
     public class ThreadInfo {
-        private boolean isFull;
-
-        public ThreadInfo(boolean isFull) {
-            this.isFull = isFull;
-        }
+        public boolean isFull;
 
         public List<String> toRow(long nowMs) {
             List<String> row = Lists.newArrayList();
@@ -617,3 +615,4 @@ public class ConnectContext {
     }
 
 }
+
