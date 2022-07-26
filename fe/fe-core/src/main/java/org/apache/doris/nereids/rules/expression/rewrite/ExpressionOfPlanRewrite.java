@@ -87,10 +87,10 @@ public class ExpressionOfPlanRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalAggregate().then(agg -> {
-                List<Expression> groupByExprs = agg.getGroupByExpressionList();
+                List<Expression> groupByExprs = agg.getGroupByExpressions();
                 List<Expression> newGroupByExprs = rewriter.rewrite(groupByExprs);
 
-                List<NamedExpression> outputExpressions = agg.getOutputExpressionList();
+                List<NamedExpression> outputExpressions = agg.getOutputExpressions();
                 List<NamedExpression> newOutputExpressions = outputExpressions.stream()
                         .map(expr -> (NamedExpression) rewriter.rewrite(expr)).collect(Collectors.toList());
                 if (outputExpressions.containsAll(newOutputExpressions)) {
