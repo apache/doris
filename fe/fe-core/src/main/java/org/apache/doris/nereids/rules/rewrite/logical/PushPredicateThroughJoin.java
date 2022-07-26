@@ -97,6 +97,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
                 if (slots.isEmpty()) {
                     leftPredicates.add(p);
                     rightPredicates.add(p);
+                    continue;
                 }
                 if (leftInput.containsAll(slots)) {
                     leftPredicates.add(p);
