@@ -21,18 +21,17 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
 import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
-import org.apache.doris.nereids.jobs.batch.NormalizeExpressionRulesJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.batch.PredicatePushDownRulesJob;
-import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -106,14 +105,25 @@ public class NereidsPlanner extends Planner {
                 // cascades style optimize phase.
                 .setJobContext(outputProperties);
 
+        finalizeAnalyze();
         rewrite();
         // TODO: remove this condition, when stats collector is fully developed.
         if (ConnectContext.get().getSessionVariable().isEnableNereidsCBO()) {
             deriveStats();
         }
         optimize();
-        // Get plan directly. Just for SSB.
         return getRoot().extractPlan();
+    }
+
+    /**
+     * Analyze: bind references according to metadata in the catalog, perform semantic analysis, etc.
+     */
+    private void analyze() {
+        new AnalyzeRulesJob(plannerContext).execute();
+    }
+
+    private void finalizeAnalyze() {
+        new FinalizeAnalyzeJob(plannerContext).execute();
     }
 
     /**
