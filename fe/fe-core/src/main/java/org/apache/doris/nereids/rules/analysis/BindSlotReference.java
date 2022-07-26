@@ -256,7 +256,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
      */
     private class BoundStar extends NamedExpression {
         public BoundStar(List<Slot> children) {
-            super(ExpressionType.BOUND_STAR, children.toArray(new Slot[0]));
+            super(children.toArray(new Slot[0]));
             Preconditions.checkArgument(children.stream().allMatch(slot -> !(slot instanceof UnboundSlot)),
                     "BoundStar can not wrap UnboundSlot"
             );
