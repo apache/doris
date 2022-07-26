@@ -24,12 +24,15 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.ArrayList;
+
 public class IndexDefTest {
     private IndexDef def;
 
     @Before
     public void setUp() throws Exception {
-        def = new IndexDef("index1", false, Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, "balabala");
+        def = new IndexDef("index1", false, Lists.newArrayList("col1"),
+            IndexDef.IndexType.BITMAP, new ArrayList<>(), "balabala");
     }
 
     @Test
@@ -46,7 +49,7 @@ public class IndexDefTest {
                             + "x1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxx"
                             + "xxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxx"
                             + "xxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxx", false,
-                    Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP,
+                    Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, new ArrayList<>(),
                     "balabala");
             def.analyze();
             Assert.fail("No exception throws.");
@@ -54,7 +57,8 @@ public class IndexDefTest {
             Assert.assertTrue(e instanceof AnalysisException);
         }
         try {
-            def = new IndexDef("", false, Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, "balabala");
+            def = new IndexDef("", false, Lists.newArrayList("col1"),
+                IndexDef.IndexType.BITMAP, new ArrayList<>(), "balabala");
             def.analyze();
             Assert.fail("No exception throws.");
         } catch (AnalysisException e) {

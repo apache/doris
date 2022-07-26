@@ -144,6 +144,7 @@ set(OLAP_TEST_FILES
     olap/bloom_filter_column_predicate_test.cpp
     olap/comparison_predicate_test.cpp
     olap/in_list_predicate_test.cpp
+    olap/itoken_extractor_test.cpp
     olap/null_predicate_test.cpp
     olap/file_helper_test.cpp
     olap/file_utils_test.cpp

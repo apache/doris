@@ -125,6 +125,17 @@ public:
         return test_hash(code);
     }
 
+    /// Checks if this contains everything from another bloom filter.
+    /// Bloom filters must have equal size and seed.
+    bool contains(const BloomFilter& that) const {
+        for (size_t i = 0; i < _num_bytes; ++i) {
+            if ((_data[i] & that._data[i]) != that._data[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     char* data() const { return _data; }
 
     uint32_t num_bytes() const { return _num_bytes; }

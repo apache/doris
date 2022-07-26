@@ -116,7 +116,8 @@ enum THdfsCompression {
 }
 
 enum TIndexType {
-  BITMAP
+  BITMAP, 
+  NGRAM_BF
 }
 
 // Mapping from names defined by Avro to the enum.
@@ -193,6 +194,7 @@ struct TOlapTableIndex {
   2: optional list<string> columns
   3: optional TIndexType index_type
   4: optional string comment
+  5: optional list<Exprs.TExpr> arguments
 }
 
 struct TTabletLocation {

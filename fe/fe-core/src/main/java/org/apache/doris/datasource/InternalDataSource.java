@@ -1774,6 +1774,8 @@ public class InternalDataSource implements DataSourceIf<Database> {
             throw new DdlException(e.getMessage());
         }
 
+        Index.checkConflict(stmt.getIndexes(), bfColumns);
+
         // analyze replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
         if (replicaAlloc.isNotSet()) {

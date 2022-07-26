@@ -1213,6 +1213,8 @@ public class SchemaChangeHandler extends AlterHandler {
             bfFpp = 0;
         }
 
+        Index.checkConflict(newSet, bfColumns);
+
         // property 3: timeout
         long timeoutSecond = PropertyAnalyzer.analyzeTimeout(propertyMap, Config.alter_table_timeout_second);
 
@@ -2011,9 +2013,13 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             existedIdxColSet.addAll(existedIdx.getColumns());
-            if (newColset.equals(existedIdxColSet)) {
+            if (existedIdx.getIndexType() == indexDef.getIndexType() && newColset.equals(existedIdxColSet)) {
                 throw new DdlException(
-                        "index for columns (" + String.join(",", indexDef.getColumns()) + " ) already exist.");
+                    indexDef.getIndexType()
+                    + " index for columns ("
+                    + String.join(",", indexDef.getColumns())
+                    + " ) already exist."
+                );
             }
         }
 
@@ -2022,7 +2028,7 @@ public class SchemaChangeHandler extends AlterHandler {
             if (column != null) {
                 indexDef.checkColumn(column, olapTable.getKeysType());
             } else {
-                throw new DdlException("BITMAP column does not exist in table. invalid column: " + col);
+                throw new DdlException("index column does not exist in table. invalid column: " + col);
             }
         }
 
