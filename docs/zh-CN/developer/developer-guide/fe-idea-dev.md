@@ -32,15 +32,6 @@ under the License.
 
 安装 JDK1.8+ ，使用 IntelliJ IDEA 打开 FE.
 
-#### MacOS下载
-
-1. `brew install --cask temurin`
-2. `brew tap homebrew/cask-versions`
-3. `sudo softwareupdate --install-rosetta`
-4. `brew install --cask temurin8`
-
-不能使用高版本的jdk，最好使用jdk8或者是jdk11，否则可能会有maven构建失败。
-
 ### thrift
 
 如果仅进行fe开发而没有编译过thirdparty，则需要安装thrift，并将thrift 复制或者连接到 `thirdparty/installed/bin` 目录下
