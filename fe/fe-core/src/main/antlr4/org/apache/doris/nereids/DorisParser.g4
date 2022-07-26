@@ -64,6 +64,7 @@ queryTerm
 queryPrimary
     : querySpecification                                                    #queryPrimaryDefault
     | TABLE multipartIdentifier                                             #table
+    | LEFT_PAREN query RIGHT_PAREN                                          #subquery
     ;
 
 querySpecification
@@ -171,6 +172,7 @@ expression
 
 booleanExpression
     : NOT booleanExpression                                         #logicalNot
+    | EXISTS LEFT_PAREN query RIGHT_PAREN                           #exist
     | valueExpression predicate?                                    #predicated
     | left=booleanExpression operator=AND right=booleanExpression   #logicalBinary
     | left=booleanExpression operator=OR right=booleanExpression    #logicalBinary
@@ -179,6 +181,8 @@ booleanExpression
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP) pattern=valueExpression
+    | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
+    | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     ;
 
 valueExpression
