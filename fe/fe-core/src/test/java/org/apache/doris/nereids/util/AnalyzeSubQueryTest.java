@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -124,6 +126,15 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testPlan() throws AnalysisException {
+        System.out.println(new NereidsPlanner(connectContext).plan(
+                parser.parseSingle(testSql.get(10)),
+                new PhysicalProperties(),
+                connectContext
+        ).treeString());
+    }
+
     private void checkAnalyze(String sql) {
         LogicalPlan analyzed = analyze(sql);
         System.out.println(analyzed.treeString());
@@ -215,3 +226,24 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     }
 }
 
+/*
+CREATE TABLE T1 (
+    ID bigint,
+    SCORE bigint
+)
+DUPLICATE KEY(id)
+DISTRIBUTED BY HASH(id) BUCKETS 1
+PROPERTIES (
+    "replication_num" = "1"
+);
+
+CREATE TABLE T2 (
+    ID bigint,
+    SCORE bigint
+)
+DUPLICATE KEY(id)
+DISTRIBUTED BY HASH(id) BUCKETS 1
+PROPERTIES (
+    "replication_num" = "1"
+);
+ */
