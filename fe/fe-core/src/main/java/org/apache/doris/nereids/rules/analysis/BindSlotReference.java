@@ -26,7 +26,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -74,8 +73,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 ),
                 RuleType.BINDING_AGGREGATE_SLOT.build(
                         logicalAggregate().then(agg -> {
-                            List<Expression> groupBy = bind(agg.getGroupByExpressionList(), agg.children(), agg);
-                            List<NamedExpression> output = bind(agg.getOutputExpressionList(), agg.children(), agg);
+                            List<Expression> groupBy = bind(agg.getGroupByExpressions(), agg.children(), agg);
+                            List<NamedExpression> output = bind(agg.getOutputExpressions(), agg.children(), agg);
                             return agg.withGroupByAndOutput(groupBy, output);
                         })
                 ),
