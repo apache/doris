@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -93,7 +93,7 @@ public class CreateDataSyncJobStmt extends DdlStmt {
         for (ChannelDescription channelDescription : channelDescriptions) {
             channelDescription.analyze(dbName);
             String tableName = channelDescription.getTargetTable();
-            Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+            Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
             OlapTable olapTable = db.getOlapTableOrAnalysisException(tableName);
             if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
                 throw new AnalysisException("Table: " + tableName

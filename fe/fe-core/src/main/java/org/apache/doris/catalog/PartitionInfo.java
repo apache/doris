@@ -342,7 +342,7 @@ public class PartitionInfo implements Writable {
                 idToDataProperty.put(partitionId, DataProperty.read(in));
             }
 
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
                 short replicationNum = in.readShort();
                 ReplicaAllocation replicaAlloc = new ReplicaAllocation(replicationNum);
                 idToReplicaAllocation.put(partitionId, replicaAlloc);

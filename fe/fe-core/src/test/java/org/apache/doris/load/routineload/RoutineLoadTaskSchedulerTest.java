@@ -18,7 +18,7 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.LoadColumnsInfo;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -47,7 +47,7 @@ public class RoutineLoadTaskSchedulerTest {
     @Mocked
     private RoutineLoadManager routineLoadManager;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private AgentTaskExecutor agentTaskExecutor;
 
@@ -83,10 +83,10 @@ public class RoutineLoadTaskSchedulerTest {
 
         new Expectations() {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
-                catalog.getRoutineLoadManager();
+                result = env;
+                env.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
 

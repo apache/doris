@@ -27,8 +27,8 @@ import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -405,7 +405,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public String getDbFullName() throws MetaNotFoundException {
-        return Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId).getFullName();
+        return Env.getCurrentInternalCatalog().getDbOrMetaException(dbId).getFullName();
     }
 
     public long getTableId() {
@@ -413,7 +413,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public String getTableName() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         return database.getTableOrMetaException(tableId).getName();
     }
 
@@ -635,7 +635,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     // so task can no longer be committed successfully.
                     // the already committed task will not be handled here.
                     RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo);
-                    Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
+                    Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
                 }
             }
         } finally {
@@ -785,20 +785,20 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     private void initPlanner() throws UserException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         planner = new StreamLoadPlanner(db,
             (OlapTable) db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
     }
 
     public TExecPlanFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
         Preconditions.checkNotNull(planner);
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         table.readLock();
         try {
             TExecPlanFragmentParams planParams = planner.plan(loadId);
             // add table indexes to transaction state
-            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
+            TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
             if (txnState == null) {
                 throw new MetaNotFoundException("txn does not exist: " + txnId);
             }
@@ -968,7 +968,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
             // create new task
             RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
-            Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
+            Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
         } finally {
             writeUnlock();
         }
@@ -1083,7 +1083,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (state == JobState.RUNNING) {
             if (txnStatus == TransactionStatus.ABORTED) {
                 RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
-                Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
+                Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
             } else if (txnStatus == TransactionStatus.COMMITTED) {
                 // this txn is just COMMITTED, create new task when the this txn is VISIBLE
                 // or if publish version task has some error,
@@ -1155,11 +1155,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
 
         if (state.isFinalState()) {
-            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
+            Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
         }
 
         if (!isReplay && jobState != JobState.RUNNING) {
-            Catalog.getCurrentCatalog().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
+            Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
         }
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                          .add("current_job_state", getState())
@@ -1201,7 +1201,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public void update() throws UserException {
         // check if db and table exist
-        Database database = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+        Database database = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (database == null) {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                              .add("db_id", dbId)
@@ -1282,7 +1282,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected abstract String getLag();
 
     public List<String> getShowInfo() {
-        Optional<Database> database = Catalog.getCurrentInternalCatalog().getDb(dbId);
+        Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
         Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
 
 
@@ -1327,8 +1327,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         List<List<String>> rows = Lists.newArrayList();
         routineLoadTaskInfoList.forEach(entity -> {
             try {
-                entity.setTxnStatus(Catalog.getCurrentCatalog().getGlobalTransactionMgr()
-                        .getDatabaseTransactionMgr(dbId).getTransactionState(entity.getTxnId()).getTransactionStatus());
+                entity.setTxnStatus(Env.getCurrentEnv().getGlobalTransactionMgr().getDatabaseTransactionMgr(dbId)
+                        .getTransactionState(entity.getTxnId()).getTransactionStatus());
                 rows.add(entity.getTaskShowInfo());
             } catch (AnalysisException e) {
                 LOG.warn("failed to setTxnStatus db: {}, txnId: {}, err: {}", dbId, entity.getTxnId(), e.getMessage());
@@ -1338,7 +1338,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public String getShowCreateInfo() {
-        Optional<Database> database = Catalog.getCurrentInternalCatalog().getDb(dbId);
+        Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
         Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
         StringBuilder sb = new StringBuilder();
         // 1.job_name
@@ -1431,7 +1431,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public List<String> getShowStatistic() {
-        Optional<Database> database = Catalog.getCurrentInternalCatalog().getDb(dbId);
+        Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
 
         List<String> row = Lists.newArrayList();
         row.add(name);
@@ -1591,7 +1591,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         pauseTimestamp = in.readLong();
         endTimestamp = in.readLong();
 
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_101) {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_101) {
             this.jobStatistic.currentErrorRows = in.readLong();
             this.jobStatistic.currentTotalRows = in.readLong();
             this.jobStatistic.errorRows = in.readLong();
@@ -1633,7 +1633,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_110) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_110) {
             if (in.readBoolean()) {
                 userIdentity = UserIdentity.read(in);
                 userIdentity.setIsAnalyzed();
