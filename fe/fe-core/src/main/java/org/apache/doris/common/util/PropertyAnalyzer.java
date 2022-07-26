@@ -454,22 +454,22 @@ public class PropertyAnalyzer {
     }
 
     public static Boolean analyzeUseLightSchemaChange(Map<String, String> properties) throws AnalysisException {
-        String useSchemaChange = "";
-        if (properties != null && properties.containsKey(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE)) {
-            useSchemaChange = properties.get(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE);
-            properties.remove(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE);
-        } else {
-            useSchemaChange = "true";
+        if (properties == null || properties.isEmpty()) {
+            return false;
         }
-        boolean ret;
-        if (useSchemaChange.equalsIgnoreCase("true")) {
-            ret = true;
-        } else if (useSchemaChange.equalsIgnoreCase("false")) {
-            ret = false;
-        } else {
-            throw new AnalysisException("unknown light schema change option: " + useSchemaChange);
+        String value = properties.get(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE);
+        // set light schema change true by default
+        if (null == value) {
+            return true;
         }
-        return ret;
+        properties.remove(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE
+                + " must be `true` or `false`");
     }
 
     // analyzeCompressionType will parse the compression type from properties
