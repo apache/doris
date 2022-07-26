@@ -45,7 +45,7 @@ import java.util.List;
  * Table metadata representing a catalog view or a local view from a WITH clause.
  * Most methods inherited from Table are not supposed to be called on this class because
  * views are substituted with their underlying definition during analysis of a statement.
- * <p>
+ *
  * Refreshing or invalidating a view will reload the view's definition but will not
  * affect the metadata of the underlying tables (if any).
  */
