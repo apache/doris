@@ -57,6 +57,8 @@ public class JoinEstimation {
         return statsDeriveResult;
     }
 
+    // TODO: If the condition of Join Plan could any expression in addition to EqualTo type,
+    //       we should handle that properly.
     private static long getSemiJoinRowCount(StatsDeriveResult leftStats, StatsDeriveResult rightStats,
             List<Expression> eqConjunctList, JoinType joinType) {
         long rowCount;
