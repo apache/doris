@@ -1,0 +1,50 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <memory>
+
+#include "common/status.h"
+#include "exec/schema_scanner.h"
+#include "olap/rowset/rowset.h"
+#include "runtime/mem_pool.h"
+#include "runtime/runtime_state.h"
+namespace doris {
+class SchemaSegmentsScanner : public SchemaScanner {
+public:
+    SchemaSegmentsScanner();
+    ~SchemaSegmentsScanner() override = default;
+
+    using SegmentFooterPBPtr = std::shared_ptr<segment_v2::SegmentFooterPB>;
+    Status start(RuntimeState* state) override;
+    Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos) override;
+
+private:
+    Status transverSegments();
+    Status fill_one_row(Tuple* tuple, MemPool* pool);
+
+private:
+    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    std::vector<RowsetSharedPtr> rowsets_;
+    std::vector<std::vector<SegmentFooterPBPtr>> segment_footer_PBs_;
+    // used for traversing rowsets_
+    int rowsets_idx_ = 0;
+    // used for traversing segment_footer_PBs_
+    int segment_footer_PB_idx_ = 0;
+};
+} // namespace doris

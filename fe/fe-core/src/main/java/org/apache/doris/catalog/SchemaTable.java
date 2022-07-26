@@ -384,7 +384,21 @@ public class SchemaTable extends Table {
                                     .column("ORIGINATOR", ScalarType.createType(PrimitiveType.INT))
                                     .column("CHARACTER_SET_CLIENT", ScalarType.createVarchar(32))
                                     .column("COLLATION_CONNECTION", ScalarType.createVarchar(32))
-                                    .column("DATABASE_COLLATION", ScalarType.createVarchar(32)).build())).build();
+                                    .column("DATABASE_COLLATION", ScalarType.createVarchar(32)).build()))
+            .put("segments", new SchemaTable(SystemIdGenerator.getNextId(), "segments", TableType.SCHEMA,
+                            builder().column("ROWSET_ID", ScalarType.createVarchar(64))
+                                    .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ROWSET_NUM_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TXN_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("PARTITION_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("NUM_SEGMENTS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("START_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("END_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("INDEX_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("DATA_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SEGMENT_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SEGMENTS_NUM_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build())).build();
     private SchemaTableType schemaTableType;
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {

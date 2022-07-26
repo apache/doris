@@ -1,0 +1,194 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "exec/schema_scanner/schema_segments_scanner.h"
+
+#include <cstddef>
+
+#include "common/status.h"
+#include "gutil/integral_types.h"
+#include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
+#include "olap/segment_loader.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet.h"
+#include "runtime/descriptors.h"
+#include "runtime/primitive_type.h"
+#include "runtime/string_value.h"
+namespace doris {
+SchemaScanner::ColumnDesc SchemaSegmentsScanner::_s_tbls_columns[] = {
+        //   name,       type,          size,     is_null
+        {"ROWSET_ID", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"TABLET_ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"ROWSET_NUM_ROWS", TYPE_BIGINT, sizeof(int64_t), true},
+        {"TXN_ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"PARTITION_ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"NUM_SEGMENTS", TYPE_BIGINT, sizeof(int64_t), true},
+        {"START_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
+        {"END_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
+        // size_t or int64_t???
+        {"INDEX_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
+        {"DATA_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
+        {"SEGMENT_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
+        {"SEGMENTS_NUM_ROWS", TYPE_BIGINT, sizeof(int64_t), true},
+};
+
+SchemaSegmentsScanner::SchemaSegmentsScanner()
+        : SchemaScanner(_s_tbls_columns,
+                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
+          rowsets_idx_(0),
+          segment_footer_PB_idx_(0) {};
+
+Status SchemaSegmentsScanner::start(RuntimeState* state) {
+    if (!_is_init) {
+        return Status::InternalError("used before initialized.");
+    }
+    RETURN_IF_ERROR(transverSegments());
+    return Status::OK();
+}
+
+Status SchemaSegmentsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("Used before initialized.");
+    }
+    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+    while (segment_footer_PB_idx_ >= segment_footer_PBs_[rowsets_idx_].size()) {
+        ++rowsets_idx_;
+        if (rowsets_idx_ < rowsets_.size()) {
+            segment_footer_PB_idx_ = 0;
+        } else {
+            *eos = true;
+            return Status::OK();
+        }
+    }
+    *eos = false;
+    return fill_one_row(tuple, pool);
+}
+
+Status SchemaSegmentsScanner::transverSegments() {
+    std::vector<TabletSharedPtr> tablets =
+            StorageEngine::instance()->tablet_manager()->get_all_tablet();
+    for (const auto& tablet : tablets) {
+        TabletMetaSharedPtr tabletMetas = tablet->tablet_meta();
+        // all rowset Meta
+        // std::vector<RowsetMetaSharedPtr> RowsetMetas = tabletMetas->all_rs_metas();
+
+        RowsetSharedPtr rowset = nullptr;
+        // max version rowset
+        {
+            std::shared_lock rowset_ldlock(tablet->get_header_lock());
+            rowset = tablet->get_rowset_by_version(tabletMetas->max_version());
+        }
+
+        // get segments of rowset
+        SegmentCacheHandle cache_handle;
+        Status st = SegmentLoader::instance()->load_segments(
+                std::dynamic_pointer_cast<BetaRowset>(rowset), &cache_handle);
+        if (!st.ok()) {
+            return st;
+        }
+
+        rowsets_.emplace_back(rowset);
+
+        std::vector<SegmentFooterPBPtr> segments;
+        for (auto& seg_ptr : cache_handle.get_segments()) {
+            // must handle all segments
+            SegmentFooterPBPtr segment_footer =
+                    std::make_shared<SegmentFooterPB>(seg_ptr->footer());
+            segments.emplace_back(segment_footer);
+        }
+        segment_footer_PBs_.emplace_back(segments);
+        LOG(INFO) << "--ftw: segments.size = " << segments.size();
+    }
+    return Status::OK();
+}
+
+Status SchemaSegmentsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
+    // set all bit to not null
+    memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
+    RowsetSharedPtr rowset = rowsets_[rowsets_idx_];
+    SegmentFooterPBPtr segment_footer = segment_footer_PBs_[rowsets_idx_][segment_footer_PB_idx_];
+    // ROWSET_ID
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        std::string rowset_id = rowset->rowset_meta()->rowset_id().to_string();
+        str_slot->ptr = (char*)pool->allocate(rowset_id.size());
+        str_slot->len = rowset_id.size();
+        memcpy(str_slot->ptr, rowset_id.c_str(), str_slot->len);
+    }
+    // TABLET_ID
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = rowset->rowset_meta()->tablet_id();
+    }
+    // ROWSET_NUM_ROWS
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = rowset->num_rows();
+    }
+    // TXN_ID
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = rowset->txn_id();
+    }
+    // PARTITION_ID
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = rowset->partition_id();
+    }
+    // NUM_SEGMENTS
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[5]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = rowset->num_segments();
+    }
+    // START_VERSION
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[6]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = rowset->start_version();
+    }
+    // END_VERSION
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = rowset->end_version();
+    }
+    // INDEX_DISK_SIZE
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
+        *(reinterpret_cast<size_t*>(slot)) = rowset->index_disk_size();
+    }
+    // DATA_DISK_SIZE
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
+        *(reinterpret_cast<size_t*>(slot)) = rowset->data_disk_size();
+    }
+    // SEGMENT_VERSION
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[10]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = static_cast<int64_t>(segment_footer->version());
+    }
+    // SEGMENTS_NUM_ROWS
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[11]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = segment_footer->num_rows();
+    }
+    ++segment_footer_PB_idx_;
+    return Status::OK();
+}
+} // namespace doris
