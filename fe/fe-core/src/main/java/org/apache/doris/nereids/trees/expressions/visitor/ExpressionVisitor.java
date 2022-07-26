@@ -33,9 +33,11 @@ import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
@@ -53,6 +55,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
@@ -203,6 +206,18 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitCaseWhen(CaseWhen caseWhen, C context) {
         return visit(caseWhen, context);
+    }
+
+    public R visitInSubquery(InSubquery in, C context) {
+        return visitSubqueryExpr(in, context);
+    }
+
+    public R visitExistsSubquery(Exists exists, C context) {
+        return visitSubqueryExpr(exists, context);
+    }
+
+    public R visitSubqueryExpr(SubqueryExpr subqueryExpr, C context) {
+        return visit(subqueryExpr, context);
     }
 
     /* ********************************************************************************************
