@@ -23,8 +23,8 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
@@ -70,7 +70,7 @@ public class LoadingTaskPlanner {
     private UserIdentity userInfo;
     // Something useful
     // ConnectContext here is just a dummy object to avoid some NPE problem, like ctx.getDatabase()
-    private Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), new ConnectContext());
+    private Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), new ConnectContext());
     private DescriptorTable descTable = analyzer.getDescTbl();
 
     // Output params
@@ -95,8 +95,8 @@ public class LoadingTaskPlanner {
         this.loadParallelism = loadParallelism;
         this.sendBatchParallelism = sendBatchParallelism;
         this.userInfo = userInfo;
-        if (Catalog.getCurrentCatalog().getAuth()
-                .checkDbPriv(userInfo, Catalog.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
+        if (Env.getCurrentEnv().getAuth()
+                .checkDbPriv(userInfo, Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
                         PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
         } else {

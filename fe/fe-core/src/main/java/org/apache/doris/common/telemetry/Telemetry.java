@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.telemetry;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 
 import io.opentelemetry.api.OpenTelemetry;
@@ -62,9 +62,9 @@ public class Telemetry {
         String httpUrl = Config.trace_export_url;
         SpanExporter spanExporter = zipkinExporter(httpUrl);
 
-        String serviceName = "FRONTEND:" + Catalog.getCurrentCatalog().getSelfNode().first;
-        Resource serviceNameResource =
-                Resource.create(Attributes.of(AttributeKey.stringKey("service.name"), serviceName));
+        String serviceName = "FRONTEND:" + Env.getCurrentEnv().getSelfNode().first;
+        Resource serviceNameResource = Resource.create(
+                Attributes.of(AttributeKey.stringKey("service.name"), serviceName));
         // Send a batch of spans if ScheduleDelay time or MaxExportBatchSize is reached
         BatchSpanProcessor spanProcessor =
                 BatchSpanProcessor.builder(spanExporter).setScheduleDelay(100, TimeUnit.MILLISECONDS)

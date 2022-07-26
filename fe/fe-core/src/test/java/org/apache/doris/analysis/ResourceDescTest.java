@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.AnalysisException;
@@ -36,7 +36,7 @@ import java.util.Map;
 public class ResourceDescTest {
 
     @Test
-    public void testNormal(@Mocked Catalog catalog, @Injectable ResourceMgr resourceMgr)
+    public void testNormal(@Mocked Env env, @Injectable ResourceMgr resourceMgr)
             throws AnalysisException, DdlException {
         String resourceName = "spark0";
         Map<String, String> properties = Maps.newHashMap();
@@ -48,7 +48,7 @@ public class ResourceDescTest {
 
         new Expectations() {
             {
-                catalog.getResourceMgr();
+                env.getResourceMgr();
                 result = resourceMgr;
                 resourceMgr.getResource(resourceName);
                 result = resource;
@@ -62,13 +62,13 @@ public class ResourceDescTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoResource(@Mocked Catalog catalog, @Injectable ResourceMgr resourceMgr) throws AnalysisException {
+    public void testNoResource(@Mocked Env env, @Injectable ResourceMgr resourceMgr) throws AnalysisException {
         String resourceName = "spark1";
         ResourceDesc resourceDesc = new ResourceDesc(resourceName, null);
 
         new Expectations() {
             {
-                catalog.getResourceMgr();
+                env.getResourceMgr();
                 result = resourceMgr;
                 resourceMgr.getResource(resourceName);
                 result = null;
