@@ -71,14 +71,10 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
 
             Expression wherePredicates = filter.getPredicates();
-            Expression onPredicates = BooleanLiteral.TRUE;
+            Expression onPredicates = join.getCondition().orElse(BooleanLiteral.TRUE);
 
             List<Expression> otherConditions = Lists.newArrayList();
             List<Expression> eqConditions = Lists.newArrayList();
-
-            if (join.getCondition().isPresent()) {
-                onPredicates = join.getCondition().get();
-            }
 
             List<Slot> leftInput = join.left().getOutput();
             List<Slot> rightInput = join.right().getOutput();
