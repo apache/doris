@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -105,5 +108,24 @@ public class NereidsParserTest {
         ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
         ExplainLevel explainLevel = explainCommand.getLevel();
         Assertions.assertEquals(ExplainLevel.GRAPH, explainLevel);
+    }
+
+    @Test
+    public void testParseSQL() {
+        String sql = "select `AD``D` from t1 where a = 1;explain graph select `AD``D` from t1 where a = 1;";
+        NereidsParser nereidsParser = new NereidsParser();
+        List<StatementBase> statementBases = nereidsParser.parseSQL(sql);
+        Assertions.assertEquals(2, statementBases.size());
+        Assertions.assertTrue(statementBases.get(0) instanceof LogicalPlanAdapter);
+        Assertions.assertTrue(statementBases.get(1) instanceof LogicalPlanAdapter);
+        LogicalPlan logicalPlan0 = ((LogicalPlanAdapter) statementBases.get(0)).getLogicalPlan();
+        LogicalPlan logicalPlan1 = ((LogicalPlanAdapter) statementBases.get(1)).getLogicalPlan();
+        Assertions.assertTrue(logicalPlan0 instanceof LogicalProject);
+        Assertions.assertTrue(logicalPlan1 instanceof LogicalProject);
+        Assertions.assertNull(statementBases.get(0).getExplainOptions());
+        Assertions.assertNotNull(statementBases.get(1).getExplainOptions());
+        ExplainOptions explainOptions = statementBases.get(1).getExplainOptions();
+        Assertions.assertTrue(explainOptions.isGraph());
+        Assertions.assertFalse(explainOptions.isVerbose());
     }
 }

@@ -49,7 +49,7 @@ public class NereidsParser {
      * a single packet.
      * https://dev.mysql.com/doc/internals/en/com-set-option.html
      */
-    public List<StatementBase> parseSQL(String originStr) throws Exception {
+    public List<StatementBase> parseSQL(String originStr) {
         List<LogicalPlan> logicalPlans = parseMultiple(originStr);
         List<StatementBase> statementBases = new ArrayList<>();
         for (LogicalPlan logicalPlan : logicalPlans) {
