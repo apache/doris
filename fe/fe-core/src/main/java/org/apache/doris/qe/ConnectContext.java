@@ -444,7 +444,7 @@ public class ConnectContext {
     public void setDatabase(String db) {
         currentDb = db;
         Optional<DatabaseIf> dbInstance = getCurrentDataSource().getDb(db);
-        currentDbId = dbInstance.isPresent() ? dbInstance.get().getId() : -1;
+        currentDbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
     }
 
     public void setExecutor(StmtExecutor executor) {
