@@ -45,7 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class PropertyAnalyzerTest {
+public class PropertyNereidsAnalyzerTest {
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
 
