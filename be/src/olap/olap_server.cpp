@@ -44,20 +44,20 @@ volatile uint32_t g_schema_change_active_threads = 0;
 Status StorageEngine::start_bg_threads() {
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "unused_rowset_monitor_thread",
-            [this]() { this->_unused_rowset_monitor_thread_callback(); },
+            [this]() { SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE); this->_unused_rowset_monitor_thread_callback(); },
             &_unused_rowset_monitor_thread));
     LOG(INFO) << "unused rowset monitor thread started";
 
     // start thread for monitoring the snapshot and trash folder
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "garbage_sweeper_thread",
-            [this]() { this->_garbage_sweeper_thread_callback(); }, &_garbage_sweeper_thread));
+            [this]() { SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE); this->_garbage_sweeper_thread_callback(); }, &_garbage_sweeper_thread));
     LOG(INFO) << "garbage sweeper thread started";
 
     // start thread for monitoring the tablet with io error
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "disk_stat_monitor_thread",
-            [this]() { this->_disk_stat_monitor_thread_callback(); }, &_disk_stat_monitor_thread));
+            [this]() { SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE); this->_disk_stat_monitor_thread_callback(); }, &_disk_stat_monitor_thread));
     LOG(INFO) << "disk stat monitor thread started";
 
     // convert store map to vector
@@ -82,7 +82,7 @@ Status StorageEngine::start_bg_threads() {
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "compaction_tasks_producer_thread",
-            [this]() { this->_compaction_tasks_producer_callback(); },
+            [this]() { SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE); this->_compaction_tasks_producer_callback(); },
             &_compaction_tasks_producer_thread));
     LOG(INFO) << "compaction tasks producer thread started";
     int32_t max_checkpoint_thread_num = config::max_meta_checkpoint_threads;
@@ -95,14 +95,14 @@ Status StorageEngine::start_bg_threads() {
 
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "tablet_checkpoint_tasks_producer_thread",
-            [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },
+            [this, data_dirs]() { SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE); this->_tablet_checkpoint_callback(data_dirs); },
             &_tablet_checkpoint_tasks_producer_thread));
     LOG(INFO) << "tablet checkpoint tasks producer thread started";
 
     // fd cache clean thread
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "fd_cache_clean_thread",
-            [this]() { this->_fd_cache_clean_callback(); }, &_fd_cache_clean_thread));
+            [this]() { SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE); this->_fd_cache_clean_callback(); }, &_fd_cache_clean_thread));
     LOG(INFO) << "fd cache clean thread started";
 
     // path scan and gc thread
@@ -111,14 +111,20 @@ Status StorageEngine::start_bg_threads() {
             scoped_refptr<Thread> path_scan_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_scan_thread",
-                    [this, data_dir]() { this->_path_scan_thread_callback(data_dir); },
+                    [this, data_dir]() {
+                        SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE);
+                        this->_path_scan_thread_callback(data_dir);
+                    },
                     &path_scan_thread));
             _path_scan_threads.emplace_back(path_scan_thread);
 
             scoped_refptr<Thread> path_gc_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_gc_thread",
-                    [this, data_dir]() { this->_path_gc_thread_callback(data_dir); },
+                    [this, data_dir]() {
+                        SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE);
+                        this->_path_gc_thread_callback(data_dir);
+                    },
                     &path_gc_thread));
             _path_gc_threads.emplace_back(path_gc_thread);
         }
@@ -133,7 +139,7 @@ Status StorageEngine::start_bg_threads() {
 
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "cooldown_tasks_producer_thread",
-            [this]() { this->_cooldown_tasks_producer_callback(); },
+            [this]() { SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE); this->_cooldown_tasks_producer_callback(); },
             &_cooldown_tasks_producer_thread));
     LOG(INFO) << "cooldown tasks producer thread started";
 

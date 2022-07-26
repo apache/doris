@@ -55,7 +55,7 @@ struct WriteRequest {
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriter {
 public:
-    static Status open(WriteRequest* req, DeltaWriter** writer, MemTrackerLimiter* parent_tracker,
+    static Status open(WriteRequest* req, DeltaWriter** writer, MemTrackerLimiter* parent_tracker = nullptr,
                        bool is_vec = false);
 
     ~DeltaWriter();

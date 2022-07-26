@@ -23,7 +23,14 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 
+#include <service/brpc_conflict.h>
+// After brpc_conflict.h
+#include <bthread/bthread.h>
+
 namespace doris {
+
+extern bthread_key_t btls_key;
+static const bthread_key_t EMPTY_BTLS_KEY = {0, 0};
 
 using ExceedCallBack = void (*)();
 struct MemExceedCallBackInfo {
@@ -113,6 +120,7 @@ public:
     MemTrackerLimiter* limiter_mem_tracker() { return _limiter_tracker; }
 
     void set_check_limit(bool check_limit) { _check_limit = check_limit; }
+    void set_check_attach(bool check_attach) { _check_attach = check_attach; }
 
     std::string print_debug_string() {
         fmt::memory_buffer consumer_tracker_buf;
@@ -144,6 +152,7 @@ private:
     bool _check_limit = false;
     // If there is a memory new/delete operation in the consume method, it may enter infinite recursion.
     bool _stop_consume = false;
+    bool _check_attach = true;
     std::string _task_id;
     TUniqueId _fragment_instance_id;
     MemExceedCallBackInfo _exceed_cb;
@@ -195,6 +204,9 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     _stop_consume = true;
     DCHECK(_limiter_tracker);
     if (CheckLimit) {
+#ifndef BE_TEST
+        DCHECK(!_check_attach || btls_key != EMPTY_BTLS_KEY2 || _limiter_tracker->label() != "Process");
+#endif
         Status st = _limiter_tracker->try_consume(_untracked_mem);
         if (!st) {
             // The memory has been allocated, so when TryConsume fails, need to continue to complete

@@ -43,7 +43,6 @@ class TUniqueId;
 class ThreadContext;
 
 extern bthread_key_t btls_key;
-static const bthread_key_t EMPTY_BTLS_KEY = {0, 0};
 
 // Using gcc11 compiles thread_local variable on lower versions of GLIBC will report an error,
 // see https://github.com/apache/doris/pull/7911
