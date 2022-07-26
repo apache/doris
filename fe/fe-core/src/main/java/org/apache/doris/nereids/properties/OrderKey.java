@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 import java.util.Objects;
 
