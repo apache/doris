@@ -61,6 +61,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         this(joinType, condition, Optional.empty(), Optional.empty(), leftChild, rightChild);
     }
 
+    public LogicalJoin(JoinType joinType, Optional<Expression> condition,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, JoinReorderContext joinReorderContext) {
+        this(joinType, condition, Optional.empty(), Optional.empty(), leftChild, rightChild);
+        this.joinReorderContext.copyFrom(joinReorderContext);
+    }
+
     /**
      * Constructor for LogicalJoinPlan.
      *

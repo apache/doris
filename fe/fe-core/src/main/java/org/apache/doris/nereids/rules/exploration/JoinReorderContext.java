@@ -20,32 +20,78 @@ package org.apache.doris.nereids.rules.exploration;
 
 /**
  * JoinReorderContext for Duplicate free.
- * Paper: Improving Join Reorderability with Compensation Operators
+ * Paper:
+ * - Optimizing Join Enumeration in Transformation-based Query Optimizers
+ * - Improving Join Reorderability with Compensation Operators
  */
 public class JoinReorderContext {
     // left deep tree
     private boolean hasCommute = false;
-    private boolean hasTopPushThrough = false;
+
+    // zig-zag tree
+    private boolean hasCommuteZigZag = false;
+
+    // bushy tree
+    private boolean hasExchange = false;
+    private boolean hasRightAssociate = false;
+    private boolean hasLeftAssociate = false;
 
     public JoinReorderContext() {
     }
 
-    void copyFrom(JoinReorderContext joinReorderContext) {
+    public void copyFrom(JoinReorderContext joinReorderContext) {
         this.hasCommute = joinReorderContext.hasCommute;
-        this.hasTopPushThrough = joinReorderContext.hasTopPushThrough;
+        this.hasExchange = joinReorderContext.hasExchange;
+        this.hasLeftAssociate = joinReorderContext.hasLeftAssociate;
+        this.hasRightAssociate = joinReorderContext.hasRightAssociate;
+        this.hasCommuteZigZag = joinReorderContext.hasCommuteZigZag;
     }
 
-    JoinReorderContext copy() {
-        JoinReorderContext joinReorderContext = new JoinReorderContext();
-        joinReorderContext.copyFrom(this);
-        return joinReorderContext;
+    public void clear() {
+        hasCommute = false;
+        hasCommuteZigZag = false;
+        hasExchange = false;
+        hasRightAssociate = false;
+        hasLeftAssociate = false;
     }
 
-    public boolean isHasCommute() {
+    public boolean hasCommute() {
         return hasCommute;
     }
 
-    public boolean isHasTopPushThrough() {
-        return hasTopPushThrough;
+    public void setHasCommute(boolean hasCommute) {
+        this.hasCommute = hasCommute;
+    }
+
+    public boolean hasExchange() {
+        return hasExchange;
+    }
+
+    public void setHasExchange(boolean hasExchange) {
+        this.hasExchange = hasExchange;
+    }
+
+    public boolean hasRightAssociate() {
+        return hasRightAssociate;
+    }
+
+    public void setHasRightAssociate(boolean hasRightAssociate) {
+        this.hasRightAssociate = hasRightAssociate;
+    }
+
+    public boolean hasLeftAssociate() {
+        return hasLeftAssociate;
+    }
+
+    public void setHasLeftAssociate(boolean hasLeftAssociate) {
+        this.hasLeftAssociate = hasLeftAssociate;
+    }
+
+    public boolean hasCommuteZigZag() {
+        return hasCommuteZigZag;
+    }
+
+    public void setHasCommuteZigZag(boolean hasCommuteZigZag) {
+        this.hasCommuteZigZag = hasCommuteZigZag;
     }
 }

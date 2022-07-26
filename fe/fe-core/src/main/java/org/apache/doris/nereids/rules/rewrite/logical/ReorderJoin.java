@@ -191,7 +191,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         public Void visitLogicalFilter(LogicalFilter<Plan> filter, Void context) {
             Plan child = filter.child();
             if (child instanceof LogicalJoin) {
-                conjuncts.addAll(ExpressionUtils.extractConjunct(filter.getPredicates()));
+                conjuncts.addAll(ExpressionUtils.extractConjunctive(filter.getPredicates()));
             }
 
             child.accept(this, context);
@@ -207,7 +207,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             join.left().accept(this, context);
             join.right().accept(this, context);
 
-            join.getCondition().ifPresent(cond -> conjuncts.addAll(ExpressionUtils.extractConjunct(cond)));
+            join.getCondition().ifPresent(cond -> conjuncts.addAll(ExpressionUtils.extractConjunctive(cond)));
             if (!(join.left() instanceof LogicalJoin)) {
                 joinInputs.add(join.left());
             }
