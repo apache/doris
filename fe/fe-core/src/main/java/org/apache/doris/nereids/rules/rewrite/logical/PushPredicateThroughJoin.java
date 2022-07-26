@@ -42,28 +42,29 @@ import java.util.Set;
 
 /**
  * Push the predicate in the LogicalFilter or LogicalJoin to the join children.
- * For example:
- * select a.k1,b.k1 from a join b on a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5 where a.k1 > 1 and b.k1 > 2
- * Logical plan tree:
- *                 project
- *                   |
- *                filter (a.k1 > 1 and b.k1 > 2)
- *                   |
- *                join (a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5)
- *                 /   \
- *              scan  scan
- * transformed:
- *                      project
- *                        |
- *                join (a.k1 = b.k1)
- *                /                \
- * filter(a.k1 > 1 and a.k2 > 2 )   filter(b.k1 > 2 and b.k2 > 5)
- *             |                                    |
- *            scan                                scan
  * todo: Now, only support eq on condition for inner join, support other case later
  */
 public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
-
+    /*
+     * For example:
+     * select a.k1,b.k1 from a join b on a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5 where a.k1 > 1 and b.k1 > 2
+     * Logical plan tree:
+     *                 project
+     *                   |
+     *                filter (a.k1 > 1 and b.k1 > 2)
+     *                   |
+     *                join (a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5)
+     *                 /   \
+     *              scan  scan
+     * transformed:
+     *                      project
+     *                        |
+     *                join (a.k1 = b.k1)
+     *                /                \
+     * filter(a.k1 > 1 and a.k2 > 2 )   filter(b.k1 > 2 and b.k2 > 5)
+     *             |                                    |
+     *            scan                                scan
+     */
     @Override
     public Rule build() {
         return logicalFilter(innerLogicalJoin()).then(filter -> {
@@ -79,13 +80,14 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             List<Slot> leftInput = join.left().getOutput();
             List<Slot> rightInput = join.right().getOutput();
 
-            ExpressionUtils.extractConjunct(ExpressionUtils.and(onPredicates, wherePredicates)).forEach(predicate -> {
-                if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))) {
-                    eqConditions.add(predicate);
-                } else {
-                    otherConditions.add(predicate);
-                }
-            });
+            ExpressionUtils.extractConjunctive(ExpressionUtils.and(onPredicates, wherePredicates))
+                    .forEach(predicate -> {
+                        if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))) {
+                            eqConditions.add(predicate);
+                        } else {
+                            otherConditions.add(predicate);
+                        }
+                    });
 
             List<Expression> leftPredicates = Lists.newArrayList();
             List<Expression> rightPredicates = Lists.newArrayList();

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -36,14 +37,26 @@ import java.util.Set;
  */
 public class ExpressionUtils {
 
-    public static List<Expression> extractConjunct(Expression expr) {
+    public static List<Expression> extractConjunctive(Expression expr) {
         return extract(And.class, expr);
     }
 
-    public static List<Expression> extractDisjunct(Expression expr) {
+    public static List<Expression> extractDisjunctive(Expression expr) {
         return extract(Or.class, expr);
     }
 
+    /**
+     * Split predicates with `And/Or` form recursively.
+     * Some examples for `And`:
+     * <p>
+     * a and b -> a, b
+     * (a and b) and c -> a, b, c
+     * (a or b) and (c and d) -> (a or b), c , d
+     * <p>
+     * Stop recursion when meeting `Or`, so this func will ignore `And` inside `Or`.
+     * Warning examples:
+     * (a and b) or c -> (a and b) or c
+     */
     public static List<Expression> extract(CompoundPredicate expr) {
         return extract(expr.getClass(), expr);
     }
@@ -84,6 +97,12 @@ public class ExpressionUtils {
      * Use AND/OR to combine expressions together.
      */
     public static Expression combine(Class<? extends Expression> type, List<Expression> expressions) {
+        /*
+         *             (AB) (CD) E   ((AB)(CD))  E     (((AB)(CD))E)
+         *               ▲   ▲   ▲       ▲       ▲          ▲
+         *               │   │   │       │       │          │
+         * A B C D E ──► A B C D E ──► (AB) (CD) E ──► ((AB)(CD)) E ──► (((AB)(CD))E)
+         */
         Preconditions.checkArgument(type == And.class || type == Or.class);
         Objects.requireNonNull(expressions, "expressions is null");
 
@@ -101,5 +120,43 @@ public class ExpressionUtils {
         return distinctExpressions.stream()
                 .reduce(type == And.class ? And::new : Or::new)
                 .orElse(new BooleanLiteral(type == And.class));
+    }
+
+    /**
+     * Check whether lhs and rhs (both are List of SlotReference) are intersecting.
+     */
+    public static boolean isIntersecting(List<SlotReference> lhs, List<SlotReference> rhs) {
+        for (SlotReference lSlot : lhs) {
+            for (SlotReference rSlot : rhs) {
+                if (lSlot.equals(rSlot)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether `List of SlotReference` contains a `SlotReference`.
+     */
+    public static boolean contains(List<SlotReference> list, SlotReference item) {
+        for (SlotReference slotRefInList : list) {
+            if (item.equals(slotRefInList)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether `List of SlotReference` contains all another `List of SlotReference`.
+     */
+    public static boolean containsAll(List<SlotReference> large, List<SlotReference> small) {
+        for (SlotReference slotRefInSmall : small) {
+            if (!contains(large, slotRefInSmall)) {
+                return false;
+            }
+        }
+        return true;
     }
 }
