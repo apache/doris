@@ -41,7 +41,7 @@ public class JoinEstimation {
             Expression eqCondition, JoinType joinType) {
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(leftStats);
         statsDeriveResult.merge(rightStats);
-        List<Expression> eqConjunctList = ExpressionUtils.extractConjunct(eqCondition);
+        List<Expression> eqConjunctList = ExpressionUtils.extractConjunctive(eqCondition);
         long rowCount = -1;
         if (joinType.isSemiOrAntiJoin()) {
             rowCount = getSemiJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);
