@@ -139,9 +139,9 @@ TabletStorageType OlapScanner::get_storage_type() {
     if (local_reader == total_reader) {
         return TabletStorageType::STORAGE_TYPE_LOCAL;
     } else if (local_reader == 0) {
-        return TabletStorageType::STORAGE_TYPE_S3;
+        return TabletStorageType::STORAGE_TYPE_REMOTE;
     }
-    return TabletStorageType::STORAGE_TYPE_S3_AND_LOCAL;
+    return TabletStorageType::STORAGE_TYPE_REMOTE_AND_LOCAL;
 }
 
 Status OlapScanner::open() {

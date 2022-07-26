@@ -1502,7 +1502,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
      * 4. Regularly increase the priority of the remaining tasks in the queue to avoid starvation for large queries
      *********************************/
     PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
-    PriorityThreadPool* s3_thread_pool = state->exec_env()->s3_scan_thread_pool();
+    PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
     _total_assign_num = 0;
     _nice = 18 + std::max(0, 2 - (int)_olap_scanners.size() / 5);
     std::list<OlapScanner*> olap_scanners;
@@ -1588,7 +1588,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                 if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
                     ret = thread_pool->offer(task);
                 } else {
-                    ret = s3_thread_pool->offer(task);
+                    ret = remote_thread_pool->offer(task);
                 }
 
                 if (ret) {

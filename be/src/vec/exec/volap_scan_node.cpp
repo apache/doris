@@ -1878,7 +1878,7 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
     // post volap scanners to thread-pool
     PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
     auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
-    PriorityThreadPool* s3_thread_pool = state->exec_env()->s3_scan_thread_pool();
+    PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
     auto iter = olap_scanners.begin();
     while (iter != olap_scanners.end()) {
         PriorityThreadPool::Task task;
@@ -1896,7 +1896,7 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
         if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
             ret = thread_pool->offer(task);
         } else {
-            ret = s3_thread_pool->offer(task);
+            ret = remote_thread_pool->offer(task);
         }
 
         if (ret) {
