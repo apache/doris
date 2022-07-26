@@ -1151,6 +1151,7 @@ void SegmentIterator::_update_max_row(const vectorized::Block* block) {
 
 Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
     DCHECK(_opts.record_rowids);
+    DCHECK_GE(_block_rowids.size(), _current_batch_rows_read);
     uint32_t sid = segment_id();
     if (!_is_need_vec_eval && !_is_need_short_eval) {
         block_row_locations->resize(_current_batch_rows_read);
