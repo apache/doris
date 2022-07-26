@@ -27,6 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 
 /**
  * Bind symbols according to metadata in the catalog, perform semantic analysis, etc.
+ * TODO: revisit the interface after subquery analysis is supported.
  */
 public class NereidsAnalyzer {
     private final ConnectContext connectContext;
