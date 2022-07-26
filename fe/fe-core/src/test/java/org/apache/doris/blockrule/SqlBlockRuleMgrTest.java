@@ -20,7 +20,7 @@ package org.apache.doris.blockrule;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
@@ -61,7 +61,7 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
                         + "PARTITION p20211216 VALUES [('2021-12-16 00:00:00'), ('2021-12-17 00:00:00'))\n" + ")\n"
                         + "DISTRIBUTED BY HASH(k1)\n" + "BUCKETS 10\n" + "PROPERTIES (\n"
                         + "\"replication_num\" = \"1\"\n" + ");");
-        mgr = Catalog.getCurrentCatalog().getSqlBlockRuleMgr();
+        mgr = Env.getCurrentEnv().getSqlBlockRuleMgr();
     }
 
     @Test
@@ -74,9 +74,9 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         // sql block rules
         String setPropertyStr = "set property for \"root\" \"sql_block_rules\" = \"test_rule\"";
         SetUserPropertyStmt setUserPropertyStmt = (SetUserPropertyStmt) parseAndAnalyzeStmt(setPropertyStr);
-        Catalog.getCurrentCatalog().getAuth().updateUserProperty(setUserPropertyStmt);
+        Env.getCurrentEnv().getAuth().updateUserProperty(setUserPropertyStmt);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql match hash sql block rule: test_rule",
-                () -> Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(sql, sqlHash, "root"));
+                () -> Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(sql, sqlHash, "root"));
         dropSqlBlockRule(dropSqlRule);
     }
 
@@ -209,7 +209,7 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 String.format("the sql block rule %s not exist", ruleName),
-                () -> Catalog.getCurrentCatalog().getAuth().updateUserProperty(setUserPropertyStmt));
+                () -> Env.getCurrentEnv().getAuth().updateUserProperty(setUserPropertyStmt));
 
     }
 

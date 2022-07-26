@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.ssb;
 
-import org.apache.doris.utframe.TestWithFeService;
+import org.apache.doris.nereids.tpch.AnalyzeCheckTestBase;
 
-public abstract class SSBTestBase extends TestWithFeService {
+public abstract class SSBTestBase extends AnalyzeCheckTestBase {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");

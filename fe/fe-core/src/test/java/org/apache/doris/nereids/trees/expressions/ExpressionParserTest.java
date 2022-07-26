@@ -146,4 +146,34 @@ public class ExpressionParserTest {
         String caseWhen2 = "select case when a = 1 then 2 else 3 end from test";
         assertSql(caseWhen2);
     }
+
+    @Test
+    public void testInSubquery() throws Exception {
+        String in = "select * from test where a in (select * from test1 where a = 0)";
+        assertSql(in);
+
+        String inExpr = "a in (select * from test where b = 1)";
+        assertExpr(inExpr);
+
+        String notIn = "select * from test where a not in (select * from test1 where a = 0)";
+        assertSql(notIn);
+
+        String notInExpr = "a not in (select * from test where b = 1)";
+        assertExpr(notInExpr);
+    }
+
+    @Test
+    public void testExist() throws Exception {
+        String exist = "select * from test where exists (select * from test where a = 1)";
+        assertSql(exist);
+
+        String existExpr = "exists (select * from test where b = 1)";
+        assertExpr(existExpr);
+
+        String notExist = "select * from test where not exists (select * from test where a = 1)";
+        assertSql(notExist);
+
+        String notExistExpr = "not exists (select * from test where b = 1)";
+        assertExpr(notExistExpr);
+    }
 }

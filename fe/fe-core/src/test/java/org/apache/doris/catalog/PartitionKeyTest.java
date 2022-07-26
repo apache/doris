@@ -49,7 +49,7 @@ public class PartitionKeyTest {
     private static Column varchar;
     private static Column bool;
 
-    private Catalog catalog;
+    private Env env;
 
     @BeforeClass
     public static void setUp() {
@@ -198,8 +198,8 @@ public class PartitionKeyTest {
 
     @Test
     public void testSerialization() throws Exception {
-        FakeCatalog fakeCatalog = new FakeCatalog(); // CHECKSTYLE IGNORE THIS LINE
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        FakeEnv fakeEnv = new FakeEnv(); // CHECKSTYLE IGNORE THIS LINE
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
 
         // 1. Write objects to file
         File file = new File("./keyRangePartition");

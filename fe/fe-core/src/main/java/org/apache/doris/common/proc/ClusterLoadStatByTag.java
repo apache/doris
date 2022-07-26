@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -68,9 +68,9 @@ public class ClusterLoadStatByTag implements ProcDirInterface {
 
     private Set<Tag> genTagMap() {
         Set<Tag> tags = Sets.newHashSet();
-        List<Long> beIds = Catalog.getCurrentSystemInfo().getBackendIds(false);
+        List<Long> beIds = Env.getCurrentSystemInfo().getBackendIds(false);
         for (long beId : beIds) {
-            Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+            Backend be = Env.getCurrentSystemInfo().getBackend(beId);
             if (be != null) {
                 tags.add(be.getLocationTag());
             }

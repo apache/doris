@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
@@ -156,7 +156,7 @@ public class ExportStmt extends StatementBase {
         }
 
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(),
                                                                 tblName.getDb(), tblName.getTbl(),
                                                                 PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "EXPORT",
@@ -166,7 +166,7 @@ public class ExportStmt extends StatementBase {
         }
 
         // check table && partitions whether exist
-        checkTable(analyzer.getCatalog());
+        checkTable(analyzer.getEnv());
 
         // check broker whether exist
         if (brokerDesc == null) {
@@ -178,11 +178,11 @@ public class ExportStmt extends StatementBase {
         // check path is valid
         path = checkPath(path, brokerDesc.getStorageType());
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
-            if (!analyzer.getCatalog().getBrokerMgr().containsBroker(brokerDesc.getName())) {
+            if (!analyzer.getEnv().getBrokerMgr().containsBroker(brokerDesc.getName())) {
                 throw new AnalysisException("broker " + brokerDesc.getName() + " does not exist");
             }
 
-            FsBroker broker = analyzer.getCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());
+            FsBroker broker = analyzer.getEnv().getBrokerMgr().getAnyBroker(brokerDesc.getName());
             if (broker == null) {
                 throw new AnalysisException("failed to get alive broker");
             }
@@ -192,8 +192,8 @@ public class ExportStmt extends StatementBase {
         checkProperties(properties);
     }
 
-    private void checkTable(Catalog catalog) throws AnalysisException {
-        Database db = catalog.getInternalDataSource().getDbOrAnalysisException(tblName.getDb());
+    private void checkTable(Env env) throws AnalysisException {
+        Database db = env.getInternalDataSource().getDbOrAnalysisException(tblName.getDb());
         Table table = db.getTableOrAnalysisException(tblName.getTbl());
         table.readLock();
         try {

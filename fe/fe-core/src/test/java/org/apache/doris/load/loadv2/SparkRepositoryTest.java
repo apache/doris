@@ -18,7 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
@@ -55,7 +55,7 @@ public class SparkRepositoryTest {
     private List<TBrokerFileStatus> files;
 
     @Mocked
-    Catalog catalog;
+    Env env;
     @Mocked
     BrokerUtil brokerUtil;
 

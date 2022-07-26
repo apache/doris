@@ -33,8 +33,8 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -129,7 +129,7 @@ public abstract class TestWithFeService {
         ctx.setCurrentUserIdentity(user);
         ctx.setQualifiedUser(user.getQualifiedUser());
         ctx.setRemoteIP(host);
-        ctx.setCatalog(Catalog.getCurrentCatalog());
+        ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
         return ctx;
     }
@@ -144,7 +144,7 @@ public abstract class TestWithFeService {
         System.out.println("begin to parse stmt: " + originStmt);
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
-        Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
+        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         StatementBase statementBase = null;
         try {
             statementBase = SqlParserUtils.getFirstStmt(parser);
@@ -168,7 +168,7 @@ public abstract class TestWithFeService {
         SqlScanner input = new SqlScanner(new StringReader(originStmt),
                 connectContext.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
-        Analyzer analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
+        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
         List<StatementBase> statementBases = null;
         try {
             statementBases = SqlParserUtils.getMultiStmts(parser);
@@ -296,8 +296,7 @@ public abstract class TestWithFeService {
         backend.start();
 
         // add be
-        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(),
-                backend.getHeartbeatPort());
+        Backend be = new Backend(Env.getCurrentEnv().getNextId(), backend.getHost(), backend.getHeartbeatPort());
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setTotalCapacityB(1000000);
         diskInfo1.setAvailableCapacityB(500000);
@@ -310,7 +309,7 @@ public abstract class TestWithFeService {
         be.setBePort(beThriftPort);
         be.setHttpPort(beHttpPort);
         be.setBrpcPort(beBrpcPort);
-        Catalog.getCurrentSystemInfo().addBackend(be);
+        Env.getCurrentSystemInfo().addBackend(be);
         return be;
     }
 
@@ -384,7 +383,7 @@ public abstract class TestWithFeService {
     public void createDatabase(String db) throws Exception {
         String createDbStmtStr = "CREATE DATABASE " + db;
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
     }
 
     public void useDatabase(String dbName) {
@@ -409,43 +408,43 @@ public abstract class TestWithFeService {
 
     public void createTableAsSelect(String sql) throws Exception {
         CreateTableAsSelectStmt createTableAsSelectStmt = (CreateTableAsSelectStmt) parseAndAnalyzeStmt(sql);
-        Catalog.getCurrentCatalog().createTableAsSelect(createTableAsSelectStmt);
+        Env.getCurrentEnv().createTableAsSelect(createTableAsSelectStmt);
     }
 
     public void createTables(String... sqls) throws Exception {
         for (String sql : sqls) {
             CreateTableStmt stmt = (CreateTableStmt) parseAndAnalyzeStmt(sql);
-            Catalog.getCurrentCatalog().createTable(stmt);
+            Env.getCurrentEnv().createTable(stmt);
         }
     }
 
     public void createView(String sql) throws Exception {
         CreateViewStmt createViewStmt = (CreateViewStmt) parseAndAnalyzeStmt(sql);
-        Catalog.getCurrentCatalog().createView(createViewStmt);
+        Env.getCurrentEnv().createView(createViewStmt);
     }
 
     protected void createPolicy(String sql) throws Exception {
         CreatePolicyStmt createPolicyStmt = (CreatePolicyStmt) parseAndAnalyzeStmt(sql);
-        Catalog.getCurrentCatalog().getPolicyMgr().createPolicy(createPolicyStmt);
+        Env.getCurrentEnv().getPolicyMgr().createPolicy(createPolicyStmt);
     }
 
     protected void dropPolicy(String sql) throws Exception {
         DropPolicyStmt stmt = (DropPolicyStmt) parseAndAnalyzeStmt(sql);
-        Catalog.getCurrentCatalog().getPolicyMgr().dropPolicy(stmt);
+        Env.getCurrentEnv().getPolicyMgr().dropPolicy(stmt);
     }
 
     protected void createSqlBlockRule(String sql) throws Exception {
-        Catalog.getCurrentCatalog().getSqlBlockRuleMgr()
+        Env.getCurrentEnv().getSqlBlockRuleMgr()
                 .createSqlBlockRule((CreateSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
     }
 
     protected void alterSqlBlockRule(String sql) throws Exception {
-        Catalog.getCurrentCatalog().getSqlBlockRuleMgr()
+        Env.getCurrentEnv().getSqlBlockRuleMgr()
                 .alterSqlBlockRule((AlterSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
     }
 
     protected void dropSqlBlockRule(String sql) throws Exception {
-        Catalog.getCurrentCatalog().getSqlBlockRuleMgr()
+        Env.getCurrentEnv().getSqlBlockRuleMgr()
                 .dropSqlBlockRule((DropSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
     }
 

@@ -17,8 +17,8 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -64,7 +64,7 @@ public class PublishVersionDaemon extends MasterDaemon {
 
     private boolean isAllBackendsOfUnfinishedTasksDead(List<PublishVersionTask> unfinishedTasks) {
         for (PublishVersionTask unfinishedTask : unfinishedTasks) {
-            if (Catalog.getCurrentSystemInfo().checkBackendAlive(unfinishedTask.getBackendId())) {
+            if (Env.getCurrentSystemInfo().checkBackendAlive(unfinishedTask.getBackendId())) {
                 return false;
             }
         }
@@ -72,7 +72,7 @@ public class PublishVersionDaemon extends MasterDaemon {
     }
 
     private void publishVersion() {
-        GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         List<TransactionState> readyTransactionStates = globalTransactionMgr.getReadyToPublishTransactions();
         if (readyTransactionStates.isEmpty()) {
             return;
@@ -80,7 +80,7 @@ public class PublishVersionDaemon extends MasterDaemon {
 
         // ATTN, we publish transaction state to all backends including dead backend, if not publish to dead backend
         // then transaction manager will treat it as success
-        List<Long> allBackends = Catalog.getCurrentSystemInfo().getBackendIds(false);
+        List<Long> allBackends = Env.getCurrentSystemInfo().getBackendIds(false);
         if (allBackends.isEmpty()) {
             LOG.warn("some transaction state need to publish, but no backend exists");
             return;
@@ -136,7 +136,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             AgentTaskExecutor.submit(batchTask);
         }
 
-        TabletInvertedIndex tabletInvertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex tabletInvertedIndex = Env.getCurrentInvertedIndex();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
             Map<Long, PublishVersionTask> transTasks = transactionState.getPublishVersionTasks();
@@ -190,7 +190,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                             continue;
                         }
 
-                        Database db = Catalog.getCurrentInternalCatalog()
+                        Database db = Env.getCurrentInternalCatalog()
                                 .getDbNullable(transactionState.getDbId());
                         if (db == null) {
                             LOG.warn("Database [{}] has been dropped.", transactionState.getDbId());

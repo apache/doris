@@ -25,11 +25,11 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.RandomDistributionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DynamicPartitionProperty;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionItem;
@@ -383,7 +383,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             Pair<Long, Long> tableInfo = iterator.next();
             Long dbId = tableInfo.first;
             Long tableId = tableInfo.second;
-            Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 iterator.remove();
                 continue;
@@ -449,7 +449,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     continue;
                 }
                 try {
-                    Catalog.getCurrentCatalog().dropPartition(db, olapTable, dropPartitionClause);
+                    Env.getCurrentEnv().dropPartition(db, olapTable, dropPartitionClause);
                     clearDropPartitionFailedMsg(olapTable.getId());
                 } catch (Exception e) {
                     recordDropPartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
@@ -461,7 +461,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             if (!skipAddPartition) {
                 for (AddPartitionClause addPartitionClause : addPartitionClauses) {
                     try {
-                        Catalog.getCurrentCatalog().addPartition(db, tableName, addPartitionClause);
+                        Env.getCurrentEnv().addPartition(db, tableName, addPartitionClause);
                         clearCreatePartitionFailedMsg(olapTable.getId());
                     } catch (Exception e) {
                         recordCreatePartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
@@ -494,8 +494,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private void initDynamicPartitionTable() {
-        for (Long dbId : Catalog.getCurrentCatalog().getInternalDataSource().getDbIds()) {
-            Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+        for (Long dbId : Env.getCurrentEnv().getInternalDataSource().getDbIds()) {
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }

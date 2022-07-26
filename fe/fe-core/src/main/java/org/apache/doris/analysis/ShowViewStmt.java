@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.View;
@@ -92,7 +92,7 @@ public class ShowViewStmt extends ShowStmt {
         Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
 
         String dbName = tbl.getDb();
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(
                 ConnectContext.get(), dbName, getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW VIEW",
                     ConnectContext.get().getQualifiedUser(),
@@ -100,7 +100,7 @@ public class ShowViewStmt extends ShowStmt {
                     dbName + ": " + getTbl());
         }
 
-        Database database = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         database.getOlapTableOrAnalysisException(tbl.getTbl());
         for (Table table : database.getViews()) {
             View view = (View) table;

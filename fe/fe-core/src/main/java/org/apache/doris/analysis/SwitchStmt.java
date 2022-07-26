@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -51,7 +51,7 @@ public class SwitchStmt extends StatementBase {
 
         Util.checkCatalogAllRules(catalogName);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
+        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_CATALOG_ACCESS_DENIED, analyzer.getQualifiedUser(), catalogName);

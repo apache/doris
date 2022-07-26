@@ -29,8 +29,8 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DomainResolver;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -57,7 +57,7 @@ public class AuthTest {
 
     private PaloAuth auth;
     @Mocked
-    public Catalog catalog;
+    public Env env;
     @Mocked
     private Analyzer analyzer;
     @Mocked
@@ -107,15 +107,15 @@ public class AuthTest {
                 minTimes = 0;
                 result = InternalDataSource.INTERNAL_DS_NAME;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
