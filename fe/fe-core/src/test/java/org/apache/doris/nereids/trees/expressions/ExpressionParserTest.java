@@ -148,7 +148,6 @@ public class ExpressionParserTest {
     }
 
     @Test
-<<<<<<< HEAD
     public void testInSubquery() throws Exception {
         String in = "select * from test where a in (select * from test1 where a = 0)";
         assertSql(in);
