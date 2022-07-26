@@ -19,6 +19,8 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+import java.util.Objects;
+
 /**
  * Represents the order key of a statement.
  */
@@ -66,5 +68,22 @@ public class OrderKey {
     @Override
     public String toString() {
         return expr.toSql();
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(expr, isAsc, nullFirst);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        OrderKey that = (OrderKey) o;
+        return isAsc == that.isAsc() && nullFirst == that.isNullFirst() && expr.equals(that.getExpr());
     }
 }
