@@ -459,7 +459,7 @@ public class PartitionRange {
                 LiteralExpr newLiteral;
                 if (key.keyType == KeyType.DATE) {
                     try {
-                        newLiteral = new DateLiteral(key.toString(), Type.DATE);
+                        newLiteral = new DateLiteral(key.toString(), DateLiteral.getDefaultDateType(Type.DATE));
                     } catch (Exception e) {
                         LOG.warn("Date's format is error {},{}", key.toString(), e);
                         continue;

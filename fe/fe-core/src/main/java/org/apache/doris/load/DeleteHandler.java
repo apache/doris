@@ -37,6 +37,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -583,12 +584,17 @@ public class DeleteHandler implements Writable {
                         }
                     } else if (column.getDataType() == PrimitiveType.DATE
                             || column.getDataType() == PrimitiveType.DATETIME
-                            || column.getDataType() == PrimitiveType.DATEV2
-                            || column.getDataType() == PrimitiveType.DATETIMEV2) {
+                            || column.getDataType() == PrimitiveType.DATEV2) {
                         DateLiteral dateLiteral = new DateLiteral(value, Type.fromPrimitiveType(column.getDataType()));
                         value = dateLiteral.getStringValue();
                         binaryPredicate.setChild(1, LiteralExpr.create(value,
                                 Type.fromPrimitiveType(column.getDataType())));
+                    } else if (column.getDataType() == PrimitiveType.DATETIMEV2) {
+                        DateLiteral dateLiteral = new DateLiteral(value,
+                                ScalarType.createDecimalType(ScalarType.MAX_DATETIMEV2_SCALE));
+                        value = dateLiteral.getStringValue();
+                        binaryPredicate.setChild(1, LiteralExpr.create(value,
+                                ScalarType.createDecimalType(ScalarType.MAX_DATETIMEV2_SCALE)));
                     }
                     LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
                 } catch (AnalysisException e) {

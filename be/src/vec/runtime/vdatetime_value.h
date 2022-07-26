@@ -801,7 +801,7 @@ public:
     // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, int len);
+    bool from_date_str(const char* str, int len, int scale = -1);
 
     // Convert this value to string
     // this will check type to decide which format to convert

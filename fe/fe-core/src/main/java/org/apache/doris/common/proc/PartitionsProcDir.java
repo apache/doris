@@ -104,8 +104,10 @@ public class PartitionsProcDir implements ProcDirInterface {
                         type = Type.DATETIME;
                         break;
                     case DATEV2:
-                    case DATETIMEV2:
                         type = Type.DATETIMEV2;
+                        break;
+                    case DATETIMEV2:
+                        type = subExpr.getChild(1).getType();
                         break;
                     default:
                         throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
