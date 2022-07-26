@@ -483,4 +483,68 @@ TEST(VDateTimeValueTest, date_diff_test) {
     }
 }
 
+TEST(VDateTimeValueTest, date_v2_to_string_test) {
+    uint16_t year = 2022;
+    uint8_t month = 5;
+    uint8_t day = 24;
+    uint8_t hour = 23;
+    uint8_t minute = 50;
+    uint8_t second = 50;
+    uint32_t ms = 555000;
+
+    {
+        DateV2Value<DateV2ValueType> date_v2;
+        date_v2.set_time(year, month, day, 0, 0, 0, 0);
+
+        char buf[30];
+        int len = date_v2.to_buffer(buf);
+        EXPECT_TRUE(std::string(buf, len) == std::string("2022-05-24"));
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> date_v2;
+        date_v2.set_time(year, month, day, hour, minute, second, ms);
+
+        char buf[30];
+        int len = date_v2.to_buffer(buf);
+        EXPECT_TRUE(std::string(buf, len) == std::string("2022-05-24 23:50:50.555000"));
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> date_v2;
+        date_v2.set_time(year, month, day, hour, minute, second, ms);
+
+        char buf[30];
+        int len = date_v2.to_buffer(buf, 3);
+        EXPECT_TRUE(std::string(buf, len) == std::string("2022-05-24 23:50:50.555"));
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> date_v2;
+        date_v2.set_time(year, month, day, hour, minute, second, ms);
+
+        char buf[30];
+        int len = date_v2.to_buffer(buf, 2);
+        EXPECT_TRUE(std::string(buf, len) == std::string("2022-05-24 23:50:50.55"));
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> date_v2;
+        date_v2.set_time(year, month, day, hour, minute, second, ms);
+
+        char buf[30];
+        int len = date_v2.to_buffer(buf, 6);
+        EXPECT_TRUE(std::string(buf, len) == std::string("2022-05-24 23:50:50.555000"));
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> date_v2;
+        date_v2.set_time(year, month, day, hour, minute, second, 0);
+
+        char buf[30];
+        int len = date_v2.to_buffer(buf);
+        EXPECT_TRUE(std::string(buf, len) == std::string("2022-05-24 23:50:50"));
+    }
+}
+
 } // namespace doris::vectorized

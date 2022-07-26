@@ -1684,7 +1684,7 @@ bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uin
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, int len) {
+bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a sapce
@@ -1732,6 +1732,11 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len) {
         if (field_idx == 6) {
             // Microsecond
             temp_val *= std::pow(10, 6 - (end - start));
+            if constexpr (is_datetime) {
+                if (scale >= 0) {
+                    temp_val /= std::pow(10, 6 - scale);
+                }
+            }
         }
         // Imposible
         if (temp_val > 999999L) {
@@ -2258,15 +2263,15 @@ int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
         /* Second */
         *buffer++ = (char)('0' + (date_v2_value_.second_ / 10));
         *buffer++ = (char)('0' + (date_v2_value_.second_ % 10));
-        if (scale != 0) {
+        if (scale != 0 && date_v2_value_.microsecond_ > 0) {
             *buffer++ = '.';
-        }
-        /* Microsecond */
-        uint32_t ms = date_v2_value_.microsecond_;
-        int ms_width = scale == -1 ? 6 : std::min(6, scale);
-        for (int i = 0; i < ms_width; i++) {
-            *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
-            ms %= (uint32_t)std::pow(10, 5 - i);
+            /* Microsecond */
+            uint32_t ms = date_v2_value_.microsecond_;
+            int ms_width = scale == -1 ? 6 : std::min(6, scale);
+            for (int i = 0; i < ms_width; i++) {
+                *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
+                ms %= (uint32_t)std::pow(10, 5 - i);
+            }
         }
     }
     return buffer - start;
