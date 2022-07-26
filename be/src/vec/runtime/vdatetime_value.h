@@ -829,7 +829,7 @@ public:
         return calc_daynr(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_);
     }
 
-    int hour() const {
+    uint8_t hour() const {
         if constexpr (is_datetime) {
             return date_v2_value_.hour_;
         } else {
@@ -837,7 +837,7 @@ public:
         }
     }
 
-    int minute() const {
+    uint8_t minute() const {
         if constexpr (is_datetime) {
             return date_v2_value_.minute_;
         } else {
@@ -845,7 +845,7 @@ public:
         }
     }
 
-    int second() const {
+    uint8_t second() const {
         if constexpr (is_datetime) {
             return date_v2_value_.second_;
         } else {
@@ -853,7 +853,7 @@ public:
         }
     }
 
-    int microsecond() const {
+    uint32_t microsecond() const {
         if constexpr (is_datetime) {
             return date_v2_value_.microsecond_;
         } else {
@@ -912,9 +912,7 @@ public:
     bool date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value);
 
     template <TimeUnit unit>
-    bool date_add_interval(const TimeInterval& interval) {
-        return this->date_add_interval<unit>(interval, *this);
-    }
+    bool date_add_interval(const TimeInterval& interval);
 
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
