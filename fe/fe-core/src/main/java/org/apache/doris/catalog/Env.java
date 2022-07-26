@@ -34,6 +34,7 @@ import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
+import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -46,6 +47,7 @@ import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -67,6 +69,7 @@ import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
+import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -3587,6 +3590,10 @@ public class Env {
         this.alter.processAlterTable(stmt);
     }
 
+    public void alterMaterializedView(AlterMaterializedViewStmt stmt) throws UserException {
+        this.alter.processAlterMaterializedView(stmt);
+    }
+
     /**
      * used for handling AlterViewStmt (the ALTER VIEW command).
      */
@@ -3599,8 +3606,16 @@ public class Env {
         this.alter.processCreateMaterializedView(stmt);
     }
 
+    public void createMultiTableMaterializedView(CreateMultiTableMaterializedViewStmt stmt) throws AnalysisException {
+        this.alter.processCreateMultiTableMaterializedView(stmt);
+    }
+
     public void dropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         this.alter.processDropMaterializedView(stmt);
+    }
+
+    public void refreshMaterializedView(RefreshMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
+        this.alter.processRefreshMaterializedView(stmt);
     }
 
     /*
