@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.LoadException;
 
 import com.google.common.collect.Maps;
@@ -38,7 +38,7 @@ public class SparkYarnConfigFilesTest {
     private Map<String, String> properties;
 
     @Mocked
-    Catalog catalog;
+    Env env;
 
     @Before
     public void setUp() {

@@ -22,8 +22,8 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -102,7 +102,7 @@ public class RoutineLoadManager implements Writable {
     }
 
     public void updateBeIdToMaxConcurrentTasks() {
-        beIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo().getBackendIds(true).stream().collect(
+        beIdToMaxConcurrentTasks = Env.getCurrentSystemInfo().getBackendIds(true).stream().collect(
                 Collectors.toMap(beId -> beId, beId -> Config.max_routine_load_task_num_per_be));
     }
 
@@ -132,7 +132,7 @@ public class RoutineLoadManager implements Writable {
     public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt)
             throws UserException {
         // check load auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(),
                 createRoutineLoadStmt.getDBName(),
                 createRoutineLoadStmt.getTableName(),
                 PrivPredicate.LOAD)) {
@@ -173,7 +173,7 @@ public class RoutineLoadManager implements Writable {
             }
 
             unprotectedAddJob(routineLoadJob);
-            Catalog.getCurrentCatalog().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
+            Env.getCurrentEnv().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
             LOG.info("create routine load job: id: {}, name: {}", routineLoadJob.getId(), routineLoadJob.getName());
         } finally {
             writeUnlock();
@@ -195,7 +195,7 @@ public class RoutineLoadManager implements Writable {
         }
         routineLoadJobList.add(routineLoadJob);
         // add txn state callback in factory
-        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(routineLoadJob);
+        Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(routineLoadJob);
     }
 
     // TODO(ml): Idempotency
@@ -228,7 +228,7 @@ public class RoutineLoadManager implements Writable {
         } catch (MetaNotFoundException e) {
             throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
         }
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(),
                 dbFullName,
                 tableName,
                 PrivPredicate.LOAD)) {
@@ -245,7 +245,7 @@ public class RoutineLoadManager implements Writable {
             throws MetaNotFoundException, DdlException, AnalysisException {
 
         List<RoutineLoadJob> result = Lists.newArrayList();
-        Database database = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database database = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         long dbId = database.getId();
         Map<String, List<RoutineLoadJob>> jobMap = dbToNameToRoutineLoadJob.get(dbId);
         if (jobMap == null) {
@@ -257,7 +257,7 @@ public class RoutineLoadManager implements Writable {
             for (RoutineLoadJob job : jobs) {
                 if (!job.getState().isFinalState()) {
                     String tableName = job.getTableName();
-                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                    if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(),
                             dbName, tableName, PrivPredicate.LOAD)) {
                         continue;
                     }
@@ -382,7 +382,7 @@ public class RoutineLoadManager implements Writable {
     // throw exception if unrecoverable errors happen.
     // ATTN: this is only used for unit test now.
     public long getMinTaskBeId(String clusterName) throws LoadException {
-        List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
+        List<Long> beIdsInCluster = Env.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         if (beIdsInCluster == null) {
             throw new LoadException("The " + clusterName + " has been deleted");
         }
@@ -429,7 +429,7 @@ public class RoutineLoadManager implements Writable {
             // 1. Find if the given BE id has available slots
             if (previousBeId != -1L && availableBeIds.contains(previousBeId)) {
                 // get the previousBackend info
-                Backend previousBackend = Catalog.getCurrentSystemInfo().getBackend(previousBeId);
+                Backend previousBackend = Env.getCurrentSystemInfo().getBackend(previousBeId);
                 // check previousBackend is not null && load available
                 if (previousBackend != null && previousBackend.isLoadAvailable()) {
                     int idleTaskNum = 0;
@@ -494,7 +494,7 @@ public class RoutineLoadManager implements Writable {
             // For old job, there may be no user info. So we have to use tags from replica allocation
             tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
         } else {
-            tags = Catalog.getCurrentCatalog().getAuth().getResourceTags(job.getUserIdentity().getQualifiedUser());
+            tags = Env.getCurrentEnv().getAuth().getResourceTags(job.getUserIdentity().getQualifiedUser());
             if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
                 // user may be dropped, or may not set resource tag property.
                 // Here we fall back to use replica tag
@@ -503,12 +503,12 @@ public class RoutineLoadManager implements Writable {
         }
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().setCluster(cluster)
                 .addTags(tags).build();
-        return Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1 /* as many as possible */);
+        return Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1 /* as many as possible */);
     }
 
     private Set<Tag> getTagsFromReplicaAllocation(long dbId, long tblId) throws LoadException {
         try {
-            Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
             OlapTable tbl = (OlapTable) db.getTableOrMetaException(tblId, Table.TableType.OLAP);
             tbl.readLock();
             try {
@@ -563,7 +563,7 @@ public class RoutineLoadManager implements Writable {
                 break RESULT;
             }
 
-            Database database = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbFullName);
+            Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbFullName);
             long dbId = database.getId();
             if (!dbToNameToRoutineLoadJob.containsKey(dbId)) {
                 result = new ArrayList<>();
@@ -668,7 +668,7 @@ public class RoutineLoadManager implements Writable {
 
                     RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
                             routineLoadJob.getState());
-                    Catalog.getCurrentCatalog().getEditLog().logRemoveRoutineLoadJob(operation);
+                    Env.getCurrentEnv().getEditLog().logRemoveRoutineLoadJob(operation);
                     LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                             .add("end_timestamp", routineLoadJob.getEndTimestamp())
                             .add("current_timestamp", currentTimestamp)
@@ -777,7 +777,7 @@ public class RoutineLoadManager implements Writable {
             }
             jobs.add(routineLoadJob);
             if (!routineLoadJob.getState().isFinalState()) {
-                Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(routineLoadJob);
+                Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(routineLoadJob);
             }
         }
     }

@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -107,7 +107,7 @@ public class UpdateStmt extends DdlStmt {
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
         // check priv
-        if (!Catalog.getCurrentCatalog().getAuth()
+        if (!Env.getCurrentEnv().getAuth()
                 .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
         }
@@ -117,7 +117,7 @@ public class UpdateStmt extends DdlStmt {
         String targetTableName = tableName.getTbl();
         Preconditions.checkNotNull(dbName);
         Preconditions.checkNotNull(targetTableName);
-        Database database = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         targetTable = database.getTableOrAnalysisException(tableName.getTbl());
         if (targetTable.getType() != Table.TableType.OLAP
                 || ((OlapTable) targetTable).getKeysType() != KeysType.UNIQUE_KEYS) {

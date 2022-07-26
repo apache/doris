@@ -22,37 +22,37 @@ import org.apache.doris.system.SystemInfoService;
 import mockit.Mock;
 import mockit.MockUp;
 
-public class FakeCatalog extends MockUp<Catalog> {
+public class FakeEnv extends MockUp<Env> {
 
-    private static Catalog catalog;
+    private static Env env;
     private static int metaVersion;
     private static SystemInfoService systemInfo = new SystemInfoService();
 
-    public static void setCatalog(Catalog catalog) {
-        FakeCatalog.catalog = catalog;
+    public static void setEnv(Env env) {
+        FakeEnv.env = env;
     }
 
     public static void setMetaVersion(int metaVersion) {
-        FakeCatalog.metaVersion = metaVersion;
+        FakeEnv.metaVersion = metaVersion;
     }
 
     public static void setSystemInfo(SystemInfoService systemInfo) {
-        FakeCatalog.systemInfo = systemInfo;
+        FakeEnv.systemInfo = systemInfo;
     }
 
     @Mock
-    public static Catalog getCurrentCatalog() {
-        System.out.println("fake get current catalog is called");
-        return catalog;
+    public static Env getCurrentEnv() {
+        System.out.println("fake get current env is called");
+        return env;
     }
 
     @Mock
-    public static Catalog getInstance() {
-        return catalog;
+    public static Env getInstance() {
+        return env;
     }
 
     @Mock
-    public static int getCurrentCatalogJournalVersion() {
+    public static int getCurrentEnvJournalVersion() {
         return metaVersion;
     }
 

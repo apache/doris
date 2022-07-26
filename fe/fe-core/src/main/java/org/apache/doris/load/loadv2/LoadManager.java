@@ -20,8 +20,8 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -97,7 +97,7 @@ public class LoadManager implements Writable {
         writeLock();
         try {
             if (stmt.getBrokerDesc() != null && stmt.getBrokerDesc().isMultiLoadBroker()) {
-                if (!Catalog.getCurrentCatalog().getLoadInstance()
+                if (!Env.getCurrentEnv().getLoadInstance()
                         .isUncommittedLabel(dbId, stmt.getLabel().getLabelName())) {
                     throw new DdlException("label: " + stmt.getLabel().getLabelName() + " not found!");
                 }
@@ -119,7 +119,7 @@ public class LoadManager implements Writable {
         } finally {
             writeUnlock();
         }
-        Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
 
         // The job must be submitted after edit log.
         // It guarantee that load job has not been changed before edit log.
@@ -151,7 +151,7 @@ public class LoadManager implements Writable {
         writeLock();
         try {
             checkLabelUsed(database.getId(), stmt.getLabel().getLabelName());
-            Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(stmt, jobType, timestamp);
+            Env.getCurrentEnv().getLoadInstance().addLoadJob(stmt, jobType, timestamp);
         } finally {
             writeUnlock();
         }
@@ -165,7 +165,7 @@ public class LoadManager implements Writable {
         writeLock();
         try {
             checkLabelUsed(database.getId(), label);
-            Catalog.getCurrentCatalog().getLoadInstance()
+            Env.getCurrentEnv().getLoadInstance()
                     .registerMiniLabel(fullDbName, label, System.currentTimeMillis());
         } finally {
             writeUnlock();
@@ -188,7 +188,7 @@ public class LoadManager implements Writable {
         // because callback will be performed on replay without txn begin
         // register txn state listener
         if (!loadJob.isCompleted()) {
-            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
+            Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
         }
     }
 
@@ -212,7 +212,7 @@ public class LoadManager implements Writable {
             long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
 
         // get db id
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
 
         LoadJob loadJob;
         switch (jobType) {
@@ -225,7 +225,7 @@ public class LoadManager implements Writable {
         }
         addLoadJob(loadJob);
         // persistent
-        Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
     }
 
     /**
@@ -260,7 +260,7 @@ public class LoadManager implements Writable {
      * Cancel load job by stmt.
      **/
     public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException, AnalysisException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
         // List of load jobs waiting to be cancelled
         List<LoadJob> matchLoadJobs = Lists.newArrayList();
         readLock();
@@ -555,7 +555,7 @@ public class LoadManager implements Writable {
     }
 
     private Database checkDb(String dbName) throws DdlException {
-        return Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        return Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
     }
 
     /**
@@ -567,7 +567,7 @@ public class LoadManager implements Writable {
      */
     private void checkLabelUsed(long dbId, String label) throws DdlException {
         // if label has been used in old load jobs
-        Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(dbId, label);
+        Env.getCurrentEnv().getLoadInstance().isLabelUsed(dbId, label);
         // if label has been used in v2 of load jobs
         if (dbIdToLabelToLoadJobs.containsKey(dbId)) {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
@@ -657,7 +657,7 @@ public class LoadManager implements Writable {
                     // the job will be in PENDING state forever.
                     // This is a temp solution to remove these jobs.
                     // And the mini load job should be deprecated in Doris v1.1
-                    TransactionState state = Catalog.getCurrentCatalog().getGlobalTransactionMgr()
+                    TransactionState state = Env.getCurrentEnv().getGlobalTransactionMgr()
                             .getTransactionState(loadJob.getDbId(), loadJob.getTransactionId());
                     if (state == null) {
                         LOG.warn("skip mini load job {} in db {} with PENDING state and with txn: {}", loadJob.getId(),
@@ -683,7 +683,7 @@ public class LoadManager implements Writable {
             // The commit and visible txn will callback the unfinished load job.
             // Otherwise, the load job always does not be completed while the txn is visible.
             if (!loadJob.isCompleted()) {
-                Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
+                Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
             }
         }
     }

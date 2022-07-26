@@ -62,62 +62,62 @@ public class RecoverTest {
     private static void createDb(String db) throws Exception {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(
                 "create database " + db, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
     }
 
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
     }
 
     private static void dropDb(String db) throws Exception {
         DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt("drop database " + db, connectContext);
-        Catalog.getCurrentCatalog().dropDb(dropDbStmt);
+        Env.getCurrentEnv().dropDb(dropDbStmt);
     }
 
     private static void dropTable(String db, String tbl) throws Exception {
         DropTableStmt dropTableStmt = (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
                 "drop table " + db + "." + tbl, connectContext);
-        Catalog.getCurrentCatalog().dropTable(dropTableStmt);
+        Env.getCurrentEnv().dropTable(dropTableStmt);
     }
 
     private static void dropPartition(String db, String tbl, String part) throws Exception {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
                 "alter table " + db + "." + tbl + " drop partition " + part, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
     }
 
     private static void recoverDb(String db) throws Exception {
         RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(
                 "recover database " + db, connectContext);
-        Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt);
+        Env.getCurrentEnv().recoverDatabase(recoverDbStmt);
     }
 
     private static void recoverTable(String db, String tbl) throws Exception {
         RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
                 "recover table " + db + "." + tbl, connectContext);
-        Catalog.getCurrentCatalog().recoverTable(recoverTableStmt);
+        Env.getCurrentEnv().recoverTable(recoverTableStmt);
     }
 
     private static void recoverPartition(String db, String tbl, String part) throws Exception {
         RecoverPartitionStmt recoverPartitionStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(
                 "recover partition " + part + " from " + db + "." + tbl, connectContext);
-        Catalog.getCurrentCatalog().recoverPartition(recoverPartitionStmt);
+        Env.getCurrentEnv().recoverPartition(recoverPartitionStmt);
     }
 
     private static boolean checkDbExist(String dbName) {
-        return Catalog.getCurrentInternalCatalog()
+        return Env.getCurrentInternalCatalog()
                 .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName)).isPresent();
     }
 
     private static boolean checkTableExist(String dbName, String tblName) {
-        return Catalog.getCurrentInternalCatalog()
+        return Env.getCurrentInternalCatalog()
                 .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
                 .flatMap(db -> db.getTable(tblName)).isPresent();
     }
 
     private static boolean checkPartitionExist(String dbName, String tblName, String partName) {
-        return Catalog.getCurrentInternalCatalog()
+        return Env.getCurrentInternalCatalog()
                 .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
                 .flatMap(db -> db.getTable(tblName)).map(table -> table.getPartition(partName)).isPresent();
     }

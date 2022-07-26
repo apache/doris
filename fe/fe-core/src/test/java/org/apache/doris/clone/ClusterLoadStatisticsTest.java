@@ -17,8 +17,8 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -43,7 +43,7 @@ public class ClusterLoadStatisticsTest {
     private Backend be2;
     private Backend be3;
 
-    private Catalog catalog;
+    private Env env;
     private SystemInfoService systemInfoService;
     private TabletInvertedIndex invertedIndex;
 

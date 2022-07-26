@@ -20,7 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -48,22 +48,22 @@ public class TableFunctionPlanTest {
         ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         // 3. create table tbl1
         String createTblStmtStr = "create table db1.tbl1(k1 int, k2 varchar, k3 varchar) "
                 + "DUPLICATE KEY(k1) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
         createTblStmtStr = "create table db1.tbl2(k1 int, k2 varchar, v1 bitmap bitmap_union) "
                 + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
         createTblStmtStr = "create table db1.table_for_view (k1 int, k2 int, k3 varchar(100)) distributed by hash(k1)"
                 + "properties('replication_num' = '1');";
         createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
     }
 
     // test planner
@@ -496,7 +496,7 @@ public class TableFunctionPlanTest {
         String createViewStr = "create view db1.v1 (k1,e1) as select k1,e1"
                 + " from db1.table_for_view lateral view explode_split(k3,',') tmp as e1;";
         CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(createViewStr, ctx);
-        Catalog.getCurrentCatalog().createView(createViewStmt);
+        Env.getCurrentEnv().createView(createViewStmt);
 
         String sql = "select * from db1.v1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
@@ -538,7 +538,7 @@ public class TableFunctionPlanTest {
         // test2
         String createViewStr = "create view db1.v2 (k1,k3) as select k1,k3 from db1.table_for_view;";
         CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(createViewStr, ctx);
-        Catalog.getCurrentCatalog().createView(createViewStmt);
+        Env.getCurrentEnv().createView(createViewStmt);
         String sql = "select k1,e1 from db1.v2 lateral view explode_split(k3,',') tmp as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertFalse(explainString.contains("Unknown column 'e1' in 'table list'"));

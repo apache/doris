@@ -22,7 +22,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -97,10 +97,10 @@ public class PolicyMgr implements Writable {
                 // already exist default storage policy, just return.
                 return;
             }
-            long policyId = Catalog.getCurrentCatalog().getNextId();
+            long policyId = Env.getCurrentEnv().getNextId();
             StoragePolicy defaultStoragePolicy = new StoragePolicy(policyId, StoragePolicy.DEFAULT_STORAGE_POLICY_NAME);
             unprotectedAdd(defaultStoragePolicy);
-            Catalog.getCurrentCatalog().getEditLog().logCreatePolicy(defaultStoragePolicy);
+            Env.getCurrentEnv().getEditLog().logCreatePolicy(defaultStoragePolicy);
         } finally {
             writeUnlock();
         }
@@ -121,7 +121,7 @@ public class PolicyMgr implements Writable {
                 throw new DdlException("the policy " + policy.getPolicyName() + " already create");
             }
             unprotectedAdd(policy);
-            Catalog.getCurrentCatalog().getEditLog().logCreatePolicy(policy);
+            Env.getCurrentEnv().getEditLog().logCreatePolicy(policy);
         } finally {
             writeUnlock();
         }
@@ -141,7 +141,7 @@ public class PolicyMgr implements Writable {
                 throw new DdlException("the policy " + dropPolicyLog.getPolicyName() + " not exist");
             }
             unprotectedDrop(dropPolicyLog);
-            Catalog.getCurrentCatalog().getEditLog().logDropPolicy(dropPolicyLog);
+            Env.getCurrentEnv().getEditLog().logDropPolicy(dropPolicyLog);
         } finally {
             writeUnlock();
         }
@@ -419,7 +419,7 @@ public class PolicyMgr implements Writable {
         storagePolicy.modifyProperties(properties);
 
         // log alter
-        Catalog.getCurrentCatalog().getEditLog().logAlterStoragePolicy(storagePolicy);
+        Env.getCurrentEnv().getEditLog().logAlterStoragePolicy(storagePolicy);
         LOG.info("Alter storage policy success. policy: {}", storagePolicy);
     }
 
@@ -429,8 +429,7 @@ public class PolicyMgr implements Writable {
         }
         readLock();
         try {
-            List<Policy> policiesByType = Catalog.getCurrentCatalog().getPolicyMgr()
-                    .getPoliciesByType(PolicyTypeEnum.STORAGE);
+            List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
             policiesByType.stream().filter(policy -> policy.getPolicyName().equals(storagePolicyName)).findAny()
                     .orElseThrow(() -> new DdlException("Storage policy does not exist. name: " + storagePolicyName));
             Optional<Policy> hasDefaultPolicy = policiesByType.stream()

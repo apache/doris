@@ -56,7 +56,7 @@ public class VirtualSlotRefTest {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
-        analyzer = new Analyzer(analyzerBase.getCatalog(), analyzerBase.getContext());
+        analyzer = new Analyzer(analyzerBase.getEnv(), analyzerBase.getContext());
         String[] cols = {"k1", "k2", "k3"};
         slots = new ArrayList<>();
         for (String col : cols) {

@@ -22,9 +22,9 @@ import org.apache.doris.analysis.AlterTableStatsStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
@@ -175,7 +175,7 @@ public class StatisticsManager {
         String partitionName = result.getPartitionName();
         String colName = result.getColumnName();
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
         OlapTable table = (OlapTable) db.getTableOrAnalysisException(tblId);
         Column column = table.getColumn(colName);
         Type colType = column.getType();
@@ -232,18 +232,17 @@ public class StatisticsManager {
      */
     public List<List<String>> showTableStatsList(ShowTableStatsStmt stmt) throws AnalysisException {
         String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         String tableName = stmt.getTableName();
         List<List<String>> result = Lists.newArrayList();
 
         if (tableName != null) {
             Table table = db.getTableOrAnalysisException(tableName);
             // check priv
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
-                    PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAuth()
+                    .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
-                        ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(),
+                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                         dbName + ": " + tableName);
             }
 
@@ -259,8 +258,8 @@ public class StatisticsManager {
             }
         } else {
             for (Table table : db.getTables()) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, table.getName(),
-                        PrivPredicate.SHOW)) {
+                if (!Env.getCurrentEnv().getAuth()
+                        .checkTblPriv(ConnectContext.get(), dbName, table.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
                 try {
@@ -289,11 +288,10 @@ public class StatisticsManager {
         Table table = validateTableName(tableName);
 
         // check priv
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAuth()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(),
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     tableName.getDb() + ": " + tableName.getTbl());
         }
 
@@ -418,7 +416,7 @@ public class StatisticsManager {
     private Table validateTableName(TableName dbTableName) throws AnalysisException {
         String dbName = dbTableName.getDb();
         String tableName = dbTableName.getTbl();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         return db.getTableOrAnalysisException(tableName);
     }
 
@@ -448,7 +446,7 @@ public class StatisticsManager {
     }
 
     private void validateResult(TaskResult result) throws AnalysisException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(result.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(result.getDbId());
         Table table = db.getTableOrAnalysisException(result.getTableId());
 
         if (!Strings.isNullOrEmpty(result.getPartitionName())) {
@@ -474,7 +472,7 @@ public class StatisticsManager {
     }
 
     private Column getNotNullColumn(TaskResult result) throws AnalysisException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(result.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(result.getDbId());
         Table table = db.getTableOrAnalysisException(result.getTableId());
         Column column = table.getColumn(result.getColumnName());
         if (column == null) {

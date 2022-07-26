@@ -22,7 +22,7 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.UnitTestUtil;
@@ -135,8 +135,8 @@ public class LoadJobTest {
     @Test
     public void testSerialization() throws Exception {
         // mock meta version
-        FakeCatalog fakeCatalog = new FakeCatalog(); // CHECKSTYLE IGNORE THIS LINE
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        FakeEnv fakeEnv = new FakeEnv(); // CHECKSTYLE IGNORE THIS LINE
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
 
         File file = new File("./loadJobTest" + System.currentTimeMillis());
         file.createNewFile();

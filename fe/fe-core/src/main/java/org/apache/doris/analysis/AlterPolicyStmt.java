@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -52,7 +52,7 @@ public class AlterPolicyStmt extends DdlStmt {
         super.analyze(analyzer);
 
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
@@ -60,14 +60,12 @@ public class AlterPolicyStmt extends DdlStmt {
             throw new AnalysisException("policy properties can't be null");
         }
 
-        if (Catalog.getCurrentCatalog().getPolicyMgr()
-                .findPolicy(this.policyName, PolicyTypeEnum.ROW).isPresent()) {
+        if (Env.getCurrentEnv().getPolicyMgr().findPolicy(this.policyName, PolicyTypeEnum.ROW).isPresent()) {
             throw new AnalysisException("Current not support alter row policy");
         }
 
         // check resource existence
-        List<Policy> policiesByType = Catalog.getCurrentCatalog()
-                .getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
+        List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
         Optional<Policy> hasPolicy = policiesByType.stream()
                 .filter(policy -> policy.getPolicyName().equals(this.policyName)).findAny();
         StoragePolicy storagePolicy = (StoragePolicy) hasPolicy.orElseThrow(
