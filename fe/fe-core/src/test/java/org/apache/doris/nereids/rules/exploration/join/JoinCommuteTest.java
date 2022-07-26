@@ -63,8 +63,8 @@ public class JoinCommuteTest {
         Assert.assertEquals(1, transform.size());
         Plan newJoin = transform.get(0);
 
-        Assert.assertEquals(newJoin.child(1), join.child(0));
-        Assert.assertEquals(newJoin.child(0), join.child(1));
+        Assert.assertEquals(join.child(0), newJoin.child(1));
+        Assert.assertEquals(join.child(1), newJoin.child(0));
     }
 
 }
