@@ -155,6 +155,16 @@ HYPERSCAN_NAME=hyperscan-5.4.0.tar.gz
 HYPERSCAN_SOURCE=hyperscan-5.4.0
 HYPERSCAN_MD5SUM="65e08385038c24470a248f6ff2fa379b"
 
+# vectorscan (support arm for hyperscan)
+MACHINE_TYPE=$(uname -m)
+if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+    echo "use vectorscan instead of hyperscan on aarch64"
+    HYPERSCAN_DOWNLOAD="https://github.com/VectorCamp/vectorscan/archive/refs/tags/vectorscan/5.4.7.tar.gz"
+    HYPERSCAN_NAME=vectorscan-5.4.7.tar.gz
+    HYPERSCAN_SOURCE=vectorscan-vectorscan-5.4.7
+    HYPERSCAN_MD5SUM="ae924ccce79ef9bf6bf118693ae14fe5"
+fi
+
 # ragel (dependency for hyperscan)
 RAGEL_DOWNLOAD="http://www.colm.net/files/ragel/ragel-6.10.tar.gz"
 RAGEL_NAME=ragel-6.10.tar.gz

@@ -320,7 +320,7 @@ fi
 echo "Finished patching $ARROW_SOURCE"
 
 # patch librdkafka to avoid crash
-if [ $LIBRDKAFKA_SOURCE = "librdkafka-1.8.2" ]; then
+if [ $LIBRDKAFKA_SOURCE == "librdkafka-1.8.2" ]; then
     cd $TP_SOURCE_DIR/$LIBRDKAFKA_SOURCE
     if [ ! -f $PATCHED_MARK ]; then
         patch -p0 < $TP_PATCH_DIR/librdkafka-1.8.2.patch
@@ -332,10 +332,17 @@ echo "Finished patching $LIBRDKAFKA_SOURCE"
 
 # patch hyperscan
 # https://github.com/intel/hyperscan/issues/292
-if [ $HYPERSCAN_SOURCE = "hyperscan-5.4.0" ]; then
+if [ $HYPERSCAN_SOURCE == "hyperscan-5.4.0" ]; then
     cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
     if [ ! -f $PATCHED_MARK ]; then
         patch -p0 < $TP_PATCH_DIR/hyperscan-5.4.0.patch
+        touch $PATCHED_MARK
+    fi
+    cd -
+elif [ $HYPERSCAN_SOURCE == "vectorscan-vectorscan-5.4.7" ]; then
+    cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
+    if [ ! -f $PATCHED_MARK ]; then
+        patch -p0 < $TP_PATCH_DIR/vectorscan-5.4.7.patch
         touch $PATCHED_MARK
     fi
     cd -

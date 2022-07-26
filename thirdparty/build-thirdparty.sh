@@ -551,21 +551,16 @@ build_re2() {
 
 # hyperscan
 build_hyperscan() {
-    MACHINE_TYPE=$(uname -m)
-    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
-        echo "hyperscan is not supporting aarch64 now."
-    else
-        check_if_source_exist $RAGEL_SOURCE
-        cd $TP_SOURCE_DIR/$RAGEL_SOURCE
-        ./configure --prefix=$TP_INSTALL_DIR && make install
+    check_if_source_exist $RAGEL_SOURCE
+    cd $TP_SOURCE_DIR/$RAGEL_SOURCE
+    ./configure --prefix=$TP_INSTALL_DIR && make install
 
-        check_if_source_exist $HYPERSCAN_SOURCE
-        cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
-        mkdir -p $BUILD_DIR && cd $BUILD_DIR
-        PATH=$TP_INSTALL_DIR/bin:$PATH ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
-            -DBOOST_ROOT=$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
-        ${BUILD_SYSTEM} -j $PARALLEL install
-    fi
+    check_if_source_exist $HYPERSCAN_SOURCE
+    cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    PATH=$TP_INSTALL_DIR/bin:$PATH ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
+         -DBOOST_ROOT=$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
+    ${BUILD_SYSTEM} -j $PARALLEL install
 }
 
 # boost
@@ -1193,7 +1188,7 @@ build_snappy
 build_gperftools
 build_curl
 build_re2
-# build_hyperscan
+build_hyperscan
 build_thrift
 build_leveldb
 build_brpc
