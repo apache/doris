@@ -42,6 +42,7 @@ add_library(Olap STATIC
     generic_iterators.cpp
     hll.cpp
     inverted_index_parser.cpp
+    itoken_extractor.cpp
     like_column_predicate.cpp
     key_coder.cpp
     lru_cache.cpp

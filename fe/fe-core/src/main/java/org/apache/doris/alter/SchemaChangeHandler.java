@@ -96,6 +96,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -1242,6 +1244,8 @@ public class SchemaChangeHandler extends AlterHandler {
             bfFpp = 0;
         }
 
+        checkIndexDuplicate(newSet, bfColumns);
+
         // property 3: timeout
         long timeoutSecond = PropertyAnalyzer.analyzeTimeout(propertyMap, Config.alter_table_timeout_second);
 
@@ -2054,9 +2058,13 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             existedIdxColSet.addAll(existedIdx.getColumns());
-            if (newColset.equals(existedIdxColSet)) {
+            if (existedIdx.getIndexType() == indexDef.getIndexType() && newColset.equals(existedIdxColSet)) {
                 throw new DdlException(
-                        "index for columns (" + String.join(",", indexDef.getColumns()) + " ) already exist.");
+                    indexDef.getIndexType()
+                    + " index for columns ("
+                    + String.join(",", indexDef.getColumns())
+                    + " ) already exist."
+                );
             }
         }
 
@@ -2065,7 +2073,7 @@ public class SchemaChangeHandler extends AlterHandler {
             if (column != null) {
                 indexDef.checkColumn(column, olapTable.getKeysType());
             } else {
-                throw new DdlException("BITMAP column does not exist in table. invalid column: " + col);
+                throw new DdlException("index column does not exist in table. invalid column: " + col);
             }
         }
 
@@ -2319,6 +2327,34 @@ public class SchemaChangeHandler extends AlterHandler {
             LOG.warn("failed to replay modify table add or drop columns", e);
         } finally {
             olapTable.writeUnlock();
+        }
+    }
+
+    private static void checkIndexDuplicate(Collection<Index> indices, Set<String> bloomFilters)
+            throws AnalysisException {
+        indices = indices == null ? Collections.emptyList() : indices;
+        bloomFilters = bloomFilters == null ? Collections.emptySet() : bloomFilters;
+        Set<String> bfColumns = new HashSet<>();
+        for (Index index : indices) {
+            if (IndexDef.IndexType.NGRAM_BF == index.getIndexType()
+                    || IndexDef.IndexType.BLOOMFILTER == index.getIndexType()) {
+                for (String column : index.getColumns()) {
+                    column = column.toLowerCase();
+                    if (bfColumns.contains(column)) {
+                        throw new AnalysisException(column + " should have only one ngram bloom filter index or bloom "
+                            + "filter index");
+                    }
+                    bfColumns.add(column);
+                }
+            }
+        }
+        for (String column : bloomFilters) {
+            column = column.toLowerCase();
+            if (bfColumns.contains(column)) {
+                throw new AnalysisException(column + " should have only one ngram bloom filter index or bloom "
+                    + "filter index");
+            }
+            bfColumns.add(column);
         }
     }
 }

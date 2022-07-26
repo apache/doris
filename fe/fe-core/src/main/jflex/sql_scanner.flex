@@ -120,6 +120,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("bitmap", new Integer(SqlParserSymbols.KW_BITMAP));
         keywordMap.put("inverted", new Integer(SqlParserSymbols.KW_INVERTED));
         keywordMap.put("bitmap_union", new Integer(SqlParserSymbols.KW_BITMAP_UNION));
+        keywordMap.put("ngram_bf", new Integer(SqlParserSymbols.KW_NGRAM_BF));
         keywordMap.put("blob", new Integer(SqlParserSymbols.KW_BLOB));
         keywordMap.put("boolean", new Integer(SqlParserSymbols.KW_BOOLEAN));
         keywordMap.put("broker", new Integer(SqlParserSymbols.KW_BROKER));
