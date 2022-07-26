@@ -21,6 +21,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
+#include "io/cache/file_cache.h"
 
 namespace doris {
 namespace io {
@@ -28,7 +29,7 @@ namespace io {
 class S3FileReader final : public FileReader {
 public:
     S3FileReader(Path path, size_t file_size, std::string key, std::string bucket,
-                 S3FileSystem* fs);
+                 S3FileSystem* fs, FileCache* file_cache);
 
     ~S3FileReader() override;
 
@@ -46,6 +47,7 @@ private:
     Path _path;
     size_t _file_size;
     S3FileSystem* _fs;
+    FileCache* _file_cache;
 
     std::string _bucket;
     std::string _key;

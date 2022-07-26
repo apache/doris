@@ -20,10 +20,8 @@
 namespace doris {
 namespace io {
 
-SubFileCache::SubFileCache(const Path& cache_file_path, FileReader* remote_file_reader,
-                               int64_t alive_time_sec)
+SubFileCache::SubFileCache(const Path& cache_file_path, int64_t alive_time_sec)
         : _cache_file_path(cache_file_path),
-          _remote_file_reader(remote_file_reader),
           _alive_time_sec(alive_time_sec) {
 }
 

@@ -28,8 +28,7 @@ namespace io {
 
 class SubFileCache final : public FileCache {
 public:
-    SubFileCache(const Path& cache_file_path, FileReader* remote_file_reader,
-                   int64_t alive_time_sec);
+    SubFileCache(const Path& cache_file_path, int64_t alive_time_sec);
     ~SubFileCache() override;
 
     Status read_at(size_t offset, Slice result, size_t* bytes_read) override;
@@ -42,17 +41,12 @@ public:
         return _cache_file_size;
     }
 
-    FileReader* remote_file_reader() const override {
-        return _remote_file_reader;
-    }
-
     Status clean_timeout_cache() override;
 
     Status clean_all_cache() override;
 private:
     Path _cache_file_path;
     size_t _cache_file_size;
-    FileReader* _remote_file_reader;
     int64_t _alive_time_sec;
 
     std::shared_mutex _cache_map_mtx;
