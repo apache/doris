@@ -38,7 +38,7 @@ under the License.
 
 ## Stand-alone deployment
 
-**Before creating, please prepare the compiled FE / BE file, this tutorial will not repeat the compilation process.**
+**Before creating, please prepare the compiled FE/BE file, this tutorial will not repeat the compilation process.**
 
 
 **This tutorial is a mixed distribution tutorial of single node, 1FE and 1BE, only one node is needed, which is convenient for quickly experiencing Doris.**
