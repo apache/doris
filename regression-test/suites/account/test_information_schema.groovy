@@ -89,7 +89,7 @@ suite("test_information_schema", "columns") {
     }
 
     sql "USE information_schema"
-    qt_sql "SELECT * FROM `columns` WHERE TABLE_SCHEMA='db_test_schema_1' and TABLE_NAME='tb_test_schema_1'"
+    qt_sql "SELECT * FROM `columns` WHERE TABLE_SCHEMA='db_test_schema_1' and TABLE_NAME='tb_test_schema_1' and COLUMN_NAME='aaa'"
 
     for (int i = 1; i <= 5; i++) {
         def dbName = dbPrefix + i.toString()
