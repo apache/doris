@@ -1102,6 +1102,18 @@ public class FunctionCallExpr extends Expr {
                 this.type = new ArrayType(children.get(0).getType());
             }
         }
+
+        if (this.type instanceof ArrayType) {
+            ArrayType arrayType = (ArrayType) type;
+            boolean containsNull = false;
+            for (Expr child : children) {
+                Type childType = child.getType();
+                if (childType instanceof ArrayType) {
+                    containsNull |= ((ArrayType) childType).getContainsNull();
+                }
+            }
+            arrayType.setContainsNull(containsNull);
+        }
     }
 
     /**
