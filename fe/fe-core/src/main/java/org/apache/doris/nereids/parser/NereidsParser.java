@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import org.antlr.v4.runtime.CharStreams;
@@ -47,13 +50,22 @@ public class NereidsParser {
      * https://dev.mysql.com/doc/internals/en/com-set-option.html
      */
     public List<StatementBase> parseSQL(String originStr) throws Exception {
-        List<LogicalPlan> logicalPlanList = parseMultiple(originStr);
-        List<StatementBase> statementBaseList = new ArrayList<>();
-        for (LogicalPlan logicalPlan : logicalPlanList) {
+        List<LogicalPlan> logicalPlans = parseMultiple(originStr);
+        List<StatementBase> statementBases = new ArrayList<>();
+        for (LogicalPlan logicalPlan : logicalPlans) {
+            ExplainOptions explainOptions = null;
+            if (logicalPlan instanceof ExplainCommand) {
+                ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
+                logicalPlan = explainCommand.getLogicalPlan();
+                boolean isVerbose = explainCommand.getLevel() == ExplainLevel.VERBOSE;
+                boolean isGraph = explainCommand.getLevel() == ExplainLevel.GRAPH;
+                explainOptions = new ExplainOptions(isVerbose, isGraph);
+            }
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan);
-            statementBaseList.add(logicalPlanAdapter);
+            logicalPlanAdapter.setIsExplain(explainOptions);
+            statementBases.add(logicalPlanAdapter);
         }
-        return statementBaseList;
+        return statementBases;
     }
 
     /**
