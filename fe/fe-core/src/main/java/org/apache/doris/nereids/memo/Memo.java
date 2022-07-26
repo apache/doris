@@ -146,9 +146,9 @@ public class Memo {
                 return false;
             }
             GroupExpressionAdapter that = (GroupExpressionAdapter) o;
-            if (that.groupExpr.getPlan() instanceof LogicalOlapScan) {
-                return this.groupExpr == ((GroupExpressionAdapter) o).groupExpr;
-            }
+            //            if (that.groupExpr.getPlan() instanceof LogicalOlapScan) {
+            //                return this.groupExpr == ((GroupExpressionAdapter) o).groupExpr;
+            //            }
             return this.groupExpr.equals(that.groupExpr);
         }
 
