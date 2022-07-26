@@ -149,8 +149,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         //    1. add a project after agg, if agg function is not the top output expression.
         //    2. introduce canonicalized, semanticEquals and deterministic in Expression
         //       for removing duplicate.
-        List<Expression> groupByExpressionList = aggregate.getGroupByExprList();
-        List<NamedExpression> outputExpressionList = aggregate.getOutputExpressionList();
+        List<Expression> groupByExpressionList = aggregate.getGroupByExpressions();
+        List<NamedExpression> outputExpressionList = aggregate.getOutputExpressions();
 
         // 1. generate slot reference for each group expression
         List<SlotReference> groupSlotList = Lists.newArrayList();
@@ -189,7 +189,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // process partition list
-        List<Expression> partitionExpressionList = aggregate.getPartitionExprList();
+        List<Expression> partitionExpressionList = aggregate.getPartitionExpressions();
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         DataPartition mergePartition = DataPartition.UNPARTITIONED;
@@ -354,9 +354,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toList());
 
+            TupleDescriptor outputDescriptor = context.generateTupleDesc();
+            List<Expr> srcToOutput = hashJoin.getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .peek(s -> context.createSlotDesc(outputDescriptor, s))
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .collect(Collectors.toList());
+
             HashJoinNode hashJoinNode = new HashJoinNode(context.nextPlanNodeId(), leftFragmentPlanRoot,
-                    rightFragmentPlanRoot,
-                    JoinType.toJoinOperator(joinType), execEqConjunctList, Lists.newArrayList());
+                    rightFragmentPlanRoot, JoinType.toJoinOperator(joinType), execEqConjunctList, Lists.newArrayList(),
+                    srcToOutput, outputDescriptor, outputDescriptor);
 
             hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
             hashJoinNode.setChild(0, leftFragmentPlanRoot);

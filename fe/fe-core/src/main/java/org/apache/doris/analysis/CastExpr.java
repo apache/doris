@@ -98,16 +98,15 @@ public class CastExpr extends Expr {
         isImplicit = true;
 
         children.add(e);
-        if (isImplicit) {
-            try {
-                analyze();
-            } catch (AnalysisException ex) {
-                LOG.warn("Implicit casts fail", ex);
-                Preconditions.checkState(false,
-                        "Implicit casts should never throw analysis exception.");
-            }
-            analysisDone();
+
+        try {
+            analyze();
+        } catch (AnalysisException ex) {
+            LOG.warn("Implicit casts fail", ex);
+            Preconditions.checkState(false,
+                    "Implicit casts should never throw analysis exception.");
         }
+        analysisDone();
     }
 
     /**
@@ -172,6 +171,9 @@ public class CastExpr extends Expr {
                 }
                 if (toType.getPrimitiveType() == PrimitiveType.DATEV2) {
                     typeName = "datev2_val";
+                }
+                if (toType.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
+                    typeName = "datetimev2_val";
                 }
                 String beSymbol = "doris::" + beClass + "::cast_to_"
                         + typeName;

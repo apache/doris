@@ -26,6 +26,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_count.cpp
   aggregate_functions/aggregate_function_distinct.cpp
   aggregate_functions/aggregate_function_sum.cpp
+  aggregate_functions/aggregate_function_sort.cpp
   aggregate_functions/aggregate_function_min_max.cpp
   aggregate_functions/aggregate_function_min_max_by.cpp
   aggregate_functions/aggregate_function_null.cpp
@@ -139,6 +140,9 @@ set(VEC_FILES
   functions/array/function_arrays_overlap.cpp
   functions/array/function_array_distinct.cpp
   functions/array/function_array_remove.cpp
+  functions/array/function_array_union.cpp
+  functions/array/function_array_except.cpp
+  functions/array/function_array_intersect.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp

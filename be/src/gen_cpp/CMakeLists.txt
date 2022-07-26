@@ -84,6 +84,8 @@ set(SRC_FILES
     ${GEN_CPP_DIR}/function_service.pb.cc
     ${GEN_CPP_DIR}/types.pb.cc
     ${GEN_CPP_DIR}/segment_v2.pb.cc
+    ${GEN_CPP_DIR}/parquet_constants.cpp
+    ${GEN_CPP_DIR}/parquet_types.cpp
     #$${GEN_CPP_DIR}/opcode/functions.cc
     #$${GEN_CPP_DIR}/opcode/vector-functions.cc
     #$${GEN_CPP_DIR}/opcode/opcode-registry-init.cc

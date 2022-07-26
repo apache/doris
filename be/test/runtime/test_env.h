@@ -60,8 +60,6 @@ public:
     static int64_t calculate_mem_tracker(int max_buffers, int block_size);
 
     ExecEnv* exec_env() { return _exec_env; }
-    std::shared_ptr<MemTracker> block_mgr_parent_tracker() { return _block_mgr_parent_tracker; }
-    MemTracker* io_mgr_tracker() { return _io_mgr_tracker.get(); }
     TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr.get(); }
 
 private:
@@ -69,8 +67,6 @@ private:
     RuntimeState* create_runtime_state(int64_t query_id);
 
     ExecEnv* _exec_env;
-    std::shared_ptr<MemTracker> _block_mgr_parent_tracker;
-    std::shared_ptr<MemTracker> _io_mgr_tracker;
     std::shared_ptr<TmpFileMgr> _tmp_file_mgr;
 
     // Per-query states with associated block managers.

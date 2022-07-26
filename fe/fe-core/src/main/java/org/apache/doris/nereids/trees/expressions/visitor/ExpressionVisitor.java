@@ -23,17 +23,21 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
@@ -45,12 +49,15 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 
@@ -141,6 +148,14 @@ public abstract class ExpressionVisitor<R, C> {
         return visit(compoundPredicate, context);
     }
 
+    public R visitAnd(And and, C context) {
+        return visitCompoundPredicate(and, context);
+    }
+
+    public R visitOr(Or or, C context) {
+        return visitCompoundPredicate(or, context);
+    }
+
     public R visitStringRegexPredicate(StringRegexPredicate stringRegexPredicate, C context) {
         return visit(stringRegexPredicate, context);
     }
@@ -183,6 +198,26 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitMod(Mod mod, C context) {
         return visitArithmetic(mod, context);
+    }
+
+    public R visitWhenClause(WhenClause whenClause, C context) {
+        return visit(whenClause, context);
+    }
+
+    public R visitCaseWhen(CaseWhen caseWhen, C context) {
+        return visit(caseWhen, context);
+    }
+
+    public R visitInSubquery(InSubquery in, C context) {
+        return visitSubqueryExpr(in, context);
+    }
+
+    public R visitExistsSubquery(Exists exists, C context) {
+        return visitSubqueryExpr(exists, context);
+    }
+
+    public R visitSubqueryExpr(SubqueryExpr subqueryExpr, C context) {
+        return visit(subqueryExpr, context);
     }
 
     /* ********************************************************************************************

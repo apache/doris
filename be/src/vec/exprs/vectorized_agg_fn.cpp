@@ -68,15 +68,14 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluato
 
 Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, MemPool* pool,
                                const SlotDescriptor* intermediate_slot_desc,
-                               const SlotDescriptor* output_slot_desc,
-                               const std::shared_ptr<MemTracker>& mem_tracker) {
+                               const SlotDescriptor* output_slot_desc) {
     DCHECK(pool != nullptr);
     DCHECK(intermediate_slot_desc != nullptr);
     DCHECK(_intermediate_slot_desc == nullptr);
     _output_slot_desc = output_slot_desc;
     _intermediate_slot_desc = intermediate_slot_desc;
 
-    Status status = VExpr::prepare(_input_exprs_ctxs, state, desc, mem_tracker);
+    Status status = VExpr::prepare(_input_exprs_ctxs, state, desc);
     RETURN_IF_ERROR(status);
 
     std::vector<std::string_view> child_expr_name;
@@ -135,6 +134,11 @@ void AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDat
 
 void AggFnEvaluator::insert_result_info(AggregateDataPtr place, IColumn* column) {
     _function->insert_result_into(place, *column);
+}
+
+void AggFnEvaluator::insert_result_info_vec(const std::vector<AggregateDataPtr>& places,
+                                            size_t offset, IColumn* column, const size_t num_rows) {
+    _function->insert_result_into_vec(places, offset, *column, num_rows);
 }
 
 void AggFnEvaluator::reset(AggregateDataPtr place) {

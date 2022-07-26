@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//  http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -26,7 +26,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -74,8 +73,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
                 logicalAggregate().then(agg -> {
-                    List<Expression> groupBy = bind(agg.getGroupByExpressionList(), agg.children(), agg);
-                    List<NamedExpression> output = bind(agg.getOutputExpressionList(), agg.children(), agg);
+                    List<Expression> groupBy = bind(agg.getGroupByExpressions(), agg.children(), agg);
+                    List<NamedExpression> output = bind(agg.getOutputExpressions(), agg.children(), agg);
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),
@@ -257,8 +256,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
     /** BoundStar is used to wrap list of slots for temporary. */
     private class BoundStar extends NamedExpression {
         public BoundStar(List<Slot> children) {
-            super(ExpressionType.BOUND_STAR, children.toArray(new Slot[0]));
-            Preconditions.checkArgument(children.stream().allMatch(slot -> !(slot instanceof UnboundSlot)),
+            super(children.toArray(new Slot[0]));
+            Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),
                     "BoundStar can not wrap UnboundSlot"
             );
         }

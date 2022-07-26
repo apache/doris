@@ -96,16 +96,27 @@ void ColumnNullable::insert_data(const char* pos, size_t length) {
     }
 }
 
+void ColumnNullable::insert_many_strings(const StringRef* strings, size_t num) {
+    auto& nested_column = get_nested_column();
+    auto& null_map_data = get_null_map_data();
+    for (size_t i = 0; i != num; ++i) {
+        if (strings[i].data == nullptr) {
+            nested_column.insert_default();
+            null_map_data.push_back(1);
+        } else {
+            nested_column.insert_data(strings[i].data, strings[i].size);
+            null_map_data.push_back(0);
+        }
+    }
+}
+
 StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
                                                      char const*& begin) const {
     const auto& arr = get_null_map_data();
     static constexpr auto s = sizeof(arr[0]);
 
     auto pos = arena.alloc_continue(s, begin);
-    // Value of `NULL` may be 1 or JOIN_NULL_HINT, we serialize both to 1.
-    // Because we need same key for both `NULL` values while processing `group by`.
-    UInt8* val = reinterpret_cast<UInt8*>(pos);
-    *val = (arr[n] ? 1 : 0);
+    memcpy(pos, &arr[n], s);
 
     if (arr[n]) return StringRef(pos, s);
 
@@ -113,11 +124,6 @@ StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
 
     /// serialize_value_into_arena may reallocate memory. Have to use ptr from nested_ref.data and move it back.
     return StringRef(nested_ref.data - s, nested_ref.size + s);
-}
-
-void ColumnNullable::insert_join_null_data() {
-    get_nested_column().insert_default();
-    get_null_map_data().push_back(JOIN_NULL_HINT);
 }
 
 const char* ColumnNullable::deserialize_and_insert_from_arena(const char* pos) {
@@ -150,6 +156,21 @@ void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows
     }
 
     get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data(), max_row_byte_size);
+}
+
+void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+    auto& arr = get_null_map_data();
+    const size_t old_size = arr.size();
+    arr.resize(old_size + num_rows);
+
+    auto* null_map_data = &arr[old_size];
+    for (size_t i = 0; i != num_rows; ++i) {
+        UInt8 val = *reinterpret_cast<const UInt8*>(keys[i].data);
+        null_map_data[i] = val;
+        keys[i].data += sizeof(val);
+        keys[i].size -= sizeof(val);
+    }
+    get_nested_column().deserialize_vec_with_null_map(keys, num_rows, arr.data());
 }
 
 void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t length) {
@@ -480,6 +501,13 @@ ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable) {
                 column->size());
 
     return ColumnNullable::create(column, ColumnUInt8::create(column->size(), is_nullable ? 1 : 0));
+}
+
+ColumnPtr remove_nullable(const ColumnPtr& column) {
+    if (is_column_nullable(*column)) {
+        return reinterpret_cast<const ColumnNullable*>(column.get())->get_nested_column_ptr();
+    }
+    return column;
 }
 
 } // namespace doris::vectorized

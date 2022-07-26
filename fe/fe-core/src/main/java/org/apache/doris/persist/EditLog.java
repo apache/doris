@@ -48,6 +48,7 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.BDBJEJournal;
 import org.apache.doris.journal.bdbje.Timestamp;
+import org.apache.doris.journal.local.LocalJournal;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
@@ -95,7 +96,14 @@ public class EditLog {
     private Journal journal;
 
     public EditLog(String nodeName) {
-        journal = new BDBJEJournal(nodeName);
+        String journalType = Config.edit_log_type;
+        if (journalType.equalsIgnoreCase("bdb")) {
+            journal = new BDBJEJournal(nodeName);
+        } else if (journalType.equalsIgnoreCase("local")) {
+            journal = new LocalJournal(Catalog.getCurrentCatalog().getImageDir());
+        } else {
+            throw new IllegalArgumentException("Unknown edit log type: " + journalType);
+        }
     }
 
     public long getMaxJournalId() {

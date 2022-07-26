@@ -20,7 +20,6 @@
 #include <sstream>
 
 #include "exprs/expr.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
@@ -29,10 +28,7 @@ namespace doris {
 
 MysqlTableSink::MysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& t_exprs)
-        : _pool(pool),
-          _row_desc(row_desc),
-          _t_output_expr(t_exprs),
-          _mem_tracker(MemTracker::create_tracker(-1, "MysqlTableSink")) {
+        : _pool(pool), _row_desc(row_desc), _t_output_expr(t_exprs) {
     _name = "MysqlTableSink";
 }
 
@@ -58,7 +54,7 @@ Status MysqlTableSink::init(const TDataSink& t_sink) {
 Status MysqlTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
+    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc));
     std::stringstream title;
     title << "MysqlTableSink (frag_id=" << state->fragment_instance_id() << ")";
     // create profile

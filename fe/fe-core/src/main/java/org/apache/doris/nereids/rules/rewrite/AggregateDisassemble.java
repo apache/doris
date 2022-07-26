@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//  http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -59,8 +59,8 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalAggregate().when(agg -> !agg.isDisassembled()).thenApply(ctx -> {
             LogicalAggregate<GroupPlan> aggregate = ctx.root;
-            List<NamedExpression> originOutputExprs = aggregate.getOutputExpressionList();
-            List<Expression> originGroupByExprs = aggregate.getGroupByExpressionList();
+            List<NamedExpression> originOutputExprs = aggregate.getOutputExpressions();
+            List<Expression> originGroupByExprs = aggregate.getGroupByExpressions();
 
             // 1. generate a map from local aggregate output to global aggregate expr substitution.
             //    inputSubstitutionMap use for replacing expression in global aggregate
@@ -80,7 +80,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             //    NOTICE: Ref: SlotReference, A: Alias, AF: AggregateFunction, #x: ExprId x
             // 2. collect local aggregate output expressions and local aggregate group by expression list
             Map<Expression, Expression> inputSubstitutionMap = Maps.newHashMap();
-            List<Expression> localGroupByExprs = aggregate.getGroupByExpressionList();
+            List<Expression> localGroupByExprs = aggregate.getGroupByExpressions();
             List<NamedExpression> localOutputExprs = Lists.newArrayList();
             for (Expression originGroupByExpr : originGroupByExprs) {
                 if (inputSubstitutionMap.containsKey(originGroupByExpr)) {
@@ -111,7 +111,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             }
 
             // 3. replace expression in globalOutputExprs and globalGroupByExprs
-            List<NamedExpression> globalOutputExprs = aggregate.getOutputExpressionList().stream()
+            List<NamedExpression> globalOutputExprs = aggregate.getOutputExpressions().stream()
                     .map(e -> ExpressionReplacer.INSTANCE.visit(e, inputSubstitutionMap))
                     .map(NamedExpression.class::cast)
                     .collect(Collectors.toList());

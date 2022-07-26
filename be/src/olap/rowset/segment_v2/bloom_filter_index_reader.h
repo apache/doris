@@ -69,7 +69,7 @@ public:
     explicit BloomFilterIndexIterator(BloomFilterIndexReader* reader)
             : _reader(reader),
               _bloom_filter_iter(reader->_bloom_filter_reader.get()),
-              _pool(new MemPool("BloomFilterIndexIterator")) {}
+              _pool(new MemPool()) {}
 
     // Read bloom filter at the given ordinal into `bf`.
     Status read_bloom_filter(rowid_t ordinal, std::unique_ptr<BloomFilter>* bf);

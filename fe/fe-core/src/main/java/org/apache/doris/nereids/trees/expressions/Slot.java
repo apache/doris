@@ -22,10 +22,6 @@ package org.apache.doris.nereids.trees.expressions;
  */
 public abstract class Slot extends NamedExpression implements LeafExpression {
 
-    public Slot(ExpressionType type) {
-        super(type);
-    }
-
     @Override
     public Slot toSlot() {
         return this;

@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//  http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -47,8 +47,8 @@ public class BindFunction implements AnalysisRuleFactory {
             ),
             RuleType.BINDING_AGGREGATE_FUNCTION.build(
                 logicalAggregate().then(agg -> {
-                    List<Expression> groupBy = bind(agg.getGroupByExpressionList());
-                    List<NamedExpression> output = bind(agg.getOutputExpressionList());
+                    List<Expression> groupBy = bind(agg.getGroupByExpressions());
+                    List<NamedExpression> output = bind(agg.getOutputExpressions());
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             )

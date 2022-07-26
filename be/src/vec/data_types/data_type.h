@@ -324,6 +324,9 @@ inline bool is_date(const DataTypePtr& data_type) {
 inline bool is_date_v2(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_date_v2();
 }
+inline bool is_date_time_v2(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_date_time_v2();
+}
 inline bool is_date_or_datetime(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_date_or_datetime();
 }
@@ -385,7 +388,7 @@ template <typename T>
 inline bool is_columned_as_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint() || which.is_float() || which.is_date_or_datetime() ||
-           which.is_uuid() || which.is_date_v2();
+           which.is_uuid() || which.is_date_v2_or_datetime_v2();
 }
 
 template <typename T>

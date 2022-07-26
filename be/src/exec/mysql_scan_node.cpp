@@ -52,7 +52,7 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
@@ -82,7 +82,7 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a mysql scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool("MysqlScanNode"));
+    _tuple_pool.reset(new (std::nothrow) MemPool());
 
     if (_tuple_pool.get() == nullptr) {
         return Status::InternalError("new a mem pool failed.");
@@ -101,8 +101,8 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
 
 Status MysqlScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     VLOG_CRITICAL << "MysqlScanNode::Open";
 
     if (nullptr == state) {
@@ -157,7 +157,7 @@ Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
 
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     // create new tuple buffer for row_batch
     int tuple_buffer_size = row_batch->capacity() * _tuple_desc->byte_size();
