@@ -121,6 +121,12 @@ public class Memo {
         return result.withChildren(childrenNode);
     }
 
+    /**
+     * The class is a package class for GroupExpression because the equals() of the latter
+     * can not divide UnboundRelation from LogicalScanOlap as their logical properties are
+     * the same, but actually they are not the same.
+     * TODO: refactor the GroupExpression to avoid the situation.
+     */
     private static class GroupExpressionAdapter {
         private final GroupExpression groupExpr;
 

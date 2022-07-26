@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
@@ -48,14 +51,16 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     private final List<String> testSql = Lists.newArrayList(
             "SELECT * FROM T1",
+            "SELECT * FROM T1 ORDER BY ID",
             "SELECT * FROM T1 JOIN T2 ON T1.ID = T2.ID",
             "SELECT * FROM T1 T",
             "SELECT T.ID FROM T1 T",
             "SELECT * FROM (SELECT * FROM T1 T) T2",
             "SELECT T1.ID ID FROM T1",
             "SELECT T.ID FROM T1 T",
-            "SELECT A.ID, B.SCORE FROM T1 A, T2 B WHERE A.ID = B.ID",
-            "SELECT X.ID FROM (SELECT * FROM (T1) A JOIN (SELECT ID ID1 FROM T1) AS B ON A.ID = B.ID1) X WHERE B.SCORE < 20"
+            "SELECT A.ID, B.SCORE FROM T1 A, T2 B WHERE A.ID = B.ID GROUP BY A.ID ORDER BY A.ID",
+            "SELECT X.ID FROM (SELECT * FROM T1 A JOIN (SELECT ID ID1 FROM T1) AS B ON A.ID = B.ID1) X WHERE X.SCORE < 20",
+            "SELECT X.ID + X.SCORE FROM (SELECT * FROM T1 A JOIN (SELECT SUM(ID + 1) ID1 FROM T1 T GROUP BY ID) AS B ON A.ID = B.ID1 ORDER BY A.ID DESC) X WHERE X.ID - X.SCORE < 20"
     );
 
     @Override
@@ -98,7 +103,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testAnalyze() {
-        checkAnalyze(testSql.get(8));
+        checkAnalyze(testSql.get(10));
     }
 
     @Test
@@ -108,10 +113,61 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testFinalizeAnalyze() {
+        finalizeAnalyze(testSql.get(10));
+    }
+
+    @Test
+    public void testFinalizeAnalyzeAllCase() {
+        for (String sql : testSql) {
+            System.out.println("*****\nStart test: " + sql + "\n*****\n");
+            finalizeAnalyze(sql);
+        }
+    }
+
+    @Test
+    public void testPlan() throws AnalysisException {
+        System.out.println(new NereidsPlanner(connectContext).plan(
+                parser.parseSingle(testSql.get(10)),
+                new PhysicalProperties(),
+                connectContext
+        ).treeString());
+    }
+
+    @Test
+    public void testPlanAllCase() throws AnalysisException {
+        for (String sql : testSql) {
+            System.out.println("*****\nStart test: " + sql + "\n*****\n");
+            System.out.println(new NereidsPlanner(connectContext).plan(
+                    parser.parseSingle(sql),
+                    new PhysicalProperties(),
+                    connectContext
+            ).treeString());
+        }
+    }
+
     private void checkAnalyze(String sql) {
         LogicalPlan analyzed = analyze(sql);
         System.out.println(analyzed.treeString());
         Assertions.assertTrue(checkBound(analyzed));
+    }
+
+    private void finalizeAnalyze(String sql) {
+        Memo memo = new Memo(parser.parseSingle(sql));
+        PlannerContext plannerContext = new PlannerContext(memo, connectContext);
+        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
+        plannerContext.setCurrentJobContext(jobContext);
+
+        executeRewriteBottomUpJob(plannerContext,
+                new BindFunction(),
+                new BindRelation(),
+                new BindSubQueryAlias(),
+                new BindSlotReference(),
+                new ProjectToGlobalAggregate());
+        System.out.println(memo.copyOut().treeString());
+        new FinalizeAnalyzeJob(plannerContext).execute();
+        System.out.println(memo.copyOut().treeString());
     }
 
     private LogicalPlan analyze(String sql) {
@@ -182,3 +238,24 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     }
 }
 
+/*
+CREATE TABLE T1 (
+    ID bigint,
+    SCORE bigint
+)
+DUPLICATE KEY(id)
+DISTRIBUTED BY HASH(id) BUCKETS 1
+PROPERTIES (
+    "replication_num" = "1"
+);
+
+CREATE TABLE T2 (
+    ID bigint,
+    SCORE bigint
+)
+DUPLICATE KEY(id)
+DISTRIBUTED BY HASH(id) BUCKETS 1
+PROPERTIES (
+    "replication_num" = "1"
+);
+ */
