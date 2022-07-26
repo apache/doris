@@ -19,6 +19,8 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
@@ -69,5 +71,39 @@ public class NereidsParserTest {
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
         LogicalProject<Plan> logicalProject = (LogicalProject) logicalPlan;
         Assertions.assertEquals("AD`D", logicalProject.getProjects().get(0).getName());
+    }
+
+    @Test
+    public void testExplainNormal() {
+        String sql = "explain select `AD``D` from t1 where a = 1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertTrue(logicalPlan instanceof ExplainCommand);
+        ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
+        ExplainLevel explainLevel = explainCommand.getLevel();
+        Assertions.assertEquals(ExplainLevel.NORMAL, explainLevel);
+        logicalPlan = explainCommand.getLogicalPlan();
+        LogicalProject<Plan> logicalProject = (LogicalProject) logicalPlan;
+        Assertions.assertEquals("AD`D", logicalProject.getProjects().get(0).getName());
+    }
+
+    @Test
+    public void testExplainVerbose() {
+        String sql = "explain verbose select `AD``D` from t1 where a = 1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
+        ExplainLevel explainLevel = explainCommand.getLevel();
+        Assertions.assertEquals(ExplainLevel.VERBOSE, explainLevel);
+    }
+
+    @Test
+    public void testExplainGraph() {
+        String sql = "explain graph select `AD``D` from t1 where a = 1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
+        ExplainLevel explainLevel = explainCommand.getLevel();
+        Assertions.assertEquals(ExplainLevel.GRAPH, explainLevel);
     }
 }
