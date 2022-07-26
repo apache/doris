@@ -518,7 +518,6 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public void roundFloor(int newScale) {
-        Preconditions.checkArgument(type.isDatetimeV2());
         microsecond = Double.valueOf(microsecond / (Math.pow(10, 6 - newScale))).longValue();
         type = ScalarType.createDatetimeV2Type(newScale);
     }
