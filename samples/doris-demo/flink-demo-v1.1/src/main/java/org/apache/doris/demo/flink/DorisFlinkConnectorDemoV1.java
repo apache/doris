@@ -61,7 +61,7 @@ public class DorisFlinkConnectorDemoV1 {
         DorisExecutionOptions.Builder  executionBuilder = DorisExecutionOptions.builder();
         executionBuilder
             .setStreamLoadProp(pro)
-            .setLabelPrefix("doris_test")
+            .setLabelPrefix("doris_test");
 
 
         builder.setDorisReadOptions(readOptionBuilder.build())
