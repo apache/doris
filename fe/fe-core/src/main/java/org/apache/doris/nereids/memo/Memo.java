@@ -44,7 +44,6 @@ public class Memo {
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final List<Group> groups = Lists.newArrayList();
     // we could not use Set, because Set does not have get method.
-    private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
     private final Map<GroupExpressionAdapter, GroupExpressionAdapter> groupExpressionAdapterMap = Maps.newHashMap();
     private Group root;
 
@@ -172,7 +171,6 @@ public class Memo {
     private GroupExpression insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
             boolean rewrite, LogicalProperties logicalProperties) {
         GroupExpressionAdapter adapter = new GroupExpressionAdapter(groupExpression);
-        // GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
 
         GroupExpressionAdapter existedGroupExpressionAdapter = groupExpressionAdapterMap.get(adapter);
 
@@ -199,7 +197,6 @@ public class Memo {
             Preconditions.checkArgument(!groups.contains(group), "new group with already exist output");
             groups.add(group);
         }
-        groupExpressions.put(groupExpression, groupExpression);
         groupExpressionAdapterMap.put(adapter, adapter);
         return groupExpression;
     }
@@ -213,6 +210,7 @@ public class Memo {
      *
      * @param source source group
      * @param destination destination group
+     * @return merged group
      */
     private Group mergeGroup(Group source, Group destination) {
         if (source.equals(destination)) {
