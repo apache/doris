@@ -139,14 +139,14 @@ mysql> select k2, array_slice(k2, -2, 2) from array_type_table_nullable_varchar;
 ```
 mysql> select k2, array_slice(k2, 0) from array_type_table;
 +-----------+-------------------------+
-| k2        | array_slice(`k2`, 0, 1) |
+| k2        | array_slice(`k2`, 0) |
 +-----------+-------------------------+
 | [1, 2, 3] | []                      |
 +-----------+-------------------------+
 
 mysql> select k2, array_slice(k2, -5) from array_type_table;
 +-----------+----------------------+
-| k2        | array_slice(`k2`, 0) |
+| k2        | array_slice(`k2`, -5) |
 +-----------+----------------------+
 | [1, 2, 3] | []                   |
 +-----------+----------------------+
@@ -154,4 +154,4 @@ mysql> select k2, array_slice(k2, -5) from array_type_table;
 
 ### keywords
 
-ARRAY,REMOVE,ARRAY_SLICE
+ARRAY,SLICE,ARRAY_SLICE

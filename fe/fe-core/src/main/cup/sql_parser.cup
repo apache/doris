@@ -5335,7 +5335,13 @@ column_subscript ::=
   ;
 
 column_slice ::=
-  expr:e LBRACKET expr:offset COLON expr:length RBRACKET
+  expr:e LBRACKET expr:offset COLON RBRACKET
+  {: ArrayList<Expr> list = new ArrayList<Expr>();
+       list.add(e);
+       list.add(offset);
+       RESULT = new FunctionCallExpr("%element_slice%", list);
+  :}
+  | expr:e LBRACKET expr:offset COLON expr:length RBRACKET
   {: ArrayList<Expr> list = new ArrayList<Expr>();
      list.add(e);
      list.add(offset);
