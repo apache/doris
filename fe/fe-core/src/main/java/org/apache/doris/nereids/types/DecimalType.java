@@ -17,41 +17,36 @@
 
 package org.apache.doris.nereids.types;
 
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
-import java.util.Objects;
-
 /**
- * Varchar type in Nereids.
+ * Decimal type in Nereids.
  */
-public class VarcharType extends PrimitiveType {
-    private final int len;
+public class DecimalType extends FractionalType {
 
-    public VarcharType(int len) {
-        this.len = len;
+    private int precision;
+    private int scale;
+
+    public DecimalType(int precision, int scale) {
+        this.precision = precision;
+        this.scale = scale;
     }
 
-    public static VarcharType createVarcharType(int len) {
-        return new VarcharType(len);
+    public static DecimalType createDecimalType(int precision, int scale) {
+        return new DecimalType(precision, scale);
     }
 
     @Override
     public Type toCatalogDataType() {
-        return ScalarType.createVarcharType(len);
+        return Type.DECIMALV2;
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (!super.equals(o)) {
-            return false;
-        }
-        VarcharType that = (VarcharType) o;
-        return len == that.len;
+    public int getPrecision() {
+        return precision;
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), len);
+    public int getScale() {
+        return scale;
     }
 }
+
