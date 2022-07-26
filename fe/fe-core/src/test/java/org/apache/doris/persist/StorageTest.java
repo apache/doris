@@ -26,6 +26,7 @@ import java.io.IOException;
 
 public class StorageTest {
     private String meta = "storageTestDir/";
+    private static long clusterId = 966271669;
 
     public void mkdir() {
         File dir = new File(meta);
@@ -42,11 +43,13 @@ public class StorageTest {
     }
 
     public void addFiles(int image, int edit) {
-        File imageFile = new File(meta + "image." + image);
-        try {
-            imageFile.createNewFile();
-        } catch (IOException e) {
-            e.printStackTrace();
+        for (int i = 1; i <= image; i++) {
+            File imageFile = new File(meta + "image." + i);
+            try {
+                imageFile.createNewFile();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
 
         for (int i = 1; i <= edit; i++) {
@@ -69,7 +72,7 @@ public class StorageTest {
         try {
             version.createNewFile();
             String line1 = "#Mon Feb 02 13:59:54 CST 2015\n";
-            String line2 = "clusterId=966271669";
+            String line2 = "clusterId=" + clusterId;
             FileWriter fw = new FileWriter(version);
             fw.write(line1);
             fw.write(line2);
@@ -89,7 +92,6 @@ public class StorageTest {
                     file.delete();
                 }
             }
-
             dir.delete();
         }
     }
@@ -110,40 +112,29 @@ public class StorageTest {
     @Test
     public void testStorage() throws Exception {
         mkdir();
-        addFiles(0, 10);
-
+        addFiles(5, 10);
         Storage storage = new Storage("storageTestDir");
         Assert.assertEquals(966271669, storage.getClusterID());
-        storage.setClusterID(1234);
-        Assert.assertEquals(1234, storage.getClusterID());
-        Assert.assertEquals(0, storage.getLatestImageSeq());
+        Assert.assertEquals(5, storage.getLatestImageSeq());
+        Assert.assertEquals(4, storage.getLatestValidatedImageSeq());
         Assert.assertEquals(10, Storage.getMetaSeq(new File("storageTestDir/edits.10")));
-        Assert.assertTrue(Storage.getCurrentEditsFile(new File("storageTestDir"))
-                .equals(new File("storageTestDir/edits")));
+        Assert.assertTrue(
+                Storage.getCurrentEditsFile(new File("storageTestDir")).equals(new File("storageTestDir/edits")));
 
-        Assert.assertTrue(storage.getCurrentImageFile().equals(new File("storageTestDir/image.0")));
+        Assert.assertTrue(storage.getCurrentImageFile().equals(new File("storageTestDir/image.5")));
         Assert.assertTrue(storage.getImageFile(0).equals(new File("storageTestDir/image.0")));
-        Assert.assertTrue(Storage.getImageFile(new File("storageTestDir"), 0)
-                .equals(new File("storageTestDir/image.0")));
+        Assert.assertTrue(
+                Storage.getImageFile(new File("storageTestDir"), 0).equals(new File("storageTestDir/image.0")));
 
         Assert.assertTrue(storage.getCurrentEditsFile().equals(new File("storageTestDir/edits")));
         Assert.assertTrue(storage.getEditsFile(5).equals(new File("storageTestDir/edits.5")));
-        Assert.assertTrue(Storage.getEditsFile(new File("storageTestDir"), 3)
-                .equals(new File("storageTestDir/edits.3")));
+        Assert.assertTrue(
+                Storage.getEditsFile(new File("storageTestDir"), 3).equals(new File("storageTestDir/edits.3")));
 
         Assert.assertTrue(storage.getVersionFile().equals(new File("storageTestDir/VERSION")));
 
-        storage.setLatestImageSeq(100);
-        Assert.assertEquals(100, storage.getLatestImageSeq());
-
-        storage.setEditsSeq(100);
-        Assert.assertEquals(100, storage.getEditsSeq());
-
         Assert.assertEquals("storageTestDir", storage.getMetaDir());
-        storage.setMetaDir("abcd");
-        Assert.assertEquals("abcd", storage.getMetaDir());
 
-        storage.setMetaDir("storageTestDir");
         storage.clear();
         File file = new File(storage.getMetaDir());
         Assert.assertEquals(0, file.list().length);

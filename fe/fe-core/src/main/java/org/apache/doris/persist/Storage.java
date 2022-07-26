@@ -21,6 +21,7 @@ import org.apache.doris.ha.FrontendNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,8 +60,8 @@ public class Storage {
     private FrontendNodeType role = FrontendNodeType.UNKNOWN;
     private String nodeName;
     private long editsSeq;
-    private long latestImageSeq;
-    private long latestValidatedImageSeq;
+    private long latestImageSeq = 0;
+    private long latestValidatedImageSeq = 0;
     private String metaDir;
     private List<Long> editsFileSequenceNumbers;
 
@@ -120,6 +121,7 @@ public class Storage {
         if (children == null) {
             return;
         }
+        List<Long> imageIds = Lists.newArrayList();
         for (File child : children) {
             String name = child.getName();
             try {
@@ -127,8 +129,8 @@ public class Storage {
                         && !name.endsWith(".part") && name.contains(".")) {
                     if (name.startsWith(IMAGE)) {
                         long fileSeq = Long.parseLong(name.substring(name.lastIndexOf('.') + 1));
+                        imageIds.add(fileSeq);
                         if (latestImageSeq < fileSeq) {
-                            latestValidatedImageSeq = latestImageSeq;
                             latestImageSeq = fileSeq;
                         }
                     } else if (name.startsWith(EDITS)) {
@@ -141,14 +143,13 @@ public class Storage {
                 LOG.warn(name + " is not a validate meta file, ignore it");
             }
         }
+        // set latestValidatedImageSeq to the second largest image id, or 0 if less than 2 images.
+        Collections.sort(imageIds);
+        latestValidatedImageSeq = imageIds.size() < 2 ? 0 : imageIds.get(imageIds.size() - 2);
     }
 
     public int getClusterID() {
         return clusterID;
-    }
-
-    public void setClusterID(int clusterID) {
-        this.clusterID = clusterID;
     }
 
     public String getToken() {
@@ -171,24 +172,12 @@ public class Storage {
         return metaDir;
     }
 
-    public void setMetaDir(String metaDir) {
-        this.metaDir = metaDir;
-    }
-
     public long getLatestImageSeq() {
         return latestImageSeq;
     }
 
     public long getLatestValidatedImageSeq() {
         return latestValidatedImageSeq;
-    }
-
-    public void setLatestImageSeq(long latestImageSeq) {
-        this.latestImageSeq = latestImageSeq;
-    }
-
-    public void setEditsSeq(long editsSeq) {
-        this.editsSeq = editsSeq;
     }
 
     public long getEditsSeq() {
@@ -252,6 +241,7 @@ public class Storage {
         }
     }
 
+    // Only for test
     public void clear() throws IOException {
         File metaFile = new File(metaDir);
         if (metaFile.exists()) {
