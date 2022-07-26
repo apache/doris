@@ -312,10 +312,15 @@ void MemTable::_collect_vskiplist_results() {
             for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
                 auto function = _agg_functions[i];
                 auto agg_place = it.key()->agg_places(i);
-                function->insert_result_into(agg_place,
-                                             *(_output_mutable_block.get_column_by_position(i)));
+                auto col_ptr = _output_mutable_block.get_column_by_position(i).get();
+                function->insert_result_into(agg_place, *col_ptr);
                 if constexpr (is_final) {
                     function->destroy(agg_place);
+                } else {
+                    function->reset(agg_place);
+                    function->add(agg_place,
+                                  const_cast<const doris::vectorized::IColumn**>(&col_ptr), idx,
+                                  nullptr);
                 }
             }
             if constexpr (!is_final) {
