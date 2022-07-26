@@ -17,7 +17,7 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -106,17 +106,17 @@ public class HeartbeatMgr extends MasterDaemon {
         }
 
         // send frontend heartbeat
-        List<Frontend> frontends = Catalog.getCurrentCatalog().getFrontends(null);
+        List<Frontend> frontends = Env.getCurrentEnv().getFrontends(null);
         for (Frontend frontend : frontends) {
             FrontendHeartbeatHandler handler = new FrontendHeartbeatHandler(frontend,
-                    Catalog.getCurrentCatalog().getClusterId(),
-                    Catalog.getCurrentCatalog().getToken());
+                    Env.getCurrentEnv().getClusterId(),
+                    Env.getCurrentEnv().getToken());
             hbResponses.add(executor.submit(handler));
         }
 
         // send broker heartbeat;
         Map<String, List<FsBroker>> brokerMap = Maps.newHashMap(
-                Catalog.getCurrentCatalog().getBrokerMgr().getBrokerListMap());
+                Env.getCurrentEnv().getBrokerMgr().getBrokerListMap());
         for (Map.Entry<String, List<FsBroker>> entry : brokerMap.entrySet()) {
             for (FsBroker brokerAddress : entry.getValue()) {
                 BrokerHeartbeatHandler handler = new BrokerHeartbeatHandler(entry.getKey(), brokerAddress,
@@ -148,14 +148,14 @@ public class HeartbeatMgr extends MasterDaemon {
             }
         } // end for all results
 
-        Catalog.getCurrentCatalog().getEditLog().logHeartbeat(hbPackage);
+        Env.getCurrentEnv().getEditLog().logHeartbeat(hbPackage);
     }
 
     private boolean handleHbResponse(HeartbeatResponse response, boolean isReplay) {
         switch (response.getType()) {
             case FRONTEND: {
                 FrontendHbResponse hbResponse = (FrontendHbResponse) response;
-                Frontend fe = Catalog.getCurrentCatalog().getFeByName(hbResponse.getName());
+                Frontend fe = Env.getCurrentEnv().getFeByName(hbResponse.getName());
                 if (fe != null) {
                     return fe.handleHbResponse(hbResponse, isReplay);
                 }
@@ -170,7 +170,7 @@ public class HeartbeatMgr extends MasterDaemon {
                         // invalid all connections cached in ClientPool
                         ClientPool.backendPool.clearPool(new TNetworkAddress(be.getHost(), be.getBePort()));
                         if (!isReplay) {
-                            Catalog.getCurrentCatalog().getGlobalTransactionMgr()
+                            Env.getCurrentEnv().getGlobalTransactionMgr()
                                     .abortTxnWhenCoordinateBeDown(be.getHost(), 100);
                         }
                     }
@@ -180,7 +180,7 @@ public class HeartbeatMgr extends MasterDaemon {
             }
             case BROKER: {
                 BrokerHbResponse hbResponse = (BrokerHbResponse) response;
-                FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(
+                FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getBroker(
                         hbResponse.getName(), hbResponse.getHost(), hbResponse.getPort());
                 if (broker != null) {
                     boolean isChanged = broker.handleHbResponse(hbResponse);
@@ -289,11 +289,11 @@ public class HeartbeatMgr extends MasterDaemon {
 
         @Override
         public HeartbeatResponse call() {
-            if (fe.getHost().equals(Catalog.getCurrentCatalog().getSelfNode().first)) {
+            if (fe.getHost().equals(Env.getCurrentEnv().getSelfNode().first)) {
                 // heartbeat to self
-                if (Catalog.getCurrentCatalog().isReady()) {
+                if (Env.getCurrentEnv().isReady()) {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
-                            Catalog.getCurrentCatalog().getMaxJournalId(), System.currentTimeMillis(),
+                            Env.getCurrentEnv().getMaxJournalId(), System.currentTimeMillis(),
                             Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");

@@ -82,17 +82,10 @@ public class QueryStmtTest {
     @Test
     public void testCollectExprs() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
-        String sql = "SELECT CASE\n"
-                + "        WHEN (\n"
-                + "            SELECT COUNT(*) / 2\n"
-                + "            FROM db1.tbl1\n"
-                + "        ) > k4 THEN (\n"
-                + "            SELECT AVG(k4)\n"
-                + "            FROM db1.tbl1\n"
-                + "        )\n"
-                + "        ELSE (\n"
-                + "            SELECT SUM(k4)\n"
+        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
+        String sql = "SELECT CASE\n" + "        WHEN (\n" + "            SELECT COUNT(*) / 2\n"
+                + "            FROM db1.tbl1\n" + "        ) > k4 THEN (\n" + "            SELECT AVG(k4)\n"
+                + "            FROM db1.tbl1\n" + "        )\n" + "        ELSE (\n" + "            SELECT SUM(k4)\n"
                 + "            FROM db1.tbl1\n"
                 + "        )\n"
                 + "    END AS kk4\n"
@@ -283,7 +276,7 @@ public class QueryStmtTest {
                 + "FROM\n"
                 + "  (SELECT curdate()) a;";
         StatementBase stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        stmt.foldConstant(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
 
         // reAnalyze
         reAnalyze(stmt, ctx);
@@ -305,7 +298,7 @@ public class QueryStmtTest {
                 + "   t2.k2 = @@language\n"
                 + ")";
         stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        stmt.foldConstant(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
         // reAnalyze
         reAnalyze(stmt, ctx);
         Assert.assertTrue(stmt.toSql().contains("Apache License, Version 2.0"));
@@ -326,7 +319,7 @@ public class QueryStmtTest {
                 + "   t2.k2 = CONNECTION_ID()\n"
                 + ")";
         stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        stmt.foldConstant(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
         // reAnalyze
         reAnalyze(stmt, ctx);
         Assert.assertTrue(stmt.toSql().contains("root''@''%"));
@@ -339,7 +332,7 @@ public class QueryStmtTest {
                 + "   (select USER() k1, CURRENT_USER() k2, SCHEMA() k3) t1,\n"
                 + "   (select @@license k1, @@version k2) t2\n";
         stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        stmt.foldConstant(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
         // reAnalyze
         reAnalyze(stmt, ctx);
         Assert.assertTrue(stmt.toSql().contains("root''@''%"));
@@ -359,7 +352,7 @@ public class QueryStmtTest {
         // query re-analyze
         stmt.reset();
         // Re-analyze the stmt with a new analyzer.
-        stmt.analyze(new Analyzer(ctx.getCatalog(), ctx));
+        stmt.analyze(new Analyzer(ctx.getEnv(), ctx));
 
         // Restore the original result types and column labels.
         stmt.castResultExprs(origResultTypes);

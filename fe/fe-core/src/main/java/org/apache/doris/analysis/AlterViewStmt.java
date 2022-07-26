@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
@@ -52,14 +52,14 @@ public class AlterViewStmt extends BaseViewStmt {
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
-        DatabaseIf db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb());
+        DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb());
         TableIf table = db.getTableOrAnalysisException(tableName.getTbl());
         if (!(table instanceof View)) {
             throw new AnalysisException(
                     String.format("ALTER VIEW not allowed on a table:%s.%s", getDbName(), getTable()));
         }
 
-        if (!Catalog.getCurrentCatalog().getAuth()
+        if (!Env.getCurrentEnv().getAuth()
                 .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER VIEW",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),

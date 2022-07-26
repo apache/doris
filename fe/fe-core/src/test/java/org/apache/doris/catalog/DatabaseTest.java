@@ -50,7 +50,7 @@ public class DatabaseTest {
     private long dbId = 10000;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private EditLog editLog;
 
@@ -62,19 +62,19 @@ public class DatabaseTest {
                 editLog.logCreateTable((CreateTableInfo) any);
                 minTimes = 0;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
             }
         };
 
-        new Expectations(catalog) {
+        new Expectations(env) {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentCatalogJournalVersion();
+                Env.getCurrentEnvJournalVersion();
                 minTimes = 0;
                 result = FeConstants.meta_version;
             }

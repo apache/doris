@@ -18,9 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
@@ -712,7 +712,7 @@ public class DataDescription {
     }
 
     private void analyzeSequenceCol(String fullDbName) throws AnalysisException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(fullDbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(fullDbName);
         OlapTable olapTable = db.getOlapTableOrAnalysisException(tableName);
         // no sequence column in load and table schema
         if (!hasSequenceCol() && !olapTable.hasSequenceCol()) {
@@ -786,7 +786,7 @@ public class DataDescription {
         }
 
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tableName,
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tableName,
                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
@@ -795,7 +795,7 @@ public class DataDescription {
 
         // check hive table auth
         if (isLoadFromTable()) {
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, srcTableName,
+            if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, srcTableName,
                     PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                         ConnectContext.get().getQualifiedUser(),

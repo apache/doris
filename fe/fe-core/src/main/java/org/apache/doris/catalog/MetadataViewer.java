@@ -48,10 +48,10 @@ public class MetadataViewer {
             ReplicaStatus statusFilter, Operator op) throws DdlException {
         List<List<String>> result = Lists.newArrayList();
 
-        Catalog catalog = Catalog.getCurrentCatalog();
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Env env = Env.getCurrentEnv();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
 
-        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
         olapTable.readLock();
@@ -166,10 +166,10 @@ public class MetadataViewer {
 
         List<List<String>> result = Lists.newArrayList();
 
-        Catalog catalog = Catalog.getCurrentCatalog();
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Env env = Env.getCurrentEnv();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
 
-        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
         olapTable.readLock();
         try {
@@ -261,13 +261,13 @@ public class MetadataViewer {
         DecimalFormat df = new DecimalFormat("00.00 %");
 
         List<List<String>> result = Lists.newArrayList();
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env env = Env.getCurrentEnv();
 
         if (partitionNames == null || partitionNames.getPartitionNames().size() != 1) {
             throw new DdlException("Should specify one and only one partitions");
         }
 
-        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
         olapTable.readLock();

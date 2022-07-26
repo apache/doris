@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
@@ -49,7 +49,7 @@ public class TrashProcDir implements ProcDirInterface {
     private List<Backend> backends = Lists.newArrayList();
 
     public TrashProcDir() {
-        ImmutableMap<Long, Backend> backendsInfo = Catalog.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
         for (Backend backend : backendsInfo.values()) {
             this.backends.add(backend);
         }
@@ -119,7 +119,7 @@ public class TrashProcDir implements ProcDirInterface {
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid backend id format: " + backendIdStr);
         }
-        Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
+        Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
         if (backend == null) {
             throw new AnalysisException("Backend[" + backendId + "] does not exist.");
         }

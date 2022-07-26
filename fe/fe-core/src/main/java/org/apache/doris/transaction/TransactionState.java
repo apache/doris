@@ -17,7 +17,7 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
@@ -397,7 +397,7 @@ public class TransactionState implements Writable {
 
     public void beforeStateTransform(TransactionStatus transactionStatus) throws TransactionException {
         // before status changed
-        callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
+        callback = Env.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
         if (callback != null) {
             switch (transactionStatus) {
                 case ABORTED:
@@ -429,7 +429,7 @@ public class TransactionState implements Writable {
             boolean txnOperated, String txnStatusChangeReason) throws UserException {
         // after status changed
         if (callback == null) {
-            callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
+            callback = Env.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
         }
         if (callback != null) {
             switch (transactionStatus) {
@@ -449,8 +449,8 @@ public class TransactionState implements Writable {
     }
 
     public void replaySetTransactionStatus() {
-        TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(
-                callbackId);
+        TxnStateChangeCallback callback = Env.getCurrentGlobalTransactionMgr().getCallbackFactory()
+                .getCallback(callbackId);
         if (callback != null) {
             if (transactionStatus == TransactionStatus.ABORTED) {
                 callback.replayOnAborted(this);
@@ -657,7 +657,7 @@ public class TransactionState implements Writable {
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
         prepareTime = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_107) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_107) {
             preCommitTime = in.readLong();
         }
         commitTime = in.readLong();

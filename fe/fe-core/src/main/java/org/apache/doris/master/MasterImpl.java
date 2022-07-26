@@ -18,8 +18,8 @@
 package org.apache.doris.master;
 
 import org.apache.doris.alter.AlterJobV2.JobType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -97,7 +97,7 @@ public class MasterImpl {
         TBackend tBackend = request.getBackend();
         String host = tBackend.getHost();
         int bePort = tBackend.getBePort();
-        Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(host, bePort);
+        Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(host, bePort);
         if (backend == null) {
             tStatus.setStatusCode(TStatusCode.CANCELLED);
             List<String> errorMsgs = new ArrayList<>();
@@ -234,7 +234,7 @@ public class MasterImpl {
                 long tabletId = createReplicaTask.getTabletId();
 
                 if (request.isSetFinishTabletInfos()) {
-                    Replica replica = Catalog.getCurrentInvertedIndex().getReplica(createReplicaTask.getTabletId(),
+                    Replica replica = Env.getCurrentInvertedIndex().getReplica(createReplicaTask.getTabletId(),
                             createReplicaTask.getBackendId());
                     replica.setPathHash(request.getFinishTabletInfos().get(0).getPathHash());
 
@@ -251,7 +251,7 @@ public class MasterImpl {
                 }
 
                 // this should be called before 'countDownLatch()'
-                Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(),
+                Env.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(),
                         request.getReportVersion(), task.getDbId(), task.getTableId());
 
                 createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
@@ -292,7 +292,7 @@ public class MasterImpl {
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
         long transactionId = ((PushTask) task).getTransactionId();
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             return;
@@ -345,18 +345,18 @@ public class MasterImpl {
 
             // should be done before addReplicaPersistInfos and countDownLatch
             long reportVersion = request.getReportVersion();
-            Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion,
+            Env.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion,
                                                                        task.getDbId(), task.getTableId());
 
             List<Long> tabletIds = finishTabletInfos.stream().map(
                     tTabletInfo -> tTabletInfo.getTabletId()).collect(Collectors.toList());
-            List<TabletMeta> tabletMetaList = Catalog.getCurrentInvertedIndex().getTabletMetaList(tabletIds);
+            List<TabletMeta> tabletMetaList = Env.getCurrentInvertedIndex().getTabletMetaList(tabletIds);
 
             // handle load job
             // TODO yiguolei: why delete should check request version and task version?
             if (pushTask.getPushType() == TPushType.LOAD) {
                 long loadJobId = pushTask.getLoadJobId();
-                LoadJob job = Catalog.getCurrentCatalog().getLoadInstance().getLoadJob(loadJobId);
+                LoadJob job = Env.getCurrentEnv().getLoadInstance().getLoadJob(loadJobId);
                 if (job == null) {
                     throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
                 }
@@ -373,7 +373,7 @@ public class MasterImpl {
                     }
                 }
             } else if (pushTask.getPushType() == TPushType.DELETE) {
-                DeleteJob deleteJob = Catalog.getCurrentCatalog().getDeleteHandler().getDeleteJob(transactionId);
+                DeleteJob deleteJob = Env.getCurrentEnv().getDeleteHandler().getDeleteJob(transactionId);
                 if (deleteJob == null) {
                     throw new MetaNotFoundException("cannot find delete job, job[" + transactionId + "]");
                 }
@@ -390,7 +390,7 @@ public class MasterImpl {
             } else if (pushTask.getPushType() == TPushType.LOAD_V2) {
                 long loadJobId = pushTask.getLoadJobId();
                 org.apache.doris.load.loadv2.LoadJob job
-                        = Catalog.getCurrentCatalog().getLoadManager().getLoadJob(loadJobId);
+                        = Env.getCurrentEnv().getLoadManager().getLoadJob(loadJobId);
                 if (job == null) {
                     throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
                 }
@@ -487,7 +487,7 @@ public class MasterImpl {
         if (request.isSetReportVersion()) {
             // report version is required. here we check if set, for compatibility.
             long reportVersion = request.getReportVersion();
-            Catalog.getCurrentSystemInfo().updateBackendReportVersion(
+            Env.getCurrentSystemInfo().updateBackendReportVersion(
                     task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
         }
 
@@ -511,7 +511,7 @@ public class MasterImpl {
     private void finishClone(AgentTask task, TFinishTaskRequest request) {
         CloneTask cloneTask = (CloneTask) task;
         if (cloneTask.getTaskVersion() == CloneTask.VERSION_2) {
-            Catalog.getCurrentCatalog().getTabletScheduler().finishCloneTask(cloneTask, request);
+            Env.getCurrentEnv().getTabletScheduler().finishCloneTask(cloneTask, request);
         } else {
             LOG.warn("invalid clone task, ignore it. {}", task);
         }
@@ -521,7 +521,7 @@ public class MasterImpl {
 
     private void finishStorageMediumMigrate(AgentTask task, TFinishTaskRequest request) {
         StorageMediaMigrationTask migrationTask = (StorageMediaMigrationTask) task;
-        Catalog.getCurrentCatalog().getTabletScheduler().finishStorageMediaMigrationTask(migrationTask, request);
+        Env.getCurrentEnv().getTabletScheduler().finishStorageMediaMigrationTask(migrationTask, request);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.STORAGE_MEDIUM_MIGRATE, task.getSignature());
     }
 
@@ -534,14 +534,14 @@ public class MasterImpl {
             return;
         }
 
-        Catalog.getCurrentCatalog().getConsistencyChecker().handleFinishedConsistencyCheck(checkConsistencyTask,
+        Env.getCurrentEnv().getConsistencyChecker().handleFinishedConsistencyCheck(checkConsistencyTask,
                                                                                      request.getTabletChecksum());
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CHECK_CONSISTENCY, task.getSignature());
     }
 
     private void finishMakeSnapshot(AgentTask task, TFinishTaskRequest request) {
         SnapshotTask snapshotTask = (SnapshotTask) task;
-        if (Catalog.getCurrentCatalog().getBackupHandler().handleFinishedSnapshotTask(snapshotTask, request)) {
+        if (Env.getCurrentEnv().getBackupHandler().handleFinishedSnapshotTask(snapshotTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MAKE_SNAPSHOT, task.getSignature());
         }
 
@@ -549,21 +549,21 @@ public class MasterImpl {
 
     private void finishUpload(AgentTask task, TFinishTaskRequest request) {
         UploadTask uploadTask = (UploadTask) task;
-        if (Catalog.getCurrentCatalog().getBackupHandler().handleFinishedSnapshotUploadTask(uploadTask, request)) {
+        if (Env.getCurrentEnv().getBackupHandler().handleFinishedSnapshotUploadTask(uploadTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.UPLOAD, task.getSignature());
         }
     }
 
     private void finishDownloadTask(AgentTask task, TFinishTaskRequest request) {
         DownloadTask downloadTask = (DownloadTask) task;
-        if (Catalog.getCurrentCatalog().getBackupHandler().handleDownloadSnapshotTask(downloadTask, request)) {
+        if (Env.getCurrentEnv().getBackupHandler().handleDownloadSnapshotTask(downloadTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.DOWNLOAD, task.getSignature());
         }
     }
 
     private void finishMoveDirTask(AgentTask task, TFinishTaskRequest request) {
         DirMoveTask dirMoveTask = (DirMoveTask) task;
-        if (Catalog.getCurrentCatalog().getBackupHandler().handleDirMoveTask(dirMoveTask, request)) {
+        if (Env.getCurrentEnv().getBackupHandler().handleDirMoveTask(dirMoveTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MOVE, task.getSignature());
         }
     }
@@ -577,16 +577,16 @@ public class MasterImpl {
     }
 
     public TFetchResourceResult fetchResource() {
-        return Catalog.getCurrentCatalog().getAuth().toResourceThrift();
+        return Env.getCurrentEnv().getAuth().toResourceThrift();
     }
 
     private void finishAlterTask(AgentTask task) {
         AlterReplicaTask alterTask = (AlterReplicaTask) task;
         try {
             if (alterTask.getJobType() == JobType.ROLLUP) {
-                Catalog.getCurrentCatalog().getMaterializedViewHandler().handleFinishAlterTask(alterTask);
+                Env.getCurrentEnv().getMaterializedViewHandler().handleFinishAlterTask(alterTask);
             } else if (alterTask.getJobType() == JobType.SCHEMA_CHANGE) {
-                Catalog.getCurrentCatalog().getSchemaChangeHandler().handleFinishAlterTask(alterTask);
+                Env.getCurrentEnv().getSchemaChangeHandler().handleFinishAlterTask(alterTask);
             }
             alterTask.setFinished(true);
         } catch (MetaNotFoundException e) {
