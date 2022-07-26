@@ -378,11 +378,12 @@ Status VMergeIterator::next_batch(vectorized::Block* block) {
         if (!ctx->need_skip()) {
             // copy current row to block
             ctx->copy_row(block);
-        } else if (_merged_rows != nullptr) {
-            (*_merged_rows)++;
             if (UNLIKELY(_record_rowids)) {
                 _block_row_locations[row_idx] = ctx->current_row_location();
             }
+            row_idx++;
+        } else if (_merged_rows != nullptr) {
+            (*_merged_rows)++;
         }
 
         RETURN_IF_ERROR(ctx->advance());

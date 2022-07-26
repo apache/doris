@@ -1092,6 +1092,14 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         //          In SSB test, it make no difference; So need more scenarios to test
         selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
 
+        if (UNLIKELY(_opts.record_rowids)) {
+            _sel_rowid_idx.reserve(selected_size);
+            _selected_size = selected_size;
+            for (auto i = 0; i < _selected_size; i++) {
+                _sel_rowid_idx[i] = sel_rowid_idx[i];
+            }
+        }
+
         if (!_lazy_materialization_read) {
             Status ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
                                                    selected_size);
@@ -1143,11 +1151,17 @@ void SegmentIterator::_update_max_row(const vectorized::Block* block) {
 
 Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
     DCHECK(_opts.record_rowids);
-    DCHECK_GE(_block_rowids.size(), _current_batch_rows_read);
-    block_row_locations->resize(_current_batch_rows_read);
     uint32_t sid = segment_id();
-    for (auto i = 0; i < _current_batch_rows_read; i++) {
-        (*block_row_locations)[i] = RowLocation(sid, _block_rowids[i]);
+    if (!_is_need_vec_eval && !_is_need_short_eval) {
+        block_row_locations->resize(_current_batch_rows_read);
+        for (auto i = 0; i < _current_batch_rows_read; i++) {
+            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[i]);
+        }
+    } else {
+        block_row_locations->resize(_selected_size);
+        for (auto i = 0; i < _selected_size; i++) {
+            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[_sel_rowid_idx[i]]);
+        }
     }
     return Status::OK();
 }

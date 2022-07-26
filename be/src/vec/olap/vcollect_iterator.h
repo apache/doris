@@ -145,7 +145,9 @@ private:
 
         RowLocation current_row_location() override;
 
-        Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
+        Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override {
+            return Status::NotSupported("Level0Iterator don't need to implement the function");
+        }
 
     private:
         Status _refresh_current_row();
