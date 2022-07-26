@@ -41,7 +41,10 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
 #endif
 }
 
-Compaction::~Compaction() {}
+Compaction::~Compaction() {
+    StorageEngine::instance()->compaction_mem_tracker()->consumption_revise(
+            -_mem_tracker->consumption());
+}
 
 Status Compaction::compact() {
     RETURN_NOT_OK(prepare_compact());
