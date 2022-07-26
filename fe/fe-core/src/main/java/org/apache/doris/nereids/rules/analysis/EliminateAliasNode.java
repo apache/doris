@@ -32,6 +32,9 @@ import java.util.List;
 
 /**
  * Eliminate the logical sub query and alias node after analyze and before rewrite
+ * If we match the alias node and return its child node, in the execute() of the job
+ *
+ * TODO: refactor group merge strategy to support the feature above
  */
 public class EliminateAliasNode implements AnalysisRuleFactory {
     @Override

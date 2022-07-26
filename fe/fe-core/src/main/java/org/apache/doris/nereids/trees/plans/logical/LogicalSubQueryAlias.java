@@ -54,11 +54,10 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     public List<Slot> computeOutput(Plan input) {
-        List<Slot> collect = input.getOutput().stream()
+        return input.getOutput().stream()
                 .map(slot -> new SlotReference(slot.getName(), slot.getDataType(), slot.nullable(),
                         Lists.newArrayList(alias)))
                 .collect(Collectors.toList());
-        return collect;
     }
 
     public String getAlias() {
