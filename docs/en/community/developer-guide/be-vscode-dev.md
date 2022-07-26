@@ -50,7 +50,7 @@ sudo apt-get install autoconf automake libtool autopoint
 
 4. install : openssl libssl-dev
 ```
-sudo apt install openssl libssl-dev
+sudo apt install -y openssl libssl-dev
 ```
 
 ## Compile
