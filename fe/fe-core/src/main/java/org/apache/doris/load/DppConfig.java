@@ -18,7 +18,7 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.io.Text;
@@ -288,12 +288,12 @@ public class DppConfig implements Writable {
     }
 
     public String getApplicationsPath() {
-        return String.format("%s/%d/%s/%s", paloPath, Catalog.getCurrentCatalog().getClusterId(), APPLICATIONS_PATH,
+        return String.format("%s/%d/%s/%s", paloPath, Env.getCurrentEnv().getClusterId(), APPLICATIONS_PATH,
                 FeConstants.dpp_version);
     }
 
     public String getOutputPath() {
-        return String.format("%s/%d/%s", paloPath, Catalog.getCurrentCatalog().getClusterId(), OUTPUT_PATH);
+        return String.format("%s/%d/%s", paloPath, Env.getCurrentEnv().getClusterId(), OUTPUT_PATH);
     }
 
     public static String getHttpPortKey() {

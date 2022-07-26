@@ -19,8 +19,8 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -118,7 +118,7 @@ public abstract class AlterHandler extends MasterDaemon {
                 iterator.remove();
                 RemoveAlterJobV2OperationLog log = new RemoveAlterJobV2OperationLog(
                         alterJobV2.getJobId(), alterJobV2.getType());
-                Catalog.getCurrentCatalog().getEditLog().logRemoveExpiredAlterJobV2(log);
+                Env.getCurrentEnv().getEditLog().logRemoveExpiredAlterJobV2(log);
                 LOG.info("remove expired {} job {}. finish at {}", alterJobV2.getType(),
                         alterJobV2.getJobId(), TimeUtils.longToTimeString(alterJobV2.getFinishedTimeMs()));
             }
@@ -198,7 +198,7 @@ public abstract class AlterHandler extends MasterDaemon {
      * In summary, we only need to update replica's version when replica's version is smaller than X
      */
     public void handleFinishAlterTask(AlterReplicaTask task) throws MetaNotFoundException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(task.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(task.getDbId());
 
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(task.getTableId(), Table.TableType.OLAP);
         tbl.writeLockOrMetaException();
@@ -233,7 +233,7 @@ public abstract class AlterHandler extends MasterDaemon {
                         replica.getId(), replica.getVersion(), -1,
                         replica.getDataSize(), replica.getRemoteDataSize(), replica.getRowCount(),
                         replica.getLastFailedVersion(), replica.getLastSuccessVersion());
-                Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
+                Env.getCurrentEnv().getEditLog().logUpdateReplica(info);
             }
 
             LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);

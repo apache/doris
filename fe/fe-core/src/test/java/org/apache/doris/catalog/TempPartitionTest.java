@@ -100,7 +100,7 @@ public class TempPartitionTest {
     private void alterTable(String sql, boolean expectedException) throws Exception {
         try {
             AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-            Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+            Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
             if (expectedException) {
                 Assert.fail("expected exception not thrown");
             }
@@ -127,7 +127,7 @@ public class TempPartitionTest {
     }
 
     private long getPartitionIdByTabletId(long tabletId) {
-        TabletInvertedIndex index = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex index = Env.getCurrentInvertedIndex();
         TabletMeta tabletMeta = index.getTabletMeta(tabletId);
         if (tabletMeta == null) {
             return -1;
@@ -158,7 +158,7 @@ public class TempPartitionTest {
     }
 
     private void checkTabletExists(Collection<Long> tabletIds, boolean checkExist) {
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         for (Long tabletId : tabletIds) {
             if (checkExist) {
                 Assert.assertNotNull(invertedIndex.getTabletMeta(tabletId));
@@ -181,13 +181,13 @@ public class TempPartitionTest {
         // create database db1
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
+        Env.getCurrentEnv().createDb(createDbStmt);
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
         // create table tbl1
         String createTblStmtStr1 = "create table db1.tbl1(k1 int) distributed by hash(k1)"
                 + " buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
         // add temp partition
         String stmtStr = "alter table db1.tbl1 add temporary partition p1 values less than ('10');";
@@ -206,8 +206,8 @@ public class TempPartitionTest {
         // create database db2
         String createDbStmtStr = "create database db2;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
+        Env.getCurrentEnv().createDb(createDbStmt);
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
         // create table tbl2
         String createTblStmtStr1 = "create table db2.tbl2 (k1 int, k2 int)\n"
@@ -220,10 +220,10 @@ public class TempPartitionTest {
                 + "distributed by hash(k2) buckets 1\n"
                 + "properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
         Database db2 =
-                Catalog.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db2");
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db2");
         OlapTable tbl2 = (OlapTable) db2.getTableOrAnalysisException("tbl2");
 
         testSerializeOlapTable(tbl2);
@@ -306,7 +306,7 @@ public class TempPartitionTest {
 
         String recoverStr = "recover partition p1 from db2.tbl2;";
         RecoverPartitionStmt recoverStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverStr, ctx);
-        Catalog.getCurrentCatalog().recoverPartition(recoverStmt);
+        Env.getCurrentEnv().recoverPartition(recoverStmt);
         checkShowPartitionsResultNum("db2.tbl2", true, 3);
         checkShowPartitionsResultNum("db2.tbl2", false, 3);
 
@@ -346,7 +346,7 @@ public class TempPartitionTest {
 
         String truncateStr = "truncate table db2.tbl2 partition (p3);";
         TruncateTableStmt truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowPartitionsResultNum("db2.tbl2", true, 1);
         checkShowPartitionsResultNum("db2.tbl2", false, 3);
         checkPartitionExist(tbl2, "tp1", false, true);
@@ -429,7 +429,7 @@ public class TempPartitionTest {
 
         truncateStr = "truncate table db2.tbl2";
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowPartitionsResultNum("db2.tbl2", false, 3);
         checkShowPartitionsResultNum("db2.tbl2", true, 0);
 
@@ -440,7 +440,7 @@ public class TempPartitionTest {
         alterTable(stmtStr, true);
 
         // wait rollup finish
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(
@@ -505,8 +505,8 @@ public class TempPartitionTest {
         // create database db3
         String createDbStmtStr = "create database db3;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
+        Env.getCurrentEnv().createDb(createDbStmt);
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
         // create table tbl3
         String createTblStmtStr1 = "create table db3.tbl3 (k1 int, k2 int)\n"
@@ -519,9 +519,9 @@ public class TempPartitionTest {
                 + "distributed by hash(k2) buckets 1\n"
                 + "properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
-        Catalog.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db3");
+        Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db3");
 
         // base range is [min, 10), [10, 20), [20, 30)
 
@@ -538,7 +538,7 @@ public class TempPartitionTest {
         // now base range is [min, 10), [10, 15), [15, 25), [25, 30) -> p1,tp1,tp2,tp3
         stmtStr = "truncate table db3.tbl3";
         TruncateTableStmt truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         // 2. add temp ranges: [10, 31), and replace the [10, 15), [15, 25), [25, 30)
         stmtStr = "alter table db3.tbl3 add temporary partition tp4 values [('10'), ('31'))";
         alterTable(stmtStr, false);
@@ -555,7 +555,7 @@ public class TempPartitionTest {
         // now base range is [min, 10), [10, 30) -> p1,tp4
         stmtStr = "truncate table db3.tbl3";
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         // 3. add temp partition tp5 [50, 60) and replace partition tp4
         stmtStr = "alter table db3.tbl3 add temporary partition tp5 values [('50'), ('60'))";
         alterTable(stmtStr, false);
@@ -582,8 +582,8 @@ public class TempPartitionTest {
         // create database db4
         String createDbStmtStr = "create database db4;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
+        Env.getCurrentEnv().createDb(createDbStmt);
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
         // create table tbl4
         String createTblStmtStr1 = "create table db4.tbl4 (k1 int not null, k2 int)\n"
@@ -596,10 +596,10 @@ public class TempPartitionTest {
                 + "distributed by hash(k2) buckets 1\n"
                 + "properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
         Database db4 =
-                Catalog.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db4");
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db4");
         OlapTable tbl4 = (OlapTable) db4.getTableOrAnalysisException("tbl4");
 
         testSerializeOlapTable(tbl4);
@@ -682,7 +682,7 @@ public class TempPartitionTest {
 
         String recoverStr = "recover partition p1 from db4.tbl4;";
         RecoverPartitionStmt recoverStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverStr, ctx);
-        Catalog.getCurrentCatalog().recoverPartition(recoverStmt);
+        Env.getCurrentEnv().recoverPartition(recoverStmt);
         checkShowPartitionsResultNum("db4.tbl4", true, 3);
         checkShowPartitionsResultNum("db4.tbl4", false, 3);
 
@@ -721,7 +721,7 @@ public class TempPartitionTest {
 
         String truncateStr = "truncate table db4.tbl4 partition (p3);";
         TruncateTableStmt truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowPartitionsResultNum("db4.tbl4", true, 1);
         checkShowPartitionsResultNum("db4.tbl4", false, 3);
         checkPartitionExist(tbl4, "tp1", false, true);
@@ -802,7 +802,7 @@ public class TempPartitionTest {
         // truncate table will delete temporary partitions
         truncateStr = "truncate table db4.tbl4";
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowPartitionsResultNum("db4.tbl4", false, 3);
         checkShowPartitionsResultNum("db4.tbl4", true, 0);
 
@@ -813,7 +813,7 @@ public class TempPartitionTest {
         alterTable(stmtStr, true);
 
         // wait rollup finish
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(
@@ -933,8 +933,8 @@ public class TempPartitionTest {
         // create database db5
         String createDbStmtStr = "create database db5;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
+        Env.getCurrentEnv().createDb(createDbStmt);
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
         // create table tbl5
         String createTblStmtStr1 = "create table db5.tbl5 (k1 int not null, k2 varchar not null)\n"
@@ -947,10 +947,10 @@ public class TempPartitionTest {
                 + "distributed by hash(k2) buckets 1\n"
                 + "properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
         Database db5 =
-                Catalog.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db5");
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db5");
         OlapTable tbl5 = (OlapTable) db5.getTableOrAnalysisException("tbl5");
 
         testSerializeOlapTable(tbl5);
@@ -1041,7 +1041,7 @@ public class TempPartitionTest {
 
         String recoverStr = "recover partition p1 from db5.tbl5;";
         RecoverPartitionStmt recoverStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverStr, ctx);
-        Catalog.getCurrentCatalog().recoverPartition(recoverStmt);
+        Env.getCurrentEnv().recoverPartition(recoverStmt);
         checkShowPartitionsResultNum("db5.tbl5", true, 3);
         checkShowPartitionsResultNum("db5.tbl5", false, 3);
 
@@ -1080,7 +1080,7 @@ public class TempPartitionTest {
 
         String truncateStr = "truncate table db5.tbl5 partition (p3);";
         TruncateTableStmt truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowPartitionsResultNum("db5.tbl5", true, 1);
         checkShowPartitionsResultNum("db5.tbl5", false, 3);
         checkPartitionExist(tbl5, "tp1", false, true);
@@ -1166,7 +1166,7 @@ public class TempPartitionTest {
         // truncate table will delete temporary partitions
         truncateStr = "truncate table db5.tbl5";
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowPartitionsResultNum("db5.tbl5", false, 3);
         checkShowPartitionsResultNum("db5.tbl5", true, 0);
 
@@ -1178,7 +1178,7 @@ public class TempPartitionTest {
         alterTable(stmtStr, true);
 
         // wait rollup finish
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(

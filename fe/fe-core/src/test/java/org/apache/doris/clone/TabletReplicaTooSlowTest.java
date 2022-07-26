@@ -19,8 +19,8 @@ package org.apache.doris.clone;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
@@ -88,10 +88,10 @@ public class TabletReplicaTooSlowTest {
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Catalog.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        backends = Env.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
@@ -125,18 +125,18 @@ public class TabletReplicaTooSlowTest {
 
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
         updateReplicaVersionCount();
     }
 
     private static void updateReplicaVersionCount() {
-        Table<Long, Long, Replica> replicaMetaTable = Catalog.getCurrentInvertedIndex().getReplicaMetaTable();
+        Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex().getReplicaMetaTable();
         int versionCount = 1;
         long tabletId = -1;
         for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
             tabletId = cell.getRowKey();
             long beId = cell.getColumnKey();
-            Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+            Backend be = Env.getCurrentSystemInfo().getBackend(beId);
             List<Long> pathHashes = be.getDisks().values().stream()
                     .map(DiskInfo::getPathHash).collect(Collectors.toList());
             Replica replica = cell.getValue();
@@ -166,7 +166,7 @@ public class TabletReplicaTooSlowTest {
         int maxLoop = 300;
         boolean delete = false;
         while (maxLoop-- > 0) {
-            Table<Long, Long, Replica> replicaMetaTable = Catalog.getCurrentInvertedIndex().getReplicaMetaTable();
+            Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex().getReplicaMetaTable();
             boolean found = false;
             for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
                 Replica replica = cell.getValue();

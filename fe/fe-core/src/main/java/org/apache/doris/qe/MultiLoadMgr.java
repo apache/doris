@@ -28,7 +28,7 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -89,7 +89,7 @@ public class MultiLoadMgr {
             }
             BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(ConnectContext.get().getClusterName())
                     .needLoadAvailable().build();
-            List<Long> backendIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+            List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
             if (backendIds.isEmpty()) {
                 throw new DdlException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + " policy: " + policy);
             }
@@ -100,7 +100,7 @@ public class MultiLoadMgr {
             lock.writeLock().unlock();
         }
         // Register to Load after put into map.
-        Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromMultiStart(fullDbName, label);
+        Env.getCurrentEnv().getLoadManager().createLoadJobV1FromMultiStart(fullDbName, label);
     }
 
     // Add one load job
@@ -148,18 +148,18 @@ public class MultiLoadMgr {
             if (multiLoadDesc == null) {
                 throw new DdlException("Unknown label(" + multiLabel + ")");
             }
-            jobIds.add(Catalog.getCurrentCatalog().getLoadManager().createLoadJobFromStmt(multiLoadDesc.toLoadStmt()));
+            jobIds.add(Env.getCurrentEnv().getLoadManager().createLoadJobFromStmt(multiLoadDesc.toLoadStmt()));
             infoMap.remove(multiLabel);
         } finally {
             lock.writeLock().unlock();
         }
         final long jobId = jobIds.isEmpty() ? -1 : jobIds.get(0);
-        Catalog.getCurrentCatalog().getLoadInstance().deregisterMiniLabel(fullDbName, label);
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env.getCurrentEnv().getLoadInstance().deregisterMiniLabel(fullDbName, label);
+        Env env = Env.getCurrentEnv();
         ConnectContext ctx = ConnectContext.get();
         Awaitility.await().atMost(Config.broker_load_default_timeout_second, TimeUnit.SECONDS).until(() -> {
             ConnectContext.threadLocalInfo.set(ctx);
-            LoadJob loadJob = catalog.getLoadManager().getLoadJob(jobId);
+            LoadJob loadJob = env.getLoadManager().getLoadJob(jobId);
             if (loadJob.getState() == JobState.FINISHED) {
                 return true;
             } else if (loadJob.getState() == JobState.PENDING || loadJob.getState() == JobState.LOADING) {
@@ -185,7 +185,7 @@ public class MultiLoadMgr {
         } finally {
             lock.writeLock().unlock();
         }
-        Catalog.getCurrentCatalog().getLoadInstance().deregisterMiniLabel(fullDbName, label);
+        Env.getCurrentEnv().getLoadInstance().deregisterMiniLabel(fullDbName, label);
     }
 
     public void desc(String fullDbName, String label, List<String> subLabels) throws DdlException {
@@ -227,7 +227,7 @@ public class MultiLoadMgr {
             if (desc == null) {
                 throw new DdlException("Unknown multiLabel(" + multiLabel + ")");
             }
-            Backend backend = Catalog.getCurrentSystemInfo().getBackend(desc.getBackendId());
+            Backend backend = Env.getCurrentSystemInfo().getBackend(desc.getBackendId());
             return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
         } finally {
             lock.writeLock().unlock();
@@ -350,7 +350,7 @@ public class MultiLoadMgr {
             loadStmt.setEtlJobType(EtlJobType.BROKER);
             loadStmt.setOrigStmt(new OriginStatement("", 0));
             loadStmt.setUserInfo(ConnectContext.get().getCurrentUserIdentity());
-            Analyzer analyzer = new Analyzer(ConnectContext.get().getCatalog(), ConnectContext.get());
+            Analyzer analyzer = new Analyzer(ConnectContext.get().getEnv(), ConnectContext.get());
             try {
                 loadStmt.analyze(analyzer);
             } catch (UserException e) {
@@ -486,7 +486,7 @@ public class MultiLoadMgr {
                     fileFormat, null, isNegative, null, null, whereExpr, mergeType, deleteCondition,
                     sequenceColName, null);
             dataDescription.setColumnDef(colString);
-            backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
+            backend = Env.getCurrentSystemInfo().getBackend(backendId);
             if (backend == null) {
                 throw new DdlException("Backend [" + backendId + "] not found. ");
             }

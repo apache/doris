@@ -19,9 +19,9 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
@@ -202,7 +202,7 @@ public class PropertyAnalyzer {
         if (hasRemoteStoragePolicy) {
             // check remote storage policy
             StoragePolicy checkedPolicy = StoragePolicy.ofCheck(remoteStoragePolicy);
-            Policy policy = Catalog.getCurrentCatalog().getPolicyMgr().getPolicy(checkedPolicy);
+            Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedPolicy);
             if (!(policy instanceof StoragePolicy)) {
                 throw new AnalysisException("No PolicyStorage: " + remoteStoragePolicy);
             }
@@ -527,7 +527,7 @@ public class PropertyAnalyzer {
             remoteStoragePolicy = properties.get(PROPERTIES_REMOTE_STORAGE_POLICY);
             // check remote storage policy existence
             StoragePolicy checkedStoragePolicy = StoragePolicy.ofCheck(remoteStoragePolicy);
-            Policy policy = Catalog.getCurrentCatalog().getPolicyMgr().getPolicy(checkedStoragePolicy);
+            Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedStoragePolicy);
             if (!(policy instanceof StoragePolicy)) {
                 throw new AnalysisException("StoragePolicy: " + remoteStoragePolicy + " does not exist.");
             }

@@ -53,9 +53,9 @@ import org.apache.doris.analysis.TransactionStmt;
 import org.apache.doris.analysis.UnlockTablesStmt;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
@@ -262,13 +262,13 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     public boolean isForwardToMaster() {
-        if (Catalog.getCurrentCatalog().isMaster()) {
+        if (Env.getCurrentEnv().isMaster()) {
             return false;
         }
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
-        if ((parsedStmt instanceof QueryStmt) && !Catalog.getCurrentCatalog().isMaster()
-                && !Catalog.getCurrentCatalog().canRead()) {
+        if ((parsedStmt instanceof QueryStmt) && !Env.getCurrentEnv().isMaster()
+                && !Env.getCurrentEnv().canRead()) {
             return true;
         }
 
@@ -378,7 +378,7 @@ public class StmtExecutor implements ProfileWriter {
                         // If goes here, which means we can't find a valid Master FE(some error happens).
                         // To avoid endless forward, throw exception here.
                         throw new UserException("The statement has been forwarded to master FE("
-                                + Catalog.getCurrentCatalog().getSelfNode().first + ") and failed to execute"
+                                + Env.getCurrentEnv().getSelfNode().first + ") and failed to execute"
                                 + " because Master FE is not ready. You may need to check FE's status");
                     }
                     forwardToMaster();
@@ -390,7 +390,7 @@ public class StmtExecutor implements ProfileWriter {
                     LOG.debug("no need to transfer to Master. stmt: {}", context.getStmtId());
                 }
             } else {
-                analyzer = new Analyzer(context.getCatalog(), context);
+                analyzer = new Analyzer(context.getEnv(), context);
                 parsedStmt.analyze(analyzer);
             }
 
@@ -399,7 +399,7 @@ public class StmtExecutor implements ProfileWriter {
                 if (!parsedStmt.isExplain()) {
                     // sql/sqlHash block
                     try {
-                        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(
+                        Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
                                 originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
                     } catch (AnalysisException e) {
                         LOG.warn(e.getMessage());
@@ -411,7 +411,7 @@ public class StmtExecutor implements ProfileWriter {
                     for (ScanNode scanNode : scanNodeList) {
                         if (scanNode instanceof OlapScanNode) {
                             OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().checkLimitations(
+                            Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
                                     olapScanNode.getSelectedPartitionNum().longValue(),
                                     olapScanNode.getSelectedTabletsNum(),
                                     olapScanNode.getCardinality(),
@@ -534,7 +534,7 @@ public class StmtExecutor implements ProfileWriter {
                 if (insertStmt.isTransactionBegin() && context.getState().getStateType() == MysqlStateType.ERR) {
                     try {
                         String errMsg = Strings.emptyToNull(context.getState().getErrorMessage());
-                        Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                        Env.getCurrentGlobalTransactionMgr().abortTransaction(
                                 insertStmt.getDbObj().getId(), insertStmt.getTransactionId(),
                                 (errMsg == null ? "unknown reason" : errMsg));
                     } catch (Exception abortTxnException) {
@@ -603,7 +603,7 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
 
-        analyzer = new Analyzer(context.getCatalog(), context);
+        analyzer = new Analyzer(context.getEnv(), context);
         // Convert show statement to select statement here
         if (parsedStmt instanceof ShowStmt) {
             SelectStmt selectStmt = ((ShowStmt) parsedStmt).toSelectStmt(analyzer);
@@ -758,7 +758,7 @@ public class StmtExecutor implements ProfileWriter {
                         Lists.newArrayList(parsedStmt.getColLabels());
 
                 // Re-analyze the stmt with a new analyzer.
-                analyzer = new Analyzer(context.getCatalog(), context);
+                analyzer = new Analyzer(context.getEnv(), context);
 
                 // query re-analyze
                 parsedStmt.reset();
@@ -795,7 +795,7 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     private void resetAnalyzerAndStmt() {
-        analyzer = new Analyzer(context.getCatalog(), context);
+        analyzer = new Analyzer(context.getEnv(), context);
 
         parsedStmt.reset();
 
@@ -835,7 +835,7 @@ public class StmtExecutor implements ProfileWriter {
             // Check auth
             // Only user itself and user with admin priv can kill connection
             if (!killCtx.getQualifiedUser().equals(ConnectContext.get().getQualifiedUser())
-                    && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
+                    && !Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(),
                     PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
             }
@@ -926,7 +926,7 @@ public class StmtExecutor implements ProfileWriter {
                 }
                 newSelectStmt = cacheAnalyzer.getRewriteStmt();
                 newSelectStmt.reset();
-                analyzer = new Analyzer(context.getCatalog(), context);
+                analyzer = new Analyzer(context.getEnv(), context);
                 newSelectStmt.analyze(analyzer);
                 if (parsedStmt instanceof LogicalPlanAdapter) {
                     planner = new NereidsPlanner(context);
@@ -979,7 +979,7 @@ public class StmtExecutor implements ProfileWriter {
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
         if (parsedStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).getTableRefs().isEmpty()
-                && Catalog.getCurrentSystemInfo().getBackendIds(true).isEmpty()) {
+                && Env.getCurrentSystemInfo().getBackendIds(true).isEmpty()) {
             SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
             if (handleSelectRequestInFe(parsedSelectStmt)) {
                 return;
@@ -1090,8 +1090,8 @@ public class StmtExecutor implements ProfileWriter {
 
     private TWaitingTxnStatusResult getWaitingTxnStatus(TWaitingTxnStatusRequest request) throws Exception {
         TWaitingTxnStatusResult statusResult = null;
-        if (Catalog.getCurrentCatalog().isMaster()) {
-            statusResult = Catalog.getCurrentGlobalTransactionMgr()
+        if (Env.getCurrentEnv().isMaster()) {
+            statusResult = Env.getCurrentGlobalTransactionMgr()
                     .getWaitingTxnStatus(request);
         } else {
             MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
@@ -1251,21 +1251,21 @@ public class StmtExecutor implements ProfileWriter {
         TTxnParams txnConf = txnEntry.getTxnConf();
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
-        Database dbObj = Catalog.getCurrentInternalCatalog()
+        Database dbObj = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbName, s -> new TException("database is invalid for dbName: " + s));
         Table tblObj = dbObj.getTableOrException(tblName, s -> new TException("table is invalid: " + s));
         txnConf.setDbId(dbObj.getId()).setTbl(tblName).setDb(dbName);
         txnEntry.setTable(tblObj);
         txnEntry.setDb(dbObj);
         String label = txnEntry.getLabel();
-        if (Catalog.getCurrentCatalog().isMaster()) {
-            long txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
+        if (Env.getCurrentEnv().isMaster()) {
+            long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                     txnConf.getDbId(), Lists.newArrayList(tblObj.getId()),
                     label, new TransactionState.TxnCoordinator(
                             TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                     sourceType, timeoutSecond);
             txnConf.setTxnId(txnId);
-            String authCodeUuid = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(
+            String authCodeUuid = Env.getCurrentGlobalTransactionMgr().getTransactionState(
                     txnConf.getDbId(), txnConf.getTxnId()).getAuthCode();
             txnConf.setAuthCodeUuid(authCodeUuid);
         } else {
@@ -1399,7 +1399,7 @@ public class StmtExecutor implements ProfileWriter {
                     return;
                 }
 
-                if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                         insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()),
                         insertStmt.getTransactionId(),
                         TabletCommitInfo.fromThrift(coord.getCommitInfos()),
@@ -1414,7 +1414,7 @@ public class StmtExecutor implements ProfileWriter {
                 // if any throwable being thrown during insert operation, first we should abort this txn
                 LOG.warn("handle insert stmt fail: {}", label, t);
                 try {
-                    Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                    Env.getCurrentGlobalTransactionMgr().abortTransaction(
                             insertStmt.getDbObj().getId(), insertStmt.getTransactionId(),
                             t.getMessage() == null ? "unknown reason" : t.getMessage());
                 } catch (Exception abortTxnException) {
@@ -1447,15 +1447,10 @@ public class StmtExecutor implements ProfileWriter {
             // we will record the load job info for these 2 cases
             txnId = insertStmt.getTransactionId();
             try {
-                context.getCatalog().getLoadManager().recordFinishedLoadJob(
-                        label,
-                        txnId,
-                        insertStmt.getDb(),
-                        insertStmt.getTargetTable().getId(),
-                        EtlJobType.INSERT,
-                        createTime,
-                        throwable == null ? "" : throwable.getMessage(),
-                        coord.getTrackingUrl());
+                context.getEnv().getLoadManager()
+                        .recordFinishedLoadJob(label, txnId, insertStmt.getDb(), insertStmt.getTargetTable().getId(),
+                                EtlJobType.INSERT, createTime, throwable == null ? "" : throwable.getMessage(),
+                                coord.getTrackingUrl());
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
                 errMsg = "Record info of insert load with error " + e.getMessage();
@@ -1492,7 +1487,7 @@ public class StmtExecutor implements ProfileWriter {
     private void handleSwitchStmt() throws AnalysisException {
         SwitchStmt switchStmt = (SwitchStmt) parsedStmt;
         try {
-            context.getCatalog().changeCatalog(context, switchStmt.getCatalogName());
+            context.getEnv().changeCatalog(context, switchStmt.getCatalogName());
         } catch (DdlException e) {
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
@@ -1507,7 +1502,7 @@ public class StmtExecutor implements ProfileWriter {
             if (Strings.isNullOrEmpty(useStmt.getClusterName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
             }
-            context.getCatalog().changeDb(context, useStmt.getDatabase());
+            context.getEnv().changeDb(context, useStmt.getDatabase());
         } catch (DdlException e) {
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
@@ -1613,7 +1608,7 @@ public class StmtExecutor implements ProfileWriter {
 
     private void handleDdlStmt() {
         try {
-            DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt);
+            DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt);
             context.getState().setOk();
         } catch (QueryStateException e) {
             context.setState(e.getQueryState());
@@ -1632,7 +1627,7 @@ public class StmtExecutor implements ProfileWriter {
     private void handleEnterStmt() {
         final EnterStmt enterStmt = (EnterStmt) parsedStmt;
         try {
-            context.getCatalog().changeCluster(context, enterStmt.getClusterName());
+            context.getEnv().changeCluster(context, enterStmt.getClusterName());
             context.setDatabase("");
         } catch (DdlException e) {
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
@@ -1643,14 +1638,14 @@ public class StmtExecutor implements ProfileWriter {
 
     private void handleExportStmt() throws Exception {
         ExportStmt exportStmt = (ExportStmt) parsedStmt;
-        context.getCatalog().getExportMgr().addExportJob(exportStmt);
+        context.getEnv().getExportMgr().addExportJob(exportStmt);
     }
 
     private void handleCtasStmt() {
         CreateTableAsSelectStmt ctasStmt = (CreateTableAsSelectStmt) this.parsedStmt;
         try {
             // create table
-            DdlExecutor.execute(context.getCatalog(), ctasStmt);
+            DdlExecutor.execute(context.getEnv(), ctasStmt);
             context.getState().setOk();
         } catch (Exception e) {
             // Maybe our bug
@@ -1667,7 +1662,7 @@ public class StmtExecutor implements ProfileWriter {
                 // insert error drop table
                 DropTableStmt dropTableStmt = new DropTableStmt(true, ctasStmt.getCreateTableStmt().getDbTbl(), true);
                 try {
-                    DdlExecutor.execute(context.getCatalog(), dropTableStmt);
+                    DdlExecutor.execute(context.getEnv(), dropTableStmt);
                 } catch (Exception ex) {
                     LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
                     context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,

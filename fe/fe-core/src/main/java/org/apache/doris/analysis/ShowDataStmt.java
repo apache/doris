@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -101,7 +101,7 @@ public class ShowDataStmt extends ShowStmt {
             dbName = tableName.getDb();
         }
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
 
         // order by
         if (orderByElements != null && !orderByElements.isEmpty()) {
@@ -133,7 +133,7 @@ public class ShowDataStmt extends ShowStmt {
                 });
 
                 for (Table table : tables) {
-                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                    if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName,
                             table.getName(),
                             PrivPredicate.SHOW)) {
                         continue;
@@ -214,7 +214,7 @@ public class ShowDataStmt extends ShowStmt {
                 db.readUnlock();
             }
         } else {
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName,
+            if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tableName,
                     PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA",
                         ConnectContext.get().getQualifiedUser(),

@@ -18,7 +18,7 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -54,7 +54,7 @@ public class MysqlProto {
         String remoteIp = context.getMysqlChannel().getRemoteIp();
 
         List<UserIdentity> currentUserIdentity = Lists.newArrayList();
-        if (!Catalog.getCurrentCatalog().getAuth().checkPassword(qualifiedUser, remoteIp,
+        if (!Env.getCurrentEnv().getAuth().checkPassword(qualifiedUser, remoteIp,
                 scramble, randomString, currentUserIdentity)) {
             ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, context.getRemoteIP(), usePasswd);
             return false;
@@ -84,8 +84,8 @@ public class MysqlProto {
             clusterName = strList[1];
             try {
                 // if cluster does not exist and it is not a valid cluster id, authenticate failed
-                if (Catalog.getCurrentCatalog().getCluster(clusterName) == null
-                        && Integer.valueOf(strList[1]) != context.getCatalog().getClusterId()) {
+                if (Env.getCurrentEnv().getCluster(clusterName) == null
+                        && Integer.valueOf(strList[1]) != context.getEnv().getClusterId()) {
                     ErrorReport.report(ErrorCode.ERR_UNKNOWN_CLUSTER_ID, strList[1]);
                     return null;
                 }
@@ -280,7 +280,7 @@ public class MysqlProto {
         if (!Strings.isNullOrEmpty(db)) {
             try {
                 String dbFullName = ClusterNamespace.getFullName(context.getClusterName(), db);
-                Catalog.getCurrentCatalog().changeDb(context, dbFullName);
+                Env.getCurrentEnv().changeDb(context, dbFullName);
             } catch (DdlException e) {
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
                 sendResponsePacket(context);
@@ -289,7 +289,7 @@ public class MysqlProto {
         }
 
         // set resource tag if has
-        context.setResourceTags(Catalog.getCurrentCatalog().getAuth().getResourceTags(qualifiedUser));
+        context.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser));
         return true;
     }
 

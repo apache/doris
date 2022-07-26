@@ -34,9 +34,9 @@ import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -76,7 +76,7 @@ import java.util.function.Function;
 public class ShowExecutorTest {
     private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
     private ConnectContext ctx;
-    private Catalog catalog;
+    private Env env;
     private InternalDataSource ds;
 
     @Rule
@@ -210,36 +210,36 @@ public class ShowExecutorTest {
         };
 
         // mock catalog.
-        catalog = Deencapsulation.newInstance(Catalog.class);
-        new Expectations(catalog) {
+        env = Deencapsulation.newInstance(Env.class);
+        new Expectations(env) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
-                catalog.getCurrentDataSource();
+                env.getCurrentDataSource();
                 minTimes = 0;
                 result = ds;
 
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getDdlStmt((Table) any, (List) any, (List) any, (List) any, anyBoolean, anyBoolean);
-                minTimes = 0;
-
-                Catalog.getDdlStmt((Table) any, (List) any, null, null, anyBoolean, anyBoolean);
+                Env.getDdlStmt((Table) any, (List) any, (List) any, (List) any, anyBoolean, anyBoolean);
                 minTimes = 0;
 
-                catalog.getDataSourceMgr();
+                Env.getDdlStmt((Table) any, (List) any, null, null, anyBoolean, anyBoolean);
+                minTimes = 0;
+
+                env.getDataSourceMgr();
                 minTimes = 0;
                 result = dsMgr;
             }
@@ -257,7 +257,7 @@ public class ShowExecutorTest {
 
         ctx.changeDefaultCatalog(InternalDataSource.INTERNAL_DS_NAME);
         ctx.setConnectScheduler(scheduler);
-        ctx.setCatalog(AccessTestUtil.fetchAdminCatalog());
+        ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
         ctx.setQualifiedUser("testCluster:testUser");
         ctx.setCluster("testCluster");
 
@@ -293,7 +293,7 @@ public class ShowExecutorTest {
     public void testShowDbPriv() throws AnalysisException {
         ShowDbStmt stmt = new ShowDbStmt(null);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ctx.setCatalog(AccessTestUtil.fetchBlockCatalog());
+        ctx.setEnv(AccessTestUtil.fetchBlockCatalog());
         executor.execute();
     }
 
@@ -331,12 +331,12 @@ public class ShowExecutorTest {
     public void testDescribe() {
         SystemInfoService clusterInfo = AccessTestUtil.fetchSystemInfoService();
         Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        Catalog catalog = AccessTestUtil.fetchAdminCatalog();
+        Env env = AccessTestUtil.fetchAdminCatalog();
 
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             @Mock
-            Catalog getCurrentCatalog() {
-                return catalog;
+            Env getCurrentEnv() {
+                return env;
             }
 
             @Mock
@@ -418,7 +418,7 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowCreateDb() throws AnalysisException {
-        ctx.setCatalog(catalog);
+        ctx.setEnv(env);
         ctx.setQualifiedUser("testCluster:testUser");
 
         ShowCreateDbStmt stmt = new ShowCreateDbStmt("testCluster:testDb");
@@ -433,7 +433,7 @@ public class ShowExecutorTest {
 
     @Test(expected = AnalysisException.class)
     public void testShowCreateNoDb() throws AnalysisException {
-        ctx.setCatalog(catalog);
+        ctx.setEnv(env);
         ctx.setQualifiedUser("testCluster:testUser");
 
         ShowCreateDbStmt stmt = new ShowCreateDbStmt("testCluster:emptyDb");
@@ -463,7 +463,7 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowColumn() throws AnalysisException {
-        ctx.setCatalog(catalog);
+        ctx.setEnv(env);
         ctx.setQualifiedUser("testCluster:testUser");
         ShowColumnStmt stmt = new ShowColumnStmt(new TableName(internalCtl, "testCluster:testDb", "testTbl"), null, null, false);
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
@@ -505,7 +505,7 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowView() throws UserException {
-        ctx.setCatalog(catalog);
+        ctx.setEnv(env);
         ctx.setQualifiedUser("testCluster:testUser");
         ShowViewStmt stmt = new ShowViewStmt("", new TableName(internalCtl, "testDb", "testTbl"));
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(true));

@@ -37,7 +37,7 @@ import java.io.File;
 import java.util.Map;
 import java.util.UUID;
 
-public class CatalogOperationTest {
+public class EnvOperationTest {
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
     private static String runningDir = "fe/mocked/CatalogOperationTest/" + UUID.randomUUID().toString() + "/";
@@ -54,7 +54,7 @@ public class CatalogOperationTest {
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
 
         createTable("create table test.renameTest\n"
                 + "(k1 int)\n"
@@ -96,12 +96,12 @@ public class CatalogOperationTest {
 
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
     }
 
     private static void createResource(String sql) throws Exception {
         CreateResourceStmt createResourceStmt = (CreateResourceStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().getResourceMgr().createResource(createResourceStmt);
+        Env.getCurrentEnv().getResourceMgr().createResource(createResourceStmt);
     }
 
     @Test
@@ -110,19 +110,19 @@ public class CatalogOperationTest {
         String renameTblStmt = "alter table test.renameTest rename newNewTest";
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
         Assert.assertNotNull(db);
         Assert.assertNotNull(db.getTableNullable("renameTest"));
 
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
         Assert.assertNull(db.getTableNullable("renameTest"));
         Assert.assertNotNull(db.getTableNullable("newNewTest"));
 
         // add a rollup and test rename to a rollup name(expect throw exception)
         String alterStmtStr = "alter table test.newNewTest add rollup r1(k1)";
         alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         Assert.assertEquals(1, alterJobs.size());
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
@@ -137,7 +137,7 @@ public class CatalogOperationTest {
         renameTblStmt = "alter table test.newNewTest rename r1";
         alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
         try {
-            Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+            Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
             Assert.fail();
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("New name conflicts with rollup index name: r1"));
@@ -145,7 +145,7 @@ public class CatalogOperationTest {
 
         renameTblStmt = "alter table test.newNewTest rename goodName";
         alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
         Assert.assertNull(db.getTableNullable("newNewTest"));
         Assert.assertNotNull(db.getTableNullable("goodName"));
 
@@ -154,7 +154,7 @@ public class CatalogOperationTest {
         alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
         Assert.assertNotNull(db.getTableNullable("mysqlRenameTest"));
 
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
         Assert.assertNull(db.getTableNullable("mysqlRenameTest"));
         Assert.assertNotNull(db.getTableNullable("newMysqlRenameTest"));
     }

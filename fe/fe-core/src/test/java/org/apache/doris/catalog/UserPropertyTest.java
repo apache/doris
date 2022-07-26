@@ -40,17 +40,17 @@ import java.io.IOException;
 import java.util.List;
 
 public class UserPropertyTest {
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private SqlBlockRuleMgr sqlBlockRuleMgr;
 
     @Before
     public void setUp() {
-        new Expectations(catalog) {
+        new Expectations(env) {
             {
-                catalog.getSqlBlockRuleMgr();
+                env.getSqlBlockRuleMgr();
                 minTimes = 0;
                 result = sqlBlockRuleMgr;
 
@@ -80,8 +80,8 @@ public class UserPropertyTest {
     @Test
     public void testNormal() throws IOException, DdlException {
         // mock catalog
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        fakeEnv = new FakeEnv();
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
 
         UserProperty property = new UserProperty("root");
         property.getResource().updateGroupShare("low", 991);

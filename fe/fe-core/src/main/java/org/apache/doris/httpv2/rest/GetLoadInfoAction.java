@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.RestBaseResult;
@@ -53,7 +53,7 @@ import javax.servlet.http.HttpServletResponse;
 @RestController
 public class GetLoadInfoAction extends RestBaseController {
 
-    protected Catalog catalog;
+    protected Env env;
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_load_info", method = RequestMethod.GET)
     public Object execute(
@@ -61,7 +61,7 @@ public class GetLoadInfoAction extends RestBaseController {
             HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
 
-        this.catalog = Catalog.getCurrentCatalog();
+        this.env = Env.getCurrentEnv();
         String fullDbName = getFullDbName(dbName);
 
         Load.JobInfo info = new Load.JobInfo(fullDbName,
@@ -83,7 +83,7 @@ public class GetLoadInfoAction extends RestBaseController {
         }
 
         try {
-            catalog.getLoadInstance().getJobInfo(info);
+            env.getLoadInstance().getJobInfo(info);
             if (info.tblNames.isEmpty()) {
                 checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), info.dbName, PrivPredicate.LOAD);
             } else {
@@ -94,7 +94,7 @@ public class GetLoadInfoAction extends RestBaseController {
             }
         } catch (DdlException | MetaNotFoundException e) {
             try {
-                catalog.getLoadManager().getLoadJobInfo(info);
+                env.getLoadManager().getLoadJobInfo(info);
             } catch (DdlException e1) {
                 return new RestBaseResult(e.getMessage());
             }

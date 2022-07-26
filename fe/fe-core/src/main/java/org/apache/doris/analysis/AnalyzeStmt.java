@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
@@ -107,7 +107,7 @@ public class AnalyzeStmt extends DdlStmt {
     public Database getDb() throws AnalysisException {
         Preconditions.checkArgument(isAnalyzed(),
                 "The db must be obtained after the parsing is complete");
-        return analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbId);
+        return analyzer.getEnv().getInternalDataSource().getDbOrAnalysisException(dbId);
     }
 
     public List<Table> getTables() throws AnalysisException {
@@ -201,8 +201,7 @@ public class AnalyzeStmt extends DdlStmt {
 
             String dbName = optTableName.getDb();
             String tblName = optTableName.getTbl();
-            Database db = analyzer.getCatalog().getInternalDataSource()
-                    .getDbOrAnalysisException(dbName);
+            Database db = analyzer.getEnv().getInternalDataSource().getDbOrAnalysisException(dbName);
             Table table = db.getTableOrAnalysisException(tblName);
 
             // external table is not supported
@@ -233,8 +232,7 @@ public class AnalyzeStmt extends DdlStmt {
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            Database db = analyzer.getCatalog().getInternalDataSource()
-                    .getDbOrAnalysisException(dbName);
+            Database db = analyzer.getEnv().getInternalDataSource().getDbOrAnalysisException(dbName);
 
             db.readLock();
             try {
@@ -267,7 +265,7 @@ public class AnalyzeStmt extends DdlStmt {
     }
 
     private void checkAnalyzePriv(String dbName, String tblName) throws AnalysisException {
-        PaloAuth auth = Catalog.getCurrentCatalog().getAuth();
+        PaloAuth auth = Env.getCurrentEnv().getAuth();
         if (!auth.checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
@@ -288,8 +286,7 @@ public class AnalyzeStmt extends DdlStmt {
         if (optPartitionNames != null) {
             optPartitionNames.analyze(analyzer);
             if (optTableName != null) {
-                Database db = analyzer.getCatalog().getInternalDataSource()
-                        .getDbOrAnalysisException(optTableName.getDb());
+                Database db = analyzer.getEnv().getInternalDataSource().getDbOrAnalysisException(optTableName.getDb());
                 OlapTable olapTable = (OlapTable) db.getTableOrAnalysisException(optTableName.getTbl());
                 if (!olapTable.isPartitioned()) {
                     throw new AnalysisException("Not a partitioned table: " + olapTable.getName());

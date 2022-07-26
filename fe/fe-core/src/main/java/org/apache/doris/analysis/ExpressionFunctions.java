@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -75,7 +75,7 @@ public enum ExpressionFunctions {
             // 2. Not in NonNullResultWithNullParamFunctions
             // 3. Has null parameter
             if ((fn.getNullableMode() == Function.NullableMode.DEPEND_ON_ARGUMENT
-                    || Catalog.getCurrentCatalog().isNullResultWithOneNullParamFunction(
+                    || Env.getCurrentEnv().isNullResultWithOneNullParamFunction(
                             fn.getFunctionName().getFunction()))
                     && !fn.isUdf()) {
                 for (Expr e : constExpr.getChildren()) {
@@ -88,7 +88,7 @@ public enum ExpressionFunctions {
             // In some cases, non-deterministic functions should not be rewritten as constants,
             // such as non-deterministic functions in the create view statement.
             // eg: create view v1 as select rand();
-            if (Catalog.getCurrentCatalog().isNondeterministicFunction(fn.getFunctionName().getFunction())
+            if (Env.getCurrentEnv().isNondeterministicFunction(fn.getFunctionName().getFunction())
                     && ConnectContext.get() != null && ConnectContext.get().notEvalNondeterministicFunction()) {
                 return constExpr;
             }

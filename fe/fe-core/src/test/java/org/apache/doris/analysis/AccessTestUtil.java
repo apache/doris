@@ -18,9 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.BrokerMgr;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -90,15 +90,15 @@ public class AccessTestUtil {
         return auth;
     }
 
-    public static Catalog fetchAdminCatalog() {
+    public static Env fetchAdminCatalog() {
         try {
-            Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+            Env env = Deencapsulation.newInstance(Env.class);
 
             PaloAuth paloAuth = fetchAdminAccess();
 
             fakeEditLog = new FakeEditLog();
             EditLog editLog = new EditLog("name");
-            catalog.setEditLog(editLog);
+            env.setEditLog(editLog);
 
             Database db = new Database(50000L, "testCluster:testDb");
             MaterializedIndex baseIndex = new MaterializedIndex(30001, IndexState.NORMAL);
@@ -161,25 +161,25 @@ public class AccessTestUtil {
                 }
             };
 
-            new Expectations(catalog, ds) {
+            new Expectations(env, ds) {
                 {
-                    catalog.getAuth();
+                    env.getAuth();
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.getCurrentDataSource();
+                    env.getCurrentDataSource();
                     minTimes = 0;
                     result = ds;
 
-                    catalog.getInternalDataSource();
+                    env.getInternalDataSource();
                     minTimes = 0;
                     result = ds;
 
-                    catalog.getEditLog();
+                    env.getEditLog();
                     minTimes = 0;
                     result = editLog;
 
-                    catalog.getLoadInstance();
+                    env.getLoadInstance();
                     minTimes = 0;
                     result = new Load();
 
@@ -187,23 +187,23 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = Lists.newArrayList("testCluster:testDb");
 
-                    catalog.changeDb((ConnectContext) any, "blockDb");
+                    env.changeDb((ConnectContext) any, "blockDb");
                     minTimes = 0;
                     result = new DdlException("failed");
 
-                    catalog.changeDb((ConnectContext) any, anyString);
+                    env.changeDb((ConnectContext) any, anyString);
                     minTimes = 0;
 
-                    catalog.getBrokerMgr();
+                    env.getBrokerMgr();
                     minTimes = 0;
                     result = new BrokerMgr();
 
-                    catalog.getDataSourceMgr();
+                    env.getDataSourceMgr();
                     minTimes = 0;
                     result = dsMgr;
                 }
             };
-            return catalog;
+            return env;
         } catch (DdlException e) {
             return null;
         } catch (AnalysisException e) {
@@ -332,9 +332,9 @@ public class AccessTestUtil {
         return db;
     }
 
-    public static Catalog fetchBlockCatalog() {
+    public static Env fetchBlockCatalog() {
         try {
-            Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+            Env env = Deencapsulation.newInstance(Env.class);
 
             PaloAuth paloAuth = fetchBlockAccess();
             Database db = mockDb("testCluster:testDb");
@@ -393,30 +393,30 @@ public class AccessTestUtil {
                 }
             };
 
-            new Expectations(catalog) {
+            new Expectations(env) {
                 {
-                    catalog.getAuth();
+                    env.getAuth();
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.changeDb((ConnectContext) any, anyString);
+                    env.changeDb((ConnectContext) any, anyString);
                     minTimes = 0;
                     result = new DdlException("failed");
 
-                    catalog.getInternalDataSource();
+                    env.getInternalDataSource();
                     minTimes = 0;
                     result = ds;
 
-                    catalog.getCurrentDataSource();
+                    env.getCurrentDataSource();
                     minTimes = 0;
                     result = ds;
 
-                    catalog.getDataSourceMgr();
+                    env.getDataSourceMgr();
                     minTimes = 0;
                     result = dsMgr;
                 }
             };
-            return catalog;
+            return env;
         } catch (DdlException e) {
             return null;
         } catch (AnalysisException e) {
@@ -599,8 +599,8 @@ public class AccessTestUtil {
             }
         };
 
-        Catalog catalog = fetchBlockCatalog();
-        Analyzer analyzer = new Analyzer(catalog, new ConnectContext(null));
+        Env env = fetchBlockCatalog();
+        Analyzer analyzer = new Analyzer(env, new ConnectContext(null));
         new Expectations(analyzer) {
             {
                 analyzer.getDefaultCatalog();
@@ -615,9 +615,9 @@ public class AccessTestUtil {
                 minTimes = 0;
                 result = "testUser";
 
-                analyzer.getCatalog();
+                analyzer.getEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
                 analyzer.getClusterName();
                 minTimes = 0;

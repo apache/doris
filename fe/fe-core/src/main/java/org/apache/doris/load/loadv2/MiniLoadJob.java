@@ -18,8 +18,8 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.catalog.AuthorizationInfo;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.load.EtlJobType;
@@ -56,7 +56,7 @@ public class MiniLoadJob extends LoadJob {
     }
 
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());
     }
 

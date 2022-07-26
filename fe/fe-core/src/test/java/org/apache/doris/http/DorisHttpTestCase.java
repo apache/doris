@@ -19,10 +19,10 @@ package org.apache.doris.http;
 
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -136,7 +136,7 @@ public abstract class DorisHttpTestCase {
     private static EditLog editLog;
 
     public static OlapTable newTable(String name) {
-        Catalog.getCurrentInvertedIndex().clear();
+        Env.getCurrentInvertedIndex().clear();
         Column k1 = new Column("k1", PrimitiveType.BIGINT);
         Column k2 = new Column("k2", PrimitiveType.DOUBLE);
         List<Column> columns = new ArrayList<>();
@@ -205,9 +205,9 @@ public abstract class DorisHttpTestCase {
         return table;
     }
 
-    private static Catalog newDelegateCatalog() {
+    private static Env newDelegateCatalog() {
         try {
-            Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+            Env env = Deencapsulation.newInstance(Env.class);
             PaloAuth paloAuth = new PaloAuth();
             //EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
             Database db = new Database(testDbId, "default_cluster:testDb");
@@ -264,47 +264,47 @@ public abstract class DorisHttpTestCase {
                 }
             };
 
-            new Expectations(catalog) {
+            new Expectations(env) {
                 {
-                    catalog.getAuth();
+                    env.getAuth();
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.isMaster();
+                    env.isMaster();
                     minTimes = 0;
                     result = true;
 
-                    catalog.getLoadInstance();
+                    env.getLoadInstance();
                     minTimes = 0;
                     result = new Load();
 
-                    catalog.getEditLog();
+                    env.getEditLog();
                     minTimes = 0;
                     result = editLog;
 
-                    catalog.getInternalDataSource();
+                    env.getInternalDataSource();
                     minTimes = 0;
                     result = internalDataSource;
 
-                    catalog.getCurrentDataSource();
+                    env.getCurrentDataSource();
                     minTimes = 0;
                     result = internalDataSource;
 
-                    catalog.changeDb((ConnectContext) any, "blockDb");
+                    env.changeDb((ConnectContext) any, "blockDb");
                     minTimes = 0;
 
-                    catalog.changeDb((ConnectContext) any, anyString);
+                    env.changeDb((ConnectContext) any, anyString);
                     minTimes = 0;
 
-                    catalog.initDefaultCluster();
+                    env.initDefaultCluster();
                     minTimes = 0;
 
-                    catalog.getDataSourceMgr();
+                    env.getDataSourceMgr();
                     minTimes = 0;
                     result = dsMgr;
                 }
             };
-            return catalog;
+            return env;
         } catch (DdlException e) {
             return null;
         } catch (AnalysisException e) {
@@ -322,9 +322,9 @@ public abstract class DorisHttpTestCase {
         Backend backend3 = new Backend(testBackendId3, "node-3", 9308);
         backend3.setBePort(9300);
         backend3.setAlive(true);
-        Catalog.getCurrentSystemInfo().addBackend(backend1);
-        Catalog.getCurrentSystemInfo().addBackend(backend2);
-        Catalog.getCurrentSystemInfo().addBackend(backend3);
+        Env.getCurrentSystemInfo().addBackend(backend1);
+        Env.getCurrentSystemInfo().addBackend(backend2);
+        Env.getCurrentSystemInfo().addBackend(backend3);
     }
 
     @BeforeClass
@@ -366,10 +366,10 @@ public abstract class DorisHttpTestCase {
 
     @Before
     public void setUp() {
-        Catalog catalog = newDelegateCatalog();
+        Env env = newDelegateCatalog();
         SystemInfoService systemInfoService = new SystemInfoService();
         TabletInvertedIndex tabletInvertedIndex = new TabletInvertedIndex();
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             @Mock
             SchemaChangeHandler getSchemaChangeHandler() {
                 return new SchemaChangeHandler();
@@ -381,8 +381,8 @@ public abstract class DorisHttpTestCase {
             }
 
             @Mock
-            Catalog getCurrentCatalog() {
-                return catalog;
+            Env getCurrentEnv() {
+                return env;
             }
 
             @Mock

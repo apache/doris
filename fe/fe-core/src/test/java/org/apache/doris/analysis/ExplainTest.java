@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -31,7 +31,7 @@ public class ExplainTest {
         this.ctx = ctx;
         String createDbStmtStr = "create database test_explain;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
 
         String t1 = ("CREATE TABLE test_explain.explain_t1 (\n"
                 + "  `dt` int(11) COMMENT \"\",\n"
@@ -46,7 +46,7 @@ public class ExplainTest {
                 + "  \"replication_num\" = \"1\"\n"
                 + ");");
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(t1, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
         String t2 = ("CREATE TABLE test_explain.explain_t2 (\n"
                 + "  `dt` bigint(11) COMMENT \"\",\n"
@@ -61,7 +61,7 @@ public class ExplainTest {
                 + "  \"replication_num\" = \"1\"\n"
                 + ");");
         createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(t2, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
     }
 
     public void after() throws Exception {

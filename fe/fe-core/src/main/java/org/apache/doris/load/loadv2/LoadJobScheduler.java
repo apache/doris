@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.LogBuilder;
@@ -64,7 +64,7 @@ public class LoadJobScheduler extends MasterDaemon {
             }
 
             if (needScheduleJobs.peek() instanceof BrokerLoadJob
-                    && !Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().hasIdleThread()) {
+                    && !Env.getCurrentEnv().getLoadingLoadTaskScheduler().hasIdleThread()) {
                 LOG.info("Failed to take one broker load job from queue because of loading_load_task_scheduler is full."
                         + " Waiting for next round. You can try to increase the value of"
                         + " Config.async_loading_load_task_pool_size");

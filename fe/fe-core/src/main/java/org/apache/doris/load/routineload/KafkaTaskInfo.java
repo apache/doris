@@ -17,8 +17,8 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -45,7 +45,7 @@ import java.util.UUID;
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private static final Logger LOG = LogManager.getLogger(KafkaTaskInfo.class);
 
-    private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+    private RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
 
     // <partitionId, offset to be consumed>
     private Map<Integer, Long> partitionIdToOffset;
@@ -80,7 +80,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setJobId(jobId);
         tRoutineLoadTask.setTxnId(txnId);
         Database database =
-                Catalog.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
+                Env.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
         Table tbl = database.getTableOrMetaException(routineLoadJob.getTableId());
         tRoutineLoadTask.setDb(database.getFullName());
         tRoutineLoadTask.setTbl(tbl.getName());

@@ -78,13 +78,13 @@ public class MysqlTable extends Table {
             odbcCatalogResourceName = properties.get(ODBC_CATALOG_RESOURCE);
 
             // 1. check whether resource exist
-            Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName);
+            Resource oriResource = Env.getCurrentEnv().getResourceMgr().getResource(odbcCatalogResourceName);
             if (oriResource == null) {
                 throw new DdlException("Resource does not exist. name: " + odbcCatalogResourceName);
             }
 
             // 2. check resource usage privilege
-            if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),
+            if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(),
                     odbcCatalogResourceName,
                     PrivPredicate.USAGE)) {
                 throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
@@ -151,7 +151,7 @@ public class MysqlTable extends Table {
 
     private String getPropertyFromResource(String propertyName) {
         OdbcCatalogResource odbcCatalogResource = (OdbcCatalogResource)
-                (Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName));
+                (Env.getCurrentEnv().getResourceMgr().getResource(odbcCatalogResourceName));
         if (odbcCatalogResource == null) {
             throw new RuntimeException("Resource does not exist. name: " + odbcCatalogResourceName);
         }

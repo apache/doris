@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -56,7 +56,7 @@ public class DropCatalogStmt extends DdlStmt {
             throw new AnalysisException("Internal catalog can't be drop.");
         }
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
+        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);

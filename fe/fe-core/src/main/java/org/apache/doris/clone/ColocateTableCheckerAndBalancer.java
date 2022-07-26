@@ -17,11 +17,11 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -139,19 +139,19 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             return;
         }
 
-        Catalog catalog = Catalog.getCurrentCatalog();
-        ColocateTableIndex colocateIndex = catalog.getColocateTableIndex();
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Env env = Env.getCurrentEnv();
+        ColocateTableIndex colocateIndex = env.getColocateTableIndex();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
 
         // get all groups
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
-            Database db = catalog.getInternalDataSource().getDbNullable(groupId.dbId);
+            Database db = env.getInternalDataSource().getDbNullable(groupId.dbId);
             if (db == null) {
                 continue;
             }
 
-            Table<String, Tag, ClusterLoadStatistic> statisticMap = catalog.getTabletScheduler().getStatisticMap();
+            Table<String, Tag, ClusterLoadStatistic> statisticMap = env.getTabletScheduler().getStatisticMap();
             if (statisticMap == null) {
                 continue;
             }
@@ -159,7 +159,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
             try {
-                Catalog.getCurrentSystemInfo().checkReplicaAllocation(db.getClusterName(), replicaAlloc);
+                Env.getCurrentSystemInfo().checkReplicaAllocation(db.getClusterName(), replicaAlloc);
             } catch (DdlException e) {
                 colocateIndex.setErrMsgForGroup(groupId, e.getMessage());
                 continue;
@@ -192,7 +192,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     balancedBackendsPerBucketSeqMap.put(tag, balancedBackendsPerBucketSeq);
                     ColocatePersistInfo info = ColocatePersistInfo
                             .createForBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeqMap);
-                    catalog.getEditLog().logColocateBackendsPerBucketSeq(info);
+                    env.getEditLog().logColocateBackendsPerBucketSeq(info);
                     LOG.info("balance group {}. now backends per bucket sequence for tag {} is: {}",
                             groupId, tag, balancedBackendsPerBucketSeq);
                 }
@@ -206,15 +206,15 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      * If every replicas match the backends in group, mark that group as stable.
      */
     private void matchGroup() {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        ColocateTableIndex colocateIndex = catalog.getColocateTableIndex();
-        TabletScheduler tabletScheduler = catalog.getTabletScheduler();
+        Env env = Env.getCurrentEnv();
+        ColocateTableIndex colocateIndex = env.getColocateTableIndex();
+        TabletScheduler tabletScheduler = env.getTabletScheduler();
 
         // check each group
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
             List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
-            Database db = catalog.getInternalDataSource().getDbNullable(groupId.dbId);
+            Database db = env.getInternalDataSource().getDbNullable(groupId.dbId);
             if (db == null) {
                 continue;
             }

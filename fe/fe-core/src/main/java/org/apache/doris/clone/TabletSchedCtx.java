@@ -17,8 +17,8 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -234,7 +234,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.indexId = idxId;
         this.tabletId = tabletId;
         this.createTime = createTime;
-        this.infoService = Catalog.getCurrentSystemInfo();
+        this.infoService = Env.getCurrentSystemInfo();
         this.state = State.PENDING;
         this.replicaAlloc = replicaAlloc;
         this.balanceType = BalanceType.BE_BALANCE;
@@ -742,7 +742,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             AgentTaskQueue.removeTask(cloneTask.getBackendId(), TTaskType.CLONE, cloneTask.getSignature());
 
             // clear all CLONE replicas
-            Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db != null) {
                 Table table = db.getTableNullable(tblId);
                 if (table != null && table.writeLockIfExist()) {
@@ -838,7 +838,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 || tabletStatus == TabletStatus.COLOCATE_MISMATCH
                 || tabletStatus == TabletStatus.REPLICA_MISSING_FOR_TAG) {
             Replica cloneReplica = new Replica(
-                    Catalog.getCurrentCatalog().getNextId(), destBackendId,
+                    Env.getCurrentEnv().getNextId(), destBackendId,
                     -1 /* version */, schemaHash,
                     -1 /* data size */, -1, -1 /* row count */,
                     ReplicaState.CLONE,
@@ -923,7 +923,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
 
         // 1. check the tablet status first
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrException(dbId,
+        Database db = Env.getCurrentInternalCatalog().getDbOrException(dbId,
                 s -> new SchedException(Status.UNRECOVERABLE, "db " + dbId + " does not exist"));
         OlapTable olapTable = (OlapTable) db.getTableOrException(tblId,
                 s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletId + " does not exist"));
@@ -1010,11 +1010,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
             if (replica.getState() == ReplicaState.CLONE) {
                 replica.setState(ReplicaState.NORMAL);
-                Catalog.getCurrentCatalog().getEditLog().logAddReplica(info);
+                Env.getCurrentEnv().getEditLog().logAddReplica(info);
             } else {
                 // if in VERSION_INCOMPLETE, replica is not newly created, thus the state is not CLONE
                 // so we keep it state unchanged, and log update replica
-                Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
+                Env.getCurrentEnv().getEditLog().logUpdateReplica(info);
             }
 
             state = State.FINISHED;

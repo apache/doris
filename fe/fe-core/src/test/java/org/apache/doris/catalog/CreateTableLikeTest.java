@@ -54,10 +54,10 @@ public class CreateTableLikeTest {
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         String createDbStmtStr2 = "create database test2;";
         CreateDbStmt createDbStmt2 = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr2, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt2);
+        Env.getCurrentEnv().createDb(createDbStmt2);
     }
 
     @AfterClass
@@ -68,22 +68,22 @@ public class CreateTableLikeTest {
 
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
     }
 
     private static void createTableLike(String sql) throws Exception {
         CreateTableLikeStmt createTableLikeStmt =
                 (CreateTableLikeStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTableLike(createTableLikeStmt);
+        Env.getCurrentEnv().createTableLike(createTableLikeStmt);
     }
 
     private static void checkTableEqual(Table newTable, Table existedTable, int rollupSize) {
         List<String> newCreateTableStmt = Lists.newArrayList();
         List<String> newAddRollupStmt = Lists.newArrayList();
-        Catalog.getDdlStmt(newTable, newCreateTableStmt, null, newAddRollupStmt, false, true /* hide password */);
+        Env.getDdlStmt(newTable, newCreateTableStmt, null, newAddRollupStmt, false, true /* hide password */);
         List<String> existedTableStmt = Lists.newArrayList();
         List<String> existedAddRollupStmt = Lists.newArrayList();
-        Catalog.getDdlStmt(existedTable, existedTableStmt, null, existedAddRollupStmt, false, true /* hide password */);
+        Env.getDdlStmt(existedTable, existedTableStmt, null, existedAddRollupStmt, false, true /* hide password */);
         Assert.assertEquals(newCreateTableStmt.get(0).replace(newTable.getName(), existedTable.getName()),
                 existedTableStmt.get(0));
         checkTableRollup(existedAddRollupStmt, newAddRollupStmt, newTable.getName(), existedTable.getName(),
@@ -113,8 +113,8 @@ public class CreateTableLikeTest {
         createTable(createTableSql);
         createTableLike(createTableLikeSql);
         Database newDb =
-                Catalog.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:" + newDbName);
-        Database existedDb = Catalog.getCurrentInternalCatalog()
+                Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:" + newDbName);
+        Database existedDb = Env.getCurrentInternalCatalog()
                 .getDbOrDdlException("default_cluster:" + existedDbName);
         OlapTable newTbl = (OlapTable) newDb.getTableOrDdlException(newTblName);
         OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
@@ -127,8 +127,8 @@ public class CreateTableLikeTest {
         createTable(createTableSql);
         createTableLike(createTableLikeSql);
         Database newDb =
-                Catalog.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:" + newDbName);
-        Database existedDb = Catalog.getCurrentInternalCatalog()
+                Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:" + newDbName);
+        Database existedDb = Env.getCurrentInternalCatalog()
                 .getDbOrDdlException("default_cluster:" + existedDbName);
         MysqlTable newTbl = (MysqlTable) newDb.getTableOrDdlException(newTblName);
         MysqlTable existedTbl = (MysqlTable) existedDb.getTableOrDdlException(existedTblName);
@@ -145,7 +145,7 @@ public class CreateTableLikeTest {
                 + "    partition p2 VALUES  [(\"20211201\"),(\"20220101\"))\n" + ")\n"
                 + "DISTRIBUTED BY HASH(`id1`) BUCKETS 1\n" + "PROPERTIES (\n" + "\"replication_num\" = \"1\"\n" + ");";
         createTable(createTableSql);
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable table = (OlapTable) db.getTableOrDdlException("bucket_distribution_test");
         DistributionInfo defaultInfo = table.getDefaultDistributionInfo();
         DistributionInfo previous = null;

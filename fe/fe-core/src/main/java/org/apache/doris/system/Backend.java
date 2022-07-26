@@ -18,9 +18,9 @@
 package org.apache.doris.system;
 
 import org.apache.doris.alter.DecommissionType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -474,7 +474,7 @@ public class Backend implements Writable {
             }
             if (allPathHashUpdated) {
                 initPathInfo = true;
-                Catalog.getCurrentSystemInfo().updatePathInfo(new ArrayList<>(disks.values()), Lists.newArrayList());
+                Env.getCurrentSystemInfo().updatePathInfo(new ArrayList<>(disks.values()), Lists.newArrayList());
             }
         }
 
@@ -539,9 +539,9 @@ public class Backend implements Writable {
         if (isChanged) {
             // update disksRef
             disksRef = ImmutableMap.copyOf(newDiskInfos);
-            Catalog.getCurrentSystemInfo().updatePathInfo(addedDisks, removedDisks);
+            Env.getCurrentSystemInfo().updatePathInfo(addedDisks, removedDisks);
             // log disk changing
-            Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(this);
+            Env.getCurrentEnv().getEditLog().logBackendStateChange(this);
         }
     }
 

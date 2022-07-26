@@ -18,7 +18,7 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.alter.DecommissionType;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
@@ -84,11 +84,11 @@ public class BackendsProcDir implements ProcDirInterface {
      * @return
      */
     public static List<List<String>> getClusterBackendInfos(String clusterName) {
-        final SystemInfoService clusterInfoService = Catalog.getCurrentSystemInfo();
+        final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
         List<List<String>> backendInfos = new LinkedList<>();
         List<Long> backendIds;
         if (!Strings.isNullOrEmpty(clusterName)) {
-            final Cluster cluster = Catalog.getCurrentCatalog().getCluster(clusterName);
+            final Cluster cluster = Env.getCurrentEnv().getCluster(clusterName);
             // root not in any cluster
             if (null == cluster) {
                 return backendInfos;
@@ -111,7 +111,7 @@ public class BackendsProcDir implements ProcDirInterface {
             }
 
             watch.start();
-            Integer tabletNum = Catalog.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
+            Integer tabletNum = Env.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
             watch.stop();
             List<Comparable> backendInfo = Lists.newArrayList();
             backendInfo.add(String.valueOf(backendId));

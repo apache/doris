@@ -35,9 +35,9 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -182,7 +182,7 @@ public class ExportJob implements Writable {
         this.startTimeMs = -1;
         this.finishTimeMs = -1;
         this.failMsg = new ExportFailMsg(ExportFailMsg.CancelType.UNKNOWN, "");
-        this.analyzer = new Analyzer(Catalog.getCurrentCatalog(), null);
+        this.analyzer = new Analyzer(Env.getCurrentEnv(), null);
         this.desc = analyzer.getDescTbl();
         this.exportPath = "";
         this.columnSeparator = "\t";
@@ -197,7 +197,7 @@ public class ExportJob implements Writable {
 
     public void setJob(ExportStmt stmt) throws UserException {
         String dbName = stmt.getTblName().getDb();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         Preconditions.checkNotNull(stmt.getBrokerDesc());
         this.brokerDesc = stmt.getBrokerDesc();
 
@@ -676,7 +676,7 @@ public class ExportJob implements Writable {
                 break;
         }
         if (!isReplay) {
-            Catalog.getCurrentCatalog().getEditLog().logExportUpdateState(id, newState);
+            Env.getCurrentEnv().getEditLog().logExportUpdateState(id, newState);
         }
         return true;
     }
@@ -688,12 +688,12 @@ public class ExportJob implements Writable {
             TNetworkAddress address = snapshotPath.first;
             String host = address.getHostname();
             int port = address.getPort();
-            Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(host, port);
+            Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(host, port);
             if (backend == null) {
                 continue;
             }
             long backendId = backend.getId();
-            if (!Catalog.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
+            if (!Env.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
                 continue;
             }
 

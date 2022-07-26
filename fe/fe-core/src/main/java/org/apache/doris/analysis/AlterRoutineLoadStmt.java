@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
@@ -201,7 +201,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
 
     private void checkDataSourceProperties() throws UserException {
         if (!FeConstants.runningUnitTest) {
-            RoutineLoadJob job = Catalog.getCurrentCatalog().getRoutineLoadManager()
+            RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
                     .checkPrivAndGetJob(getDbName(), getLabel());
             dataSourceProperties.setTimezone(job.getTimezone());
         } else {

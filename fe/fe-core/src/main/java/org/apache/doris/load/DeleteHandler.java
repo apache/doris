@@ -25,9 +25,9 @@ import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -146,7 +146,7 @@ public class DeleteHandler implements Writable {
         List<String> partitionNames = stmt.getPartitionNames();
         boolean noPartitionSpecified = partitionNames.isEmpty();
         List<Predicate> conditions = stmt.getDeleteConditions();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         DeleteJob deleteJob = null;
         try {
@@ -198,9 +198,9 @@ public class DeleteHandler implements Writable {
                 // generate label
                 String label = "delete_" + UUID.randomUUID();
                 //generate jobId
-                long jobId = Catalog.getCurrentCatalog().getNextId();
+                long jobId = Env.getCurrentEnv().getNextId();
                 // begin txn here and generate txn id
-                transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
+                transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
                         Lists.newArrayList(olapTable.getId()), label, null,
                         new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                         TransactionState.LoadJobSourceType.FRONTEND, jobId, Config.stream_load_default_timeout_second);
@@ -212,8 +212,8 @@ public class DeleteHandler implements Writable {
                 deleteJob = new DeleteJob(jobId, transactionId, label, partitionReplicaNum, deleteInfo);
                 idToDeleteJob.put(deleteJob.getTransactionId(), deleteJob);
 
-                Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(deleteJob);
-                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr()
+                Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(deleteJob);
+                TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                         .getTransactionState(db.getId(), transactionId);
                 // must call this to make sure we only handle the tablet in the mIndex we saw here.
                 // table may be under schema changge or rollup, and the newly created tablets will not be checked later,
@@ -265,7 +265,7 @@ public class DeleteHandler implements Writable {
                                         true, TPriority.NORMAL,
                                         TTaskType.REALTIME_PUSH,
                                         transactionId,
-                                        Catalog.getCurrentGlobalTransactionMgr()
+                                        Env.getCurrentGlobalTransactionMgr()
                                                 .getTransactionIDGenerator().getNextTransactionId(),
                                         columnsDesc);
                                 pushTask.setIsSchemaChanging(false);
@@ -289,7 +289,7 @@ public class DeleteHandler implements Writable {
             } catch (Throwable t) {
                 LOG.warn("error occurred during delete process", t);
                 // if transaction has been begun, need to abort it
-                if (Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), transactionId) != null) {
+                if (Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), transactionId) != null) {
                     cancelJob(deleteJob, CancelType.UNKNOWN, t.getMessage());
                 }
                 throw new DdlException(t.getMessage(), t);
@@ -373,7 +373,7 @@ public class DeleteHandler implements Writable {
         TransactionStatus status = null;
         try {
             unprotectedCommitJob(job, db, table, timeoutMs);
-            status = Catalog.getCurrentGlobalTransactionMgr()
+            status = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), job.getTransactionId()).getTransactionStatus();
         } catch (UserException e) {
             if (cancelJob(job, CancelType.COMMIT_FAIL, e.getMessage())) {
@@ -416,9 +416,9 @@ public class DeleteHandler implements Writable {
      */
     private boolean unprotectedCommitJob(DeleteJob job, Database db, Table table, long timeoutMs) throws UserException {
         long transactionId = job.getTransactionId();
-        GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         for (TabletDeleteInfo tDeleteInfo : job.getTabletDeleteInfo()) {
             for (Replica replica : tDeleteInfo.getFinishedReplicas()) {
                 // the inverted index contains rolling up replica
@@ -485,7 +485,7 @@ public class DeleteHandler implements Writable {
     public boolean cancelJob(DeleteJob job, CancelType cancelType, String reason) {
         LOG.info("start to cancel delete job, transactionId: {}, cancelType: {}",
                 job.getTransactionId(), cancelType.name());
-        GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         try {
             if (job != null) {
                 globalTransactionMgr.abortTransaction(job.getDeleteInfo().getDbId(), job.getTransactionId(), reason);
@@ -702,7 +702,7 @@ public class DeleteHandler implements Writable {
     // show delete stmt
     public List<List<Comparable>> getDeleteInfosByDb(long dbId) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             return infos;
         }
@@ -717,7 +717,7 @@ public class DeleteHandler implements Writable {
             }
 
             for (DeleteInfo deleteInfo : deleteInfoList) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName,
                         deleteInfo.getTableName(),
                         PrivPredicate.LOAD)) {
                     continue;
@@ -748,7 +748,7 @@ public class DeleteHandler implements Writable {
         return infos;
     }
 
-    public void replayDelete(DeleteInfo deleteInfo, Catalog catalog) {
+    public void replayDelete(DeleteInfo deleteInfo, Env env) {
         // add to deleteInfos
         long dbId = deleteInfo.getDbId();
         LOG.info("replay delete, dbId {}", dbId);

@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.load.LoadErrorHub;
 
 import com.google.common.collect.ImmutableList;
@@ -27,17 +27,17 @@ public class LoadErrorHubProcNode implements ProcNodeInterface {
             .add("Type").add("Properties")
             .build();
 
-    private Catalog catalog;
+    private Env env;
 
-    public LoadErrorHubProcNode(Catalog catalog) {
-        this.catalog = catalog;
+    public LoadErrorHubProcNode(Env env) {
+        this.env = env;
     }
 
     @Override
     public ProcResult fetchResult() {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        LoadErrorHub.Param param = catalog.getLoadInstance().getLoadErrorHubInfo();
+        LoadErrorHub.Param param = env.getLoadInstance().getLoadErrorHubInfo();
         if (param != null) {
             result.addRow(param.getInfo());
         }

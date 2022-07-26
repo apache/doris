@@ -17,7 +17,7 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -112,7 +112,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                     TTabletMetaInfo metaInfo = new TTabletMetaInfo();
                     metaInfo.setTabletId(pair.first);
                     metaInfo.setSchemaHash(pair.second);
-                    TabletMeta tabletMeta = Catalog.getCurrentCatalog()
+                    TabletMeta tabletMeta = Env.getCurrentEnv()
                             .getTabletInvertedIndex().getTabletMeta(pair.first);
                     if (tabletMeta == null) {
                         LOG.warn("could not find tablet [{}] in meta ignore it", pair.second);

@@ -42,7 +42,7 @@ public class MetadataViewerTest {
     private static Method getTabletDistributionMethod;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
 
     @Mocked
     private InternalDataSource internalDataSource;
@@ -78,11 +78,11 @@ public class MetadataViewerTest {
 
         new Expectations() {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = internalDataSource;
             }
@@ -90,7 +90,7 @@ public class MetadataViewerTest {
 
         new Expectations() {
             {
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = infoService;
 

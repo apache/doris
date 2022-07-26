@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
@@ -51,7 +51,7 @@ public class TaskTypeProcNode implements ProcDirInterface {
 
         int totalFailedNum = 0;
         int totalTaskNum = 0;
-        List<Long> backendIds = Catalog.getCurrentSystemInfo().getBackendIds(false);
+        List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(false);
         for (Long backendId : backendIds) {
             int failedNum = AgentTaskQueue.getTaskNum(backendId, type, true);
             int taskNum = AgentTaskQueue.getTaskNum(backendId, type, false);

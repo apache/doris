@@ -19,7 +19,7 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.BrokerMgr;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.Config;
@@ -367,7 +367,7 @@ public class SparkEtlJobHandlerTest {
     }
 
     @Test
-    public void testGetEtlFilePaths(@Mocked TPaloBrokerService.Client client, @Mocked Catalog catalog,
+    public void testGetEtlFilePaths(@Mocked TPaloBrokerService.Client client, @Mocked Env env,
                                     @Injectable BrokerMgr brokerMgr) throws Exception {
         // list response
         TBrokerListResponse response = new TBrokerListResponse();
@@ -400,7 +400,7 @@ public class SparkEtlJobHandlerTest {
             {
                 client.listPath((TBrokerListPathRequest) any);
                 result = response;
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.getBroker(anyString, anyString);
                 result = fsBroker;

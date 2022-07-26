@@ -34,21 +34,21 @@ import java.io.IOException;
 
 public class DiskInfoTest {
 
-    private Catalog catalog;
+    private Env env;
 
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
     private FakeEditLog fakeEditLog;
 
     @Before
     public void setUp() {
-        catalog = AccessTestUtil.fetchAdminCatalog();
+        env = AccessTestUtil.fetchAdminCatalog();
 
-        fakeCatalog = new FakeCatalog();
+        fakeEnv = new FakeEnv();
         fakeEditLog = new FakeEditLog();
 
-        FakeCatalog.setCatalog(catalog);
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
-        FakeCatalog.setSystemInfo(AccessTestUtil.fetchSystemInfoService());
+        FakeEnv.setEnv(env);
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
+        FakeEnv.setSystemInfo(AccessTestUtil.fetchSystemInfoService());
     }
 
     @Test

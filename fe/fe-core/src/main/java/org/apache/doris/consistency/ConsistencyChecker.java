@@ -17,8 +17,8 @@
 
 package org.apache.doris.consistency;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetaObject;
@@ -232,13 +232,13 @@ public class ConsistencyChecker extends MasterDaemon {
      *  chose a tablet which has the smallest 'lastCheckTime'.
      */
     private List<Long> chooseTablets() {
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env env = Env.getCurrentEnv();
         MetaObject chosenOne = null;
 
         List<Long> chosenTablets = Lists.newArrayList();
 
         // sort dbs
-        List<Long> dbIds = catalog.getInternalDataSource().getDbIds();
+        List<Long> dbIds = env.getInternalDataSource().getDbIds();
         if (dbIds.isEmpty()) {
             return chosenTablets;
         }
@@ -248,7 +248,7 @@ public class ConsistencyChecker extends MasterDaemon {
                 // skip 'information_schema' database
                 continue;
             }
-            Database db = catalog.getInternalDataSource().getDbNullable(dbId);
+            Database db = env.getInternalDataSource().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -364,8 +364,8 @@ public class ConsistencyChecker extends MasterDaemon {
         job.handleFinishedReplica(backendId, checksum);
     }
 
-    public void replayFinishConsistencyCheck(ConsistencyCheckInfo info, Catalog catalog) throws MetaNotFoundException {
-        Database db = catalog.getInternalDataSource().getDbOrMetaException(info.getDbId());
+    public void replayFinishConsistencyCheck(ConsistencyCheckInfo info, Env env) throws MetaNotFoundException {
+        Database db = env.getInternalDataSource().getDbOrMetaException(info.getDbId());
         OlapTable table = (OlapTable) db.getTableOrMetaException(info.getTableId());
         table.writeLock();
         try {

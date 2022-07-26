@@ -21,7 +21,7 @@ import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -118,7 +118,7 @@ public class SqlBlockRuleMgr implements Writable {
             }
             verifyLimitations(sqlBlockRule);
             unprotectedAdd(sqlBlockRule);
-            Catalog.getCurrentCatalog().getEditLog().logCreateSqlBlockRule(sqlBlockRule);
+            Env.getCurrentEnv().getEditLog().logCreateSqlBlockRule(sqlBlockRule);
         } finally {
             writeUnlock();
         }
@@ -170,7 +170,7 @@ public class SqlBlockRuleMgr implements Writable {
             SqlBlockUtil.checkAlterValidate(sqlBlockRule);
 
             unprotectedUpdate(sqlBlockRule);
-            Catalog.getCurrentCatalog().getEditLog().logAlterSqlBlockRule(sqlBlockRule);
+            Env.getCurrentEnv().getEditLog().logAlterSqlBlockRule(sqlBlockRule);
         } finally {
             writeUnlock();
         }
@@ -205,7 +205,7 @@ public class SqlBlockRuleMgr implements Writable {
                 }
             }
             unprotectedDrop(ruleNames);
-            Catalog.getCurrentCatalog().getEditLog().logDropSqlBlockRule(ruleNames);
+            Env.getCurrentEnv().getEditLog().logDropSqlBlockRule(ruleNames);
         } finally {
             writeUnlock();
         }
@@ -231,7 +231,7 @@ public class SqlBlockRuleMgr implements Writable {
             matchSql(rule, originSql, sqlHash);
         }
         // match user rule
-        String[] bindSqlBlockRules = Catalog.getCurrentCatalog().getAuth().getSqlBlockRules(user);
+        String[] bindSqlBlockRules = Env.getCurrentEnv().getAuth().getSqlBlockRules(user);
         for (String ruleName : bindSqlBlockRules) {
             SqlBlockRule rule = nameToSqlBlockRuleMap.get(ruleName);
             if (rule == null) {
@@ -267,7 +267,7 @@ public class SqlBlockRuleMgr implements Writable {
             checkLimitations(rule, partitionNum, tabletNum, cardinality);
         }
         // match user rule
-        String[] bindSqlBlockRules = Catalog.getCurrentCatalog().getAuth().getSqlBlockRules(user);
+        String[] bindSqlBlockRules = Env.getCurrentEnv().getAuth().getSqlBlockRules(user);
         for (String ruleName : bindSqlBlockRules) {
             SqlBlockRule rule = nameToSqlBlockRuleMap.get(ruleName);
             if (rule == null) {

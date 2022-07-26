@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
@@ -46,7 +46,7 @@ public class GetSmallFileAction extends RestBaseController {
         }
 
         // check token
-        if (!token.equals(Catalog.getCurrentCatalog().getToken())) {
+        if (!token.equals(Env.getCurrentEnv().getToken())) {
             return ResponseEntityBuilder.okWithCommonError("Invalid token");
         }
 
@@ -57,7 +57,7 @@ public class GetSmallFileAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Invalid file id format: " + fileIdStr);
         }
 
-        SmallFileMgr fileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
+        SmallFileMgr fileMgr = Env.getCurrentEnv().getSmallFileMgr();
         SmallFileMgr.SmallFile smallFile = fileMgr.getSmallFile(fileId);
         if (smallFile == null || !smallFile.isContent) {
             return ResponseEntityBuilder.okWithCommonError("File not found or is not content");

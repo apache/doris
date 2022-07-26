@@ -40,9 +40,9 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -228,7 +228,7 @@ public class Load {
     public void addLoadJob(LoadStmt stmt, EtlJobType etlJobType, long timestamp) throws DdlException {
         // get db
         String dbName = stmt.getLabel().getDbName();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         // create job
         LoadJob job = createLoadJob(stmt, etlJobType, db, timestamp);
@@ -238,7 +238,7 @@ public class Load {
     // This is the final step of all addLoadJob() methods
     private void addLoadJob(LoadJob job, Database db) throws DdlException {
         // check cluster capacity
-        Catalog.getCurrentSystemInfo().checkClusterCapacity(db.getClusterName());
+        Env.getCurrentSystemInfo().checkClusterCapacity(db.getClusterName());
         // for original job, check quota
         // for delete job, not check
         if (!job.isSyncDeleteJob()) {
@@ -264,7 +264,7 @@ public class Load {
         try {
             unprotectAddLoadJob(job, false /* not replay */);
             MetricRepo.COUNTER_LOAD_ADD.increase(1L);
-            Catalog.getCurrentCatalog().getEditLog().logLoadStart(job);
+            Env.getCurrentEnv().getEditLog().logLoadStart(job);
         } finally {
             writeUnlock();
         }
@@ -373,9 +373,9 @@ public class Load {
                 table.readLock();
                 try {
                     TNetworkAddress beAddress = dataDescription.getBeAddr();
-                    Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(beAddress.getHostname(),
+                    Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(beAddress.getHostname(),
                             beAddress.getPort());
-                    if (!Catalog.getCurrentSystemInfo().checkBackendLoadAvailable(backend.getId())) {
+                    if (!Env.getCurrentSystemInfo().checkBackendLoadAvailable(backend.getId())) {
                         throw new DdlException("Etl backend is null or not available");
                     }
 
@@ -406,7 +406,7 @@ public class Load {
                 cluster = properties.get(LoadStmt.CLUSTER_PROPERTY);
             }
 
-            Pair<String, DppConfig> clusterInfo = Catalog.getCurrentCatalog().getAuth().getLoadClusterInfo(
+            Pair<String, DppConfig> clusterInfo = Env.getCurrentEnv().getAuth().getLoadClusterInfo(
                     stmt.getUser(), cluster);
             cluster = clusterInfo.first;
             DppConfig clusterConfig = clusterInfo.second;
@@ -460,7 +460,7 @@ public class Load {
         }
 
         // job id
-        job.setId(Catalog.getCurrentCatalog().getNextId());
+        job.setId(Env.getCurrentEnv().getNextId());
 
         return job;
     }
@@ -1468,7 +1468,7 @@ public class Load {
     // return true if we truly register a mini load label
     // return false otherwise (eg: a retry request)
     public boolean registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(fullDbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(fullDbName);
 
         long dbId = db.getId();
         writeLock();
@@ -1495,7 +1495,7 @@ public class Load {
     }
 
     public void deregisterMiniLabel(String fullDbName, String label) throws DdlException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(fullDbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(fullDbName);
 
         long dbId = db.getId();
         writeLock();
@@ -1776,14 +1776,14 @@ public class Load {
                 Set<String> tableNames = loadJob.getTableNames();
                 if (tableNames.isEmpty()) {
                     // forward compatibility
-                    if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
+                    if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), dbName,
                             PrivPredicate.LOAD)) {
                         continue;
                     }
                 } else {
                     boolean auth = true;
                     for (String tblName : tableNames) {
-                        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName,
                                 tblName, PrivPredicate.LOAD)) {
                             auth = false;
                             break;
@@ -1930,7 +1930,7 @@ public class Load {
 
     public List<List<Comparable>> getLoadJobUnfinishedInfo(long jobId) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
 
         LoadJob loadJob = getLoadJob(jobId);
         if (loadJob == null
@@ -1939,7 +1939,7 @@ public class Load {
         }
 
         long dbId = loadJob.getDbId();
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             return infos;
         }
@@ -2062,7 +2062,7 @@ public class Load {
             }
             properties.remove("name");
 
-            if (!Catalog.getCurrentCatalog().getBrokerMgr().containsBroker(brokerName)) {
+            if (!Env.getCurrentEnv().getBrokerMgr().containsBroker(brokerName)) {
                 throw new DdlException("broker does not exist: " + brokerName);
             }
 
@@ -2085,7 +2085,7 @@ public class Load {
             loadErrorHubParam = LoadErrorHub.Param.createNullParam();
         }
 
-        Catalog.getCurrentCatalog().getEditLog().logSetLoadErrorHub(loadErrorHubParam);
+        Env.getCurrentEnv().getEditLog().logSetLoadErrorHub(loadErrorHubParam);
 
         LOG.info("set load error hub info: {}", loadErrorHubParam);
     }
@@ -2111,7 +2111,7 @@ public class Load {
     public void getJobInfo(JobInfo info) throws DdlException, MetaNotFoundException {
         String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
         info.dbName = fullDbName;
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
@@ -2227,9 +2227,9 @@ public class Load {
         replaceLoadJob(job);
     }
 
-    public void replayQuorumLoadJob(LoadJob job, Catalog catalog) throws MetaNotFoundException {
+    public void replayQuorumLoadJob(LoadJob job, Env env) throws MetaNotFoundException {
         // TODO: need to call this.writeLock()?
-        Database db = catalog.getInternalDataSource().getDbOrMetaException(job.getDbId());
+        Database db = env.getInternalDataSource().getDbOrMetaException(job.getDbId());
 
         List<Long> tableIds = Lists.newArrayList();
         long tblId = job.getTableId();
@@ -2306,9 +2306,9 @@ public class Load {
         replaceLoadJob(job);
     }
 
-    public void replayFinishLoadJob(LoadJob job, Catalog catalog) throws MetaNotFoundException {
+    public void replayFinishLoadJob(LoadJob job, Env env) throws MetaNotFoundException {
         // TODO: need to call this.writeLock()?
-        Database db = catalog.getCurrentInternalCatalog().getDbOrMetaException(job.getDbId());
+        Database db = env.getCurrentInternalCatalog().getDbOrMetaException(job.getDbId());
         // After finish, the idToTableLoadInfo in load job will be set to null.
         // We lost table info. So we have to use db lock here.
         db.writeLock();
@@ -2324,8 +2324,8 @@ public class Load {
         }
     }
 
-    public void replayClearRollupInfo(ReplicaPersistInfo info, Catalog catalog) throws MetaNotFoundException {
-        Database db = catalog.getInternalDataSource().getDbOrMetaException(info.getDbId());
+    public void replayClearRollupInfo(ReplicaPersistInfo info, Env env) throws MetaNotFoundException {
+        Database db = env.getInternalDataSource().getDbOrMetaException(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -2528,7 +2528,7 @@ public class Load {
 
         long jobId = job.getId();
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         String errMsg = msg;
         if (db == null) {
             // if db is null, update job to cancelled
@@ -2567,7 +2567,7 @@ public class Load {
                             job.setProgress(0);
                             job.setEtlStartTimeMs(System.currentTimeMillis());
                             job.setState(destState);
-                            Catalog.getCurrentCatalog().getEditLog().logLoadEtl(job);
+                            Env.getCurrentEnv().getEditLog().logLoadEtl(job);
                             break;
                         case LOADING:
                             idToEtlLoadJob.remove(jobId);
@@ -2575,12 +2575,12 @@ public class Load {
                             job.setProgress(0);
                             job.setLoadStartTimeMs(System.currentTimeMillis());
                             job.setState(destState);
-                            Catalog.getCurrentCatalog().getEditLog().logLoadLoading(job);
+                            Env.getCurrentEnv().getEditLog().logLoadLoading(job);
                             break;
                         case QUORUM_FINISHED:
                             if (processQuorumFinished(job, db)) {
                                 // Write edit log
-                                Catalog.getCurrentCatalog().getEditLog().logLoadQuorum(job);
+                                Env.getCurrentEnv().getEditLog().logLoadQuorum(job);
                             } else {
                                 errMsg = "process loading finished fail";
                                 processCancelled(job, cancelType, errMsg, failedMsg);
@@ -2611,7 +2611,7 @@ public class Load {
                                 job.clearRedundantInfoForHistoryJob();
                             }
                             // Write edit log
-                            Catalog.getCurrentCatalog().getEditLog().logLoadDone(job);
+                            Env.getCurrentEnv().getEditLog().logLoadDone(job);
                             break;
                         case CANCELLED:
                             processCancelled(job, cancelType, errMsg, failedMsg);
@@ -2727,7 +2727,7 @@ public class Load {
         // should abort in transaction manager first because it maybe aborts job successfully
         // and abort in transaction manager failed then there will be rubbish transactions in transaction manager
         try {
-            Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+            Env.getCurrentGlobalTransactionMgr().abortTransaction(
                     job.getDbId(),
                     job.getTransactionId(),
                     job.getFailMsg().toString());
@@ -2796,7 +2796,7 @@ public class Load {
 
         // Clear the Map and Set in this job, reduce the memory cost of canceled load job.
         job.clearRedundantInfoForHistoryJob();
-        Catalog.getCurrentCatalog().getEditLog().logLoadCancel(job);
+        Env.getCurrentEnv().getEditLog().logLoadCancel(job);
 
         return true;
     }

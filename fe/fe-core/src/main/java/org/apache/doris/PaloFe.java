@@ -17,7 +17,7 @@
 
 package org.apache.doris;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LdapConfig;
@@ -129,8 +129,8 @@ public class PaloFe {
             }
 
             // init catalog and wait it be ready
-            Catalog.getCurrentCatalog().initialize(args);
-            Catalog.getCurrentCatalog().waitForReady();
+            Env.getCurrentEnv().initialize(args);
+            Env.getCurrentEnv().waitForReady();
 
             Telemetry.initOpenTelemetry();
 
@@ -325,7 +325,7 @@ public class PaloFe {
             System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
             System.exit(0);
         } else if (cmdLineOpts.runBdbTools()) {
-            BDBTool bdbTool = new BDBTool(Catalog.getCurrentCatalog().getBdbDir(), cmdLineOpts.getBdbToolOpts());
+            BDBTool bdbTool = new BDBTool(Env.getCurrentEnv().getBdbDir(), cmdLineOpts.getBdbToolOpts());
             if (bdbTool.run()) {
                 System.exit(0);
             } else {
@@ -340,7 +340,7 @@ public class PaloFe {
             } else {
                 System.out.println("Start to load image: ");
                 try {
-                    MetaReader.read(imageFile, Catalog.getCurrentCatalog());
+                    MetaReader.read(imageFile, Env.getCurrentEnv());
                     System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
                 } catch (Exception e) {
                     System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");

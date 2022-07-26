@@ -17,7 +17,7 @@
 
 package org.apache.doris.deploy;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 
@@ -32,7 +32,7 @@ import java.lang.reflect.Method;
 public class AmbariDeployManagerTest {
 
     private AmbariDeployManager manager;
-    private Catalog catalog;
+    private Env env;
 
     @Before
     public void setUp() throws NoSuchFieldException, SecurityException,

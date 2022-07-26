@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -42,14 +42,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case 1: {
                     // Use current database name from catalog.
                     String dbName = connectContext.getDatabase();
-                    Table table = getTable(dbName, nameParts.get(0), connectContext.getCatalog());
+                    Table table = getTable(dbName, nameParts.get(0), connectContext.getEnv());
                     // TODO: should generate different Scan sub class according to table's type
                     return new LogicalOlapScan(table, ImmutableList.of(dbName));
                 }
                 case 2: {
                     // Use database name from table name parts.
                     String dbName = connectContext.getClusterName() + ":" + nameParts.get(0);
-                    Table table = getTable(dbName, nameParts.get(1), connectContext.getCatalog());
+                    Table table = getTable(dbName, nameParts.get(1), connectContext.getEnv());
                     return new LogicalOlapScan(table, ImmutableList.of(dbName));
                 }
                 default:
@@ -58,8 +58,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }).toRule(RuleType.BINDING_RELATION);
     }
 
-    private Table getTable(String dbName, String tableName, Catalog catalog) {
-        Database db = catalog.getInternalDataSource().getDb(dbName)
+    private Table getTable(String dbName, String tableName, Env env) {
+        Database db = env.getInternalDataSource().getDb(dbName)
                 .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
         db.readLock();
         try {

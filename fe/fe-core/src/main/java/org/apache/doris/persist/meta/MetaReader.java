@@ -17,7 +17,7 @@
 
 package org.apache.doris.persist.meta;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Preconditions;
@@ -67,8 +67,8 @@ import java.lang.reflect.InvocationTargetException;
 public class MetaReader {
     private static final Logger LOG = LogManager.getLogger(MetaReader.class);
 
-    public static void read(File imageFile, Catalog catalog) throws IOException, DdlException {
-        LOG.info("start load image from {}. is ckpt: {}", imageFile.getAbsolutePath(), Catalog.isCheckpointThread());
+    public static void read(File imageFile, Env env) throws IOException, DdlException {
+        LOG.info("start load image from {}. is ckpt: {}", imageFile.getAbsolutePath(), Env.isCheckpointThread());
         long loadImageStartTime = System.currentTimeMillis();
         MetaHeader metaHeader = MetaHeader.read(imageFile);
         MetaFooter metaFooter = MetaFooter.read(imageFile);
@@ -78,7 +78,7 @@ public class MetaReader {
             // 1. Skip image file header
             IOUtils.skipFully(dis, metaHeader.getEnd());
             // 2. Read meta header first
-            checksum = catalog.loadHeader(dis, metaHeader, checksum);
+            checksum = env.loadHeader(dis, metaHeader, checksum);
             // 3. Read other meta modules
             // Modules must be read in the order in which the metadata was written
             for (MetaIndex metaIndex : metaFooter.metaIndices) {
@@ -91,7 +91,7 @@ public class MetaReader {
                     throw new IOException("Unknown meta module: " + metaIndex.name + ". Known moduels: "
                             + PersistMetaModules.MODULE_NAMES);
                 }
-                checksum = (long) persistMethod.readMethod.invoke(catalog, dis, checksum);
+                checksum = (long) persistMethod.readMethod.invoke(env, dis, checksum);
             }
         } catch (InvocationTargetException | IllegalAccessException e) {
             throw new IOException(e);

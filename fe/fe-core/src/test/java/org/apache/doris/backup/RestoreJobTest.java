@@ -22,8 +22,8 @@ import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -71,7 +71,7 @@ public class RestoreJobTest {
     private long repoId = 20000;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private InternalDataSource ds;
 
@@ -81,8 +81,8 @@ public class RestoreJobTest {
 
     // Thread is not mockable in Jmockit, use subclass instead
     private final class MockBackupHandler extends BackupHandler {
-        public MockBackupHandler(Catalog catalog) {
-            super(catalog);
+        public MockBackupHandler(Env env) {
+            super(env);
         }
 
         @Override
@@ -117,14 +117,14 @@ public class RestoreJobTest {
     @Before
     public void setUp() throws Exception {
         db = CatalogMocker.mockDb();
-        backupHandler = new MockBackupHandler(catalog);
+        backupHandler = new MockBackupHandler(env);
         repoMgr = new MockRepositoryMgr();
 
-        Deencapsulation.setField(catalog, "backupHandler", backupHandler);
+        Deencapsulation.setField(env, "backupHandler", backupHandler);
 
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
@@ -132,19 +132,19 @@ public class RestoreJobTest {
                 minTimes = 0;
                 result = db;
 
-                Catalog.getCurrentCatalogJournalVersion();
+                Env.getCurrentEnvJournalVersion();
                 minTimes = 0;
                 result = FeConstants.meta_version;
 
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = id.getAndIncrement();
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
             }
@@ -241,8 +241,8 @@ public class RestoreJobTest {
         // drop this table, cause we want to try restoring this table
         db.dropTable(expectedRestoreTbl.getName());
 
-        job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
-                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, catalog, repo.getId());
+        job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(), jobInfo, false,
+                new ReplicaAllocation((short) 3), 100000, -1, env, repo.getId());
 
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();

@@ -17,7 +17,7 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -299,7 +299,7 @@ public class ConfigBase {
         if (!anno.mutable()) {
             throw new DdlException("Config '" + key + "' is not mutable");
         }
-        if (anno.masterOnly() && !Catalog.getCurrentCatalog().isMaster()) {
+        if (anno.masterOnly() && !Env.getCurrentEnv().isMaster()) {
             throw new DdlException("Config '" + key + "' is master only");
         }
 

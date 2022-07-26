@@ -105,60 +105,60 @@ import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UpdateStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.EncryptKeyHelper;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.sync.SyncJobManager;
 
 public class DdlExecutor {
-    public static void execute(Catalog catalog, DdlStmt ddlStmt) throws Exception {
+    public static void execute(Env env, DdlStmt ddlStmt) throws Exception {
         if (ddlStmt instanceof CreateClusterStmt) {
             CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
-            catalog.createCluster(stmt);
+            env.createCluster(stmt);
         } else if (ddlStmt instanceof AlterClusterStmt) {
-            catalog.processModifyCluster((AlterClusterStmt) ddlStmt);
+            env.processModifyCluster((AlterClusterStmt) ddlStmt);
         } else if (ddlStmt instanceof DropClusterStmt) {
-            catalog.dropCluster((DropClusterStmt) ddlStmt);
+            env.dropCluster((DropClusterStmt) ddlStmt);
         } else if (ddlStmt instanceof MigrateDbStmt) {
-            catalog.migrateDb((MigrateDbStmt) ddlStmt);
+            env.migrateDb((MigrateDbStmt) ddlStmt);
         } else if (ddlStmt instanceof LinkDbStmt) {
-            catalog.linkDb((LinkDbStmt) ddlStmt);
+            env.linkDb((LinkDbStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateDbStmt) {
-            catalog.createDb((CreateDbStmt) ddlStmt);
+            env.createDb((CreateDbStmt) ddlStmt);
         } else if (ddlStmt instanceof DropDbStmt) {
-            catalog.dropDb((DropDbStmt) ddlStmt);
+            env.dropDb((DropDbStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateFunctionStmt) {
-            catalog.createFunction((CreateFunctionStmt) ddlStmt);
+            env.createFunction((CreateFunctionStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFunctionStmt) {
-            catalog.dropFunction((DropFunctionStmt) ddlStmt);
+            env.dropFunction((DropFunctionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateEncryptKeyStmt) {
             EncryptKeyHelper.createEncryptKey((CreateEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropEncryptKeyStmt) {
             EncryptKeyHelper.dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
-            catalog.createTable((CreateTableStmt) ddlStmt);
+            env.createTable((CreateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableLikeStmt) {
-            catalog.createTableLike((CreateTableLikeStmt) ddlStmt);
+            env.createTableLike((CreateTableLikeStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableAsSelectStmt) {
-            catalog.createTableAsSelect((CreateTableAsSelectStmt) ddlStmt);
+            env.createTableAsSelect((CreateTableAsSelectStmt) ddlStmt);
         } else if (ddlStmt instanceof DropTableStmt) {
-            catalog.dropTable((DropTableStmt) ddlStmt);
+            env.dropTable((DropTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateMaterializedViewStmt) {
-            catalog.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
+            env.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof DropMaterializedViewStmt) {
-            catalog.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
+            env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
-            catalog.alterTable((AlterTableStmt) ddlStmt);
+            env.alterTable((AlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStatsStmt) {
-            catalog.getStatisticsManager().alterTableStatistics((AlterTableStatsStmt) ddlStmt);
+            env.getStatisticsManager().alterTableStatistics((AlterTableStatsStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterColumnStatsStmt) {
-            catalog.getStatisticsManager().alterColumnStatistics((AlterColumnStatsStmt) ddlStmt);
+            env.getStatisticsManager().alterColumnStatistics((AlterColumnStatsStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterViewStmt) {
-            catalog.alterView((AlterViewStmt) ddlStmt);
+            env.alterView((AlterViewStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelAlterTableStmt) {
-            catalog.cancelAlter((CancelAlterTableStmt) ddlStmt);
+            env.cancelAlter((CancelAlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof LoadStmt) {
             LoadStmt loadStmt = (LoadStmt) ddlStmt;
             EtlJobType jobType = loadStmt.getEtlJobType();
@@ -170,103 +170,103 @@ public class DdlExecutor {
                         + " Try using broker load. See 'help broker load;'");
             }
             if (jobType == EtlJobType.HADOOP) {
-                catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
+                env.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
             } else {
-                catalog.getLoadManager().createLoadJobFromStmt(loadStmt);
+                env.getLoadManager().createLoadJobFromStmt(loadStmt);
             }
         } else if (ddlStmt instanceof CancelLoadStmt) {
-            catalog.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
+            env.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
-            catalog.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
+            env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof PauseRoutineLoadStmt) {
-            catalog.getRoutineLoadManager().pauseRoutineLoadJob((PauseRoutineLoadStmt) ddlStmt);
+            env.getRoutineLoadManager().pauseRoutineLoadJob((PauseRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof ResumeRoutineLoadStmt) {
-            catalog.getRoutineLoadManager().resumeRoutineLoadJob((ResumeRoutineLoadStmt) ddlStmt);
+            env.getRoutineLoadManager().resumeRoutineLoadJob((ResumeRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof StopRoutineLoadStmt) {
-            catalog.getRoutineLoadManager().stopRoutineLoadJob((StopRoutineLoadStmt) ddlStmt);
+            env.getRoutineLoadManager().stopRoutineLoadJob((StopRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterRoutineLoadStmt) {
-            catalog.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
+            env.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof UpdateStmt) {
-            catalog.getUpdateManager().handleUpdate((UpdateStmt) ddlStmt);
+            env.getUpdateManager().handleUpdate((UpdateStmt) ddlStmt);
         } else if (ddlStmt instanceof DeleteStmt) {
-            catalog.getDeleteHandler().process((DeleteStmt) ddlStmt);
+            env.getDeleteHandler().process((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
-            catalog.getAuth().createUser(stmt);
+            env.getAuth().createUser(stmt);
         } else if (ddlStmt instanceof DropUserStmt) {
             DropUserStmt stmt = (DropUserStmt) ddlStmt;
-            catalog.getAuth().dropUser(stmt);
+            env.getAuth().dropUser(stmt);
         } else if (ddlStmt instanceof GrantStmt) {
             GrantStmt stmt = (GrantStmt) ddlStmt;
-            catalog.getAuth().grant(stmt);
+            env.getAuth().grant(stmt);
         } else if (ddlStmt instanceof RevokeStmt) {
             RevokeStmt stmt = (RevokeStmt) ddlStmt;
-            catalog.getAuth().revoke(stmt);
+            env.getAuth().revoke(stmt);
         } else if (ddlStmt instanceof CreateRoleStmt) {
-            catalog.getAuth().createRole((CreateRoleStmt) ddlStmt);
+            env.getAuth().createRole((CreateRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRoleStmt) {
-            catalog.getAuth().dropRole((DropRoleStmt) ddlStmt);
+            env.getAuth().dropRole((DropRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof SetUserPropertyStmt) {
-            catalog.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
+            env.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSystemStmt) {
             AlterSystemStmt stmt = (AlterSystemStmt) ddlStmt;
-            catalog.alterCluster(stmt);
+            env.alterCluster(stmt);
         } else if (ddlStmt instanceof CancelAlterSystemStmt) {
             CancelAlterSystemStmt stmt = (CancelAlterSystemStmt) ddlStmt;
-            catalog.cancelAlterCluster(stmt);
+            env.cancelAlterCluster(stmt);
         } else if (ddlStmt instanceof AlterDatabaseQuotaStmt) {
-            catalog.alterDatabaseQuota((AlterDatabaseQuotaStmt) ddlStmt);
+            env.alterDatabaseQuota((AlterDatabaseQuotaStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterDatabaseRename) {
-            catalog.renameDatabase((AlterDatabaseRename) ddlStmt);
+            env.renameDatabase((AlterDatabaseRename) ddlStmt);
         } else if (ddlStmt instanceof RecoverDbStmt) {
-            catalog.recoverDatabase((RecoverDbStmt) ddlStmt);
+            env.recoverDatabase((RecoverDbStmt) ddlStmt);
         } else if (ddlStmt instanceof RecoverTableStmt) {
-            catalog.recoverTable((RecoverTableStmt) ddlStmt);
+            env.recoverTable((RecoverTableStmt) ddlStmt);
         } else if (ddlStmt instanceof RecoverPartitionStmt) {
-            catalog.recoverPartition((RecoverPartitionStmt) ddlStmt);
+            env.recoverPartition((RecoverPartitionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateViewStmt) {
-            catalog.createView((CreateViewStmt) ddlStmt);
+            env.createView((CreateViewStmt) ddlStmt);
         } else if (ddlStmt instanceof BackupStmt) {
-            catalog.backup((BackupStmt) ddlStmt);
+            env.backup((BackupStmt) ddlStmt);
         } else if (ddlStmt instanceof RestoreStmt) {
-            catalog.restore((RestoreStmt) ddlStmt);
+            env.restore((RestoreStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelBackupStmt) {
-            catalog.cancelBackup((CancelBackupStmt) ddlStmt);
+            env.cancelBackup((CancelBackupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateRepositoryStmt) {
-            catalog.getBackupHandler().createRepository((CreateRepositoryStmt) ddlStmt);
+            env.getBackupHandler().createRepository((CreateRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRepositoryStmt) {
-            catalog.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
+            env.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
         } else if (ddlStmt instanceof TruncateTableStmt) {
-            catalog.truncateTable((TruncateTableStmt) ddlStmt);
+            env.truncateTable((TruncateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminRepairTableStmt) {
-            catalog.getTabletChecker().repairTable((AdminRepairTableStmt) ddlStmt);
+            env.getTabletChecker().repairTable((AdminRepairTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCancelRepairTableStmt) {
-            catalog.getTabletChecker().cancelRepairTable((AdminCancelRepairTableStmt) ddlStmt);
+            env.getTabletChecker().cancelRepairTable((AdminCancelRepairTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCompactTableStmt) {
-            catalog.compactTable((AdminCompactTableStmt) ddlStmt);
+            env.compactTable((AdminCompactTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
-            catalog.setConfig((AdminSetConfigStmt) ddlStmt);
+            env.setConfig((AdminSetConfigStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateFileStmt) {
-            catalog.getSmallFileMgr().createFile((CreateFileStmt) ddlStmt);
+            env.getSmallFileMgr().createFile((CreateFileStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFileStmt) {
-            catalog.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
+            env.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
         } else if (ddlStmt instanceof InstallPluginStmt) {
-            catalog.installPlugin((InstallPluginStmt) ddlStmt);
+            env.installPlugin((InstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof UninstallPluginStmt) {
-            catalog.uninstallPlugin((UninstallPluginStmt) ddlStmt);
+            env.uninstallPlugin((UninstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCheckTabletsStmt) {
-            catalog.checkTablets((AdminCheckTabletsStmt) ddlStmt);
+            env.checkTablets((AdminCheckTabletsStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetReplicaStatusStmt) {
-            catalog.setReplicaStatus((AdminSetReplicaStatusStmt) ddlStmt);
+            env.setReplicaStatus((AdminSetReplicaStatusStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateResourceStmt) {
-            catalog.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
+            env.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof DropResourceStmt) {
-            catalog.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
+            env.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateDataSyncJobStmt) {
             CreateDataSyncJobStmt createSyncJobStmt = (CreateDataSyncJobStmt) ddlStmt;
-            SyncJobManager syncJobMgr = catalog.getSyncJobManager();
+            SyncJobManager syncJobMgr = env.getSyncJobManager();
             if (!syncJobMgr.isJobNameExist(createSyncJobStmt.getDbName(), createSyncJobStmt.getJobName())) {
                 syncJobMgr.addDataSyncJob((CreateDataSyncJobStmt) ddlStmt);
             } else {
@@ -274,47 +274,47 @@ public class DdlExecutor {
                         + "' in database [" + createSyncJobStmt.getDbName() + "] is already exists.");
             }
         } else if (ddlStmt instanceof ResumeSyncJobStmt) {
-            catalog.getSyncJobManager().resumeSyncJob((ResumeSyncJobStmt) ddlStmt);
+            env.getSyncJobManager().resumeSyncJob((ResumeSyncJobStmt) ddlStmt);
         } else if (ddlStmt instanceof PauseSyncJobStmt) {
-            catalog.getSyncJobManager().pauseSyncJob((PauseSyncJobStmt) ddlStmt);
+            env.getSyncJobManager().pauseSyncJob((PauseSyncJobStmt) ddlStmt);
         } else if (ddlStmt instanceof StopSyncJobStmt) {
-            catalog.getSyncJobManager().stopSyncJob((StopSyncJobStmt) ddlStmt);
+            env.getSyncJobManager().stopSyncJob((StopSyncJobStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCleanTrashStmt) {
-            catalog.cleanTrash((AdminCleanTrashStmt) ddlStmt);
+            env.cleanTrash((AdminCleanTrashStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminRebalanceDiskStmt) {
-            catalog.getTabletScheduler().rebalanceDisk((AdminRebalanceDiskStmt) ddlStmt);
+            env.getTabletScheduler().rebalanceDisk((AdminRebalanceDiskStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCancelRebalanceDiskStmt) {
-            catalog.getTabletScheduler().cancelRebalanceDisk((AdminCancelRebalanceDiskStmt) ddlStmt);
+            env.getTabletScheduler().cancelRebalanceDisk((AdminCancelRebalanceDiskStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
-            catalog.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
+            env.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
-            catalog.getSqlBlockRuleMgr().alterSqlBlockRule((AlterSqlBlockRuleStmt) ddlStmt);
+            env.getSqlBlockRuleMgr().alterSqlBlockRule((AlterSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof DropSqlBlockRuleStmt) {
-            catalog.getSqlBlockRuleMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
+            env.getSqlBlockRuleMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterDatabasePropertyStmt) {
             throw new DdlException("Not implemented yet");
         } else if (ddlStmt instanceof RefreshTableStmt) {
-            catalog.getRefreshManager().handleRefreshTable((RefreshTableStmt) ddlStmt);
+            env.getRefreshManager().handleRefreshTable((RefreshTableStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshDbStmt) {
-            catalog.getRefreshManager().handleRefreshDb((RefreshDbStmt) ddlStmt);
+            env.getRefreshManager().handleRefreshDb((RefreshDbStmt) ddlStmt);
         } else if (ddlStmt instanceof AnalyzeStmt) {
-            catalog.getStatisticsJobManager().createStatisticsJob((AnalyzeStmt) ddlStmt);
+            env.getStatisticsJobManager().createStatisticsJob((AnalyzeStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterResourceStmt) {
-            catalog.getResourceMgr().alterResource((AlterResourceStmt) ddlStmt);
+            env.getResourceMgr().alterResource((AlterResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof CreatePolicyStmt) {
-            catalog.getPolicyMgr().createPolicy((CreatePolicyStmt) ddlStmt);
+            env.getPolicyMgr().createPolicy((CreatePolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropPolicyStmt) {
-            catalog.getPolicyMgr().dropPolicy((DropPolicyStmt) ddlStmt);
+            env.getPolicyMgr().dropPolicy((DropPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterPolicyStmt) {
-            catalog.getPolicyMgr().alterPolicy((AlterPolicyStmt) ddlStmt);
+            env.getPolicyMgr().alterPolicy((AlterPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateCatalogStmt) {
-            catalog.getDataSourceMgr().createCatalog((CreateCatalogStmt) ddlStmt);
+            env.getDataSourceMgr().createCatalog((CreateCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof DropCatalogStmt) {
-            catalog.getDataSourceMgr().dropCatalog((DropCatalogStmt) ddlStmt);
+            env.getDataSourceMgr().dropCatalog((DropCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterCatalogNameStmt) {
-            catalog.getDataSourceMgr().alterCatalogName((AlterCatalogNameStmt) ddlStmt);
+            env.getDataSourceMgr().alterCatalogName((AlterCatalogNameStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterCatalogPropertyStmt) {
-            catalog.getDataSourceMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
+            env.getDataSourceMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

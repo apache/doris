@@ -78,7 +78,7 @@ public class ResourceMgr implements Writable {
         Resource resource = Resource.fromStmt(stmt);
         createResource(resource);
         // log add
-        Catalog.getCurrentCatalog().getEditLog().logCreateResource(resource);
+        Env.getCurrentEnv().getEditLog().logCreateResource(resource);
         LOG.info("Create resource success. Resource: {}", resource);
     }
 
@@ -110,14 +110,14 @@ public class ResourceMgr implements Writable {
         // Check whether the resource is in use before deleting it, except spark resource
         StoragePolicy checkedStoragePolicy = StoragePolicy.ofCheck(null);
         checkedStoragePolicy.setStorageResource(resourceName);
-        if (Catalog.getCurrentCatalog().getPolicyMgr().existPolicy(checkedStoragePolicy)) {
-            Policy policy = Catalog.getCurrentCatalog().getPolicyMgr().getPolicy(checkedStoragePolicy);
+        if (Env.getCurrentEnv().getPolicyMgr().existPolicy(checkedStoragePolicy)) {
+            Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedStoragePolicy);
             LOG.warn("Can not drop resource, since it's used in policy {}", policy.getPolicyName());
             throw new DdlException("Can not drop resource, since it's used in policy " + policy.getPolicyName());
         }
         nameToResource.remove(resourceName);
         // log drop
-        Catalog.getCurrentCatalog().getEditLog().logDropResource(new DropResourceOperationLog(resourceName));
+        Env.getCurrentEnv().getEditLog().logDropResource(new DropResourceOperationLog(resourceName));
         LOG.info("Drop resource success. Resource resourceName: {}", resourceName);
     }
 
@@ -146,7 +146,7 @@ public class ResourceMgr implements Writable {
         resource.modifyProperties(properties);
 
         // log alter
-        Catalog.getCurrentCatalog().getEditLog().logAlterResource(resource);
+        Env.getCurrentEnv().getEditLog().logAlterResource(resource);
         LOG.info("Alter resource success. Resource: {}", resource);
     }
 
@@ -227,7 +227,7 @@ public class ResourceMgr implements Writable {
             for (Map.Entry<String, Resource> entry : nameToResource.entrySet()) {
                 Resource resource = entry.getValue();
                 // check resource privs
-                if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(), resource.getName(),
+                if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(), resource.getName(),
                                                                              PrivPredicate.SHOW)) {
                     continue;
                 }

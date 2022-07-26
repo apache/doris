@@ -84,7 +84,7 @@ public class TruncateTableTest {
 
     @Test
     public void testTruncateWithCaseInsensitivePartitionName() throws Exception {
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
         OlapTable tbl = db.getOlapTableOrDdlException("case_sensitive_table");
         long p20211006Id = tbl.getPartition("P20211006").getId();
         long p20211007Id = tbl.getPartition("P20211007").getId();
@@ -93,12 +93,12 @@ public class TruncateTableTest {
         String truncateStr = "TRUNCATE TABLE test.case_sensitive_table PARTITION p20211008; \n";
         TruncateTableStmt truncateTableStmt
                 = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         Assert.assertNotEquals(p20211008Id, tbl.getPartition("p20211008").getId());
         // 2. truncate P20211007
         truncateStr = "TRUNCATE TABLE test.case_sensitive_table PARTITION P20211007; \n";
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         Assert.assertEquals(3, tbl.getPartitionInfo().idToDataProperty.size());
         Assert.assertNotEquals(p20211007Id, tbl.getPartition("p20211007").getId());
         Assert.assertEquals(p20211006Id, tbl.getPartition("p20211006").getId());
@@ -125,7 +125,7 @@ public class TruncateTableTest {
         String truncateStr = "truncate table test.tbl;";
         TruncateTableStmt truncateTableStmt
                 = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210901", 2);
         checkShowTabletResultNum("test.tbl", "p20210902", 3);
         checkShowTabletResultNum("test.tbl", "p20210903", 4);
@@ -133,7 +133,7 @@ public class TruncateTableTest {
 
         truncateStr = "truncate table test.tbl partition(p20210901, p20210902, p20210903, p20210904);";
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210901", 2);
         checkShowTabletResultNum("test.tbl", "p20210902", 3);
         checkShowTabletResultNum("test.tbl", "p20210903", 4);
@@ -141,33 +141,33 @@ public class TruncateTableTest {
 
         truncateStr = "truncate table test.tbl partition (p20210901);";
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210901", 2);
 
         truncateStr = "truncate table test.tbl partition (p20210902);";
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210902", 3);
 
         truncateStr = "truncate table test.tbl partition (p20210903);";
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210903", 4);
 
         truncateStr = "truncate table test.tbl partition (p20210904);";
         truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
-        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Env.getCurrentEnv().truncateTable(truncateTableStmt);
         checkShowTabletResultNum("test.tbl", "p20210904", 5);
     }
 
     private static void createDb(String sql) throws Exception {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
     }
 
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
     }
 
     private List<List<String>> checkShowTabletResultNum(String tbl, String partition, int expected) throws Exception {
@@ -183,7 +183,7 @@ public class TruncateTableTest {
     private void alterTable(String sql) throws Exception {
         try {
             AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-            Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+            Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
         } catch (Exception e) {
             throw e;
         }

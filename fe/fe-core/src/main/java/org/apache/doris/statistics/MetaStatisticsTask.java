@@ -17,9 +17,9 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
@@ -125,7 +125,7 @@ public class MetaStatisticsTask extends StatisticsTask {
     }
 
     private OlapTable getNotNullOlapTable(long dbId, long tableId) throws DdlException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
         return (OlapTable) db.getTableOrDdlException(tableId);
     }
 

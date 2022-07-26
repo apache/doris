@@ -17,10 +17,10 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -61,7 +61,7 @@ public abstract class LoadEtlTask extends MasterTask {
         super();
         this.job = job;
         this.signature = job.getId();
-        this.load = Catalog.getCurrentCatalog().getLoadInstance();
+        this.load = Env.getCurrentEnv().getLoadInstance();
     }
 
     protected String getErrorMsg() {
@@ -83,7 +83,7 @@ public abstract class LoadEtlTask extends MasterTask {
 
         // check db
         long dbId = job.getDbId();
-        db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+        db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.ETL_RUN_FAIL, "db does not exist. id: " + dbId);
             return;

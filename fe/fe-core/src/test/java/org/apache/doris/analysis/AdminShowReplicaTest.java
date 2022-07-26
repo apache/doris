@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -67,7 +67,7 @@ public class AdminShowReplicaTest extends TestWithFeService {
         Assert.assertEquals(5, resultSet.getResultRows().get(0).size());
 
         // update tablets' data size and row count
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:test");
         OlapTable olapTable = db.getOlapTableOrAnalysisException("tbl1");
         for (Partition partition : olapTable.getPartitions()) {
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {

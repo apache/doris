@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -62,7 +62,7 @@ public class ShowUserPropertyStmt extends ShowStmt {
         } else {
             user = ClusterNamespace.getFullName(getClusterName(), user);
 
-            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
             }
         }
@@ -71,7 +71,7 @@ public class ShowUserPropertyStmt extends ShowStmt {
     }
 
     public List<List<String>> getRows() throws AnalysisException {
-        List<List<String>> rows = Catalog.getCurrentCatalog().getAuth().getUserProperties(user);
+        List<List<String>> rows = Env.getCurrentEnv().getAuth().getUserProperties(user);
 
         if (pattern == null) {
             return rows;

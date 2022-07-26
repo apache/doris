@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.publish;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.system.Backend;
@@ -55,7 +55,7 @@ public class ClusterStatePublisher {
         if (INSTANCE == null) {
             synchronized (ClusterStatePublisher.class) {
                 if (INSTANCE == null) {
-                    INSTANCE = new ClusterStatePublisher(Catalog.getCurrentSystemInfo());
+                    INSTANCE = new ClusterStatePublisher(Env.getCurrentSystemInfo());
                 }
             }
         }

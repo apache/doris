@@ -314,7 +314,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public boolean isTableExist(String tableName) {
-        if (Catalog.isTableNamesCaseInsensitive()) {
+        if (Env.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (tableName == null) {
                 return false;
@@ -333,7 +333,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         writeLockOrDdlException();
         try {
             String tableName = table.getName();
-            if (Catalog.isStoredTableNamesLowerCase()) {
+            if (Env.isStoredTableNamesLowerCase()) {
                 tableName = tableName.toLowerCase();
             }
             if (isTableExist(tableName)) {
@@ -347,10 +347,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 if (!isReplay) {
                     // Write edit log
                     CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
-                    Catalog.getCurrentCatalog().getEditLog().logCreateTable(info);
+                    Env.getCurrentEnv().getEditLog().logCreateTable(info);
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
-                    Catalog.getCurrentCatalog().getEsRepository().registerTable((EsTable) table);
+                    Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
                 }
             }
             return Pair.create(result, isTableExist);
@@ -362,7 +362,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public boolean createTable(Table table) {
         boolean result = true;
         String tableName = table.getName();
-        if (Catalog.isStoredTableNamesLowerCase()) {
+        if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         if (isTableExist(tableName)) {
@@ -377,7 +377,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public void dropTable(String tableName) {
-        if (Catalog.isStoredTableNamesLowerCase()) {
+        if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         Table table = getTableNullable(tableName);
@@ -456,10 +456,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
      */
     @Override
     public Table getTableNullable(String tableName) {
-        if (Catalog.isStoredTableNamesLowerCase()) {
+        if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
-        if (Catalog.isTableNamesCaseInsensitive()) {
+        if (Env.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (tableName == null) {
                 return null;
@@ -589,13 +589,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
 
         // read encryptKeys
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_102) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {
             dbEncryptKey = DatabaseEncryptKey.read(in);
         }
 
         replicaQuotaSize = in.readLong();
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_105) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
             dbProperties = DatabaseProperty.read(in);
         }
     }
@@ -668,7 +668,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized void addFunction(Function function) throws UserException {
         addFunctionImpl(function, false);
-        Catalog.getCurrentCatalog().getEditLog().logAddFunction(function);
+        Env.getCurrentEnv().getEditLog().logAddFunction(function);
     }
 
     public synchronized void replayAddFunction(Function function) {
@@ -693,7 +693,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             }
             // Get function id for this UDF, use CatalogIdGenerator. Only get function id
             // when isReplay is false
-            long functionId = Catalog.getCurrentCatalog().getNextId();
+            long functionId = Env.getCurrentEnv().getNextId();
             function.setId(functionId);
         }
 
@@ -707,7 +707,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized void dropFunction(FunctionSearchDesc function) throws UserException {
         dropFunctionImpl(function);
-        Catalog.getCurrentCatalog().getEditLog().logDropFunction(function);
+        Env.getCurrentEnv().getEditLog().logDropFunction(function);
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
@@ -781,7 +781,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized void addEncryptKey(EncryptKey encryptKey) throws UserException {
         addEncryptKeyImpl(encryptKey, false);
-        Catalog.getCurrentCatalog().getEditLog().logAddEncryptKey(encryptKey);
+        Env.getCurrentEnv().getEditLog().logAddEncryptKey(encryptKey);
     }
 
     public synchronized void replayAddEncryptKey(EncryptKey encryptKey) {
@@ -809,7 +809,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized void dropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) throws UserException {
         dropEncryptKeyImpl(encryptKeySearchDesc);
-        Catalog.getCurrentCatalog().getEditLog().logDropEncryptKey(encryptKeySearchDesc);
+        Env.getCurrentEnv().getEditLog().logDropEncryptKey(encryptKeySearchDesc);
     }
 
     public synchronized void replayDropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) {

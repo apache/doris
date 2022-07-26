@@ -17,8 +17,8 @@
 
 package org.apache.doris.load.sync.canal;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
@@ -84,7 +84,7 @@ public class CanalSyncDataTest {
     @Mocked
     OlapTable table;
     @Mocked
-    Catalog catalog;
+    Env env;
     @Mocked
     Backend backend;
     @Mocked
@@ -125,7 +125,7 @@ public class CanalSyncDataTest {
 
         new Expectations() {
             {
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = 101L;
 
@@ -158,11 +158,11 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = backendMap;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
             }
@@ -213,7 +213,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = new AnalysisException("test exception");
 
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 minTimes = 0;
                 result = transactionMgr;
             }
@@ -284,7 +284,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = sendDataOKResult;
 
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 minTimes = 0;
                 result = transactionMgr;
 
@@ -348,7 +348,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = abortOKResult;
 
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 minTimes = 0;
                 result = transactionMgr;
 
@@ -431,7 +431,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = sendDataOKResult;
 
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 minTimes = 0;
                 result = transactionMgr;
 

@@ -89,7 +89,7 @@ public class S3Resource extends Resource {
         boolean flag = this.usedByPolicySet.add(policeName);
         if (flag) {
             // log set
-            Catalog.getCurrentCatalog().getEditLog().logAlterResource(this);
+            Env.getCurrentEnv().getEditLog().logAlterResource(this);
             LOG.info("{} policy add s3 resource, current set: {}", policeName, usedByPolicySet);
         }
         return flag;
@@ -200,7 +200,7 @@ public class S3Resource extends Resource {
     }
 
     private void notifyUpdate() {
-        SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         AgentBatchTask batchTask = new AgentBatchTask();
 
         Map<String, String> copiedProperties = getCopiedProperties();
@@ -208,11 +208,11 @@ public class S3Resource extends Resource {
         for (Long beId : systemInfoService.getBackendIds(true)) {
             this.usedByPolicySet.forEach(
                     policy -> {
-                        List<Policy> policiesByType = Catalog.getCurrentCatalog()
-                                .getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
-                        Optional<Policy> findPolicy = policiesByType.stream().filter(
-                                p -> p.getType() == PolicyTypeEnum.STORAGE && policy.equals(p.getPolicyName())
-                        ).findAny();
+                        List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr()
+                                .getPoliciesByType(PolicyTypeEnum.STORAGE);
+                        Optional<Policy> findPolicy = policiesByType.stream()
+                                .filter(p -> p.getType() == PolicyTypeEnum.STORAGE && policy.equals(p.getPolicyName()))
+                                .findAny();
                         LOG.info("find policy in {} ", policiesByType);
                         if (!findPolicy.isPresent()) {
                             return;

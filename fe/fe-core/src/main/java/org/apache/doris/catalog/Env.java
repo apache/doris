@@ -262,8 +262,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
-public class Catalog {
-    private static final Logger LOG = LogManager.getLogger(Catalog.class);
+/**
+ * A singleton class can also be seen as an entry point of Doris.
+ * All manager classes can be obtained through this class.
+ */
+public class Env {
+    private static final Logger LOG = LogManager.getLogger(Env.class);
     // 0 ~ 9999 used for qe
     public static final long NEXT_ID_INIT_VALUE = 10000;
     private static final int HTTP_TIMEOUT_SECOND = 5;
@@ -343,7 +347,7 @@ public class Catalog {
     // For checkpoint and observer memory replayed marker
     private AtomicLong replayedJournalId;
 
-    private static Catalog CHECKPOINT = null;
+    private static Env CHECKPOINT = null;
     private static long checkpointThreadId = -1;
     private Checkpoint checkpointer;
     private List<Pair<String, Integer>> helperNodes = Lists.newArrayList();
@@ -493,19 +497,19 @@ public class Catalog {
     }
 
     public static InternalDataSource getCurrentInternalCatalog() {
-        return getCurrentCatalog().getInternalDataSource();
+        return getCurrentEnv().getInternalDataSource();
     }
 
     private static class SingletonHolder {
-        private static final Catalog INSTANCE = new Catalog();
+        private static final Env INSTANCE = new Env();
     }
 
-    private Catalog() {
+    private Env() {
         this(false);
     }
 
     // if isCheckpointCatalog is true, it means that we should not collect thread pool metric
-    private Catalog(boolean isCheckpointCatalog) {
+    private Env(boolean isCheckpointCatalog) {
         this.dataSourceMgr = new DataSourceMgr();
         this.load = new Load();
         this.routineLoadManager = new RoutineLoadManager();
@@ -614,12 +618,12 @@ public class Catalog {
         }
     }
 
-    public static Catalog getCurrentCatalog() {
+    public static Env getCurrentEnv() {
         if (isCheckpointThread()) {
             // only checkpoint thread it self will goes here.
             // so no need to care about the thread safe.
             if (CHECKPOINT == null) {
-                CHECKPOINT = new Catalog(true);
+                CHECKPOINT = new Env(true);
             }
             return CHECKPOINT;
         } else {
@@ -627,9 +631,9 @@ public class Catalog {
         }
     }
 
-    // NOTICE: in most case, we should use getCurrentCatalog() to get the right catalog.
+    // NOTICE: in most case, we should use getCurrentEnv() to get the right catalog.
     // but in some cases, we should get the serving catalog explicitly.
-    public static Catalog getServingCatalog() {
+    public static Env getServingEnv() {
         return SingletonHolder.INSTANCE;
     }
 
@@ -642,7 +646,7 @@ public class Catalog {
     }
 
     public static GlobalTransactionMgr getCurrentGlobalTransactionMgr() {
-        return getCurrentCatalog().globalTransactionMgr;
+        return getCurrentEnv().globalTransactionMgr;
     }
 
     public GlobalTransactionMgr getGlobalTransactionMgr() {
@@ -671,29 +675,29 @@ public class Catalog {
 
     // use this to get correct ClusterInfoService instance
     public static SystemInfoService getCurrentSystemInfo() {
-        return getCurrentCatalog().getClusterInfo();
+        return getCurrentEnv().getClusterInfo();
     }
 
     public static HeartbeatMgr getCurrentHeartbeatMgr() {
-        return getCurrentCatalog().getHeartbeatMgr();
+        return getCurrentEnv().getHeartbeatMgr();
     }
 
     // use this to get correct TabletInvertedIndex instance
     public static TabletInvertedIndex getCurrentInvertedIndex() {
-        return getCurrentCatalog().getTabletInvertedIndex();
+        return getCurrentEnv().getTabletInvertedIndex();
     }
 
     // use this to get correct ColocateTableIndex instance
     public static ColocateTableIndex getCurrentColocateIndex() {
-        return getCurrentCatalog().getColocateTableIndex();
+        return getCurrentEnv().getColocateTableIndex();
     }
 
     public static CatalogRecycleBin getCurrentRecycleBin() {
-        return getCurrentCatalog().getRecycleBin();
+        return getCurrentEnv().getRecycleBin();
     }
 
-    // use this to get correct Catalog's journal version
-    public static int getCurrentCatalogJournalVersion() {
+    // use this to get correct env's journal version
+    public static int getCurrentEnvJournalVersion() {
         return MetaContext.get().getMetaVersion();
     }
 
@@ -702,11 +706,11 @@ public class Catalog {
     }
 
     public static PluginMgr getCurrentPluginMgr() {
-        return getCurrentCatalog().getPluginMgr();
+        return getCurrentEnv().getPluginMgr();
     }
 
     public static AuditEventProcessor getCurrentAuditEventProcessor() {
-        return getCurrentCatalog().getAuditEventProcessor();
+        return getCurrentEnv().getAuditEventProcessor();
     }
 
     // For unit test only
@@ -1735,7 +1739,7 @@ public class Catalog {
     }
 
     public long loadSyncJobs(DataInputStream dis, long checksum) throws IOException, DdlException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_103) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_103) {
             syncJobManager.readField(dis);
         }
         LOG.info("finished replay syncJobMgr from image");
@@ -1797,7 +1801,7 @@ public class Catalog {
 
     public long loadBackupHandler(DataInputStream dis, long checksum) throws IOException {
         getBackupHandler().readFields(dis);
-        getBackupHandler().setCatalog(this);
+        getBackupHandler().setEnv(this);
         LOG.info("finished replay backupHandler from image");
         return checksum;
     }
@@ -1846,13 +1850,13 @@ public class Catalog {
     }
 
     public long loadColocateTableIndex(DataInputStream dis, long checksum) throws IOException {
-        Catalog.getCurrentColocateIndex().readFields(dis);
+        Env.getCurrentColocateIndex().readFields(dis);
         LOG.info("finished replay colocateTableIndex from image");
         return checksum;
     }
 
     public long loadRoutineLoadJobs(DataInputStream dis, long checksum) throws IOException {
-        Catalog.getCurrentCatalog().getRoutineLoadManager().readFields(dis);
+        Env.getCurrentEnv().getRoutineLoadManager().readFields(dis);
         LOG.info("finished replay routineLoadJobs from image");
         return checksum;
     }
@@ -1876,7 +1880,7 @@ public class Catalog {
     }
 
     public long loadSqlBlockRule(DataInputStream in, long checksum) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_104) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_104) {
             sqlBlockRuleMgr = SqlBlockRuleMgr.read(in);
         }
         LOG.info("finished replay sqlBlockRule from image");
@@ -1887,7 +1891,7 @@ public class Catalog {
      * Load policy through file.
      **/
     public long loadPolicy(DataInputStream in, long checksum) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_109) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_109) {
             policyMgr = PolicyMgr.read(in);
         }
         LOG.info("finished replay policy from image");
@@ -2124,18 +2128,18 @@ public class Catalog {
     }
 
     public long saveRecycleBin(CountingDataOutputStream dos, long checksum) throws IOException {
-        CatalogRecycleBin recycleBin = Catalog.getCurrentRecycleBin();
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
         recycleBin.write(dos);
         return checksum;
     }
 
     public long saveColocateTableIndex(CountingDataOutputStream dos, long checksum) throws IOException {
-        Catalog.getCurrentColocateIndex().write(dos);
+        Env.getCurrentColocateIndex().write(dos);
         return checksum;
     }
 
     public long saveRoutineLoadJobs(CountingDataOutputStream dos, long checksum) throws IOException {
-        Catalog.getCurrentCatalog().getRoutineLoadManager().write(dos);
+        Env.getCurrentEnv().getRoutineLoadManager().write(dos);
         return checksum;
     }
 
@@ -2149,12 +2153,12 @@ public class Catalog {
     }
 
     public long saveLoadJobsV2(CountingDataOutputStream dos, long checksum) throws IOException {
-        Catalog.getCurrentCatalog().getLoadManager().write(dos);
+        Env.getCurrentEnv().getLoadManager().write(dos);
         return checksum;
     }
 
     public long saveResources(CountingDataOutputStream dos, long checksum) throws IOException {
-        Catalog.getCurrentCatalog().getResourceMgr().write(dos);
+        Env.getCurrentEnv().getResourceMgr().write(dos);
         return checksum;
     }
 
@@ -2164,12 +2168,12 @@ public class Catalog {
     }
 
     public long saveSqlBlockRule(CountingDataOutputStream out, long checksum) throws IOException {
-        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().write(out);
+        Env.getCurrentEnv().getSqlBlockRuleMgr().write(out);
         return checksum;
     }
 
     public long savePolicy(CountingDataOutputStream out, long checksum) throws IOException {
-        Catalog.getCurrentCatalog().getPolicyMgr().write(out);
+        Env.getCurrentEnv().getPolicyMgr().write(out);
         return checksum;
     }
 
@@ -2177,7 +2181,7 @@ public class Catalog {
      * Save datasource image.
      */
     public long saveDatasource(CountingDataOutputStream out, long checksum) throws IOException {
-        Catalog.getCurrentCatalog().getDataSourceMgr().write(out);
+        Env.getCurrentEnv().getDataSourceMgr().write(out);
         return checksum;
     }
 
@@ -2588,12 +2592,12 @@ public class Catalog {
     }
 
     public void replayEraseDatabase(long dbId) throws DdlException {
-        Catalog.getCurrentRecycleBin().replayEraseDatabase(dbId);
+        Env.getCurrentRecycleBin().replayEraseDatabase(dbId);
     }
 
     public void replayRecoverDatabase(RecoverInfo info) {
         long dbId = info.getDbId();
-        Database db = Catalog.getCurrentRecycleBin().replayRecoverDatabase(dbId);
+        Database db = Env.getCurrentRecycleBin().replayRecoverDatabase(dbId);
 
         // add db to catalog
         replayCreateDb(db);
@@ -3999,7 +4003,7 @@ public class Catalog {
         }
 
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
-        Catalog.getCurrentSystemInfo().checkReplicaAllocation(db.getClusterName(), replicaAlloc);
+        Env.getCurrentSystemInfo().checkReplicaAllocation(db.getClusterName(), replicaAlloc);
         Preconditions.checkState(!replicaAlloc.isNotSet());
         boolean isInMemory = partitionInfo.getIsInMemory(partition.getId());
         DataProperty newDataProperty = partitionInfo.getDataProperty(partition.getId());
@@ -4226,7 +4230,7 @@ public class Catalog {
 
         List<Column> columns = stmt.getColumns();
 
-        long tableId = Catalog.getCurrentCatalog().getNextId();
+        long tableId = Env.getCurrentEnv().getNextId();
         View newView = new View(tableId, tableName, columns);
         newView.setComment(stmt.getComment());
         newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
@@ -4719,12 +4723,12 @@ public class Catalog {
     }
 
     public long savePlugins(CountingDataOutputStream dos, long checksum) throws IOException {
-        Catalog.getCurrentPluginMgr().write(dos);
+        Env.getCurrentPluginMgr().write(dos);
         return checksum;
     }
 
     public long loadPlugins(DataInputStream dis, long checksum) throws IOException {
-        Catalog.getCurrentPluginMgr().readFields(dis);
+        Env.getCurrentPluginMgr().readFields(dis);
         LOG.info("finished replay plugins from image");
         return checksum;
     }
@@ -4817,19 +4821,19 @@ public class Catalog {
 
     public void eraseDatabase(long dbId, boolean needEditLog) {
         // remove jobs
-        Catalog.getCurrentCatalog().getLoadInstance().removeDbLoadJob(dbId);
+        Env.getCurrentEnv().getLoadInstance().removeDbLoadJob(dbId);
 
         // remove database transaction manager
-        Catalog.getCurrentCatalog().getGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
+        Env.getCurrentEnv().getGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
 
         if (needEditLog) {
-            Catalog.getCurrentCatalog().getEditLog().logEraseDb(dbId);
+            Env.getCurrentEnv().getEditLog().logEraseDb(dbId);
         }
     }
 
     public void onEraseOlapTable(OlapTable olapTable, boolean isReplay) {
         // inverted index
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         Collection<Partition> allPartitions = olapTable.getAllPartitions();
         for (Partition partition : allPartitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
@@ -4864,12 +4868,12 @@ public class Catalog {
         }
 
         // colocation
-        Catalog.getCurrentColocateIndex().removeTable(olapTable.getId());
+        Env.getCurrentColocateIndex().removeTable(olapTable.getId());
     }
 
     public void onErasePartition(Partition partition) {
         // remove tablet in inverted index
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : index.getTablets()) {
                 invertedIndex.deleteTablet(tablet.getId());

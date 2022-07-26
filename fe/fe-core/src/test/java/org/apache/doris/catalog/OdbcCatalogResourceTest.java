@@ -73,11 +73,11 @@ public class OdbcCatalogResourceTest {
     }
 
     @Test
-    public void testFromStmt(@Mocked Catalog catalog, @Injectable PaloAuth auth)
+    public void testFromStmt(@Mocked Env env, @Injectable PaloAuth auth)
             throws UserException {
         new Expectations() {
             {
-                catalog.getAuth();
+                env.getAuth();
                 result = auth;
                 auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;

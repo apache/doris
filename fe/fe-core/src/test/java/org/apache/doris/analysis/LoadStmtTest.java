@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.AnalysisException;
@@ -77,7 +77,7 @@ public class LoadStmtTest {
     }
 
     @Test
-    public void testNormal(@Injectable DataDescription desc, @Mocked Catalog catalog,
+    public void testNormal(@Injectable DataDescription desc, @Mocked Env env,
                            @Injectable ResourceMgr resourceMgr, @Injectable PaloAuth auth) throws UserException, AnalysisException {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(desc);
@@ -94,11 +94,11 @@ public class LoadStmtTest {
                 desc.getTableName();
                 minTimes = 0;
                 result = "testTbl";
-                catalog.getResourceMgr();
+                env.getResourceMgr();
                 result = resourceMgr;
                 resourceMgr.getResource(resourceName);
                 result = resource;
-                catalog.getAuth();
+                env.getAuth();
                 result = auth;
                 auth.checkResourcePriv((ConnectContext) any, resourceName, PrivPredicate.USAGE);
                 result = true;

@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -36,7 +36,7 @@ public class ShowTrashDiskStmt extends ShowStmt {
     private Backend backend;
 
     public ShowTrashDiskStmt(String backendQuery) {
-        ImmutableMap<Long, Backend> backendsInfo = Catalog.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
         for (Backend backend : backendsInfo.values()) {
             String backendStr = String.valueOf(backend.getHost()) + ":" + String.valueOf(backend.getHeartbeatPort());
             if (backendQuery.equals(backendStr)) {
@@ -52,8 +52,8 @@ public class ShowTrashDiskStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
-                && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                && !Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(),
                         PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
         }

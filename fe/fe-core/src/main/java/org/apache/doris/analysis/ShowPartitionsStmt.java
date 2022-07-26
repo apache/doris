@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
@@ -102,14 +102,14 @@ public class ShowPartitionsStmt extends ShowStmt {
         // check access
         String dbName = tableName.getDb();
         String tblName = tableName.getTbl();
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
                                                                 PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW PARTITIONS",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
                                                 dbName + ": " + tblName);
         }
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         Table table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
         table.readLock();
         try {

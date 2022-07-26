@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -43,7 +43,7 @@ public class TransDbProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgr transactionMgr = Env.getCurrentGlobalTransactionMgr();
         List<List<Comparable>> infos = transactionMgr.getDbInfo();
         // order by dbId, asc
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0);

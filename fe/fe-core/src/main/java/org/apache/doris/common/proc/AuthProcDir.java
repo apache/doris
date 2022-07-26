@@ -18,7 +18,7 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 
@@ -63,7 +63,7 @@ public class AuthProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        result.setRows(Catalog.getCurrentCatalog().getAuth().getAuthInfo(null /* get all user */));
+        result.setRows(Env.getCurrentEnv().getAuth().getAuthInfo(null /* get all user */));
         return result;
     }
 }

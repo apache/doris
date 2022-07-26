@@ -18,8 +18,8 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -87,7 +87,7 @@ public class StatisticsJobManager {
     public void createStatisticsJob(StatisticsJob statisticsJob) throws DdlException {
         this.idToStatisticsJob.put(statisticsJob.getId(), statisticsJob);
         try {
-            Catalog.getCurrentCatalog().getStatisticsJobScheduler().addPendingJob(statisticsJob);
+            Env.getCurrentEnv().getStatisticsJobScheduler().addPendingJob(statisticsJob);
         } catch (IllegalStateException e) {
             LOG.info("The pending statistics job is full. Please submit it again later.");
             throw new DdlException("The pending statistics job is full, Please submit it again later.");
@@ -101,7 +101,7 @@ public class StatisticsJobManager {
      * - Rule3: The job for external table is not supported
      */
     private void checkRestrict(long dbId, Set<Long> tableIds) throws AnalysisException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
         db.readLock();
         try {
             // check table type

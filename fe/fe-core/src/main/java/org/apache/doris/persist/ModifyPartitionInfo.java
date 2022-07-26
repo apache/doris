@@ -17,8 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -96,7 +96,7 @@ public class ModifyPartitionInfo implements Writable {
     }
 
     public static ModifyPartitionInfo read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             ModifyPartitionInfo info = new ModifyPartitionInfo();
             info.readFields(in);
             return info;

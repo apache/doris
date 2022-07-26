@@ -53,7 +53,7 @@ public class ModifyBackendTest {
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
     }
 
     @AfterClass
@@ -64,7 +64,7 @@ public class ModifyBackendTest {
 
     @Test
     public void testModifyBackendTag() throws Exception {
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
         List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
         Assert.assertEquals(1, backends.size());
         String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
@@ -72,65 +72,48 @@ public class ModifyBackendTest {
         // modify backend tag
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('tag.location' = 'zone1')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
-        DdlExecutor.execute(Catalog.getCurrentCatalog(), stmt);
+        DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
         Assert.assertEquals(1, backends.size());
 
         // create table
-        String createStr = "create table test.tbl1(\n"
-                + "k1 int\n"
-                + ") distributed by hash(k1)\n"
-                + "buckets 3 properties(\n"
-                + "\"replication_num\" = \"1\"\n"
-                + ");";
+        String createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n"
+                + "buckets 3 properties(\n" + "\"replication_num\" = \"1\"\n" + ");";
         CreateTableStmt createStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Failed to find 1 backends for policy:",
-                () -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt));
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find 1 backends for policy:",
+                () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt));
 
-        createStr = "create table test.tbl1(\n"
-                + "k1 int\n"
-                + ") distributed by hash(k1)\n"
-                + "buckets 3 properties(\n"
-                + "\"replication_allocation\" = \"tag.location.zone1: 1\"\n"
-                + ");";
+        createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n" + "buckets 3 properties(\n"
+                + "\"replication_allocation\" = \"tag.location.zone1: 1\"\n" + ");";
         CreateTableStmt createStmt2 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
-        ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt2));
+        ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt2));
 
         // create dynamic partition tbl
         createStr = "create table test.tbl3(\n"
                 + "k1 date, k2 int\n"
                 + ") partition by range(k1)()\n"
                 + "distributed by hash(k1)\n"
-                + "buckets 3 properties(\n"
-                + "    \"dynamic_partition.enable\" = \"true\",\n"
-                + "    \"dynamic_partition.time_unit\" = \"DAY\",\n"
-                + "    \"dynamic_partition.start\" = \"-3\",\n"
-                + "    \"dynamic_partition.end\" = \"3\",\n"
-                + "    \"dynamic_partition.prefix\" = \"p\",\n"
-                + "    \"dynamic_partition.buckets\" = \"1\",\n"
-                + "    \"dynamic_partition.replication_num\" = \"1\"\n"
+                + "buckets 3 properties(\n" + "    \"dynamic_partition.enable\" = \"true\",\n"
+                + "    \"dynamic_partition.time_unit\" = \"DAY\",\n" + "    \"dynamic_partition.start\" = \"-3\",\n"
+                + "    \"dynamic_partition.end\" = \"3\",\n" + "    \"dynamic_partition.prefix\" = \"p\",\n"
+                + "    \"dynamic_partition.buckets\" = \"1\",\n" + "    \"dynamic_partition.replication_num\" = \"1\"\n"
                 + ");";
         CreateTableStmt createStmt3 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         //partition create failed, because there is no BE with "default" tag
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find 3 backends for policy", () -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt3));
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find 3 backends for policy",
+                () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt3));
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
 
-        createStr = "create table test.tbl4(\n"
-                + "k1 date, k2 int\n"
-                + ") partition by range(k1)()\n"
-                + "distributed by hash(k1)\n"
-                + "buckets 3 properties(\n"
-                + "    \"dynamic_partition.enable\" = \"true\",\n"
-                + "    \"dynamic_partition.time_unit\" = \"DAY\",\n"
-                + "    \"dynamic_partition.start\" = \"-3\",\n"
-                + "    \"dynamic_partition.end\" = \"3\",\n"
+        createStr = "create table test.tbl4(\n" + "k1 date, k2 int\n" + ") partition by range(k1)()\n"
+                + "distributed by hash(k1)\n" + "buckets 3 properties(\n"
+                + "    \"dynamic_partition.enable\" = \"true\",\n" + "    \"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "    \"dynamic_partition.start\" = \"-3\",\n" + "    \"dynamic_partition.end\" = \"3\",\n"
                 + "    \"dynamic_partition.prefix\" = \"p\",\n"
                 + "    \"dynamic_partition.buckets\" = \"1\",\n"
                 + "    \"dynamic_partition.replication_allocation\" = \"tag.location.zone1:1\"\n"
                 + ");";
         CreateTableStmt createStmt4 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
-        ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt4));
+        ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt4));
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl4");
         PartitionInfo partitionInfo = tbl.getPartitionInfo();
         Assert.assertEquals(4, partitionInfo.idToItem.size());
@@ -151,7 +134,7 @@ public class ModifyBackendTest {
         // modify default replica
         String alterStr = "alter table test.tbl4 set ('default.replication_allocation' = 'tag.location.zonex:1')";
         AlterTableStmt alterStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStr, connectContext);
-        ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), alterStmt));
+        ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Env.getCurrentEnv(), alterStmt));
         defaultAlloc = tbl.getDefaultReplicaAllocation();
         ReplicaAllocation expectedAlloc = new ReplicaAllocation();
         expectedAlloc.put(Tag.create(Tag.TYPE_LOCATION, "zonex"), (short) 1);
@@ -164,36 +147,35 @@ public class ModifyBackendTest {
         alterStr = "alter table test.tbl4 modify partition " + partName
                 + " set ('replication_allocation' = 'tag.location.zonex:1')";
         AlterTableStmt alterStmt2 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStr, connectContext);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Failed to find enough host with tag",
-                () -> DdlExecutor.execute(Catalog.getCurrentCatalog(), alterStmt2));
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find enough host with tag",
+                () -> DdlExecutor.execute(Env.getCurrentEnv(), alterStmt2));
         tblProperties = tableProperty.getProperties();
         Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));
 
         alterStr = "alter table test.tbl4 modify partition " + partName
                 + " set ('replication_allocation' = 'tag.location.zone1:1')";
         AlterTableStmt alterStmt3 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStr, connectContext);
-        ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), alterStmt3));
+        ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Env.getCurrentEnv(), alterStmt3));
         tblProperties = tableProperty.getProperties();
         Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));
     }
 
     @Test
     public void testModifyBackendAvailableProperty() throws Exception {
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
         List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
         String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
         // modify backend available property
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('disable_query' = 'true', 'disable_load' = 'true')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
-        DdlExecutor.execute(Catalog.getCurrentCatalog(), stmt);
+        DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         Backend backend = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER).get(0);
         Assert.assertFalse(backend.isQueryAvailable());
         Assert.assertFalse(backend.isLoadAvailable());
 
         stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('disable_query' = 'false', 'disable_load' = 'false')";
         stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
-        DdlExecutor.execute(Catalog.getCurrentCatalog(), stmt);
+        DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         Assert.assertTrue(backend.isQueryAvailable());
         Assert.assertTrue(backend.isLoadAvailable());
     }

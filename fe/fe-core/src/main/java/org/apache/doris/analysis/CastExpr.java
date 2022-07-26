@@ -20,7 +20,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
@@ -293,10 +293,10 @@ public class CastExpr extends Expr {
         Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
         if (type.isScalarType()) {
             if (isImplicit) {
-                fn = Catalog.getCurrentCatalog().getFunction(
+                fn = Env.getCurrentEnv().getFunction(
                         searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             } else {
-                fn = Catalog.getCurrentCatalog().getFunction(
+                fn = Env.getCurrentEnv().getFunction(
                         searchDesc, Function.CompareMode.IS_IDENTICAL);
             }
         } else if (type.isArrayType()) {

@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.TabletScheduler;
@@ -46,7 +46,7 @@ public class TabletSchedulerDetailProcDir implements ProcDirInterface {
 
     public TabletSchedulerDetailProcDir(String type) {
         this.type = type;
-        tabletScheduler = Catalog.getCurrentCatalog().getTabletScheduler();
+        tabletScheduler = Env.getCurrentEnv().getTabletScheduler();
     }
 
     @Override
@@ -83,7 +83,7 @@ public class TabletSchedulerDetailProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid tablet id format: " + tabletIdStr);
         }
 
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
         return new ReplicasProcNode(tabletId, replicas);
     }

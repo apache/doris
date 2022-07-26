@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
@@ -32,19 +32,19 @@ import org.junit.Test;
 
 public class ShowAlterStmtTest {
     private Analyzer analyzer;
-    private Catalog catalog;
+    private Env env;
     private SystemInfoService systemInfo;
 
-    private static FakeCatalog fakeCatalog;
+    private static FakeEnv fakeEnv;
 
     @Before
     public void setUp() {
-        fakeCatalog = new FakeCatalog();
-        catalog = AccessTestUtil.fetchAdminCatalog();
+        fakeEnv = new FakeEnv();
+        env = AccessTestUtil.fetchAdminCatalog();
 
-        FakeCatalog.setCatalog(catalog);
+        FakeEnv.setEnv(env);
 
-        analyzer = new Analyzer(catalog, new ConnectContext(null));
+        analyzer = new Analyzer(env, new ConnectContext(null));
         new Expectations(analyzer) {
             {
                 analyzer.getDefaultDb();
@@ -55,9 +55,9 @@ public class ShowAlterStmtTest {
                 minTimes = 0;
                 result = "testUser";
 
-                analyzer.getCatalog();
+                analyzer.getEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
                 analyzer.getClusterName();
                 minTimes = 0;

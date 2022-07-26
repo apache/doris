@@ -19,12 +19,12 @@ package org.apache.doris.clone;
 
 import org.apache.doris.analysis.AdminCancelRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminRebalanceDiskStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -133,7 +133,7 @@ public class TabletScheduler extends MasterDaemon {
 
     private long lastSlotAdjustTime = 0;
 
-    private Catalog catalog;
+    private Env env;
     private SystemInfoService infoService;
     private TabletInvertedIndex invertedIndex;
     private ColocateTableIndex colocateTableIndex;
@@ -149,13 +149,13 @@ public class TabletScheduler extends MasterDaemon {
         DISABLED // scheduler has been disabled.
     }
 
-    public TabletScheduler(Catalog catalog, SystemInfoService infoService, TabletInvertedIndex invertedIndex,
+    public TabletScheduler(Env env, SystemInfoService infoService, TabletInvertedIndex invertedIndex,
                            TabletSchedulerStat stat, String rebalancerType) {
         super("tablet scheduler", SCHEDULE_INTERVAL_MS);
-        this.catalog = catalog;
+        this.env = env;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
-        this.colocateTableIndex = catalog.getColocateTableIndex();
+        this.colocateTableIndex = env.getColocateTableIndex();
         this.stat = stat;
         if (rebalancerType.equalsIgnoreCase("partition")) {
             this.rebalancer = new PartitionRebalancer(infoService, invertedIndex);
@@ -487,7 +487,7 @@ public class TabletScheduler extends MasterDaemon {
         stat.counterTabletScheduled.incrementAndGet();
 
         Pair<TabletStatus, TabletSchedCtx.Priority> statusPair;
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrException(tabletCtx.getDbId(),
+        Database db = Env.getCurrentInternalCatalog().getDbOrException(tabletCtx.getDbId(),
                 s -> new SchedException(Status.UNRECOVERABLE, "db " + tabletCtx.getDbId() + " does not exist"));
         OlapTable tbl = (OlapTable) db.getTableOrException(tabletCtx.getTblId(),
                 s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletCtx.getTblId() + " does not exist"));
@@ -547,7 +547,7 @@ public class TabletScheduler extends MasterDaemon {
             if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE) {
                 try {
                     DatabaseTransactionMgr dbTransactionMgr
-                            = Catalog.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId());
+                            = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId());
                     for (TransactionState transactionState : dbTransactionMgr.getPreCommittedTxnList()) {
                         if (transactionState.getTableIdList().contains(tbl.getId())) {
                             // If table releate to transaction with precommitted status, do not allow to do balance.
@@ -1108,7 +1108,7 @@ public class TabletScheduler extends MasterDaemon {
          */
         if (!force && !Config.enable_force_drop_redundant_replica && replica.getState().canLoad()
                 && replica.getWatermarkTxnId() == -1 && !FeConstants.runningUnitTest) {
-            long nextTxnId = Catalog.getCurrentGlobalTransactionMgr()
+            long nextTxnId = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionIDGenerator().getNextTransactionId();
             replica.setWatermarkTxnId(nextTxnId);
             replica.setState(ReplicaState.DECOMMISSION);
@@ -1120,7 +1120,7 @@ public class TabletScheduler extends MasterDaemon {
         } else if (replica.getState() == ReplicaState.DECOMMISSION && replica.getWatermarkTxnId() != -1) {
             long watermarkTxnId = replica.getWatermarkTxnId();
             try {
-                if (!Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watermarkTxnId,
+                if (!Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watermarkTxnId,
                         tabletCtx.getDbId(), Lists.newArrayList(tabletCtx.getTblId()))) {
                     throw new SchedException(Status.SCHEDULE_FAILED,
                             "wait txn before " + watermarkTxnId + " to be finished");
@@ -1152,7 +1152,7 @@ public class TabletScheduler extends MasterDaemon {
                 tabletCtx.getTabletId(),
                 replica.getBackendId());
 
-        Catalog.getCurrentCatalog().getEditLog().logDeleteReplica(info);
+        Env.getCurrentEnv().getEditLog().logDeleteReplica(info);
 
         LOG.info("delete replica. tablet id: {}, backend id: {}. reason: {}, force: {}",
                 tabletCtx.getTabletId(), replica.getBackendId(), reason, force);

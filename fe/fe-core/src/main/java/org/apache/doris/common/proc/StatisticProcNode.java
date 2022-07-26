@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -43,18 +43,18 @@ public class StatisticProcNode implements ProcNodeInterface {
             .add("DbId").add("DbName").add("TableNum").add("PartitionNum")
             .add("IndexNum").add("TabletNum").add("ReplicaNum")
             .build();
-    private Catalog catalog;
+    private Env env;
 
-    public StatisticProcNode(Catalog catalog) {
-        Preconditions.checkNotNull(catalog);
-        this.catalog = catalog;
+    public StatisticProcNode(Env env) {
+        Preconditions.checkNotNull(env);
+        this.env = env;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        List<DBStatistic> statistics = catalog.getDataSourceMgr().getDbIds().parallelStream()
+        List<DBStatistic> statistics = env.getDataSourceMgr().getDbIds().parallelStream()
                 // skip information_schema database
-                .flatMap(id -> Stream.of(id == 0 ? null : catalog.getDataSourceMgr().getDbNullable(id)))
+                .flatMap(id -> Stream.of(id == 0 ? null : env.getDataSourceMgr().getDbNullable(id)))
                 .filter(Objects::nonNull)
                 .map(DBStatistic::new)
                 // sort by dbName

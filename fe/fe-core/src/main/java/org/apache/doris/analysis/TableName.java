@@ -20,7 +20,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -55,7 +55,7 @@ public class TableName implements Writable {
     }
 
     public TableName(String ctl, String db, String tbl) {
-        if (Catalog.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
+        if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
             tbl = tbl.toLowerCase();
         }
         this.ctl = ctl;
@@ -189,7 +189,7 @@ public class TableName implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_111) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
             TableName fromJson = GsonUtils.GSON.fromJson(Text.readString(in), TableName.class);
             ctl = fromJson.ctl;
             db = fromJson.db;

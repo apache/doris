@@ -157,7 +157,7 @@ public class Tablet extends MetaObject implements Writable {
         if (deleteRedundantReplica(replica.getBackendId(), replica.getVersion())) {
             replicas.add(replica);
             if (!isRestore) {
-                Catalog.getCurrentInvertedIndex().addReplica(id, replica);
+                Env.getCurrentInvertedIndex().addReplica(id, replica);
             }
         }
     }
@@ -180,7 +180,7 @@ public class Tablet extends MetaObject implements Writable {
 
     public List<Long> getNormalReplicaBackendIds() {
         List<Long> beIds = Lists.newArrayList();
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -198,7 +198,7 @@ public class Tablet extends MetaObject implements Writable {
     // for load plan.
     public Multimap<Long, Long> getNormalReplicaBackendPathMap() {
         Multimap<Long, Long> map = HashMultimap.create();
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -270,7 +270,7 @@ public class Tablet extends MetaObject implements Writable {
     public boolean deleteReplica(Replica replica) {
         if (replicas.contains(replica)) {
             replicas.remove(replica);
-            Catalog.getCurrentInvertedIndex().deleteReplica(id, replica.getBackendId());
+            Env.getCurrentInvertedIndex().deleteReplica(id, replica.getBackendId());
             return true;
         }
         return false;
@@ -282,7 +282,7 @@ public class Tablet extends MetaObject implements Writable {
             Replica replica = iterator.next();
             if (replica.getBackendId() == backendId) {
                 iterator.remove();
-                Catalog.getCurrentInvertedIndex().deleteReplica(id, backendId);
+                Env.getCurrentInvertedIndex().deleteReplica(id, backendId);
                 return true;
             }
         }

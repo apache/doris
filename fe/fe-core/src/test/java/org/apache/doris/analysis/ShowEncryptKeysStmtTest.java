@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -35,24 +35,24 @@ import org.junit.rules.ExpectedException;
 public class ShowEncryptKeysStmtTest {
     @Mocked
     private Analyzer analyzer;
-    private Catalog catalog;
+    private Env env;
 
     @Mocked
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
 
     @Before
     public void setUp() {
-        fakeCatalog = new FakeCatalog();
-        catalog = AccessTestUtil.fetchAdminCatalog();
+        fakeEnv = new FakeEnv();
+        env = AccessTestUtil.fetchAdminCatalog();
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "192.188.3.1");
-        FakeCatalog.setCatalog(catalog);
+        FakeEnv.setEnv(env);
 
         new Expectations() {
             {
@@ -60,9 +60,9 @@ public class ShowEncryptKeysStmtTest {
                 minTimes = 0;
                 result = "testDb";
 
-                analyzer.getCatalog();
+                analyzer.getEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
                 analyzer.getClusterName();
                 minTimes = 0;

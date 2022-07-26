@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -62,7 +62,7 @@ public class ShowCreateDbStmt extends ShowStmt {
         }
         db = ClusterNamespace.getFullName(getClusterName(), db);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db,
+        if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), db,
                                                                PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
                                                                                               PaloPrivilege.ALTER_PRIV,
                                                                                               PaloPrivilege.CREATE_PRIV,

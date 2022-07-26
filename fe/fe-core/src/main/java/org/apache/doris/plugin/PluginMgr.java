@@ -18,7 +18,7 @@
 package org.apache.doris.plugin;
 
 import org.apache.doris.analysis.InstallPluginStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -131,7 +131,7 @@ public class PluginMgr implements Writable {
             }
             plugins[info.getTypeId()].put(info.getName(), pluginLoader);
 
-            Catalog.getCurrentCatalog().getEditLog().logInstallPlugin(info);
+            Env.getCurrentEnv().getEditLog().logInstallPlugin(info);
             LOG.info("install plugin {}", info.getName());
             return info;
         } catch (IOException | UserException e) {

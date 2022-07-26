@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
@@ -61,7 +61,7 @@ public class TabletsProcDir implements ProcDirInterface {
     public List<List<Comparable>> fetchComparableResult(long version, long backendId, Replica.ReplicaState state) {
         Preconditions.checkNotNull(table);
         Preconditions.checkNotNull(index);
-        ImmutableMap<Long, Backend> backendMap = Catalog.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getIdToBackend();
 
         List<List<Comparable>> tabletInfos = new ArrayList<List<Comparable>>();
         table.readLock();
@@ -186,7 +186,7 @@ public class TabletsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid tablet id format: " + tabletIdStr);
         }
 
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
         return new ReplicasProcNode(tabletId, replicas);
     }

@@ -18,7 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -63,7 +63,7 @@ public class StatisticsTaskScheduler extends MasterDaemon {
         if (!tasks.isEmpty()) {
             ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPool(tasks.size(),
                     "statistic-pool", false);
-            StatisticsJobManager jobManager = Catalog.getCurrentCatalog().getStatisticsJobManager();
+            StatisticsJobManager jobManager = Env.getCurrentEnv().getStatisticsJobManager();
             Map<Long, StatisticsJob> statisticsJobs = jobManager.getIdToStatisticsJob();
             Map<Long, List<Map<Long, Future<StatisticsTaskResult>>>> resultMap = Maps.newLinkedHashMap();
 
@@ -142,8 +142,8 @@ public class StatisticsTaskScheduler extends MasterDaemon {
     }
 
     private void handleTaskResult(Map<Long, List<Map<Long, Future<StatisticsTaskResult>>>> resultMap) {
-        StatisticsManager statsManager = Catalog.getCurrentCatalog().getStatisticsManager();
-        StatisticsJobManager jobManager = Catalog.getCurrentCatalog().getStatisticsJobManager();
+        StatisticsManager statsManager = Env.getCurrentEnv().getStatisticsManager();
+        StatisticsJobManager jobManager = Env.getCurrentEnv().getStatisticsJobManager();
 
         resultMap.forEach((jobId, taskMapList) -> {
             if (checkJobIsValid(jobId)) {
@@ -187,7 +187,7 @@ public class StatisticsTaskScheduler extends MasterDaemon {
     }
 
     public boolean checkJobIsValid(Long jobId) {
-        StatisticsJobManager jobManager = Catalog.getCurrentCatalog().getStatisticsJobManager();
+        StatisticsJobManager jobManager = Env.getCurrentEnv().getStatisticsJobManager();
         StatisticsJob statisticsJob = jobManager.getIdToStatisticsJob().get(jobId);
         if (statisticsJob == null) {
             return false;

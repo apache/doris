@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -42,7 +42,7 @@ public class RoutineLoadScheduler extends MasterDaemon {
     @VisibleForTesting
     public RoutineLoadScheduler() {
         super();
-        routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+        routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
     }
 
     public RoutineLoadScheduler(RoutineLoadManager routineLoadManager) {

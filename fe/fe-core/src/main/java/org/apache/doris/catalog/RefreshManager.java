@@ -37,10 +37,10 @@ public class RefreshManager {
     public void handleRefreshTable(RefreshTableStmt stmt) throws UserException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTblName();
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env env = Env.getCurrentEnv();
 
         // 0. check table type
-        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
         Table table = db.getTableNullable(tableName);
         if (!(table instanceof IcebergTable)) {
             throw new DdlException("Only support refresh Iceberg table.");
@@ -53,21 +53,21 @@ public class RefreshManager {
 
         // 2. drop old table
         DropTableStmt dropTableStmt = new DropTableStmt(true, stmt.getTableName(), true);
-        catalog.dropTable(dropTableStmt);
+        env.dropTable(dropTableStmt);
 
         // 3. create new table
         CreateTableStmt createTableStmt = new CreateTableStmt(true, true,
                 stmt.getTableName(), "ICEBERG", icebergProperties, "");
-        catalog.createTable(createTableStmt);
+        env.createTable(createTableStmt);
 
         LOG.info("Successfully refresh table: {} from db: {}", tableName, dbName);
     }
 
     public void handleRefreshDb(RefreshDbStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env env = Env.getCurrentEnv();
 
-        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
 
         // 0. build iceberg property
         // Since we have only persisted database properties with key-value format in DatabaseProperty,
@@ -84,12 +84,12 @@ public class RefreshManager {
             if (table instanceof IcebergTable) {
                 DropTableStmt dropTableStmt =
                         new DropTableStmt(true, new TableName(null, dbName, table.getName()), true);
-                catalog.dropTable(dropTableStmt);
+                env.dropTable(dropTableStmt);
             }
         }
 
         // 3. register iceberg database to recreate iceberg table
-        catalog.getIcebergTableCreationRecordMgr().registerDb(db);
+        env.getIcebergTableCreationRecordMgr().registerDb(db);
 
         LOG.info("Successfully refresh db: {}", dbName);
     }

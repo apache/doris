@@ -74,25 +74,25 @@ public class ColocateTableTest {
     public void createDb() throws Exception {
         String createDbStmtStr = "create database " + dbName;
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        Catalog.getCurrentCatalog().setColocateTableIndex(new ColocateTableIndex());
+        Env.getCurrentEnv().createDb(createDbStmt);
+        Env.getCurrentEnv().setColocateTableIndex(new ColocateTableIndex());
     }
 
     @After
     public void dropDb() throws Exception {
         String dropDbStmtStr = "drop database " + dbName;
         DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().dropDb(dropDbStmt);
+        Env.getCurrentEnv().dropDb(dropDbStmt);
     }
 
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
     }
 
     private static void alterTable(String sql) throws Exception {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().alterTable(alterTableStmt);
+        Env.getCurrentEnv().alterTable(alterTableStmt);
     }
 
     @Test
@@ -109,8 +109,8 @@ public class ColocateTableTest {
                 + " \"colocate_with\" = \"" + groupName + "\"\n"
                 + ");");
 
-        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+        ColocateTableIndex index = Env.getCurrentColocateIndex();
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         long tableId = db.getTableOrMetaException(tableName1).getId();
 
         Assert.assertEquals(1, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
@@ -164,8 +164,8 @@ public class ColocateTableTest {
                 + " \"colocate_with\" = \"" + groupName + "\"\n"
                 + ");");
 
-        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+        ColocateTableIndex index = Env.getCurrentColocateIndex();
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         long firstTblId = db.getTableOrMetaException(tableName1).getId();
         long secondTblId = db.getTableOrMetaException(tableName2).getId();
 
@@ -339,8 +339,8 @@ public class ColocateTableTest {
                 + " \"colocate_with\" = \"" + groupName + "\"\n"
                 + ");");
 
-        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+        ColocateTableIndex index = Env.getCurrentColocateIndex();
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         long tableId = db.getTableOrMetaException(tableName1).getId();
         GroupId groupId1 = index.getGroup(tableId);
 

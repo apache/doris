@@ -19,7 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.BrokerMgr;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.GenericPool;
@@ -158,7 +158,7 @@ public class BrokerUtilTest {
     }
 
     @Test
-    public void testReadFile(@Mocked TPaloBrokerService.Client client, @Mocked Catalog catalog,
+    public void testReadFile(@Mocked TPaloBrokerService.Client client, @Mocked Env env,
                              @Injectable BrokerMgr brokerMgr)
             throws TException, UserException, UnsupportedEncodingException {
         // list response
@@ -203,7 +203,7 @@ public class BrokerUtilTest {
 
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.getBroker(anyString, anyString);
                 result = fsBroker;
@@ -226,7 +226,7 @@ public class BrokerUtilTest {
     }
 
     @Test
-    public void testWriteFile(@Mocked TPaloBrokerService.Client client, @Mocked Catalog catalog,
+    public void testWriteFile(@Mocked TPaloBrokerService.Client client, @Mocked Env env,
                               @Injectable BrokerMgr brokerMgr)
             throws TException, UserException, UnsupportedEncodingException {
         // open writer response
@@ -256,7 +256,7 @@ public class BrokerUtilTest {
 
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.getBroker(anyString, anyString);
                 result = fsBroker;
@@ -281,7 +281,7 @@ public class BrokerUtilTest {
     }
 
     @Test
-    public void testDeletePath(@Mocked TPaloBrokerService.Client client, @Mocked Catalog catalog,
+    public void testDeletePath(@Mocked TPaloBrokerService.Client client, @Mocked Env env,
                                @Injectable BrokerMgr brokerMgr) throws AnalysisException, TException {
         // delete response
         TBrokerOperationStatus status = new TBrokerOperationStatus();
@@ -307,7 +307,7 @@ public class BrokerUtilTest {
 
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.getBroker(anyString, anyString);
                 result = fsBroker;

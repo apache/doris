@@ -202,7 +202,7 @@ public class TabletInvertedIndex {
                         // check if should clear transactions
                         if (backendTabletInfo.isSetTransactionIds()) {
                             List<Long> transactionIds = backendTabletInfo.getTransactionIds();
-                            GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+                            GlobalTransactionMgr transactionMgr = Env.getCurrentGlobalTransactionMgr();
                             for (Long transactionId : transactionIds) {
                                 TransactionState transactionState
                                         = transactionMgr.getTransactionState(tabletMeta.getDbId(), transactionId);
@@ -359,7 +359,7 @@ public class TabletInvertedIndex {
 
     // always add tablet before adding replicas
     public void addTablet(long tabletId, TabletMeta tabletMeta) {
-        if (Catalog.isCheckpointThread()) {
+        if (Env.isCheckpointThread()) {
             return;
         }
         writeLock();
@@ -380,7 +380,7 @@ public class TabletInvertedIndex {
     }
 
     public void deleteTablet(long tabletId) {
-        if (Catalog.isCheckpointThread()) {
+        if (Env.isCheckpointThread()) {
             return;
         }
         writeLock();
@@ -408,7 +408,7 @@ public class TabletInvertedIndex {
     }
 
     public void addReplica(long tabletId, Replica replica) {
-        if (Catalog.isCheckpointThread()) {
+        if (Env.isCheckpointThread()) {
             return;
         }
         writeLock();
@@ -425,7 +425,7 @@ public class TabletInvertedIndex {
     }
 
     public void deleteReplica(long tabletId, long backendId) {
-        if (Catalog.isCheckpointThread()) {
+        if (Env.isCheckpointThread()) {
             return;
         }
         writeLock();
@@ -582,7 +582,7 @@ public class TabletInvertedIndex {
                     TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
                     Preconditions.checkNotNull(tabletMeta, "invalid tablet " + tabletId);
                     Preconditions.checkState(
-                            !Catalog.getCurrentColocateIndex().isColocateTable(tabletMeta.getTableId()),
+                            !Env.getCurrentColocateIndex().isColocateTable(tabletMeta.getTableId()),
                             "should not be the colocate table");
 
                     TStorageMedium medium = tabletMeta.getStorageMedium();

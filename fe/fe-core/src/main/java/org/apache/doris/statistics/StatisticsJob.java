@@ -18,7 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
@@ -51,7 +51,7 @@ public class StatisticsJob {
 
     protected final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    private final long id = Catalog.getCurrentCatalog().getNextId();
+    private final long id = Env.getCurrentEnv().getNextId();
 
     /**
      * to be collected database stats.

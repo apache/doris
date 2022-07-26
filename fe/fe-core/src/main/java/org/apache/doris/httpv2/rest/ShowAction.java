@@ -17,9 +17,9 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -109,7 +109,7 @@ public class ShowAction extends RestBaseController {
         }
 
         // forward to master if necessary
-        if (!Catalog.getCurrentCatalog().isMaster() && isForward) {
+        if (!Env.getCurrentEnv().isMaster() && isForward) {
             RedirectView redirectView = redirectToMaster(request, response);
             Preconditions.checkNotNull(redirectView);
             return redirectView;
@@ -171,15 +171,15 @@ public class ShowAction extends RestBaseController {
         long totalSize = 0;
         if (dbName != null) {
             String fullDbName = getFullDbName(dbName);
-            DatabaseIf db = Catalog.getCurrentInternalCatalog().getDbNullable(fullDbName);
+            DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
             if (db == null) {
                 return ResponseEntityBuilder.okWithCommonError("database " + fullDbName + " not found.");
             }
             totalSize = getDataSizeOfDatabase(db);
             oneEntry.put(fullDbName, totalSize);
         } else {
-            for (long dbId : Catalog.getCurrentInternalCatalog().getDbIds()) {
-                DatabaseIf db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+            for (long dbId : Env.getCurrentInternalCatalog().getDbIds()) {
+                DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
                 if (db == null || !(db instanceof Database) || ((Database) db).isInfoSchemaDb()) {
                     continue;
                 }
@@ -192,16 +192,16 @@ public class ShowAction extends RestBaseController {
 
     private Map<String, String> getHaInfo() throws IOException {
         HashMap<String, String> feInfo = new HashMap<String, String>();
-        feInfo.put("role", Catalog.getCurrentCatalog().getFeType().toString());
-        if (Catalog.getCurrentCatalog().isMaster()) {
+        feInfo.put("role", Env.getCurrentEnv().getFeType().toString());
+        if (Env.getCurrentEnv().isMaster()) {
             feInfo.put("current_journal_id",
-                    String.valueOf(Catalog.getCurrentCatalog().getEditLog().getMaxJournalId()));
+                    String.valueOf(Env.getCurrentEnv().getEditLog().getMaxJournalId()));
         } else {
             feInfo.put("current_journal_id",
-                    String.valueOf(Catalog.getCurrentCatalog().getReplayedJournalId()));
+                    String.valueOf(Env.getCurrentEnv().getReplayedJournalId()));
         }
 
-        HAProtocol haProtocol = Catalog.getCurrentCatalog().getHaProtocol();
+        HAProtocol haProtocol = Env.getCurrentEnv().getHaProtocol();
         if (haProtocol != null) {
 
             InetSocketAddress master = null;
@@ -236,8 +236,8 @@ public class ShowAction extends RestBaseController {
             }
         }
 
-        feInfo.put("can_read", String.valueOf(Catalog.getCurrentCatalog().canRead()));
-        feInfo.put("is_ready", String.valueOf(Catalog.getCurrentCatalog().isReady()));
+        feInfo.put("can_read", String.valueOf(Env.getCurrentEnv().canRead()));
+        feInfo.put("is_ready", String.valueOf(Env.getCurrentEnv().isReady()));
 
         Storage storage = new Storage(Config.meta_dir + "/image");
         feInfo.put("last_checkpoint_version", String.valueOf(storage.getLatestImageSeq()));
@@ -273,10 +273,10 @@ public class ShowAction extends RestBaseController {
 
     private Map<String, Long> getDataSize() {
         Map<String, Long> result = new HashMap<String, Long>();
-        List<String> dbNames = Catalog.getCurrentInternalCatalog().getDbNames();
+        List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
 
         for (String dbName : dbNames) {
-            Catalog.getCurrentInternalCatalog().getDb(dbName).ifPresent(db -> {
+            Env.getCurrentInternalCatalog().getDb(dbName).ifPresent(db -> {
                 long totalSize = getDataSizeOfDatabase(db);
                 result.put(dbName, totalSize);
             });

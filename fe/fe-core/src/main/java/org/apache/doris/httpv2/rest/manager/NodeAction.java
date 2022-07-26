@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.rest.manager;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
@@ -137,7 +137,7 @@ public class NodeAction extends RestBaseController {
     // }
     private Object fetchNodeInfo(HttpServletRequest request, HttpServletResponse response, String procPath)
             throws AnalysisException {
-        if (!Catalog.getCurrentCatalog().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster()) {
             return redirectToMaster(request, response);
         }
 
@@ -182,9 +182,9 @@ public class NodeAction extends RestBaseController {
             result.put("frontend", Lists.newArrayList(Config.dump().keySet()));
 
             List<String> beConfigNames = Lists.newArrayList();
-            List<Long> beIds = Catalog.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> beIds = Env.getCurrentSystemInfo().getBackendIds(true);
             if (!beIds.isEmpty()) {
-                Backend be = Catalog.getCurrentSystemInfo().getBackend(beIds.get(0));
+                Backend be = Env.getCurrentSystemInfo().getBackend(beIds.get(0));
                 String url = "http://" + be.getHost() + ":" + be.getHttpPort() + "/api/show_config";
                 String questResult = HttpUtils.doGet(url, null);
                 List<List<String>> configs = GsonUtils.GSON.fromJson(questResult,
@@ -223,16 +223,16 @@ public class NodeAction extends RestBaseController {
     }
 
     private static List<String> getFeList() {
-        return Catalog.getCurrentCatalog().getFrontends(null)
+        return Env.getCurrentEnv().getFrontends(null)
                 .stream()
                 .map(fe -> fe.getHost() + ":" + Config.http_port)
                 .collect(Collectors.toList());
     }
 
     private static List<String> getBeList() {
-        return Catalog.getCurrentSystemInfo().getBackendIds(false)
+        return Env.getCurrentSystemInfo().getBackendIds(false)
                 .stream().map(beId -> {
-                    Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+                    Backend be = Env.getCurrentSystemInfo().getBackend(beId);
                     return be.getHost() + ":" + be.getHttpPort();
                 })
                 .collect(Collectors.toList());
@@ -483,7 +483,7 @@ public class NodeAction extends RestBaseController {
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
-        List<Pair<String, Integer>> aliveFe = Catalog.getCurrentCatalog().getFrontends(null)
+        List<Pair<String, Integer>> aliveFe = Env.getCurrentEnv().getFrontends(null)
                 .stream().filter(Frontend::isAlive).map(fe -> new Pair<>(fe.getHost(), Config.http_port))
                 .collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveFe, failedTotal);
@@ -584,9 +584,9 @@ public class NodeAction extends RestBaseController {
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
-        List<Pair<String, Integer>> aliveBe = Catalog.getCurrentSystemInfo().getBackendIds(true)
+        List<Pair<String, Integer>> aliveBe = Env.getCurrentSystemInfo().getBackendIds(true)
                 .stream().map(beId -> {
-                    Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+                    Backend be = Env.getCurrentSystemInfo().getBackend(beId);
                     return new Pair<>(be.getHost(), be.getHttpPort());
                 })
                 .collect(Collectors.toList());

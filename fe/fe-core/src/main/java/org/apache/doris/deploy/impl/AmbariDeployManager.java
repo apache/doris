@@ -17,7 +17,7 @@
 
 package org.apache.doris.deploy.impl;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -100,8 +100,8 @@ public class AmbariDeployManager extends DeployManager {
     // reset it every cycle
     private String blueprintJson;
 
-    public AmbariDeployManager(Catalog catalog, long intervalMs) {
-        super(catalog, intervalMs);
+    public AmbariDeployManager(Env env, long intervalMs) {
+        super(env, intervalMs);
         initEnvVariables(ENV_AMBARI_FE_COMPONENTS, "", ENV_AMBARI_BE_COMPONENTS, ENV_AMBARI_BROKER_COMPONENTS);
     }
 

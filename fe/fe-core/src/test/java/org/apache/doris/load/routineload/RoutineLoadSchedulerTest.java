@@ -18,8 +18,8 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
@@ -54,7 +54,7 @@ public class RoutineLoadSchedulerTest {
     TResourceInfo tResourceInfo;
 
     @Test
-    public void testNormalRunOneCycle(@Mocked Catalog catalog, @Mocked InternalDataSource ds,
+    public void testNormalRunOneCycle(@Mocked Env env, @Mocked InternalDataSource ds,
             @Injectable RoutineLoadManager routineLoadManager, @Injectable SystemInfoService systemInfoService,
             @Injectable Database database, @Injectable RoutineLoadDesc routineLoadDesc,
             @Mocked StreamLoadPlanner planner, @Injectable OlapTable olapTable)
@@ -70,7 +70,7 @@ public class RoutineLoadSchedulerTest {
         partitions.add(300);
 
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
-        Deencapsulation.setField(catalog, "routineLoadTaskScheduler", routineLoadTaskScheduler);
+        Deencapsulation.setField(env, "routineLoadTaskScheduler", routineLoadTaskScheduler);
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", clusterName, 1L, 1L,
                 "xxx", "test", UserIdentity.ADMIN);
@@ -83,13 +83,13 @@ public class RoutineLoadSchedulerTest {
 
         new Expectations() {
             {
-                catalog.getRoutineLoadManager();
+                env.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
                 routineLoadManager.getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE));
                 minTimes = 0;
                 result = routineLoadJobList;
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
                 ds.getDbNullable(anyLong);
@@ -127,7 +127,7 @@ public class RoutineLoadSchedulerTest {
         }
     }
 
-    public void functionTest(@Mocked Catalog catalog, @Mocked InternalDataSource ds,
+    public void functionTest(@Mocked Env env, @Mocked InternalDataSource ds,
             @Mocked SystemInfoService systemInfoService, @Injectable Database database)
             throws DdlException, InterruptedException {
         new Expectations() {
@@ -148,10 +148,10 @@ public class RoutineLoadSchedulerTest {
 
         new Expectations() {
             {
-                catalog.getRoutineLoadManager();
+                env.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
                 ds.getDbNullable(anyLong);

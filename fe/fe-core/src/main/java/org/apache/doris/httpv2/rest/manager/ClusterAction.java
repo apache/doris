@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.rest.manager;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -58,7 +58,7 @@ public class ClusterAction extends RestBaseController {
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         Map<String, List<String>> result = Maps.newHashMap();
-        List<String> frontends = Catalog.getCurrentCatalog().getFrontends(null)
+        List<String> frontends = Env.getCurrentEnv().getFrontends(null)
                 .stream().filter(Frontend::isAlive)
                 .map(Frontend::getHost)
                 .collect(Collectors.toList());

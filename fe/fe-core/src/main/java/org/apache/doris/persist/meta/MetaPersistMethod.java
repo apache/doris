@@ -17,7 +17,7 @@
 
 package org.apache.doris.persist.meta;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.CountingDataOutputStream;
 
 import java.io.DataInputStream;
@@ -49,159 +49,159 @@ public class MetaPersistMethod {
         switch (name) {
             case "masterInfo":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadMasterInfo", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadMasterInfo", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveMasterInfo", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveMasterInfo", CountingDataOutputStream.class, long.class);
                 break;
             case "frontends":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadFrontends", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadFrontends", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveFrontends", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveFrontends", CountingDataOutputStream.class, long.class);
                 break;
             case "backends":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadBackends", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadBackends", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveBackends", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveBackends", CountingDataOutputStream.class, long.class);
                 break;
             case "db":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadDb", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadDb", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveDb", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveDb", CountingDataOutputStream.class, long.class);
                 break;
             case "loadJob":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadLoadJob", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadLoadJob", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveLoadJob", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveLoadJob", CountingDataOutputStream.class, long.class);
                 break;
             case "alterJob":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadAlterJob", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadAlterJob", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveAlterJob", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveAlterJob", CountingDataOutputStream.class, long.class);
                 break;
             case "recycleBin":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadRecycleBin", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadRecycleBin", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveRecycleBin", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveRecycleBin", CountingDataOutputStream.class, long.class);
                 break;
             case "globalVariable":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadGlobalVariable", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadGlobalVariable", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveGlobalVariable", CountingDataOutputStream.class,
+                        Env.class.getDeclaredMethod("saveGlobalVariable", CountingDataOutputStream.class,
                                 long.class);
                 break;
             case "cluster":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadCluster", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadCluster", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveCluster", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveCluster", CountingDataOutputStream.class, long.class);
                 break;
             case "broker":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadBrokers", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadBrokers", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveBrokers", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveBrokers", CountingDataOutputStream.class, long.class);
                 break;
             case "resources":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadResources", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadResources", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveResources", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveResources", CountingDataOutputStream.class, long.class);
                 break;
             case "exportJob":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadExportJob", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadExportJob", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveExportJob", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveExportJob", CountingDataOutputStream.class, long.class);
                 break;
             case "syncJob":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadSyncJobs", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadSyncJobs", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveSyncJobs", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveSyncJobs", CountingDataOutputStream.class, long.class);
                 break;
             case "backupHandler":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadBackupHandler", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadBackupHandler", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveBackupHandler",
+                        Env.class.getDeclaredMethod("saveBackupHandler",
                                 CountingDataOutputStream.class, long.class);
                 break;
             case "paloAuth":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadPaloAuth", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadPaloAuth", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("savePaloAuth", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("savePaloAuth", CountingDataOutputStream.class, long.class);
                 break;
             case "transactionState":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadTransactionState", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadTransactionState", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveTransactionState", CountingDataOutputStream.class,
+                        Env.class.getDeclaredMethod("saveTransactionState", CountingDataOutputStream.class,
                                 long.class);
                 break;
             case "colocateTableIndex":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadColocateTableIndex", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadColocateTableIndex", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveColocateTableIndex", CountingDataOutputStream.class,
+                        Env.class.getDeclaredMethod("saveColocateTableIndex", CountingDataOutputStream.class,
                                 long.class);
                 break;
             case "routineLoadJobs":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadRoutineLoadJobs", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadRoutineLoadJobs", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveRoutineLoadJobs", CountingDataOutputStream.class,
+                        Env.class.getDeclaredMethod("saveRoutineLoadJobs", CountingDataOutputStream.class,
                                 long.class);
                 break;
             case "loadJobV2":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadLoadJobsV2", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadLoadJobsV2", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveLoadJobsV2", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveLoadJobsV2", CountingDataOutputStream.class, long.class);
                 break;
             case "smallFiles":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadSmallFiles", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadSmallFiles", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveSmallFiles", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveSmallFiles", CountingDataOutputStream.class, long.class);
                 break;
             case "plugins":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadPlugins", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadPlugins", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("savePlugins", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("savePlugins", CountingDataOutputStream.class, long.class);
                 break;
             case "deleteHandler":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadDeleteHandler", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadDeleteHandler", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveDeleteHandler",
+                        Env.class.getDeclaredMethod("saveDeleteHandler",
                                 CountingDataOutputStream.class, long.class);
                 break;
             case "sqlBlockRule":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadSqlBlockRule", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadSqlBlockRule", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveSqlBlockRule", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveSqlBlockRule", CountingDataOutputStream.class, long.class);
                 break;
             case "policy":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadPolicy", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadPolicy", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("savePolicy", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("savePolicy", CountingDataOutputStream.class, long.class);
                 break;
             case "datasource":
                 metaPersistMethod.readMethod =
-                        Catalog.class.getDeclaredMethod("loadDatasource", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadDatasource", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Catalog.class.getDeclaredMethod("saveDatasource", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveDatasource", CountingDataOutputStream.class, long.class);
                 break;
             default:
                 break;

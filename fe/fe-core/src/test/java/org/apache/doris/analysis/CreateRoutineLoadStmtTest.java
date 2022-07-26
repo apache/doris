@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -52,7 +52,7 @@ public class CreateRoutineLoadStmtTest {
     Database database;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private InternalDataSource ds;
 
@@ -64,15 +64,15 @@ public class CreateRoutineLoadStmtTest {
 
     @Before
     public void setUp() {
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             @Mock
-            public Catalog getCurrentCatalog() {
-                return catalog;
+            public Env getCurrentEnv() {
+                return env;
             }
         };
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 

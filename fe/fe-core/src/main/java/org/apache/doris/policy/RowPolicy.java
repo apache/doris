@@ -22,9 +22,9 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -119,7 +119,7 @@ public class RowPolicy extends Policy {
      * Use for SHOW POLICY.
      **/
     public List<String> getShowInfo() throws AnalysisException {
-        Database database = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(this.dbId);
+        Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(this.dbId);
         Table table = database.getTableOrAnalysisException(this.tableId);
         return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type.name(),
                 this.filterType.name(), this.wherePredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);

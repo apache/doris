@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.clone.ClusterLoadStatistic;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.resource.Tag;
@@ -50,7 +50,7 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        Map<String, ClusterLoadStatistic> map = Catalog.getCurrentCatalog()
+        Map<String, ClusterLoadStatistic> map = Env.getCurrentEnv()
                 .getTabletScheduler().getStatisticMap().column(tag);
 
         map.values().forEach(t -> {
@@ -75,12 +75,12 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid be id format: " + beIdStr);
         }
 
-        Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+        Backend be = Env.getCurrentSystemInfo().getBackend(beId);
         if (be == null) {
             throw new AnalysisException("backend " + beId + " does not exist");
         }
 
-        Map<String, ClusterLoadStatistic> map = Catalog.getCurrentCatalog()
+        Map<String, ClusterLoadStatistic> map = Env.getCurrentEnv()
                 .getTabletScheduler().getStatisticMap().column(tag);
         return new BackendLoadStatisticProcNode(map.get(be.getOwnerClusterName()), beId);
     }

@@ -18,8 +18,8 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.Telemetry;
@@ -114,7 +114,7 @@ public class ConnectContext {
 
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
-    protected Catalog catalog;
+    protected Env env;
     protected String defaultCatalog = InternalDataSource.INTERNAL_DS_NAME;
     protected boolean isSend;
 
@@ -229,7 +229,7 @@ public class ConnectContext {
         if (isTxnModel()) {
             if (isTxnBegin()) {
                 try {
-                    Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                    Env.getCurrentGlobalTransactionMgr().abortTransaction(
                             currentDbId, txnEntry.getTxnConf().getTxnId(), "timeout");
                 } catch (UserException e) {
                     LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
@@ -296,13 +296,13 @@ public class ConnectContext {
         return new TResourceInfo(qualifiedUser, sessionVariable.getResourceGroup());
     }
 
-    public void setCatalog(Catalog catalog) {
-        this.catalog = catalog;
-        defaultCatalog = catalog.getInternalDataSource().getName();
+    public void setEnv(Env env) {
+        this.env = env;
+        defaultCatalog = env.getInternalDataSource().getName();
     }
 
-    public Catalog getCatalog() {
-        return catalog;
+    public Env getEnv() {
+        return env;
     }
 
     public String getQualifiedUser() {
@@ -425,10 +425,10 @@ public class ConnectContext {
 
     public DataSourceIf getCurrentDataSource() {
         // defaultCatalog is switched by SwitchStmt, so we don't need to check to exist of catalog.
-        if (catalog == null) {
-            return Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(defaultCatalog);
+        if (env == null) {
+            return Env.getCurrentEnv().getDataSourceMgr().getCatalog(defaultCatalog);
         }
-        return catalog.getDataSourceMgr().getCatalog(defaultCatalog);
+        return env.getDataSourceMgr().getCatalog(defaultCatalog);
     }
 
     public void changeDefaultCatalog(String catalogName) {

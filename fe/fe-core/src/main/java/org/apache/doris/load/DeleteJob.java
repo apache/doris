@@ -17,7 +17,7 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
@@ -85,7 +85,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
      */
     public void checkAndUpdateQuorum() throws MetaNotFoundException {
         long dbId = deleteInfo.getDbId();
-        Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
 
         for (TabletDeleteInfo tDeleteInfo : getTabletDeleteInfo()) {
             Short replicaNum = partitionReplicaNum.get(tDeleteInfo.getPartitionId());
@@ -103,7 +103,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         }
 
         int dropCounter = 0;
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         for (long tabletId : totalTablets) {
             if (invertedIndex.getTabletMeta(tabletId) == null) {
                 // tablet does not exist.
@@ -173,20 +173,20 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
             return;
         }
         executeFinish();
-        Catalog.getCurrentCatalog().getEditLog().logFinishDelete(deleteInfo);
+        Env.getCurrentEnv().getEditLog().logFinishDelete(deleteInfo);
     }
 
     @Override
     public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason)
             throws UserException {
         // just to clean the callback
-        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getId());
+        Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getId());
     }
 
     public void executeFinish() {
         setState(DeleteState.FINISHED);
-        Catalog.getCurrentCatalog().getDeleteHandler().recordFinishedJob(this);
-        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getId());
+        Env.getCurrentEnv().getDeleteHandler().recordFinishedJob(this);
+        Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getId());
     }
 
     public long getTransactionId() {

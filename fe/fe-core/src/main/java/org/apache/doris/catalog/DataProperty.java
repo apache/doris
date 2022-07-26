@@ -100,7 +100,7 @@ public class DataProperty implements Writable {
     }
 
     public static DataProperty read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_108) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_108) {
             String json = Text.readString(in);
             return GsonUtils.GSON.fromJson(json, DataProperty.class);
         }

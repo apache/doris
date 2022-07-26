@@ -23,10 +23,10 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
@@ -70,7 +70,7 @@ public class SparkLoadPendingTaskTest {
     public void testExecuteTask(@Injectable SparkLoadJob sparkLoadJob,
                                 @Injectable SparkResource resource,
                                 @Injectable BrokerDesc brokerDesc,
-                                @Mocked Catalog catalog, @Injectable SparkLoadAppHandle handle,
+                                @Mocked Env env, @Injectable SparkLoadAppHandle handle,
                                 @Injectable Database database,
                                 @Injectable OlapTable table) throws UserException {
         long tableId = 1L;
@@ -146,7 +146,7 @@ public class SparkLoadPendingTaskTest {
     public void testRangePartitionHashDistribution(@Injectable SparkLoadJob sparkLoadJob,
                                                    @Injectable SparkResource resource,
                                                    @Injectable BrokerDesc brokerDesc,
-                                                   @Mocked Catalog catalog,
+                                                   @Mocked Env env,
                                                    @Injectable Database database,
                                                    @Injectable OlapTable table) throws LoadException, DdlException, AnalysisException {
         long tableId = 1L;

@@ -242,8 +242,8 @@ public class View extends Table {
         return copied;
     }
 
-    public void resetIdsForRestore(Catalog catalog) {
-        id = catalog.getNextId();
+    public void resetIdsForRestore(Env env) {
+        id = env.getNextId();
     }
 
     @Override

@@ -26,8 +26,8 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.CatalogMocker;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -86,7 +86,7 @@ public class DeleteHandlerTest {
     private static final long DB_ID = 20000L;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private EditLog editLog;
     @Mocked
@@ -107,7 +107,7 @@ public class DeleteHandlerTest {
     public void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
 
-        globalTransactionMgr = new GlobalTransactionMgr(catalog);
+        globalTransactionMgr = new GlobalTransactionMgr(env);
         globalTransactionMgr.setEditLog(editLog);
         deleteHandler = new DeleteHandler();
         auth = AccessTestUtil.fetchAdminAccess();
@@ -132,11 +132,11 @@ public class DeleteHandlerTest {
         InternalDataSource ds = Deencapsulation.newInstance(InternalDataSource.class);
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
-                catalog.getCurrentDataSource();
+                env.getCurrentDataSource();
                 minTimes = 0;
                 result = ds;
 
@@ -148,23 +148,23 @@ public class DeleteHandlerTest {
                 minTimes = 0;
                 result = db;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = 10L;
 
-                catalog.getTabletInvertedIndex();
+                env.getTabletInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
             }
@@ -173,15 +173,15 @@ public class DeleteHandlerTest {
 
         new Expectations() {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentInvertedIndex();
+                Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
 
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 minTimes = 0;
                 result = globalTransactionMgr;
 

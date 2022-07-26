@@ -17,7 +17,7 @@
 
 package org.apache.doris.metric;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 
 import com.google.common.collect.Lists;
 
@@ -39,7 +39,7 @@ public class DorisMetricRegistry {
         // No metric needs to be added to the Checkpoint thread.
         // And if you add a metric in Checkpoint thread, it will cause the metric to be added repeatedly,
         // and the Checkpoint Catalog may be saved incorrectly, resulting in FE memory leaks.
-        if (!Catalog.isCheckpointThread()) {
+        if (!Env.isCheckpointThread()) {
             paloMetrics.add(paloMetric);
         }
     }
@@ -55,7 +55,7 @@ public class DorisMetricRegistry {
 
     public synchronized void removeMetrics(String name) {
         // Same reason as comment in addPaloMetrics()
-        if (!Catalog.isCheckpointThread()) {
+        if (!Env.isCheckpointThread()) {
             paloMetrics = paloMetrics.stream().filter(m -> !(m.getName().equals(name))).collect(Collectors.toList());
         }
     }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.ha;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
@@ -41,7 +41,7 @@ public class BDBStateChangeListener implements StateChangeListener {
                 break;
             }
             case REPLICA: {
-                if (Catalog.getCurrentCatalog().isElectable()) {
+                if (Env.getCurrentEnv().isElectable()) {
                     newType = FrontendNodeType.FOLLOWER;
                 } else {
                     newType = FrontendNodeType.OBSERVER;
@@ -60,7 +60,7 @@ public class BDBStateChangeListener implements StateChangeListener {
             }
         }
         Preconditions.checkNotNull(newType);
-        Catalog.getCurrentCatalog().notifyNewFETypeTransfer(newType);
+        Env.getCurrentEnv().notifyNewFETypeTransfer(newType);
     }
 
 }

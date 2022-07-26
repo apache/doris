@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
@@ -145,7 +145,7 @@ public class TablePattern implements Writable {
 
     public static TablePattern read(DataInput in) throws IOException {
         TablePattern tablePattern;
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_111) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
             tablePattern = GsonUtils.GSON.fromJson(Text.readString(in), TablePattern.class);
         } else {
             String ctl = InternalDataSource.INTERNAL_DS_NAME;

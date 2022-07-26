@@ -41,9 +41,9 @@ public class OlapTableTest {
     @Test
     public void test() throws IOException {
 
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             @Mock
-            int getCurrentCatalogJournalVersion() {
+            int getCurrentEnvJournalVersion() {
                 return FeConstants.meta_version;
             }
         };

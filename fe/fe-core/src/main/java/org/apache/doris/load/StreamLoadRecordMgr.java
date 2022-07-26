@@ -18,8 +18,8 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.ShowStreamLoadStmt.StreamLoadState;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -230,7 +230,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        ImmutableMap<Long, Backend> backends = Catalog.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getIdToBackend();
         long start = System.currentTimeMillis();
         int pullRecordSize = 0;
         Map<Long, Long> beIdToLastStreamLoad = Maps.newHashMap();
@@ -277,7 +277,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                                     .setUnselectedRows(streamLoadItem.getUnselectedRows())
                                     .setLoadBytes(streamLoadItem.getLoadBytes()).setStartTime(startTime)
                                     .setFinishTime(finishTime).build();
-                    Catalog.getCurrentCatalog().getAuditEventProcessor().handleAuditEvent(auditEvent);
+                    Env.getCurrentEnv().getAuditEventProcessor().handleAuditEvent(auditEvent);
                     if (entry.getValue().getFinishTime() > lastStreamLoadTime) {
                         lastStreamLoadTime = entry.getValue().getFinishTime();
                     }
@@ -301,7 +301,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                     }
 
                     String fullDbName = ClusterNamespace.getFullName(cluster, streamLoadItem.getDb());
-                    Database db = Catalog.getCurrentInternalCatalog().getDbNullable(fullDbName);
+                    Database db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
                     if (db == null) {
                         String dbName = fullDbName;
                         if (Strings.isNullOrEmpty(streamLoadItem.getCluster())) {
@@ -310,7 +310,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                         throw new UserException("unknown database, database=" + dbName);
                     }
                     long dbId = db.getId();
-                    Catalog.getCurrentCatalog().getStreamLoadRecordMgr()
+                    Env.getCurrentEnv().getStreamLoadRecordMgr()
                             .addStreamLoadRecord(dbId, streamLoadItem.getLabel(), streamLoadRecord);
                 }
 
@@ -336,16 +336,16 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                                                         pullRecordSize, (System.currentTimeMillis() - start));
         if (pullRecordSize > 0) {
             FetchStreamLoadRecord fetchStreamLoadRecord = new FetchStreamLoadRecord(beIdToLastStreamLoad);
-            Catalog.getCurrentCatalog().getEditLog().logFetchStreamLoadRecord(fetchStreamLoadRecord);
+            Env.getCurrentEnv().getEditLog().logFetchStreamLoadRecord(fetchStreamLoadRecord);
         }
 
         if (Config.disable_show_stream_load) {
-            Catalog.getCurrentCatalog().getStreamLoadRecordMgr().clearStreamLoadRecord();
+            Env.getCurrentEnv().getStreamLoadRecordMgr().clearStreamLoadRecord();
         }
     }
 
     public void replayFetchStreamLoadRecord(FetchStreamLoadRecord fetchStreamLoadRecord) {
-        ImmutableMap<Long, Backend> backends = Catalog.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getIdToBackend();
         Map<Long, Long> beIdToLastStreamLoad = fetchStreamLoadRecord.getBeIdToLastStreamLoad();
         for (Backend backend : backends.values()) {
             if (beIdToLastStreamLoad.containsKey(backend.getId())) {

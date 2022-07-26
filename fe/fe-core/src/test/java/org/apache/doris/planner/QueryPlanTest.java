@@ -27,8 +27,8 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -701,7 +701,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "(event_date = default_value('2020-03-06'))) \n"
                 + "PROPERTIES ( 'max_filter_ratio'='0.0001' );\n";
         LoadStmt loadStmt = (LoadStmt) parseAndAnalyzeStmt(loadStr);
-        Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
+        Env.getCurrentEnv().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
                 System.currentTimeMillis());
     }
 
@@ -1105,7 +1105,7 @@ public class QueryPlanTest extends TestWithFeService {
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", true);
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle1");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1119,7 +1119,7 @@ public class QueryPlanTest extends TestWithFeService {
             }
         }
 
-        db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle2");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1197,7 +1197,7 @@ public class QueryPlanTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1247,7 +1247,7 @@ public class QueryPlanTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1543,7 +1543,7 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testInformationFunctions() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        Analyzer analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
+        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
         InformationFunction infoFunc = new InformationFunction("database");
         infoFunc.analyze(analyzer);
         Assert.assertEquals("test", infoFunc.getStrValue());
@@ -1936,7 +1936,7 @@ public class QueryPlanTest extends TestWithFeService {
         // create database
         String createDbStmtStr = "create database issue7929;";
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         createTable(" CREATE TABLE issue7929.`t1` (\n"
                 + "  `k1` int(11) NULL COMMENT \"\",\n"
                 + "  `k2` int(11) NULL COMMENT \"\"\n"
@@ -1973,7 +1973,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testGroupingSetOutOfBoundError() throws Exception {
         String createDbStmtStr = "create database issue1111;";
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         createTable("CREATE TABLE issue1111.`test1` (\n"
                 + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
                 + "  `k2` smallint(6) NULL COMMENT \"\"\n"
@@ -2024,7 +2024,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testGroupingSets() throws Exception {
         String createDbStmtStr = "create database issue7971;";
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         createTable("CREATE TABLE issue7971.`t` (\n"
                 + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
                 + "  `k2` smallint(6) NULL COMMENT \"\",\n"

@@ -17,7 +17,7 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
@@ -151,7 +151,7 @@ public class AgentBatchTask implements Runnable {
             TNetworkAddress address = null;
             boolean ok = false;
             try {
-                Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
+                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
                 if (backend == null || !backend.isAlive()) {
                     continue;
                 }

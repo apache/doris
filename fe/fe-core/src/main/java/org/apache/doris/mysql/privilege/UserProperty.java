@@ -18,7 +18,7 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.SetUserPropertyVar;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ResourceGroup;
 import org.apache.doris.catalog.ResourceType;
 import org.apache.doris.common.AnalysisException;
@@ -276,7 +276,7 @@ public class UserProperty implements Writable {
 
                 // check if sql_block_rule has already exist
                 for (String ruleName : value.replaceAll(" ", "").split(",")) {
-                    if (!ruleName.equals("") && !Catalog.getCurrentCatalog().getSqlBlockRuleMgr().existRule(ruleName)) {
+                    if (!ruleName.equals("") && !Env.getCurrentEnv().getSqlBlockRuleMgr().existRule(ruleName)) {
                         throw new DdlException("the sql block rule " + ruleName + " not exist");
                     }
                 }
@@ -575,7 +575,7 @@ public class UserProperty implements Writable {
     public void readFields(DataInput in) throws IOException {
         qualifiedUser = Text.readString(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_100) {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_100) {
             long maxConn = in.readLong();
             this.commonProperties.setMaxConn(maxConn);
         }
@@ -600,7 +600,7 @@ public class UserProperty implements Writable {
         whiteList.readFields(in);
 
         // common properties
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_100) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_100) {
             this.commonProperties = CommonUserProperties.read(in);
         }
     }

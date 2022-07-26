@@ -21,8 +21,8 @@ import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -169,7 +169,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             convertedCustomProperties.clear();
         }
 
-        SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
+        SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
         for (Map.Entry<String, String> entry : customProperties.entrySet()) {
             if (entry.getValue().startsWith("FILE:")) {
                 // convert FILE:file_name -> FILE:file_id:md5
@@ -220,7 +220,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 LOG.debug("Ignore to divide routine load job while job state {}", state);
             }
             // save task into queue of needScheduleTasks
-            Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTasksInQueue(result);
+            Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTasksInQueue(result);
         } finally {
             writeUnlock();
         }
@@ -385,13 +385,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
         // check db and table
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDBName());
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDBName());
         OlapTable olapTable = db.getOlapTableOrDdlException(stmt.getTableName());
         checkMeta(olapTable, stmt.getRoutineLoadDesc());
         long tableId = olapTable.getId();
 
         // init kafka routine load job
-        long id = Catalog.getCurrentCatalog().getNextId();
+        long id = Env.getCurrentEnv().getNextId();
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
                 db.getClusterName(), db.getId(), tableId,
                 stmt.getKafkaBrokerList(), stmt.getKafkaTopic(), stmt.getUserInfo());
@@ -416,7 +416,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private void checkCustomProperties() throws DdlException {
-        SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
+        SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
         for (Map.Entry<String, String> entry : customProperties.entrySet()) {
             if (entry.getValue().startsWith("FILE:")) {
                 String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
@@ -605,7 +605,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
                     jobProperties, dataSourceProperties);
-            Catalog.getCurrentCatalog().getEditLog().logAlterRoutineLoadJob(log);
+            Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
         } finally {
             writeUnlock();
         }

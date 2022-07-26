@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
@@ -69,7 +69,7 @@ public class ResourceDesc {
 
     public void analyze() throws AnalysisException {
         // check resource exist or not
-        Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(getName());
+        Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(getName());
         if (resource == null) {
             throw new AnalysisException("Resource does not exist. name: " + getName());
         }

@@ -19,8 +19,8 @@ package org.apache.doris.policy;
 
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -70,7 +70,7 @@ public class DropPolicyLog implements Writable {
                 if (curDb == null) {
                     curDb = ConnectContext.get().getDatabase();
                 }
-                Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(curDb);
+                Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(curDb);
                 Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
                 return new DropPolicyLog(db.getId(), table.getId(), stmt.getType(),
                                          stmt.getPolicyName(), stmt.getUser());

@@ -20,8 +20,8 @@ package org.apache.doris.utframe;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -59,13 +59,13 @@ public class DemoTest extends TestWithFeService {
 
         // 2. create database db1
         createDatabase("db1");
-        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
         // 3. create table tbl1
         createTable("create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
 
         // 4. get and test the created db and table
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl.readLock();
         try {
@@ -80,10 +80,10 @@ public class DemoTest extends TestWithFeService {
         // 5. process a schema change job
         String alterStmtStr = "alter table db1.tbl1 add column k2 int default '1'";
         AlterTableStmt alterTableStmt = (AlterTableStmt) parseAndAnalyzeStmt(alterStmtStr);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
 
         // 6. check alter job
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getSchemaChangeHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         Assertions.assertEquals(1, alterJobs.size());
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {

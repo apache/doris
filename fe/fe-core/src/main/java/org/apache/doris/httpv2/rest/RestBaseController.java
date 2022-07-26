@@ -18,7 +18,7 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
@@ -57,7 +57,7 @@ public class RestBaseController extends BaseController {
         // check password
         UserIdentity currentUser = checkPassword(authInfo);
         ConnectContext ctx = new ConnectContext(null);
-        ctx.setCatalog(Catalog.getCurrentCatalog());
+        ctx.setEnv(Env.getCurrentEnv());
         ctx.setQualifiedUser(authInfo.fullUserName);
         ctx.setRemoteIP(authInfo.remoteIp);
         ctx.setCurrentUserIdentity(currentUser);
@@ -107,11 +107,11 @@ public class RestBaseController extends BaseController {
     }
 
     public RedirectView redirectToMaster(HttpServletRequest request, HttpServletResponse response) {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        if (catalog.isMaster()) {
+        Env env = Env.getCurrentEnv();
+        if (env.isMaster()) {
             return null;
         }
-        return redirectTo(request, new TNetworkAddress(catalog.getMasterIp(), catalog.getMasterHttpPort()));
+        return redirectTo(request, new TNetworkAddress(env.getMasterIp(), env.getMasterHttpPort()));
     }
 
     public void getFile(HttpServletRequest request, HttpServletResponse response, Object obj, String fileName)

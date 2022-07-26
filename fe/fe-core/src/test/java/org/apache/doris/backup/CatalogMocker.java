@@ -19,11 +19,11 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
@@ -391,27 +391,27 @@ public class CatalogMocker {
         return db;
     }
 
-    public static Catalog fetchAdminCatalog() {
+    public static Env fetchAdminCatalog() {
         try {
             FakeEditLog fakeEditLog = new FakeEditLog(); // CHECKSTYLE IGNORE THIS LINE
 
-            Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+            Env env = Deencapsulation.newInstance(Env.class);
             InternalDataSource ds = Deencapsulation.newInstance(InternalDataSource.class);
 
             Database db = new Database();
             PaloAuth paloAuth = fetchAdminAccess();
 
-            new Expectations(catalog, ds) {
+            new Expectations(env, ds) {
                 {
-                    catalog.getAuth();
+                    env.getAuth();
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.getInternalDataSource();
+                    env.getInternalDataSource();
                     minTimes = 0;
                     result = ds;
 
-                    catalog.getCurrentDataSource();
+                    env.getCurrentDataSource();
                     minTimes = 0;
                     result = ds;
 
@@ -435,23 +435,23 @@ public class CatalogMocker {
                     minTimes = 0;
                     result = Lists.newArrayList(TEST_DB_NAME);
 
-                    catalog.getLoadInstance();
+                    env.getLoadInstance();
                     minTimes = 0;
                     result = new Load();
 
-                    catalog.getEditLog();
+                    env.getEditLog();
                     minTimes = 0;
                     result = new EditLog("name");
 
-                    catalog.changeDb((ConnectContext) any, WRONG_DB);
+                    env.changeDb((ConnectContext) any, WRONG_DB);
                     minTimes = 0;
                     result = new DdlException("failed");
 
-                    catalog.changeDb((ConnectContext) any, anyString);
+                    env.changeDb((ConnectContext) any, anyString);
                     minTimes = 0;
                 }
             };
-            return catalog;
+            return env;
         } catch (DdlException e) {
             return null;
         }

@@ -40,9 +40,9 @@ public class MaterializedIndexTest {
 
     private List<Column> columns;
     @Mocked
-    private Catalog catalog;
+    private Env env;
 
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
 
     @Before
     public void setUp() {
@@ -54,9 +54,9 @@ public class MaterializedIndexTest {
         columns.add(new Column("v1", ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
         index = new MaterializedIndex(indexId, IndexState.NORMAL);
 
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setCatalog(catalog);
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        fakeEnv = new FakeEnv();
+        FakeEnv.setEnv(env);
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test

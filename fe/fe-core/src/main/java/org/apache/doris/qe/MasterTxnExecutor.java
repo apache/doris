@@ -46,11 +46,11 @@ public class MasterTxnExecutor {
     }
 
     private TNetworkAddress getMasterAddress() throws TException {
-        if (!ctx.getCatalog().isReady()) {
+        if (!ctx.getEnv().isReady()) {
             throw new TException("Node catalog is not ready, please wait for a while.");
         }
-        String masterHost = ctx.getCatalog().getMasterIp();
-        int masterRpcPort = ctx.getCatalog().getMasterRpcPort();
+        String masterHost = ctx.getEnv().getMasterIp();
+        int masterRpcPort = ctx.getEnv().getMasterRpcPort();
         return new TNetworkAddress(masterHost, masterRpcPort);
     }
 

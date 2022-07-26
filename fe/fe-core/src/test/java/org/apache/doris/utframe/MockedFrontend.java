@@ -19,7 +19,7 @@ package org.apache.doris.utframe;
 
 import org.apache.doris.PaloFe;
 import org.apache.doris.PaloFe.StartupOptions;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.PrintableMap;
 
 import com.google.common.base.Strings;
@@ -206,7 +206,7 @@ public class MockedFrontend {
 
     private void waitForCatalogReady(long timeoutMs) throws FeStartException {
         long left = timeoutMs;
-        while (!Catalog.getCurrentCatalog().isReady() && left > 0) {
+        while (!Env.getCurrentEnv().isReady() && left > 0) {
             System.out.println("catalog is not ready");
             try {
                 Thread.sleep(100);
@@ -216,7 +216,7 @@ public class MockedFrontend {
             left -= 100;
         }
 
-        if (left <= 0 && !Catalog.getCurrentCatalog().isReady()) {
+        if (left <= 0 && !Env.getCurrentEnv().isReady()) {
             throw new FeStartException("fe start failed");
         }
     }

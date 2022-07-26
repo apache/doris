@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
@@ -50,7 +50,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
 
     @Override
     public ProcResult fetchResult() {
-        ImmutableMap<Long, Backend> backendMap = Catalog.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getIdToBackend();
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);

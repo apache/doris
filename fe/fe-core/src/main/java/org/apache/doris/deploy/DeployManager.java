@@ -17,7 +17,7 @@
 
 package org.apache.doris.deploy;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -116,7 +116,7 @@ public class DeployManager extends MasterDaemon {
         ELECTABLE, OBSERVER, BACKEND, BROKER
     }
 
-    protected Catalog catalog;
+    protected Env env;
 
     protected String electableFeServiceGroup;
     protected String observerFeServiceGroup;
@@ -137,9 +137,9 @@ public class DeployManager extends MasterDaemon {
     protected Map<String, Integer> counterMap = Maps.newHashMap();
     protected static final Integer MAX_MISSING_TIME = 3;
 
-    public DeployManager(Catalog catalog, long intervalMs) {
+    public DeployManager(Env env, long intervalMs) {
         super("deployManager", intervalMs);
-        this.catalog = catalog;
+        this.env = env;
     }
 
     // Init all environment variables.
@@ -341,7 +341,7 @@ public class DeployManager extends MasterDaemon {
         }
 
         // 1.1 Check if self is in electable fe service group
-        Pair<String, Integer> selfHost = getHostFromPairList(remoteElectableFeHosts, catalog.getMasterIp(),
+        Pair<String, Integer> selfHost = getHostFromPairList(remoteElectableFeHosts, env.getMasterIp(),
                                                              Config.edit_log_port);
         if (selfHost == null) {
             // The running of this deploy manager means this node is considered self as Master.
@@ -352,7 +352,7 @@ public class DeployManager extends MasterDaemon {
         }
 
         // 1.2 Check the change of electable fe service group
-        List<Frontend> localElectableFeAddrs = catalog.getFrontends(FrontendNodeType.FOLLOWER);
+        List<Frontend> localElectableFeAddrs = env.getFrontends(FrontendNodeType.FOLLOWER);
         List<Pair<String, Integer>> localElectableFeHosts = convertToHostPortPair(localElectableFeAddrs);
         LOG.debug("get local electable hosts: {}", localElectableFeHosts);
         if (inspectNodeChange(remoteElectableFeHosts, localElectableFeHosts, NodeType.ELECTABLE)) {
@@ -366,7 +366,7 @@ public class DeployManager extends MasterDaemon {
                 break BE_BLOCK;
             }
             LOG.debug("get remote backend hosts: {}", remoteBackendHosts);
-            List<Backend> localBackends = Catalog.getCurrentSystemInfo()
+            List<Backend> localBackends = Env.getCurrentSystemInfo()
                     .getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
             List<Pair<String, Integer>> localBackendHosts = Lists.newArrayList();
             for (Backend backend : localBackends) {
@@ -386,7 +386,7 @@ public class DeployManager extends MasterDaemon {
                     break OB_BLOCK;
                 }
                 LOG.debug("get remote observer fe hosts: {}", remoteObserverFeHosts);
-                List<Frontend> localObserverFeAddrs = catalog.getFrontends(FrontendNodeType.OBSERVER);
+                List<Frontend> localObserverFeAddrs = env.getFrontends(FrontendNodeType.OBSERVER);
                 List<Pair<String, Integer>> localObserverFeHosts = convertToHostPortPair(localObserverFeAddrs);
                 LOG.debug("get local observer fe hosts: {}", localObserverFeHosts);
                 if (inspectNodeChange(remoteObserverFeHosts, localObserverFeHosts, NodeType.OBSERVER)) {
@@ -403,7 +403,7 @@ public class DeployManager extends MasterDaemon {
                     break BROKER_BLOCK;
                 }
 
-                Map<String, List<FsBroker>> localBrokers = catalog.getBrokerMgr().getBrokerListMap();
+                Map<String, List<FsBroker>> localBrokers = env.getBrokerMgr().getBrokerListMap();
 
                 // 1. find missing brokers
                 for (Map.Entry<String, List<FsBroker>> entry : localBrokers.entrySet()) {
@@ -419,7 +419,7 @@ public class DeployManager extends MasterDaemon {
                                 List<Pair<String, Integer>> list = Lists.newArrayList();
                                 list.add(Pair.create(addr.ip, addr.port));
                                 try {
-                                    catalog.getBrokerMgr().dropBrokers(brokerName, list);
+                                    env.getBrokerMgr().dropBrokers(brokerName, list);
                                     LOG.info("drop broker {}:{} with name: {}",
                                              addr.ip, addr.port, brokerName);
                                 } catch (DdlException e) {
@@ -438,7 +438,7 @@ public class DeployManager extends MasterDaemon {
                                 List<Pair<String, Integer>> list = Lists.newArrayList();
                                 list.add(Pair.create(pair.first, pair.second));
                                 try {
-                                    catalog.getBrokerMgr().addBrokers(brokerName, list);
+                                    env.getBrokerMgr().addBrokers(brokerName, list);
                                     LOG.info("add broker {}:{} with name {}", pair.first, pair.second, brokerName);
                                 } catch (DdlException e) {
                                     LOG.warn("failed to add broker {}:{} with name {}",
@@ -451,7 +451,7 @@ public class DeployManager extends MasterDaemon {
                     } else {
                         // broker with this name does not exist in remote. drop all
                         try {
-                            catalog.getBrokerMgr().dropAllBroker(brokerName);
+                            env.getBrokerMgr().dropAllBroker(brokerName);
                             LOG.info("drop all brokers with name: {}", brokerName);
                         } catch (DdlException e) {
                             LOG.warn("failed to drop all brokers with name: {}", brokerName, e);
@@ -466,7 +466,7 @@ public class DeployManager extends MasterDaemon {
                     if (!localBrokers.containsKey(remoteBrokerName)) {
                         // add new brokers
                         try {
-                            catalog.getBrokerMgr().addBrokers(remoteBrokerName, entry.getValue());
+                            env.getBrokerMgr().addBrokers(remoteBrokerName, entry.getValue());
                             LOG.info("add brokers {} with name {}", entry.getValue(), remoteBrokerName);
                         } catch (DdlException e) {
                             LOG.info("failed to add brokers {} with name {}",
@@ -546,13 +546,13 @@ public class DeployManager extends MasterDaemon {
                 try {
                     switch (nodeType) {
                         case ELECTABLE:
-                            catalog.dropFrontend(FrontendNodeType.FOLLOWER, localIp, localPort);
+                            env.dropFrontend(FrontendNodeType.FOLLOWER, localIp, localPort);
                             break;
                         case OBSERVER:
-                            catalog.dropFrontend(FrontendNodeType.OBSERVER, localIp, localPort);
+                            env.dropFrontend(FrontendNodeType.OBSERVER, localIp, localPort);
                             break;
                         case BACKEND:
-                            Catalog.getCurrentSystemInfo().dropBackend(localIp, localPort);
+                            Env.getCurrentSystemInfo().dropBackend(localIp, localPort);
                             break;
                         default:
                             break;
@@ -579,15 +579,15 @@ public class DeployManager extends MasterDaemon {
                 try {
                     switch (nodeType) {
                         case ELECTABLE:
-                            catalog.addFrontend(FrontendNodeType.FOLLOWER, remoteIp, remotePort);
+                            env.addFrontend(FrontendNodeType.FOLLOWER, remoteIp, remotePort);
                             break;
                         case OBSERVER:
-                            catalog.addFrontend(FrontendNodeType.OBSERVER, remoteIp, remotePort);
+                            env.addFrontend(FrontendNodeType.OBSERVER, remoteIp, remotePort);
                             break;
                         case BACKEND:
                             List<Pair<String, Integer>> newBackends = Lists.newArrayList();
                             newBackends.add(Pair.create(remoteIp, remotePort));
-                            Catalog.getCurrentSystemInfo().addBackends(newBackends, false);
+                            Env.getCurrentSystemInfo().addBackends(newBackends, false);
                             break;
                         default:
                             break;
@@ -625,7 +625,7 @@ public class DeployManager extends MasterDaemon {
     }
 
     private boolean isSelf(String ip, Integer port) {
-        if (catalog.getMasterIp().equals(ip) && Config.edit_log_port == port) {
+        if (env.getMasterIp().equals(ip) && Config.edit_log_port == port) {
             return true;
         }
         return false;

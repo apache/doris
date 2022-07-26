@@ -18,8 +18,8 @@
 package org.apache.doris.load.sync.canal;
 
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -122,7 +122,7 @@ public class CanalSyncChannel extends SyncChannel {
             String label = "label_job" + + jobId + "_channel" + id + "_db" + db.getId() + "_tbl" + tbl.getId()
                     + "_batch" + batchId + "_" + currentTime;
             String targetColumn = Joiner.on(",").join(columns) + "," + DELETE_COLUMN;
-            GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+            GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
             DatabaseTransactionMgr databaseTransactionMgr = globalTransactionMgr.getDatabaseTransactionMgr(db.getId());
             if (databaseTransactionMgr.getRunningTxnNums() < Config.max_running_txn_num_per_db) {
                 TransactionEntry txnEntry = txnExecutor.getTxnEntry();
@@ -134,7 +134,7 @@ public class CanalSyncChannel extends SyncChannel {
                             Lists.newArrayList(tbl.getId()), label,
                         new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE,
                             FrontendOptions.getLocalHostAddress()), sourceType, timeoutSecond);
-                    String authCodeUuid = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(
+                    String authCodeUuid = Env.getCurrentGlobalTransactionMgr().getTransactionState(
                             db.getId(), txnId).getAuthCode();
                     request = new TStreamLoadPutRequest()
                         .setTxnId(txnId).setDb(txnConf.getDb()).setTbl(txnConf.getTbl())

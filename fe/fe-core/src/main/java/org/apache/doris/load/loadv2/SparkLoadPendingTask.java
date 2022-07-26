@@ -23,11 +23,11 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.KeysType;
@@ -131,7 +131,7 @@ public class SparkLoadPendingTask extends LoadTask {
     }
 
     private void createEtlJobConf() throws LoadException {
-        Database db = Catalog.getCurrentInternalCatalog()
+        Database db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new LoadException("db does not exist. id: " + s));
 
         Map<Long, EtlTable> tables = Maps.newHashMap();
@@ -167,7 +167,7 @@ public class SparkLoadPendingTask extends LoadTask {
                     tables.put(tableId, etlTable);
 
                     // add table indexes to transaction state
-                    TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr()
+                    TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                             .getTransactionState(dbId, transactionId);
                     if (txnState == null) {
                         throw new LoadException("txn does not exist. id: " + transactionId);

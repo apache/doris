@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.system.Backend;
 
@@ -76,9 +76,9 @@ public class BackendsAction extends RestBaseController {
 
         BackendInfo backendInfo = new BackendInfo();
         backendInfo.backends = Lists.newArrayList();
-        List<Long> beIds = Catalog.getCurrentSystemInfo().getBackendIds(needAlive);
+        List<Long> beIds = Env.getCurrentSystemInfo().getBackendIds(needAlive);
         for (Long beId : beIds) {
-            Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+            Backend be = Env.getCurrentSystemInfo().getBackend(beId);
             if (be != null) {
                 BackendRow backendRow = new BackendRow();
                 backendRow.ip = be.getHost();

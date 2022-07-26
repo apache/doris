@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.utframe.DorisAssert;
@@ -81,7 +81,7 @@ public class TableNameStoredLowercaseTest {
 
     @Test
     public void testTableNameLowerCase() {
-        Set<String> tableNames = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:db1")
+        Set<String> tableNames = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:db1")
                 .getTableNamesWithLock();
         Assert.assertEquals(2, tableNames.size());
         Assert.assertTrue(tableNames.contains("table1"));

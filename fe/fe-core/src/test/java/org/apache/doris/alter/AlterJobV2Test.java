@@ -22,8 +22,8 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ShowAlterStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.ExceptionChecker;
@@ -60,7 +60,7 @@ public class AlterJobV2Test {
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
 
         createTable("CREATE TABLE test.schema_change_test(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
     }
@@ -72,17 +72,17 @@ public class AlterJobV2Test {
 
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
     }
 
     private static void alterTable(String sql) throws Exception {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
     }
 
     private static void createMaterializedView(String sql) throws Exception {
         CreateMaterializedViewStmt stmt = (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processCreateMaterializedView(stmt);
+        Env.getCurrentEnv().getAlterInstance().processCreateMaterializedView(stmt);
     }
 
     @Test
@@ -90,9 +90,9 @@ public class AlterJobV2Test {
         // 1. process a schema change job
         String alterStmtStr = "alter table test.schema_change_test add column k4 int default '1'";
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
         // 2. check alter job
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getSchemaChangeHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         Assert.assertEquals(1, alterJobs.size());
         waitAlterJobDone(alterJobs);
         // 3. check show alter table column
@@ -114,7 +114,7 @@ public class AlterJobV2Test {
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
 
             Database db =
-                    Catalog.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());
+                    Env.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());
             OlapTable tbl = (OlapTable) db.getTableOrMetaException(alterJobV2.getTableId(), Table.TableType.OLAP);
             while (tbl.getState() != OlapTable.OlapTableState.NORMAL) {
                 Thread.sleep(1000);
@@ -127,9 +127,9 @@ public class AlterJobV2Test {
         // 1. process a rollup job
         String alterStmtStr = "alter table test.schema_change_test add rollup test_rollup(k1, k2);";
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
         // 2. check alter job
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
         // 3. check show alter table column
         String showAlterStmtStr = "show alter table rollup from test;";
@@ -161,7 +161,7 @@ public class AlterJobV2Test {
 
 
         alterTable("alter table test.dup_table add rollup r1(v1,v2,k2,k1);");
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
         ExceptionChecker.expectThrowsNoException(() -> alterTable("alter table test.dup_table modify column v2 varchar(2);"));
     }
@@ -195,7 +195,7 @@ public class AlterJobV2Test {
                 + "city,\n"
                 + "user_id,\n"
                 + "date;");
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
     }
 }

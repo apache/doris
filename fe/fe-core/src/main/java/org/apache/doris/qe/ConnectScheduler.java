@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ThreadPoolManager;
@@ -108,7 +108,7 @@ public class ConnectScheduler {
                 numberConnection.decrementAndGet();
                 return false;
             }
-        } else if (conns.incrementAndGet() > ctx.getCatalog().getAuth().getMaxConn(ctx.getQualifiedUser())) {
+        } else if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
             conns.decrementAndGet();
             numberConnection.decrementAndGet();
             return false;
@@ -141,7 +141,7 @@ public class ConnectScheduler {
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
             if (!ctx.getQualifiedUser().equals(user)
-                    && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
+                    && !Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(),
                             PrivPredicate.GRANT)) {
                 continue;
             }

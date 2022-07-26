@@ -17,8 +17,8 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -67,7 +67,7 @@ public class RowCountAction extends RestBaseController {
         Map<String, Long> indexRowCountMap = Maps.newHashMap();
         OlapTable olapTable;
         try {
-            Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
             olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());

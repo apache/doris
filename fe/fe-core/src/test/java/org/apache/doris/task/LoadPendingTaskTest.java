@@ -17,8 +17,8 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
@@ -58,7 +58,7 @@ public class LoadPendingTaskTest {
 
     private String label;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private InternalDataSource ds;
     @Mocked
@@ -88,14 +88,14 @@ public class LoadPendingTaskTest {
         // mock catalog
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L);
 
-        GlobalTransactionMgr globalTransactionMgr = new GlobalTransactionMgr(catalog);
+        GlobalTransactionMgr globalTransactionMgr = new GlobalTransactionMgr(env);
         globalTransactionMgr.setEditLog(editLog);
         globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
 
         // mock catalog
-        new Expectations(catalog, ds) {
+        new Expectations(env, ds) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
@@ -107,15 +107,15 @@ public class LoadPendingTaskTest {
                 minTimes = 0;
                 result = db;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 minTimes = 0;
                 result = globalTransactionMgr;
             }
@@ -155,7 +155,7 @@ public class LoadPendingTaskTest {
                 times = 1;
                 result = null;
 
-                catalog.getLoadInstance();
+                env.getLoadInstance();
                 times = 1;
                 result = load;
 

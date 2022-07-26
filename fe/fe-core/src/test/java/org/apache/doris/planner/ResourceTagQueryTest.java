@@ -22,9 +22,9 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -105,10 +105,10 @@ public class ResourceTagQueryTest {
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Catalog.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        backends = Env.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
@@ -142,21 +142,21 @@ public class ResourceTagQueryTest {
 
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
         // must set replicas' path hash, or the tablet scheduler won't work
         updateReplicaPathHash();
     }
 
     private static void updateReplicaPathHash() {
-        Table<Long, Long, Replica> replicaMetaTable = Catalog.getCurrentInvertedIndex().getReplicaMetaTable();
+        Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex().getReplicaMetaTable();
         for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
             long beId = cell.getColumnKey();
-            Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+            Backend be = Env.getCurrentSystemInfo().getBackend(beId);
             if (be == null) {
                 continue;
             }
             Replica replica = cell.getValue();
-            TabletMeta tabletMeta = Catalog.getCurrentInvertedIndex().getTabletMeta(cell.getRowKey());
+            TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(cell.getRowKey());
             ImmutableMap<String, DiskInfo> diskMap = be.getDisks();
             for (DiskInfo diskInfo : diskMap.values()) {
                 if (diskInfo.getStorageMedium() == tabletMeta.getStorageMedium()) {
@@ -169,12 +169,12 @@ public class ResourceTagQueryTest {
 
     private static void alterTable(String sql) throws Exception {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
     }
 
     private static void setProperty(String sql) throws Exception {
         SetUserPropertyStmt setUserPropertyStmt = (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().getAuth().updateUserProperty(setUserPropertyStmt);
+        Env.getCurrentEnv().getAuth().updateUserProperty(setUserPropertyStmt);
     }
 
     @Test
@@ -191,16 +191,16 @@ public class ResourceTagQueryTest {
                 + ")\n"
                 + "distributed by hash(k2) buckets 10;";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
-        Set<Tag> userTags = Catalog.getCurrentCatalog().getAuth().getResourceTags(PaloAuth.ROOT_USER);
+        Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(PaloAuth.ROOT_USER);
         Assert.assertEquals(0, userTags.size());
 
         // set default tag for root
         String setPropStr = "set property for 'root' 'resource_tags.location' = 'default';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr));
-        userTags = Catalog.getCurrentCatalog().getAuth().getResourceTags(PaloAuth.ROOT_USER);
+        userTags = Env.getCurrentEnv().getAuth().getResourceTags(PaloAuth.ROOT_USER);
         Assert.assertEquals(1, userTags.size());
 
         // update connection context and query
@@ -213,7 +213,7 @@ public class ResourceTagQueryTest {
         // set zone1 tag for root
         String setPropStr2 = "set property for 'root' 'resource_tags.location' = 'zone1';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr2));
-        userTags = Catalog.getCurrentCatalog().getAuth().getResourceTags(PaloAuth.ROOT_USER);
+        userTags = Env.getCurrentEnv().getAuth().getResourceTags(PaloAuth.ROOT_USER);
         Assert.assertEquals(1, userTags.size());
         for (Tag tag : userTags) {
             Assert.assertEquals(tag1, tag);
@@ -237,7 +237,7 @@ public class ResourceTagQueryTest {
             String stmtStr = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
                     + "\" set ('tag.location' = '" + tag + "')";
             AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
-            DdlExecutor.execute(Catalog.getCurrentCatalog(), stmt);
+            DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         }
         Assert.assertEquals(tag1, backends.get(0).getLocationTag());
         Assert.assertEquals(tag1, backends.get(1).getLocationTag());
@@ -275,15 +275,15 @@ public class ResourceTagQueryTest {
         // set user exec mem limit
         String setExecMemLimitStr = "set property for 'root' 'exec_mem_limit' = '1000000';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setExecMemLimitStr));
-        long execMemLimit = Catalog.getCurrentCatalog().getAuth().getExecMemLimit(PaloAuth.ROOT_USER);
+        long execMemLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(PaloAuth.ROOT_USER);
         Assert.assertEquals(1000000, execMemLimit);
 
         String setLoadMemLimitStr = "set property for 'root' 'load_mem_limit' = '2000000';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setLoadMemLimitStr));
-        long loadMemLimit = Catalog.getCurrentCatalog().getAuth().getLoadMemLimit(PaloAuth.ROOT_USER);
+        long loadMemLimit = Env.getCurrentEnv().getAuth().getLoadMemLimit(PaloAuth.ROOT_USER);
         Assert.assertEquals(2000000, loadMemLimit);
 
-        List<List<String>> userProps = Catalog.getCurrentCatalog().getAuth().getUserProperties(PaloAuth.ROOT_USER);
+        List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(PaloAuth.ROOT_USER);
         Assert.assertEquals(17, userProps.size());
     }
 

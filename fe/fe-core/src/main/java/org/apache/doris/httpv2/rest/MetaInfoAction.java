@@ -17,8 +17,8 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -94,7 +94,7 @@ public class MetaInfoAction extends RestBaseController {
         }
 
         // 1. get all database with privilege
-        DataSourceIf ds = Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(ns);
+        DataSourceIf ds = Env.getCurrentEnv().getDataSourceMgr().getCatalog(ns);
         if (ds == null) {
             return ResponseEntityBuilder.badRequest("Unknown catalog " + ns);
         }
@@ -102,7 +102,7 @@ public class MetaInfoAction extends RestBaseController {
         List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
-            if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), fullName,
+            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), fullName,
                     PrivPredicate.SHOW)) {
                 continue;
             }
@@ -143,14 +143,14 @@ public class MetaInfoAction extends RestBaseController {
         String fullDbName = getFullDbName(dbName);
         Database db;
         try {
-            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         List<String> tblNames = Lists.newArrayList();
         for (Table tbl : db.getTables()) {
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
+            if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
                     PrivPredicate.SHOW)) {
                 continue;
             }
@@ -226,7 +226,7 @@ public class MetaInfoAction extends RestBaseController {
         Database db;
         Table tbl;
         try {
-            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
             tbl = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());

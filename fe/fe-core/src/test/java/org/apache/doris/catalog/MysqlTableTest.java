@@ -43,9 +43,9 @@ public class MysqlTableTest {
     private Map<String, String> properties;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
 
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
 
     @Before
     public void setUp() {
@@ -62,9 +62,9 @@ public class MysqlTableTest {
         properties.put("database", "db");
         properties.put("table", "tbl");
 
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setCatalog(catalog);
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        fakeEnv = new FakeEnv();
+        FakeEnv.setEnv(env);
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test

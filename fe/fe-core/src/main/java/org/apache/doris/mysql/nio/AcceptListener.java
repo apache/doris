@@ -17,7 +17,7 @@
 
 package org.apache.doris.mysql.nio;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.qe.ConnectContext;
@@ -54,7 +54,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             // connection has been established, so need to call context.cleanup()
             // if exception happens.
             NConnectContext context = new NConnectContext(connection);
-            context.setCatalog(Catalog.getCurrentCatalog());
+            context.setEnv(Env.getCurrentEnv());
             connectScheduler.submit(context);
 
             channel.getWorker().execute(() -> {

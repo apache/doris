@@ -72,7 +72,7 @@ public class ColocateTableIndex implements Writable {
         }
 
         public static GroupId read(DataInput in) throws IOException {
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
                 GroupId groupId = new GroupId();
                 groupId.readFields(in);
                 return groupId;
@@ -168,7 +168,7 @@ public class ColocateTableIndex implements Writable {
                     groupId = assignedGroupId;
                 } else {
                     // generate a new one
-                    groupId = new GroupId(dbId, Catalog.getCurrentCatalog().getNextId());
+                    groupId = new GroupId(dbId, Env.getCurrentEnv().getNextId());
                 }
                 HashDistributionInfo distributionInfo = (HashDistributionInfo) tbl.getDefaultDistributionInfo();
                 ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
@@ -216,7 +216,7 @@ public class ColocateTableIndex implements Writable {
                 group2ErrMsgs.put(groupId, Strings.nullToEmpty(reason));
                 if (needEditLog) {
                     ColocatePersistInfo info = ColocatePersistInfo.createForMarkUnstable(groupId);
-                    Catalog.getCurrentCatalog().getEditLog().logColocateMarkUnstable(info);
+                    Env.getCurrentEnv().getEditLog().logColocateMarkUnstable(info);
                 }
                 LOG.info("mark group {} as unstable", groupId);
             }
@@ -235,7 +235,7 @@ public class ColocateTableIndex implements Writable {
                 group2ErrMsgs.put(groupId, "");
                 if (needEditLog) {
                     ColocatePersistInfo info = ColocatePersistInfo.createForMarkStable(groupId);
-                    Catalog.getCurrentCatalog().getEditLog().logColocateMarkStable(info);
+                    Env.getCurrentEnv().getEditLog().logColocateMarkStable(info);
                 }
                 LOG.info("mark group {} as stable", groupId);
             }
@@ -521,7 +521,7 @@ public class ColocateTableIndex implements Writable {
     }
 
     public void replayAddTableToGroup(ColocatePersistInfo info) throws MetaNotFoundException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(info.getGroupId().dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(info.getGroupId().dbId);
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(info.getTableId(),
                 org.apache.doris.catalog.Table.TableType.OLAP);
         writeLock();
@@ -645,7 +645,7 @@ public class ColocateTableIndex implements Writable {
             group2Schema.put(grpId, groupSchema);
 
             // backends seqs
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
                 List<List<Long>> bucketsSeq = Lists.newArrayList();
                 int beSize = in.readInt();
                 for (int j = 0; j < beSize; j++) {

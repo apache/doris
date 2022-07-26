@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.Load;
 
@@ -66,7 +66,7 @@ public class LoadProcDir implements ProcDirInterface {
         // merge load job from load and loadManager
         LinkedList<List<Comparable>> loadJobInfos = load.getLoadJobInfosByDb(db.getId(), db.getFullName(),
                 null, false, null);
-        loadJobInfos.addAll(Catalog.getCurrentCatalog().getLoadManager().getLoadJobInfosByDb(db.getId(), null,
+        loadJobInfos.addAll(Env.getCurrentEnv().getLoadManager().getLoadJobInfosByDb(db.getId(), null,
                 false,
                 null));
         int counter = 0;

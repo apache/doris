@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
@@ -67,8 +67,8 @@ public class ClusterBalanceProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        TabletScheduler tabletScheduler = Catalog.getCurrentCatalog().getTabletScheduler();
-        TabletChecker tabletChecker = Catalog.getCurrentCatalog().getTabletChecker();
+        TabletScheduler tabletScheduler = Env.getCurrentEnv().getTabletScheduler();
+        TabletChecker tabletChecker = Env.getCurrentEnv().getTabletChecker();
         result.addRow(Lists.newArrayList(CLUSTER_LOAD, String.valueOf(tabletScheduler.getStatisticMap().size())));
         result.addRow(Lists.newArrayList(WORKING_SLOTS,
                                          String.valueOf(tabletScheduler.getBackendsWorkingSlots().size())));

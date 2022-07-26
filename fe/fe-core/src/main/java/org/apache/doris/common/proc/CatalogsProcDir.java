@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.datasource.DataSourceIf;
@@ -40,10 +40,10 @@ public class CatalogsProcDir implements ProcDirInterface {
             .add("CatalogIds").add("CatalogName").add("DatabaseNum")
             .build();
 
-    private Catalog catalog;
+    private Env env;
 
-    public CatalogsProcDir(Catalog catalog) {
-        this.catalog = catalog;
+    public CatalogsProcDir(Env env) {
+        this.env = env;
     }
 
     @Override
@@ -53,7 +53,7 @@ public class CatalogsProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String catalogIdStr) throws AnalysisException {
-        if (catalog == null || Strings.isNullOrEmpty(catalogIdStr)) {
+        if (env == null || Strings.isNullOrEmpty(catalogIdStr)) {
             throw new AnalysisException("Catalog id is null");
         }
 
@@ -64,25 +64,25 @@ public class CatalogsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid catalog id format: " + catalogIdStr);
         }
 
-        DataSourceIf ds = catalog.getDataSourceMgr().getCatalog(catalogId);
+        DataSourceIf ds = env.getDataSourceMgr().getCatalog(catalogId);
         if (ds == null) {
             throw new AnalysisException("Catalog " + catalogIdStr + " does not exist");
         }
 
-        return new DbsProcDir(catalog, ds);
+        return new DbsProcDir(env, ds);
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(catalog);
+        Preconditions.checkNotNull(env);
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<Long> catalogIds = catalog.getDataSourceMgr().getCatalogIds();
+        List<Long> catalogIds = env.getDataSourceMgr().getCatalogIds();
         // get info
         List<List<Comparable>> catalogInfos = Lists.newArrayList();
         for (long catalogId : catalogIds) {
-            DataSourceIf ds = catalog.getDataSourceMgr().getCatalog(catalogId);
+            DataSourceIf ds = env.getDataSourceMgr().getCatalog(catalogId);
             if (ds == null) {
                 continue;
             }

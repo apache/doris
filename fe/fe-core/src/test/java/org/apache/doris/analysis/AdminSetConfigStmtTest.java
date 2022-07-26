@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.utframe.TestWithFeService;
@@ -30,7 +30,7 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
     public void testNormal() throws Exception {
         String stmt = "admin set frontend config(\"alter_table_timeout_second\" = \"60\");";
         AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
-        Catalog.getCurrentCatalog().setConfig(adminSetConfigStmt);
+        Env.getCurrentEnv().setConfig(adminSetConfigStmt);
     }
 
     @Test
@@ -38,7 +38,7 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
         String stmt = "admin set frontend config(\"unknown_config\" = \"unknown\");";
         AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
         DdlException exception = Assertions.assertThrows(DdlException.class,
-                () -> Catalog.getCurrentCatalog().setConfig(adminSetConfigStmt));
+                () -> Env.getCurrentEnv().setConfig(adminSetConfigStmt));
         Assertions.assertEquals("errCode = 2, detailMessage = Config 'unknown_config' does not exist",
                 exception.getMessage());
     }

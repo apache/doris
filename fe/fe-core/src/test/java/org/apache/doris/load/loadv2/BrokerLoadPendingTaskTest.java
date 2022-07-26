@@ -18,7 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.BrokerUtil;
@@ -53,7 +53,7 @@ public class BrokerLoadPendingTaskTest {
     public void testExecuteTask(@Injectable BrokerLoadJob brokerLoadJob,
                                 @Injectable BrokerFileGroup brokerFileGroup,
                                 @Injectable BrokerDesc brokerDesc,
-                                @Mocked Catalog catalog) throws UserException {
+                                @Mocked Env env) throws UserException {
         Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         brokerFileGroups.add(brokerFileGroup);
@@ -61,7 +61,7 @@ public class BrokerLoadPendingTaskTest {
         aggKeyToFileGroups.put(aggKey, brokerFileGroups);
         new Expectations() {
             {
-                catalog.getNextId();
+                env.getNextId();
                 result = 1L;
                 brokerFileGroup.getFilePaths();
                 result = "hdfs://localhost:8900/test_column";

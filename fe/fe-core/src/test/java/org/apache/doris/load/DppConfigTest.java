@@ -18,8 +18,8 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 
@@ -37,17 +37,17 @@ import java.io.FileOutputStream;
 import java.util.Map;
 
 public class DppConfigTest {
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
 
     @Test
-    public void testNormal(@Mocked Catalog catalog) throws LoadException {
+    public void testNormal(@Mocked Env env) throws LoadException {
         // mock catalog
         int clusterId = 10;
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setCatalog(catalog);
+        fakeEnv = new FakeEnv();
+        FakeEnv.setEnv(env);
         new Expectations() {
             {
-                catalog.getClusterId();
+                env.getClusterId();
                 minTimes = 0;
                 result = clusterId;
             }
@@ -121,14 +121,14 @@ public class DppConfigTest {
     @Test
     public void testSerialization() throws Exception {
         // mock catalog
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        fakeEnv = new FakeEnv();
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
 
         Map<String, String> configMap = Maps.newHashMap();
         configMap.put("hadoop_palo_path", "/user/palo2");
         configMap.put("hadoop_http_port", "1234");
         configMap.put("hadoop_configs", "mapred.job.tracker=127.0.0.1:111;fs.default.name=hdfs://127.0.0.1:112;"
-                        + "hadoop.job.ugi=user,password;mapred.job.priority=NORMAL");
+                + "hadoop.job.ugi=user,password;mapred.job.priority=NORMAL");
         DppConfig dppConfig = DppConfig.create(configMap);
 
         File file = new File("./dppConfigTest");

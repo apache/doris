@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
@@ -36,10 +36,10 @@ public class JobsDbProcDir implements ProcDirInterface {
             .add("DbId").add("DbName")
             .build();
 
-    private Catalog catalog;
+    private Env env;
 
-    public JobsDbProcDir(Catalog catalog) {
-        this.catalog = catalog;
+    public JobsDbProcDir(Env env) {
+        this.env = env;
     }
 
     @Override
@@ -60,25 +60,25 @@ public class JobsDbProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
 
-        Database db = catalog.getInternalDataSource().getDbOrAnalysisException(dbId);
+        Database db = env.getInternalDataSource().getDbOrAnalysisException(dbId);
 
-        return new JobsProcDir(catalog, db);
+        return new JobsProcDir(env, db);
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(catalog);
+        Preconditions.checkNotNull(env);
 
         BaseProcResult result = new BaseProcResult();
 
         result.setNames(TITLE_NAMES);
-        List<String> names = catalog.getInternalDataSource().getDbNames();
+        List<String> names = env.getInternalDataSource().getDbNames();
         if (names == null || names.isEmpty()) {
             return result;
         }
 
         for (String name : names) {
-            catalog.getInternalDataSource().getDb(name)
+            env.getInternalDataSource().getDb(name)
                     .ifPresent(db -> result.addRow(Lists.newArrayList(String.valueOf(db.getId()), name)));
         }
 

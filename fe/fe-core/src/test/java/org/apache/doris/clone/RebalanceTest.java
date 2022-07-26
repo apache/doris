@@ -17,10 +17,10 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -75,7 +75,7 @@ public class RebalanceTest {
     private static final Logger LOG = LogManager.getLogger(RebalanceTest.class);
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private InternalDataSource ds;
 
@@ -94,7 +94,7 @@ public class RebalanceTest {
         db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
@@ -110,15 +110,15 @@ public class RebalanceTest {
                 minTimes = 0;
                 result = db;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentCatalogJournalVersion();
+                Env.getCurrentEnvJournalVersion();
                 minTimes = 0;
                 result = FeConstants.meta_version;
 
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = new Delegate() {
                     long ignored() {
@@ -126,30 +126,32 @@ public class RebalanceTest {
                     }
                 };
 
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
 
-                Catalog.getCurrentInvertedIndex();
+                Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
 
-                Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
+                Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
                 result = 111;
 
-                Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(anyLong, anyLong, (List<Long>) any);
+                Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(anyLong, anyLong, (List<Long>) any);
                 result = true;
             }
         };
         // Test mock validation
-        Assert.assertEquals(111, Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
-        Assert.assertTrue(Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(1, 2, Lists.newArrayList(3L)));
+        Assert.assertEquals(111,
+                Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
+        Assert.assertTrue(
+                Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(1, 2, Lists.newArrayList(3L)));
 
         List<Long> beIds = Lists.newArrayList(10001L, 10002L, 10003L, 10004L);
         beIds.forEach(id -> systemInfoService.addBackend(RebalancerTestUtil.createBackend(id, 2048, 0)));
 
-        olapTable = new OlapTable(2, "fake table", new ArrayList<>(), KeysType.DUP_KEYS,
-                new RangePartitionInfo(), new HashDistributionInfo());
+        olapTable = new OlapTable(2, "fake table", new ArrayList<>(), KeysType.DUP_KEYS, new RangePartitionInfo(),
+                new HashDistributionInfo());
         db.createTable(olapTable);
 
         // 1 table, 3 partitions p0,p1,p2
@@ -194,7 +196,7 @@ public class RebalanceTest {
 
     @Test
     public void testPrioBackends() {
-        Rebalancer rebalancer = new DiskRebalancer(Catalog.getCurrentSystemInfo(), Catalog.getCurrentInvertedIndex());
+        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex());
         // add
         { // CHECKSTYLE IGNORE THIS LINE
             List<Backend> backends = Lists.newArrayList();
@@ -229,12 +231,13 @@ public class RebalanceTest {
         // Create a new scheduler & checker for redundant tablets handling
         // Call runAfterCatalogReady manually instead of starting daemon thread
         TabletSchedulerStat stat = new TabletSchedulerStat();
-        PartitionRebalancer rebalancer = new PartitionRebalancer(Catalog.getCurrentSystemInfo(), Catalog.getCurrentInvertedIndex());
-        TabletScheduler tabletScheduler = new TabletScheduler(catalog, systemInfoService, invertedIndex, stat, "");
+        PartitionRebalancer rebalancer = new PartitionRebalancer(Env.getCurrentSystemInfo(),
+                Env.getCurrentInvertedIndex());
+        TabletScheduler tabletScheduler = new TabletScheduler(env, systemInfoService, invertedIndex, stat, "");
         // The rebalancer inside the scheduler will use this rebalancer, for getToDeleteReplicaId
         Deencapsulation.setField(tabletScheduler, "rebalancer", rebalancer);
 
-        TabletChecker tabletChecker = new TabletChecker(catalog, systemInfoService, tabletScheduler, stat);
+        TabletChecker tabletChecker = new TabletChecker(env, systemInfoService, tabletScheduler, stat);
 
         rebalancer.updateLoadStatistic(statisticMap);
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();

@@ -27,7 +27,7 @@ import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -54,7 +54,7 @@ public class DatasourceMgrTest extends TestWithFeService {
     private static final String MY_CATALOG = "my_catalog";
 
     private static PaloAuth auth;
-    private static Catalog catalog;
+    private static Env env;
     private static UserIdentity user1;
     private static UserIdentity user2;
 
@@ -62,11 +62,11 @@ public class DatasourceMgrTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         Config.enable_multi_catalog = true;
         FeConstants.runningUnitTest = true;
-        mgr = Catalog.getCurrentCatalog().getDataSourceMgr();
+        mgr = Env.getCurrentEnv().getDataSourceMgr();
 
         ConnectContext rootCtx = createDefaultCtx();
-        catalog = Catalog.getCurrentCatalog();
-        auth = catalog.getAuth();
+        env = Env.getCurrentEnv();
+        auth = env.getAuth();
 
         // grant with no catalog is switched, internal catalog works.
         CreateRoleStmt createRole1 = (CreateRoleStmt) parseAndAnalyzeStmt("create role role1;", rootCtx);
@@ -89,15 +89,15 @@ public class DatasourceMgrTest extends TestWithFeService {
         CreateCatalogStmt hiveCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
                 "create catalog hive properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
                 rootCtx);
-        catalog.getDataSourceMgr().createCatalog(hiveCatalog);
+        env.getDataSourceMgr().createCatalog(hiveCatalog);
         CreateCatalogStmt iceBergCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
                 "create catalog iceberg properties('type' = 'hms', 'iceberg.hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
                 rootCtx);
-        catalog.getDataSourceMgr().createCatalog(iceBergCatalog);
+        env.getDataSourceMgr().createCatalog(iceBergCatalog);
 
         // switch to hive.
         SwitchStmt switchHive = (SwitchStmt) parseAndAnalyzeStmt("switch hive;", rootCtx);
-        catalog.changeCatalog(rootCtx, switchHive.getCatalogName());
+        env.changeCatalog(rootCtx, switchHive.getCatalogName());
         CreateRoleStmt createRole2 = (CreateRoleStmt) parseAndAnalyzeStmt("create role role2;", rootCtx);
         auth.createRole(createRole2);
         GrantStmt grantRole2 = (GrantStmt) parseAndAnalyzeStmt("grant grant_priv on tpch.customer to role 'role2';",
@@ -214,7 +214,7 @@ public class DatasourceMgrTest extends TestWithFeService {
         Assert.assertEquals(InternalDataSource.INTERNAL_DS_NAME, user2Ctx.getDefaultCatalog());
         // user2 can switch to hive
         SwitchStmt switchHive = (SwitchStmt) parseAndAnalyzeStmt("switch hive;", user2Ctx);
-        catalog.changeCatalog(user2Ctx, switchHive.getCatalogName());
+        env.changeCatalog(user2Ctx, switchHive.getCatalogName());
         Assert.assertEquals(user2Ctx.getDefaultCatalog(), "hive");
         // user2 can grant select_priv to tpch.customer
         GrantStmt user2GrantHiveTable = (GrantStmt) parseAndAnalyzeStmt(
@@ -227,7 +227,7 @@ public class DatasourceMgrTest extends TestWithFeService {
         // mock the login of user1
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
         ShowCatalogStmt user1Show = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalogs;", user1Ctx);
-        List<List<String>> user1ShowResult = catalog.getDataSourceMgr().showCatalogs(user1Show).getResultRows();
+        List<List<String>> user1ShowResult = env.getDataSourceMgr().showCatalogs(user1Show).getResultRows();
         Assert.assertEquals(user1ShowResult.size(), 1);
         Assert.assertEquals(user1ShowResult.get(0).get(1), InternalDataSource.INTERNAL_DS_NAME);
         Assert.assertEquals(user1ShowResult.get(0).get(0), String.valueOf(InternalDataSource.INTERNAL_DS_ID));
@@ -235,17 +235,17 @@ public class DatasourceMgrTest extends TestWithFeService {
         // mock the login of user2
         ConnectContext user2Ctx = createCtx(user2, "127.0.0.1");
         ShowCatalogStmt user2Show = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalogs;", user2Ctx);
-        List<List<String>> user2ShowResult = catalog.getDataSourceMgr().showCatalogs(user2Show).getResultRows();
+        List<List<String>> user2ShowResult = env.getDataSourceMgr().showCatalogs(user2Show).getResultRows();
         Assert.assertEquals(user2ShowResult.size(), 2);
         Assert.assertTrue(user2ShowResult.stream().map(l -> l.get(1)).anyMatch(c -> c.equals("hive")));
 
         // access denied
         ShowCatalogStmt user2ShowHive = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalog hive;", user2Ctx);
-        List<List<String>> user2ShowHiveResult = catalog.getDataSourceMgr().showCatalogs(user2ShowHive).getResultRows();
+        List<List<String>> user2ShowHiveResult = env.getDataSourceMgr().showCatalogs(user2ShowHive).getResultRows();
         Assert.assertTrue(
                 user2ShowHiveResult.stream().map(l -> l.get(0)).anyMatch(c -> c.equals("hive.metastore.uris")));
         try {
-            catalog.getDataSourceMgr()
+            env.getDataSourceMgr()
                     .showCatalogs((ShowCatalogStmt) parseAndAnalyzeStmt("show catalog iceberg;", user2Ctx));
             Assert.fail("");
         } catch (AnalysisException e) {

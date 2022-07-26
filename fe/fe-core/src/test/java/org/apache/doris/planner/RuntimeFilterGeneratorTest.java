@@ -29,8 +29,8 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
@@ -59,8 +59,8 @@ public class RuntimeFilterGeneratorTest {
 
     @Before
     public void setUp() throws UserException {
-        Catalog catalog = Deencapsulation.newInstance(Catalog.class);
-        analyzer = new Analyzer(catalog, connectContext);
+        Env env = Deencapsulation.newInstance(Env.class);
+        analyzer = new Analyzer(env, connectContext);
         new Expectations() {
             {
                 analyzer.getClusterName();

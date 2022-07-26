@@ -20,8 +20,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -1162,13 +1162,13 @@ public class StmtRewriter {
     }
 
     public static boolean rewriteByPolicy(StatementBase statementBase, Analyzer analyzer) throws UserException {
-        Catalog currentCatalog = Catalog.getCurrentCatalog();
+        Env currentEnv = Env.getCurrentEnv();
         UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
         String user = analyzer.getQualifiedUser();
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
             return false;
         }
-        if (!currentCatalog.getPolicyMgr().existPolicy(user)) {
+        if (!currentEnv.getPolicyMgr().existPolicy(user)) {
             return false;
         }
         if (!(statementBase instanceof SelectStmt)) {
@@ -1191,10 +1191,10 @@ public class StmtRewriter {
             if (dbName == null) {
                 dbName = analyzer.getDefaultDb();
             }
-            Database db = currentCatalog.getInternalDataSource().getDbOrAnalysisException(dbName);
+            Database db = currentEnv.getInternalDataSource().getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
-            RowPolicy matchPolicy = currentCatalog.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
+            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
             if (matchPolicy == null) {
                 continue;
             }

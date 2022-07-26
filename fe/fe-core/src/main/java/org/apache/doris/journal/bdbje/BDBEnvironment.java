@@ -17,7 +17,7 @@
 
 package org.apache.doris.journal.bdbje;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.BDBStateChangeListener;
@@ -159,7 +159,7 @@ public class BDBEnvironment {
                 adminNodes.add(helper);
                 LOG.info("add helper[{}] as ReplicationGroupAdmin", helperHostPort);
                 // 2. add self if is electable
-                if (!selfNodeHostPort.equals(helperHostPort) && Catalog.getCurrentCatalog().isElectable()) {
+                if (!selfNodeHostPort.equals(helperHostPort) && Env.getCurrentEnv().isElectable()) {
                     InetSocketAddress self = new InetSocketAddress(selfNodeHostPort.split(":")[0],
                                                                    Integer.parseInt(selfNodeHostPort.split(":")[1]));
                     adminNodes.add(self);
@@ -170,7 +170,7 @@ public class BDBEnvironment {
 
                 // get a BDBHA object and pass the reference to Catalog
                 HAProtocol protocol = new BDBHA(this, selfNodeName);
-                Catalog.getCurrentCatalog().setHaProtocol(protocol);
+                Env.getCurrentEnv().setHaProtocol(protocol);
 
                 // start state change listener
                 StateChangeListener listener = new BDBStateChangeListener();

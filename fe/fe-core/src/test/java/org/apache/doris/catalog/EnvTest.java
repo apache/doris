@@ -39,7 +39,7 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Random;
 
-public class CatalogTest {
+public class EnvTest {
 
     @Before
     public void setUp() {
@@ -127,20 +127,20 @@ public class CatalogTest {
         File file = new File(dir, "image");
         file.createNewFile();
         CountingDataOutputStream dos = new CountingDataOutputStream(new FileOutputStream(file));
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env env = Env.getCurrentEnv();
         MetaContext.get().setMetaVersion(FeConstants.meta_version);
-        Field field = catalog.getClass().getDeclaredField("load");
+        Field field = env.getClass().getDeclaredField("load");
         field.setAccessible(true);
-        field.set(catalog, new Load());
+        field.set(env, new Load());
 
-        long checksum1 = catalog.saveHeader(dos, new Random().nextLong(), 0);
-        catalog.clear();
-        catalog = null;
+        long checksum1 = env.saveHeader(dos, new Random().nextLong(), 0);
+        env.clear();
+        env = null;
         dos.close();
 
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
-        catalog = Catalog.getCurrentCatalog();
-        long checksum2 = catalog.loadHeader(dis, MetaHeader.EMPTY_HEADER, 0);
+        env = Env.getCurrentEnv();
+        long checksum2 = env.loadHeader(dis, MetaHeader.EMPTY_HEADER, 0);
         Assert.assertEquals(checksum1, checksum2);
         dis.close();
 
@@ -155,29 +155,29 @@ public class CatalogTest {
         file.createNewFile();
         CountingDataOutputStream dos = new CountingDataOutputStream(new FileOutputStream(file));
 
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env env = Env.getCurrentEnv();
         MetaContext.get().setMetaVersion(FeConstants.meta_version);
-        Field field = catalog.getClass().getDeclaredField("load");
+        Field field = env.getClass().getDeclaredField("load");
         field.setAccessible(true);
-        field.set(catalog, new Load());
+        field.set(env, new Load());
 
         LoadJob job1 = new LoadJob("label1", 20, 0);
-        catalog.getLoadInstance().unprotectAddLoadJob(job1, true);
-        long checksum1 = catalog.saveLoadJob(dos, 0);
-        catalog.clear();
-        catalog = null;
+        env.getLoadInstance().unprotectAddLoadJob(job1, true);
+        long checksum1 = env.saveLoadJob(dos, 0);
+        env.clear();
+        env = null;
         dos.close();
 
-        catalog = Catalog.getCurrentCatalog();
+        env = Env.getCurrentEnv();
 
-        Field field2 = catalog.getClass().getDeclaredField("load");
+        Field field2 = env.getClass().getDeclaredField("load");
         field2.setAccessible(true);
-        field2.set(catalog, new Load());
+        field2.set(env, new Load());
 
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
-        long checksum2 = catalog.loadLoadJob(dis, 0);
+        long checksum2 = env.loadLoadJob(dis, 0);
         Assert.assertEquals(checksum1, checksum2);
-        LoadJob job2 = catalog.getLoadInstance().getLoadJob(-1);
+        LoadJob job2 = env.getLoadInstance().getLoadJob(-1);
         Assert.assertTrue(job1.equals(job2));
         dis.close();
 

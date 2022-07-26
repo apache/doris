@@ -22,8 +22,8 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -111,7 +111,7 @@ public class TableQueryPlanAction extends RestBaseController {
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
             Table table;
             try {
-                Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+                Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
                 table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());

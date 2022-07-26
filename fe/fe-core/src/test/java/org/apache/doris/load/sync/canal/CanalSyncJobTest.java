@@ -20,8 +20,8 @@ package org.apache.doris.load.sync.canal;
 import org.apache.doris.analysis.BinlogDesc;
 import org.apache.doris.analysis.ChannelDescription;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
@@ -61,7 +61,7 @@ public class CanalSyncJobTest {
     private String dbName;
     private String tblName;
     private String jobName;
-    private Catalog catalog;
+    private Env env;
     private InternalDataSource ds;
     private Map<String, String> properties;
 
@@ -101,20 +101,20 @@ public class CanalSyncJobTest {
             }
         };
 
-        catalog = Deencapsulation.newInstance(Catalog.class);
-        new Expectations(catalog) {
+        env = Deencapsulation.newInstance(Env.class);
+        new Expectations(env) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
 

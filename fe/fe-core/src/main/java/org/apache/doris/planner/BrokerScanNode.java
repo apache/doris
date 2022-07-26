@@ -28,8 +28,8 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.BrokerTable;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -299,7 +299,7 @@ public class BrokerScanNode extends LoadScanNode {
                 throw new DdlException("backend not found for multi load.");
             }
             String backendId = brokerDesc.getProperties().get(BrokerDesc.MULTI_LOAD_BROKER_BACKEND_KEY);
-            selectedBackend = Catalog.getCurrentSystemInfo().getBackend(Long.valueOf(backendId));
+            selectedBackend = Env.getCurrentSystemInfo().getBackend(Long.valueOf(backendId));
             if (selectedBackend == null) {
                 throw new DdlException("backend " + backendId + " not found for multi load.");
             }
@@ -314,7 +314,7 @@ public class BrokerScanNode extends LoadScanNode {
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             FsBroker broker = null;
             try {
-                broker = Catalog.getCurrentCatalog().getBrokerMgr()
+                broker = Env.getCurrentEnv().getBrokerMgr()
                         .getBroker(brokerDesc.getName(), selectedBackend.getHost());
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
@@ -416,7 +416,7 @@ public class BrokerScanNode extends LoadScanNode {
     private void assignBackends() throws UserException {
         Set<Tag> tags = Sets.newHashSet();
         if (userIdentity != null) {
-            tags = Catalog.getCurrentCatalog().getAuth().getResourceTags(userIdentity.getQualifiedUser());
+            tags = Env.getCurrentEnv().getAuth().getResourceTags(userIdentity.getQualifiedUser());
             if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
                 throw new UserException("No valid resource tag for user: " + userIdentity.getQualifiedUser());
             }
@@ -427,7 +427,7 @@ public class BrokerScanNode extends LoadScanNode {
         // broker scan node is used for query or load
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needQueryAvailable().needLoadAvailable()
                 .addTags(tags).build();
-        for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (policy.isMatch(be)) {
                 backends.add(be);
             }

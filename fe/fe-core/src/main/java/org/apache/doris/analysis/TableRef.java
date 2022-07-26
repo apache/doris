@@ -20,7 +20,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -150,7 +150,7 @@ public class TableRef implements ParseNode, Writable {
     public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints) {
         this.name = name;
         if (alias != null) {
-            if (Catalog.isStoredTableNamesLowerCase()) {
+            if (Env.isStoredTableNamesLowerCase()) {
                 alias = alias.toLowerCase();
             }
             aliases = new String[]{alias};

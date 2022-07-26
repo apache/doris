@@ -17,7 +17,7 @@
 
 package org.apache.doris.journal.bdbje;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.io.Writable;
@@ -78,8 +78,8 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
      * node name is ip_port (the port is edit_log_port)
      */
     private void initBDBEnv(String nodeName) {
-        environmentPath = Catalog.getServingCatalog().getBdbDir();
-        Pair<String, Integer> selfNode = Catalog.getServingCatalog().getSelfNode();
+        environmentPath = Env.getServingEnv().getBdbDir();
+        Pair<String, Integer> selfNode = Env.getServingEnv().getSelfNode();
         selfNodeName = nodeName;
         selfNodeHostPort = selfNode.first + ":" + selfNode.second;
     }
@@ -297,11 +297,11 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         if (bdbEnvironment == null) {
             File dbEnv = new File(environmentPath);
             bdbEnvironment = new BDBEnvironment();
-            Pair<String, Integer> helperNode = Catalog.getServingCatalog().getHelperNode();
+            Pair<String, Integer> helperNode = Env.getServingEnv().getHelperNode();
             String helperHostPort = helperNode.first + ":" + helperNode.second;
             try {
-                bdbEnvironment.setup(dbEnv, selfNodeName, selfNodeHostPort,
-                        helperHostPort, Catalog.getServingCatalog().isElectable());
+                bdbEnvironment.setup(dbEnv, selfNodeName, selfNodeHostPort, helperHostPort,
+                        Env.getServingEnv().isElectable());
             } catch (Exception e) {
                 LOG.error("catch an exception when setup bdb environment. will exit.", e);
                 System.exit(-1);
@@ -325,9 +325,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                      * named "1".
                      * But when we start cluster with an image file copied from other cluster,
                      * here we should open database with name image max journal id + 1.
-                     * (default Catalog.getServingCatalog().getReplayedJournalId() is 0)
+                     * (default Catalog.getServingEnv().getReplayedJournalId() is 0)
                      */
-                    String dbName = Long.toString(Catalog.getServingCatalog().getReplayedJournalId() + 1);
+                    String dbName = Long.toString(Env.getServingEnv().getReplayedJournalId() + 1);
                     LOG.info("the very first time to open bdb, dbname is {}", dbName);
                     currentJournalDB = bdbEnvironment.openDatabase(dbName);
                 } else {
@@ -349,17 +349,16 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         LOG.warn("catch insufficient log exception. will recover and try again.", insufficientLogEx);
         // Copy the missing log files from a member of the replication group who owns
         // the files
-        // ATTN: here we use `getServingCatalog()`, because only serving catalog has
+        // ATTN: here we use `getServingEnv()`, because only serving catalog has
         // helper nodes.
-        Pair<String, Integer> helperNode = Catalog.getServingCatalog().getHelperNode();
+        Pair<String, Integer> helperNode = Env.getServingEnv().getHelperNode();
         NetworkRestore restore = new NetworkRestore();
         NetworkRestoreConfig config = new NetworkRestoreConfig();
         config.setRetainLogFiles(false);
         restore.execute(insufficientLogEx, config);
         bdbEnvironment.close();
         bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
-                helperNode.first + ":" + helperNode.second,
-                Catalog.getServingCatalog().isElectable());
+                helperNode.first + ":" + helperNode.second, Env.getServingEnv().isElectable());
     }
 
     @Override
@@ -437,13 +436,13 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                  * encounter
                  * these exception. So if it happens, throw exception out.
                  */
-                if (!Catalog.isCheckpointThread()) {
+                if (!Env.isCheckpointThread()) {
                     reSetupBdbEnvironment(insufficientLogEx);
                 } else {
                     throw insufficientLogEx;
                 }
             } catch (RollbackException rollbackEx) {
-                if (!Catalog.isCheckpointThread()) {
+                if (!Env.isCheckpointThread()) {
                     LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.", rollbackEx);
                     bdbEnvironment.closeReplicatedEnvironment();
                     bdbEnvironment.openReplicatedEnvironment(new File(environmentPath));

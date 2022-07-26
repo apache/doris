@@ -64,15 +64,15 @@ public class SparkResourceTest {
     }
 
     @Test
-    public void testFromStmt(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog, @Injectable PaloAuth auth)
+    public void testFromStmt(@Injectable BrokerMgr brokerMgr, @Mocked Env env, @Injectable PaloAuth auth)
             throws UserException {
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                catalog.getAuth();
+                env.getAuth();
                 result = auth;
                 auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
@@ -120,15 +120,15 @@ public class SparkResourceTest {
     }
 
     @Test
-    public void testUpdate(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog, @Injectable PaloAuth auth)
+    public void testUpdate(@Injectable BrokerMgr brokerMgr, @Mocked Env env, @Injectable PaloAuth auth)
             throws UserException {
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                catalog.getAuth();
+                env.getAuth();
                 result = auth;
                 auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
@@ -157,15 +157,15 @@ public class SparkResourceTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testNoBroker(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog, @Injectable PaloAuth auth)
+    public void testNoBroker(@Injectable BrokerMgr brokerMgr, @Mocked Env env, @Injectable PaloAuth auth)
             throws UserException {
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = false;
-                catalog.getAuth();
+                env.getAuth();
                 result = auth;
                 auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;

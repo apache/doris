@@ -19,8 +19,8 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -48,11 +48,11 @@ public class JobsProcDir implements ProcDirInterface {
     private static final String SCHEMA_CHANGE = "schema_change";
     private static final String EXPORT = "export";
 
-    private Catalog catalog;
+    private Env env;
     private Database db;
 
-    public JobsProcDir(Catalog catalog, Database db) {
-        this.catalog = catalog;
+    public JobsProcDir(Env env, Database db) {
+        this.env = env;
         this.db = db;
     }
 
@@ -63,20 +63,20 @@ public class JobsProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String jobTypeName) throws AnalysisException {
-        if (Strings.isNullOrEmpty(jobTypeName) || catalog == null) {
+        if (Strings.isNullOrEmpty(jobTypeName) || env == null) {
             throw new AnalysisException("Job type name is null");
         }
 
         if (jobTypeName.equals(LOAD)) {
-            return new LoadProcDir(catalog.getLoadInstance(), db);
+            return new LoadProcDir(env.getLoadInstance(), db);
         } else if (jobTypeName.equals(DELETE)) {
-            return new DeleteInfoProcDir(catalog.getDeleteHandler(), catalog.getLoadInstance(), db.getId());
+            return new DeleteInfoProcDir(env.getDeleteHandler(), env.getLoadInstance(), db.getId());
         } else if (jobTypeName.equals(ROLLUP)) {
-            return new RollupProcDir(catalog.getMaterializedViewHandler(), db);
+            return new RollupProcDir(env.getMaterializedViewHandler(), db);
         } else if (jobTypeName.equals(SCHEMA_CHANGE)) {
-            return new SchemaChangeProcDir(catalog.getSchemaChangeHandler(), db);
+            return new SchemaChangeProcDir(env.getSchemaChangeHandler(), db);
         } else if (jobTypeName.equals(EXPORT)) {
-            return new ExportProcNode(catalog.getExportMgr(), db);
+            return new ExportProcNode(env.getExportMgr(), db);
         } else {
             throw new AnalysisException("Invalid job type: " + jobTypeName);
         }
@@ -84,7 +84,7 @@ public class JobsProcDir implements ProcDirInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(catalog);
+        Preconditions.checkNotNull(env);
 
         BaseProcResult result = new BaseProcResult();
 
@@ -92,8 +92,8 @@ public class JobsProcDir implements ProcDirInterface {
 
         long dbId = db.getId();
         // load
-        Load load = Catalog.getCurrentCatalog().getLoadInstance();
-        LoadManager loadManager = Catalog.getCurrentCatalog().getLoadManager();
+        Load load = Env.getCurrentEnv().getLoadInstance();
+        LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
         Long pendingNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.PENDING, dbId)
                 + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.PENDING, dbId);
         Long runningNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.ETL, dbId)
@@ -119,7 +119,7 @@ public class JobsProcDir implements ProcDirInterface {
                                          cancelledNum.toString(), totalNum.toString()));
 
         // rollup
-        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getMaterializedViewHandler();
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
         pendingNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.PENDING, dbId);
         runningNum = materializedViewHandler.getAlterJobV2Num(
                 org.apache.doris.alter.AlterJobV2.JobState.WAITING_TXN, dbId)
@@ -133,7 +133,7 @@ public class JobsProcDir implements ProcDirInterface {
                                          cancelledNum.toString(), totalNum.toString()));
 
         // schema change
-        SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         pendingNum = schemaChangeHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.PENDING, dbId);
         runningNum = schemaChangeHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.WAITING_TXN, dbId)
                 + schemaChangeHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING, dbId);
@@ -144,7 +144,7 @@ public class JobsProcDir implements ProcDirInterface {
                                          finishedNum.toString(), cancelledNum.toString(), totalNum.toString()));
 
         // export
-        ExportMgr exportMgr = Catalog.getCurrentCatalog().getExportMgr();
+        ExportMgr exportMgr = Env.getCurrentEnv().getExportMgr();
         pendingNum = exportMgr.getJobNum(ExportJob.JobState.PENDING, dbId);
         runningNum = exportMgr.getJobNum(ExportJob.JobState.EXPORTING, dbId);
         finishedNum = exportMgr.getJobNum(ExportJob.JobState.FINISHED, dbId);

@@ -24,9 +24,9 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
@@ -59,7 +59,7 @@ public class StreamLoadScanNodeTest {
     private static final Logger LOG = LogManager.getLogger(StreamLoadScanNodeTest.class);
 
     @Mocked
-    Catalog catalog;
+    Env env;
 
     @Injectable
     ConnectContext connectContext;
@@ -172,7 +172,7 @@ public class StreamLoadScanNodeTest {
 
     @Test
     public void testNormal() throws UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getBaseSchema();
@@ -216,7 +216,7 @@ public class StreamLoadScanNodeTest {
 
     @Test(expected = AnalysisException.class)
     public void testLostV2() throws UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getBaseSchema();
@@ -241,7 +241,7 @@ public class StreamLoadScanNodeTest {
 
     @Test(expected = AnalysisException.class)
     public void testBadColumns() throws UserException, UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getBaseSchema();
@@ -266,7 +266,7 @@ public class StreamLoadScanNodeTest {
 
     @Test
     public void testColumnsNormal() throws UserException, UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getBaseSchema();
@@ -306,7 +306,7 @@ public class StreamLoadScanNodeTest {
 
     @Test
     public void testHllColumnsNormal() throws UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getHllSchema();
@@ -320,7 +320,7 @@ public class StreamLoadScanNodeTest {
 
         new Expectations() {
             {
-                catalog.getFunction((Function) any, (Function.CompareMode) any);
+                env.getFunction((Function) any, (Function.CompareMode) any);
                 result = new ScalarFunction(new FunctionName(FunctionSet.HLL_HASH),
                         Lists.newArrayList(), Type.BIGINT, false, true);
 
@@ -350,7 +350,7 @@ public class StreamLoadScanNodeTest {
 
     @Test(expected = UserException.class)
     public void testHllColumnsNoHllHash() throws UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getHllSchema();
@@ -364,7 +364,7 @@ public class StreamLoadScanNodeTest {
 
         new Expectations() {
             {
-                catalog.getFunction((Function) any, (Function.CompareMode) any);
+                env.getFunction((Function) any, (Function.CompareMode) any);
                 result = new ScalarFunction(new FunctionName("hll_hash1"), Lists.newArrayList(),
                         Type.BIGINT, false, true);
                 minTimes = 0;
@@ -402,7 +402,7 @@ public class StreamLoadScanNodeTest {
 
     @Test(expected = UserException.class)
     public void testHllColumnsFail() throws UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getHllSchema();
@@ -428,7 +428,7 @@ public class StreamLoadScanNodeTest {
 
     @Test(expected = UserException.class)
     public void testUnsupportedFType() throws UserException, UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getBaseSchema();
@@ -454,7 +454,7 @@ public class StreamLoadScanNodeTest {
 
     @Test(expected = UserException.class)
     public void testColumnsUnknownRef() throws UserException, UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getBaseSchema();
@@ -504,7 +504,7 @@ public class StreamLoadScanNodeTest {
 
     @Test
     public void testWhereNormal() throws UserException, UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getBaseSchema();
@@ -546,7 +546,7 @@ public class StreamLoadScanNodeTest {
 
     @Test(expected = AnalysisException.class)
     public void testWhereBad() throws UserException, UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getBaseSchema();
@@ -594,7 +594,7 @@ public class StreamLoadScanNodeTest {
 
     @Test(expected = UserException.class)
     public void testWhereUnknownRef() throws UserException, UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getBaseSchema();
@@ -645,7 +645,7 @@ public class StreamLoadScanNodeTest {
 
     @Test(expected = UserException.class)
     public void testWhereNotBool() throws UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getBaseSchema();
@@ -696,7 +696,7 @@ public class StreamLoadScanNodeTest {
 
     @Test
     public void testSequenceColumnWithSetColumns() throws UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getSequenceColSchema();
@@ -758,7 +758,7 @@ public class StreamLoadScanNodeTest {
 
     @Test
     public void testSequenceColumnWithoutSetColumns() throws UserException {
-        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        Analyzer analyzer = new Analyzer(env, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
         List<Column> columns = getSequenceColSchema();

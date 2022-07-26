@@ -17,7 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.FeMetaVersion;
@@ -127,7 +127,7 @@ public class CatalogPrivEntry extends PrivEntry {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_111) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
             origCtl = Text.readString(in);
         } else {
             origCtl = InternalDataSource.INTERNAL_DS_NAME;

@@ -17,8 +17,8 @@
 
 package org.apache.doris.policy;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
@@ -209,7 +209,7 @@ public class StoragePolicy extends Policy {
     private static Resource checkIsS3ResourceAndExist(final String storageResource) throws AnalysisException {
         // check storage_resource type is S3, current just support S3
         Resource resource =
-                Optional.ofNullable(Catalog.getCurrentCatalog().getResourceMgr().getResource(storageResource))
+                Optional.ofNullable(Env.getCurrentEnv().getResourceMgr().getResource(storageResource))
                     .orElseThrow(() -> new AnalysisException("storage resource doesn't exist: " + storageResource));
 
         if (resource.getType() != Resource.ResourceType.S3) {
@@ -223,8 +223,8 @@ public class StoragePolicy extends Policy {
      **/
     public List<String> getShowInfo() throws AnalysisException {
         final String[] props = {""};
-        if (Catalog.getCurrentCatalog().getResourceMgr().containsResource(this.storageResource)) {
-            props[0] = Catalog.getCurrentCatalog().getResourceMgr().getResource(this.storageResource).toString();
+        if (Env.getCurrentEnv().getResourceMgr().containsResource(this.storageResource)) {
+            props[0] = Env.getCurrentEnv().getResourceMgr().getResource(this.storageResource).toString();
         }
         if (!props[0].equals("")) {
             // s3_secret_key => ******
@@ -322,15 +322,14 @@ public class StoragePolicy extends Policy {
     // if md5Sum not eq previous value, be change its storage policy.
     private String calcPropertiesMd5() {
         List<String> calcKey = Arrays.asList(COOLDOWN_DATETIME, COOLDOWN_TTL, S3Resource.S3_MAX_CONNECTIONS,
-                S3Resource.S3_REQUEST_TIMEOUT_MS, S3Resource.S3_CONNECTION_TIMEOUT_MS,
-                S3Resource.S3_ACCESS_KEY, S3Resource.S3_SECRET_KEY);
-        Map<String, String> copiedStoragePolicyProperties = Catalog.getCurrentCatalog().getResourceMgr()
+                S3Resource.S3_REQUEST_TIMEOUT_MS, S3Resource.S3_CONNECTION_TIMEOUT_MS, S3Resource.S3_ACCESS_KEY,
+                S3Resource.S3_SECRET_KEY);
+        Map<String, String> copiedStoragePolicyProperties = Env.getCurrentEnv().getResourceMgr()
                 .getResource(this.storageResource).getCopiedProperties();
 
         final String[] dateTimeToSecondTimestamp = {"-1"};
         Optional.ofNullable(this.cooldownDatetime).ifPresent(
-                date -> dateTimeToSecondTimestamp[0] = String.valueOf(this.cooldownDatetime.getTime() / 1000)
-        );
+                date -> dateTimeToSecondTimestamp[0] = String.valueOf(this.cooldownDatetime.getTime() / 1000));
         copiedStoragePolicyProperties.put(COOLDOWN_DATETIME, dateTimeToSecondTimestamp[0]);
         copiedStoragePolicyProperties.put(COOLDOWN_TTL, this.cooldownTtl);
 
@@ -380,12 +379,12 @@ public class StoragePolicy extends Policy {
     }
 
     private void notifyUpdate() {
-        SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         AgentBatchTask batchTask = new AgentBatchTask();
 
         for (Long beId : systemInfoService.getBackendIds(true)) {
-            Map<String, String> copiedProperties = Catalog.getCurrentCatalog().getResourceMgr()
-                    .getResource(storageResource).getCopiedProperties();
+            Map<String, String> copiedProperties = Env.getCurrentEnv().getResourceMgr().getResource(storageResource)
+                    .getCopiedProperties();
 
             Map<String, String> tmpMap = Maps.newHashMap(copiedProperties);
 

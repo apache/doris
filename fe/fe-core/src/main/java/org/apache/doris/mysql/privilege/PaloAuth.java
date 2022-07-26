@@ -31,7 +31,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -523,8 +523,8 @@ public class PaloAuth implements Writable {
             return checkDbPriv(ctx, authInfo.getDbName(), wanted);
         }
         for (String tblName : authInfo.getTableNameList()) {
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), authInfo.getDbName(),
-                                                                    tblName, wanted)) {
+            if (!Env.getCurrentEnv().getAuth()
+                    .checkTblPriv(ConnectContext.get(), authInfo.getDbName(), tblName, wanted)) {
                 return false;
             }
         }
@@ -735,7 +735,7 @@ public class PaloAuth implements Writable {
 
             if (!isReplay) {
                 PrivInfo privInfo = new PrivInfo(userIdent, null, password, roleName);
-                Catalog.getCurrentCatalog().getEditLog().logCreateUser(privInfo);
+                Env.getCurrentEnv().getEditLog().logCreateUser(privInfo);
             }
             LOG.info("finished to create user: {}, is replay: {}", userIdent, isReplay);
         } finally {
@@ -815,7 +815,7 @@ public class PaloAuth implements Writable {
             }
 
             if (!isReplay) {
-                Catalog.getCurrentCatalog().getEditLog().logNewDropUser(userIdent);
+                Env.getCurrentEnv().getEditLog().logNewDropUser(userIdent);
             }
             LOG.info("finished to drop user: {}, is replay: {}", userIdent.getQualifiedUser(), isReplay);
         } finally {
@@ -874,7 +874,7 @@ public class PaloAuth implements Writable {
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, tblPattern, privs, null, role);
-                Catalog.getCurrentCatalog().getEditLog().logGrantPriv(info);
+                Env.getCurrentEnv().getEditLog().logGrantPriv(info);
             }
             LOG.info("finished to grant privilege. is replay: {}", isReplay);
         } finally {
@@ -905,7 +905,7 @@ public class PaloAuth implements Writable {
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, resourcePattern, privs, null, role);
-                Catalog.getCurrentCatalog().getEditLog().logGrantPriv(info);
+                Env.getCurrentEnv().getEditLog().logGrantPriv(info);
             }
             LOG.info("finished to grant resource privilege. is replay: {}", isReplay);
         } finally {
@@ -1053,7 +1053,7 @@ public class PaloAuth implements Writable {
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, tblPattern, privs, null, role);
-                Catalog.getCurrentCatalog().getEditLog().logRevokePriv(info);
+                Env.getCurrentEnv().getEditLog().logRevokePriv(info);
             }
             LOG.info("finished to revoke privilege. is replay: {}", isReplay);
         } finally {
@@ -1080,7 +1080,7 @@ public class PaloAuth implements Writable {
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, resourcePattern, privs, null, role);
-                Catalog.getCurrentCatalog().getEditLog().logRevokePriv(info);
+                Env.getCurrentEnv().getEditLog().logRevokePriv(info);
             }
             LOG.info("finished to revoke privilege. is replay: {}", isReplay);
         } finally {
@@ -1174,7 +1174,7 @@ public class PaloAuth implements Writable {
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, null, password, null);
-                Catalog.getCurrentCatalog().getEditLog().logSetPassword(info);
+                Env.getCurrentEnv().getEditLog().logSetPassword(info);
             }
         } finally {
             writeUnlock();
@@ -1185,7 +1185,7 @@ public class PaloAuth implements Writable {
     // set ldap admin password.
     public void setLdapPassword(SetLdapPassVar stmt) {
         ldapInfo = new LdapInfo(stmt.getLdapPassword());
-        Catalog.getCurrentCatalog().getEditLog().logSetLdapPassword(ldapInfo);
+        Env.getCurrentEnv().getEditLog().logSetLdapPassword(ldapInfo);
         LOG.info("finished to set ldap password.");
     }
 
@@ -1220,7 +1220,7 @@ public class PaloAuth implements Writable {
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(null, null, null, role);
-                Catalog.getCurrentCatalog().getEditLog().logCreateRole(info);
+                Env.getCurrentEnv().getEditLog().logCreateRole(info);
             }
         } finally {
             writeUnlock();
@@ -1253,7 +1253,7 @@ public class PaloAuth implements Writable {
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(null, null, null, role);
-                Catalog.getCurrentCatalog().getEditLog().logDropRole(info);
+                Env.getCurrentEnv().getEditLog().logDropRole(info);
             }
         } finally {
             writeUnlock();
@@ -1278,7 +1278,7 @@ public class PaloAuth implements Writable {
             propertyMgr.updateUserProperty(user, properties);
             if (!isReplay) {
                 UserPropertyInfo propertyInfo = new UserPropertyInfo(user, properties);
-                Catalog.getCurrentCatalog().getEditLog().logUpdateUserProperty(propertyInfo);
+                Env.getCurrentEnv().getEditLog().logUpdateUserProperty(propertyInfo);
             }
             LOG.info("finished to set properties for user: {}", user);
         } finally {
@@ -1811,7 +1811,7 @@ public class PaloAuth implements Writable {
     public void readFields(DataInput in) throws IOException {
         roleManager = RoleManager.read(in);
         userPrivTable = (UserPrivTable) PrivTable.read(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_111) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
             catalogPrivTable = (CatalogPrivTable) PrivTable.read(in);
         } else {
             catalogPrivTable = userPrivTable.degradeToInternalCatalogPriv();
@@ -1822,7 +1822,7 @@ public class PaloAuth implements Writable {
         tablePrivTable = (TablePrivTable) PrivTable.read(in);
         resourcePrivTable = (ResourcePrivTable) PrivTable.read(in);
         propertyMgr = UserPropertyMgr.read(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_106) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_106) {
             ldapInfo = LdapInfo.read(in);
         }
 

@@ -38,7 +38,7 @@ public class EnterStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
         }
 
-        if (analyzer.getCatalog().getCluster(name) == null) {
+        if (analyzer.getEnv().getCluster(name) == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_UNKNOWN_ERROR, name);
         }
     }

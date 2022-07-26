@@ -24,9 +24,9 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -93,7 +93,7 @@ public class ConnectProcessor {
         }
         dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
         try {
-            ctx.getCatalog().changeDb(ctx, dbName);
+            ctx.getEnv().changeDb(ctx, dbName);
         } catch (DdlException e) {
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
@@ -167,7 +167,7 @@ public class ConnectProcessor {
             }
         }
 
-        Catalog.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
+        Env.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
     }
 
     // Process COM_QUERY statement,
@@ -425,7 +425,7 @@ public class ConnectProcessor {
     public TMasterOpResult proxyExecute(TMasterOpRequest request) {
         ctx.setDatabase(request.db);
         ctx.setQualifiedUser(request.user);
-        ctx.setCatalog(Catalog.getCurrentCatalog());
+        ctx.setEnv(Env.getCurrentEnv());
         ctx.getState().reset();
         if (request.isSetCluster()) {
             ctx.setCluster(request.cluster);
@@ -521,7 +521,7 @@ public class ConnectProcessor {
         ) {
             result.setQueryId(ctx.queryId());
         }
-        result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId());
+        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
         result.setPacket(getResultPacket());
         if (executor != null && executor.getProxyResultSet() != null) {
             result.setResultSet(executor.getProxyResultSet().tothrift());

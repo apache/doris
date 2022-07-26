@@ -17,7 +17,7 @@
 
 package org.apache.doris.persist.meta;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.io.CountingDataOutputStream;
 
@@ -93,10 +93,10 @@ public class MetaWriter {
         return delegate.doWork(name, method);
     }
 
-    public static void write(File imageFile, Catalog catalog) throws IOException {
+    public static void write(File imageFile, Env env) throws IOException {
         // save image does not need any lock. because only checkpoint thread will call this method.
         LOG.info("start to save image to {}. is ckpt: {}",
-                imageFile.getAbsolutePath(), Catalog.isCheckpointThread());
+                imageFile.getAbsolutePath(), Env.isCheckpointThread());
         final Reference<Long> checksum = new Reference<>(0L);
         long saveImageStartTime = System.currentTimeMillis();
         // MetaHeader should use output stream in the future.
@@ -106,15 +106,15 @@ public class MetaWriter {
         try (CountingDataOutputStream dos = new CountingDataOutputStream(new BufferedOutputStream(imageFileOut),
                 startPosition)) {
             writer.setDelegate(dos, metaIndices);
-            long replayedJournalId = catalog.getReplayedJournalId();
+            long replayedJournalId = env.getReplayedJournalId();
             // 1. write header first
             checksum.setRef(
-                    writer.doWork("header", () -> catalog.saveHeader(dos, replayedJournalId, checksum.getRef())));
+                    writer.doWork("header", () -> env.saveHeader(dos, replayedJournalId, checksum.getRef())));
             // 2. write other modules
             for (MetaPersistMethod m : PersistMetaModules.MODULES_IN_ORDER) {
                 checksum.setRef(writer.doWork(m.name, () -> {
                     try {
-                        return (long) m.writeMethod.invoke(catalog, dos, checksum.getRef());
+                        return (long) m.writeMethod.invoke(env, dos, checksum.getRef());
                     } catch (IllegalAccessException | InvocationTargetException e) {
                         LOG.warn("failed to write meta module: {}", m.name, e);
                         throw new RuntimeException(e);

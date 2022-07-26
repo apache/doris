@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
@@ -51,10 +51,10 @@ public class CreateResourceStmtTest {
     }
 
     @Test
-    public void testNormal(@Mocked Catalog catalog, @Injectable PaloAuth auth) throws UserException {
+    public void testNormal(@Mocked Env env, @Injectable PaloAuth auth) throws UserException {
         new Expectations() {
             {
-                catalog.getAuth();
+                env.getAuth();
                 result = auth;
                 auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
@@ -88,10 +88,10 @@ public class CreateResourceStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testUnsupportedResourceType(@Mocked Catalog catalog, @Injectable PaloAuth auth) throws UserException {
+    public void testUnsupportedResourceType(@Mocked Env env, @Injectable PaloAuth auth) throws UserException {
         new Expectations() {
             {
-                catalog.getAuth();
+                env.getAuth();
                 result = auth;
                 auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;

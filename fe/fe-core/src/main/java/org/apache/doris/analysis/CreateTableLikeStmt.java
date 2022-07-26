@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -95,7 +95,7 @@ public class CreateTableLikeStmt extends DdlStmt {
         // disallow external catalog
         Util.prohibitExternalCatalog(existedTableName.getCtl(), this.getClass().getSimpleName());
         ConnectContext ctx = ConnectContext.get();
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ctx, existedTableName.getDb(),
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ctx, existedTableName.getDb(),
                 existedTableName.getTbl(), PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
         }
@@ -104,7 +104,7 @@ public class CreateTableLikeStmt extends DdlStmt {
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         FeNameFormat.checkTableName(getTableName());
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ctx, tableName.getDb(),
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ctx, tableName.getDb(),
                 tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }

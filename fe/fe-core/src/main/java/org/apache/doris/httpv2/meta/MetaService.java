@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.meta;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.ha.FrontendNodeType;
@@ -59,7 +59,7 @@ public class MetaService extends RestBaseController {
 
     private boolean isFromValidFe(HttpServletRequest request) {
         String clientHost = request.getRemoteHost();
-        Frontend fe = Catalog.getCurrentCatalog().getFeByHost(clientHost);
+        Frontend fe = Env.getCurrentEnv().getFeByHost(clientHost);
         if (fe == null) {
             LOG.warn("request is not from valid FE. client: {}", clientHost);
             return false;
@@ -150,7 +150,7 @@ public class MetaService extends RestBaseController {
         String machine = request.getRemoteHost();
         String url = "http://" + machine + ":" + port + "/image?version=" + versionStr;
         String filename = Storage.IMAGE + "." + versionStr;
-        File dir = new File(Catalog.getCurrentCatalog().getImageDir());
+        File dir = new File(Env.getCurrentEnv().getImageDir());
         try {
             OutputStream out = MetaHelper.getOutputStream(filename, dir);
             MetaHelper.getRemoteFile(url, TIMEOUT_SECOND * 1000, out);
@@ -175,7 +175,7 @@ public class MetaService extends RestBaseController {
     @RequestMapping(path = "/journal_id", method = RequestMethod.GET)
     public Object journal_id(HttpServletRequest request, HttpServletResponse response) throws DdlException {
         checkFromValidFe(request);
-        long id = Catalog.getCurrentCatalog().getReplayedJournalId();
+        long id = Env.getCurrentEnv().getReplayedJournalId();
         response.setHeader("id", Long.toString(id));
         return ResponseEntityBuilder.ok();
     }
@@ -188,7 +188,7 @@ public class MetaService extends RestBaseController {
         String portString = request.getParameter(PORT);
         if (!Strings.isNullOrEmpty(host) && !Strings.isNullOrEmpty(portString)) {
             int port = Integer.parseInt(portString);
-            Frontend fe = Catalog.getCurrentCatalog().checkFeExist(host, port);
+            Frontend fe = Env.getCurrentEnv().checkFeExist(host, port);
             if (fe == null) {
                 response.setHeader("role", FrontendNodeType.UNKNOWN.name());
             } else {
@@ -231,7 +231,7 @@ public class MetaService extends RestBaseController {
          *
          * TODO: Still need to lock ClusterInfoService to prevent add or drop Backends
          */
-        String dumpFilePath = Catalog.getCurrentCatalog().dumpImage();
+        String dumpFilePath = Env.getCurrentEnv().dumpImage();
 
         if (dumpFilePath == null) {
             return ResponseEntityBuilder.okWithCommonError("dump failed.");

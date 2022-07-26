@@ -17,8 +17,8 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
@@ -41,11 +41,11 @@ public class DbUsedDataQuotaInfoCollector extends MasterDaemon {
     }
 
     private void updateAllDatabaseUsedDataQuota() {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        List<Long> dbIdList = catalog.getInternalDataSource().getDbIds();
-        GlobalTransactionMgr globalTransactionMgr = catalog.getGlobalTransactionMgr();
+        Env env = Env.getCurrentEnv();
+        List<Long> dbIdList = env.getInternalDataSource().getDbIds();
+        GlobalTransactionMgr globalTransactionMgr = env.getGlobalTransactionMgr();
         for (Long dbId : dbIdList) {
-            Database db = catalog.getInternalDataSource().getDbNullable(dbId);
+            Database db = env.getInternalDataSource().getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("Database [" + dbId + "] does not exist, skip to update database used data quota");
                 continue;

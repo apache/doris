@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -36,7 +36,7 @@ public class AdminCleanTrashStmt extends DdlStmt {
     private List<Backend> backends = Lists.newArrayList();
 
     public AdminCleanTrashStmt(List<String> backends) {
-        ImmutableMap<Long, Backend> backendsInfo = Catalog.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
         Map<String, Long> backendsID = new HashMap<String, Long>();
         for (Backend backend : backendsInfo.values()) {
             backendsID.put(backend.getHost() + ":" + backend.getHeartbeatPort(), backend.getId());
@@ -61,7 +61,7 @@ public class AdminCleanTrashStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }

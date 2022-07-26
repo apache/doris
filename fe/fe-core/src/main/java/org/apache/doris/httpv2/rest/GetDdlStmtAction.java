@@ -17,8 +17,8 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -64,7 +64,7 @@ public class GetDdlStmtAction extends RestBaseController {
         String fullDbName = getFullDbName(dbName);
         Table table;
         try {
-            Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
             table = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
@@ -76,7 +76,7 @@ public class GetDdlStmtAction extends RestBaseController {
 
         table.readLock();
         try {
-            Catalog.getDdlStmt(table, createTableStmt, addPartitionStmt,
+            Env.getDdlStmt(table, createTableStmt, addPartitionStmt,
                     createRollupStmt, true, false /* show password */);
         } finally {
             table.readUnlock();

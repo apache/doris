@@ -54,7 +54,7 @@ public class AdminStmtTest extends TestWithFeService {
 
     @Test
     public void testAdminSetReplicaStatus() throws Exception {
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
         Assert.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
         Assert.assertNotNull(tbl);
@@ -72,23 +72,23 @@ public class AdminStmtTest extends TestWithFeService {
         Assert.assertEquals(3, tabletToBackendList.size());
         long tabletId = tabletToBackendList.get(0).first;
         long backendId = tabletToBackendList.get(0).second;
-        Replica replica = Catalog.getCurrentInvertedIndex().getReplica(tabletId, backendId);
+        Replica replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
         Assert.assertFalse(replica.isBad());
 
         // set replica to bad
         String adminStmt = "admin set replica status properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
                 + backendId + "', 'status' = 'bad');";
         AdminSetReplicaStatusStmt stmt = (AdminSetReplicaStatusStmt) parseAndAnalyzeStmt(adminStmt);
-        Catalog.getCurrentCatalog().setReplicaStatus(stmt);
-        replica = Catalog.getCurrentInvertedIndex().getReplica(tabletId, backendId);
+        Env.getCurrentEnv().setReplicaStatus(stmt);
+        replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
         Assert.assertTrue(replica.isBad());
 
         // set replica to ok
         adminStmt = "admin set replica status properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
                 + backendId + "', 'status' = 'ok');";
         stmt = (AdminSetReplicaStatusStmt) parseAndAnalyzeStmt(adminStmt);
-        Catalog.getCurrentCatalog().setReplicaStatus(stmt);
-        replica = Catalog.getCurrentInvertedIndex().getReplica(tabletId, backendId);
+        Env.getCurrentEnv().setReplicaStatus(stmt);
+        replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
         Assert.assertFalse(replica.isBad());
     }
 

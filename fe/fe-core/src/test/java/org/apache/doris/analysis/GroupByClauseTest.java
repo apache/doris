@@ -42,7 +42,7 @@ public class GroupByClauseTest {
     @Before
     public void setUp() throws AnalysisException {
         Analyzer analyzerBase = AccessTestUtil.fetchTableAnalyzer();
-        analyzer = new Analyzer(analyzerBase.getCatalog(), analyzerBase.getContext());
+        analyzer = new Analyzer(analyzerBase.getEnv(), analyzerBase.getContext());
         try {
             Field f = analyzer.getClass().getDeclaredField("tupleByAlias");
             f.setAccessible(true);

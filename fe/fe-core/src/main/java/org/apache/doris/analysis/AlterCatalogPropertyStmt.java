@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -55,7 +55,7 @@ public class AlterCatalogPropertyStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         Util.checkCatalogAllRules(catalogName);
-        if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
+        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);

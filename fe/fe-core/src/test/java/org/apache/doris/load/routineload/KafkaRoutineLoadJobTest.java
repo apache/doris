@@ -25,8 +25,8 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -99,7 +99,7 @@ public class KafkaRoutineLoadJobTest {
     @Test
     public void testRoutineLoadTaskConcurrentNum(@Injectable PartitionInfo partitionInfo1,
                              @Injectable PartitionInfo partitionInfo2,
-                             @Mocked Catalog catalog,
+                             @Mocked Env env,
                              @Mocked SystemInfoService systemInfoService,
                              @Mocked Database database,
                              @Mocked RoutineLoadDesc routineLoadDesc) throws MetaNotFoundException {
@@ -115,7 +115,7 @@ public class KafkaRoutineLoadJobTest {
 
         new Expectations() {
             {
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
                 systemInfoService.getClusterBackendIds(clusterName1, true);
@@ -159,22 +159,22 @@ public class KafkaRoutineLoadJobTest {
                                          @Mocked RoutineLoadDesc routineLoadDesc)
             throws UserException {
 
-        Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+        Env env = Deencapsulation.newInstance(Env.class);
 
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", "default", 1L,
                         1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
 
-        new Expectations(catalog) {
+        new Expectations(env) {
             {
-                catalog.getRoutineLoadManager();
+                env.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
             }
         };
 
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
-        Deencapsulation.setField(catalog, "routineLoadTaskScheduler", routineLoadTaskScheduler);
+        Deencapsulation.setField(env, "routineLoadTaskScheduler", routineLoadTaskScheduler);
 
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", Arrays.asList(1, 4, 6));
 
@@ -204,7 +204,7 @@ public class KafkaRoutineLoadJobTest {
             throws AnalysisException, LabelAlreadyUsedException,
             BeginTransactionException {
 
-        Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+        Env env = Deencapsulation.newInstance(Env.class);
 
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", "default", 1L,
@@ -213,7 +213,7 @@ public class KafkaRoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "maxBatchIntervalS", maxBatchIntervalS);
         new Expectations() {
             {
-                catalog.getRoutineLoadManager();
+                env.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
             }
@@ -241,7 +241,7 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testFromCreateStmt(@Mocked Catalog catalog,
+    public void testFromCreateStmt(@Mocked Env env,
                                    @Injectable Database database,
             @Injectable OlapTable table) throws UserException {
         CreateRoutineLoadStmt createRoutineLoadStmt = initCreateRoutineLoadStmt();

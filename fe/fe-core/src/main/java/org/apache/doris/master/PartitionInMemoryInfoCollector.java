@@ -17,8 +17,8 @@
 
 package org.apache.doris.master;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
@@ -46,12 +46,12 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
     }
 
     private void updatePartitionInMemoryInfo() {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        TabletInvertedIndex tabletInvertedIndex = catalog.getTabletInvertedIndex();
+        Env env = Env.getCurrentEnv();
+        TabletInvertedIndex tabletInvertedIndex = env.getTabletInvertedIndex();
         ImmutableSet.Builder builder = ImmutableSet.builder();
-        List<Long> dbIdList = catalog.getInternalDataSource().getDbIds();
+        List<Long> dbIdList = env.getInternalDataSource().getDbIds();
         for (Long dbId : dbIdList) {
-            Database db = catalog.getInternalDataSource().getDbNullable(dbId);
+            Database db = env.getInternalDataSource().getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("Database [" + dbId + "] does not exist, skip to update database used data quota");
                 continue;

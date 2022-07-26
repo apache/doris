@@ -29,7 +29,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -70,7 +70,7 @@ public class DorisAssert {
     public DorisAssert withDatabase(String dbName) throws Exception {
         CreateDbStmt createDbStmt =
                 (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt("create database " + dbName + ";", ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         return this;
     }
 
@@ -86,7 +86,7 @@ public class DorisAssert {
 
     public DorisAssert withTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
         return this;
     }
 
@@ -97,26 +97,26 @@ public class DorisAssert {
     public DorisAssert dropTable(String tableName, boolean isForce) throws Exception {
         DropTableStmt dropTableStmt =
                 (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop table " + tableName + (isForce ? " force" : "") + ";", ctx);
-        Catalog.getCurrentCatalog().dropTable(dropTableStmt);
+        Env.getCurrentEnv().dropTable(dropTableStmt);
         return this;
     }
 
     public DorisAssert withView(String sql) throws Exception {
         CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        Catalog.getCurrentCatalog().createView(createViewStmt);
+        Env.getCurrentEnv().createView(createViewStmt);
         return this;
     }
 
     public DorisAssert dropView(String tableName) throws Exception {
         DropTableStmt dropTableStmt =
                 (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop view " + tableName + ";", ctx);
-        Catalog.getCurrentCatalog().dropTable(dropTableStmt);
+        Env.getCurrentEnv().dropTable(dropTableStmt);
         return this;
     }
 
     public DorisAssert dropDB(String dbName) throws Exception {
         DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt("drop database " + dbName + ";", ctx);
-        Catalog.getCurrentCatalog().dropDb(dropDbStmt);
+        Env.getCurrentEnv().dropDb(dropDbStmt);
         return this;
     }
 
@@ -124,7 +124,7 @@ public class DorisAssert {
     public DorisAssert withMaterializedView(String sql) throws Exception {
         CreateMaterializedViewStmt createMaterializedViewStmt =
                 (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        Catalog.getCurrentCatalog().createMaterializedView(createMaterializedViewStmt);
+        Env.getCurrentEnv().createMaterializedView(createMaterializedViewStmt);
         checkAlterJob();
         // waiting table state to normal
         Thread.sleep(100);
@@ -134,7 +134,7 @@ public class DorisAssert {
     // Add rollup
     public DorisAssert withRollup(String sql) throws Exception {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        Catalog.getCurrentCatalog().alterTable(alterTableStmt);
+        Env.getCurrentEnv().alterTable(alterTableStmt);
         checkAlterJob();
         // waiting table state to normal
         Thread.sleep(100);
@@ -147,7 +147,7 @@ public class DorisAssert {
 
     private void checkAlterJob() throws InterruptedException {
         // check alter job
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println("alter job " + alterJobV2.getDbId()

@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
@@ -335,7 +335,7 @@ public class LoadStmt extends DdlStmt {
             if (dataDescription.isLoadFromTable()) {
                 isLoadFromTable = true;
             }
-            Database db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(label.getDbName());
+            Database db = analyzer.getEnv().getInternalDataSource().getDbOrAnalysisException(label.getDbName());
             OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
             if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND
                     && table.getKeysType() != KeysType.UNIQUE_KEYS) {
@@ -370,7 +370,7 @@ public class LoadStmt extends DdlStmt {
                 throw new AnalysisException("Spark Load is coming soon");
             }
             // check resource usage privilege
-            if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),
+            if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(),
                                                                          resourceDesc.getName(),
                                                                          PrivPredicate.USAGE)) {
                 throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
