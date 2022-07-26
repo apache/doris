@@ -39,8 +39,8 @@ public class ExpressionUtilsTest {
 
         expr = PARSER.parseExpression("a");
         expressions = ExpressionUtils.extractConjunctive(expr);
-        Assertions.assertEquals(expressions.size(), 1);
-        Assertions.assertEquals(expressions.get(0), expr);
+        Assertions.assertEquals(1, expressions.size());
+        Assertions.assertEquals(expr, expressions.get(0));
 
         expr = PARSER.parseExpression("a and b and c");
         Expression a = PARSER.parseExpression("a");
@@ -48,20 +48,20 @@ public class ExpressionUtilsTest {
         Expression c = PARSER.parseExpression("c");
 
         expressions = ExpressionUtils.extractConjunctive(expr);
-        Assertions.assertEquals(expressions.size(), 3);
-        Assertions.assertEquals(expressions.get(0), a);
-        Assertions.assertEquals(expressions.get(1), b);
-        Assertions.assertEquals(expressions.get(2), c);
+        Assertions.assertEquals(3, expressions.size());
+        Assertions.assertEquals(a, expressions.get(0));
+        Assertions.assertEquals(b, expressions.get(1));
+        Assertions.assertEquals(c, expressions.get(2));
 
 
         expr = PARSER.parseExpression("(a or b) and c and (e or f)");
         expressions = ExpressionUtils.extractConjunctive(expr);
         Expression aOrb = PARSER.parseExpression("a or b");
         Expression eOrf = PARSER.parseExpression("e or f");
-        Assertions.assertEquals(expressions.size(), 3);
-        Assertions.assertEquals(expressions.get(0), aOrb);
-        Assertions.assertEquals(expressions.get(1), c);
-        Assertions.assertEquals(expressions.get(2), eOrf);
+        Assertions.assertEquals(3, expressions.size());
+        Assertions.assertEquals(aOrb, expressions.get(0));
+        Assertions.assertEquals(c, expressions.get(1));
+        Assertions.assertEquals(eOrf, expressions.get(2));
     }
 
     @Test
@@ -71,8 +71,8 @@ public class ExpressionUtilsTest {
 
         expr = PARSER.parseExpression("a");
         expressions = ExpressionUtils.extractDisjunctive(expr);
-        Assertions.assertEquals(expressions.size(), 1);
-        Assertions.assertEquals(expressions.get(0), expr);
+        Assertions.assertEquals(1, expressions.size());
+        Assertions.assertEquals(expr, expressions.get(0));
 
         expr = PARSER.parseExpression("a or b or c");
         Expression a = PARSER.parseExpression("a");
@@ -80,18 +80,18 @@ public class ExpressionUtilsTest {
         Expression c = PARSER.parseExpression("c");
 
         expressions = ExpressionUtils.extractDisjunctive(expr);
-        Assertions.assertEquals(expressions.size(), 3);
-        Assertions.assertEquals(expressions.get(0), a);
-        Assertions.assertEquals(expressions.get(1), b);
-        Assertions.assertEquals(expressions.get(2), c);
+        Assertions.assertEquals(3, expressions.size());
+        Assertions.assertEquals(a, expressions.get(0));
+        Assertions.assertEquals(b, expressions.get(1));
+        Assertions.assertEquals(c, expressions.get(2));
 
         expr = PARSER.parseExpression("(a and b) or c or (e and f)");
         expressions = ExpressionUtils.extractDisjunctive(expr);
         Expression aAndb = PARSER.parseExpression("a and b");
         Expression eAndf = PARSER.parseExpression("e and f");
-        Assertions.assertEquals(expressions.size(), 3);
-        Assertions.assertEquals(expressions.get(0), aAndb);
-        Assertions.assertEquals(expressions.get(1), c);
-        Assertions.assertEquals(expressions.get(2), eAndf);
+        Assertions.assertEquals(3, expressions.size());
+        Assertions.assertEquals(aAndb, expressions.get(0));
+        Assertions.assertEquals(c, expressions.get(1));
+        Assertions.assertEquals(eAndf, expressions.get(2));
     }
 }
