@@ -237,14 +237,18 @@ public class Memo {
                     children.set(i, destination);
                 }
             }
-            if (groupExpressions.containsKey(groupExpression)) {
-                // TODO: need to merge group recursively
+            GroupExpression that = groupExpressions.get(groupExpression);
+            if (that != null && that.getOwnerGroup() != null
+                    && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
+                // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
+                // that.getOwnerGroup() already has this groupExpression.
+                Group ownerGroup = groupExpression.getOwnerGroup();
                 groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
+                mergeGroup(ownerGroup, that.getOwnerGroup());
             } else {
                 groupExpressions.put(groupExpression, groupExpression);
             }
         }
-
         if (!source.equals(destination)) {
             source.moveLogicalExpressionOwnership(destination);
             source.movePhysicalExpressionOwnership(destination);
