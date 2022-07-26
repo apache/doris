@@ -44,6 +44,7 @@ public class Memo {
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final List<Group> groups = Lists.newArrayList();
     // we could not use Set, because Set does not have get method.
+    private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
     private final Map<GroupExpressionAdapter, GroupExpressionAdapter> groupExpressionAdapterMap = Maps.newHashMap();
     private Group root;
 
