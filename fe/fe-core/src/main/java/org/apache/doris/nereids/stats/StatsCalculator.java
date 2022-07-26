@@ -189,7 +189,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         List<Expression> groupByExprList = aggregate.getGroupByExpressions();
         StatsDeriveResult childStats = groupExpression.getCopyOfChildStats(0);
         Map<Slot, ColumnStats> childSlotColumnStatsMap = childStats.getSlotToColumnStats();
-        long resultSetCount = -1;
+        long resultSetCount = 1;
         for (Expression expression : groupByExprList) {
             List<SlotReference> slotRefList = expression.collect(SlotReference.class::isInstance);
             // TODO: Need to discuss this.
@@ -198,12 +198,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             }
             SlotReference slotRef = slotRefList.get(0);
             ColumnStats columnStats = childSlotColumnStatsMap.get(slotRef);
-            if (resultSetCount == -1) {
-                resultSetCount = 1;
-                resultSetCount *= columnStats.getNdv();
-            } else if (resultSetCount == 0) {
-                break;
-            }
+            resultSetCount *= columnStats.getNdv();
         }
         Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
         List<NamedExpression> namedExpressionList = aggregate.getOutputExpressions();
