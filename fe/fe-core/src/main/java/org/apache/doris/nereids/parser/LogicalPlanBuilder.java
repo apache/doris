@@ -36,6 +36,7 @@ import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
+import org.apache.doris.nereids.DorisParser.LimitClauseContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
 import org.apache.doris.nereids.DorisParser.MultiStatementsContext;
@@ -595,7 +596,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * @return LimitAndOffset
      */
     @Override
-    public LimitAndOffset visitLimitClause(DorisParser.LimitClauseContext ctx) {
+    public LimitAndOffset visitLimitClause(LimitClauseContext ctx) {
         //TODO add LONG_VALUE type
         if (ctx.OFFSET() != null) {
             //pattern: limit 5 offset 100
