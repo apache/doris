@@ -92,7 +92,6 @@ public enum PrimitiveType {
     }
 
     private static ImmutableSetMultimap<PrimitiveType, PrimitiveType> implicitCastMap;
-
     static {
         ImmutableSetMultimap.Builder<PrimitiveType, PrimitiveType> builder = ImmutableSetMultimap.builder();
         // Nulltype

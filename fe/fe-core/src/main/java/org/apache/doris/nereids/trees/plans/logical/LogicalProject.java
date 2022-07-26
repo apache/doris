@@ -52,7 +52,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
      * @param projects project list
      */
     public LogicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+                          Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
