@@ -73,6 +73,7 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -117,6 +118,7 @@ import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -422,6 +424,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new CaseWhen(whenClauses);
         }
         return new CaseWhen(whenClauses, getExpression(context.elseExpression));
+    }
+
+    @Override
+    public Expression visitCast(DorisParser.CastContext ctx) {
+        return ParserUtils.withOrigin(ctx, () ->
+                new Cast(getExpression(ctx.expression()), ctx.identifier().getText()));
+    }
+
+    @Override
+    public UnboundFunction visitExtract(DorisParser.ExtractContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            String functionName = ctx.field.getText();
+            return new UnboundFunction(functionName, false, Arrays.asList(getExpression(ctx.source)));
+        });
     }
 
     @Override

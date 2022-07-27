@@ -196,6 +196,7 @@ valueExpression
 primaryExpression
     : CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
+    | name=CAST LEFT_PAREN expression AS identifier RIGHT_PAREN                                #cast
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
@@ -205,6 +206,8 @@ primaryExpression
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
+    | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
+      source=valueExpression RIGHT_PAREN                                                       #extract
     ;
 
 qualifiedName
@@ -324,6 +327,7 @@ ansiNonReserved
     | DATA
     | DATABASE
     | DATABASES
+    | DATE
     | DATEADD
     | DATE_ADD
     | DATEDIFF
@@ -577,6 +581,7 @@ nonReserved
     | DATA
     | DATABASE
     | DATABASES
+    | DATE
     | DATEADD
     | DATE_ADD
     | DATEDIFF

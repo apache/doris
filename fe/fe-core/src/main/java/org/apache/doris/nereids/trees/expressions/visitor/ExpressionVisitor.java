@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.DateLiteral;
@@ -177,6 +178,10 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitRegexp(Regexp regexp, C context) {
         return visitStringRegexPredicate(regexp, context);
+    }
+
+    public R visitCast(Cast cast, C context) {
+        return visit(cast, context);
     }
 
     public R visitBoundFunction(BoundFunction boundFunction, C context) {
