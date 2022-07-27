@@ -86,6 +86,7 @@ public class OriginalPlanner extends Planner {
     }
 
     /**
+     *
      */
     private void setResultExprScale(Analyzer analyzer, ArrayList<Expr> outputExprs) {
         for (TupleDescriptor tupleDesc : analyzer.getDescTbl().getTupleDescs()) {
@@ -202,7 +203,9 @@ public class OriginalPlanner extends Planner {
 
         // Push sort node down to the bottom of olapscan.
         // Because the olapscan must be in the end. So get the last two nodes.
-        pushSortToOlapScan();
+        if (VectorizedUtil.isVectorized()) {
+            pushSortToOlapScan();
+        }
 
         // Optimize the transfer of query statistic when query doesn't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
@@ -278,7 +281,7 @@ public class OriginalPlanner extends Planner {
      * 1. The query enables the session variable of the concurrent export result set
      * 2. The top-level fragment is not a merge change node
      * 3. The export method uses the s3 method
-     *
+     * <p>
      * After satisfying the above three conditions,
      * the result file sink and the associated output expr will be pushed down to the next layer.
      * The second plan fragment performs expression calculation and derives the result set.
