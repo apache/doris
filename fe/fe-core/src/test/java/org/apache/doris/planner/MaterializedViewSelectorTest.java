@@ -210,6 +210,7 @@ public class MaterializedViewSelectorTest {
 
     @Test
     public void testCheckGrouping(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
+            @Injectable OlapTable table,
             @Injectable MaterializedIndexMeta indexMeta1,
             @Injectable MaterializedIndexMeta indexMeta2,
             @Injectable MaterializedIndexMeta indexMeta3) {
@@ -249,7 +250,7 @@ public class MaterializedViewSelectorTest {
 
         MaterializedViewSelector selector = new MaterializedViewSelector(selectStmt, analyzer);
         Deencapsulation.setField(selector, "isSPJQuery", false);
-        Deencapsulation.invoke(selector, "checkGrouping", tableAColumnNames, candidateIndexIdToSchema);
+        Deencapsulation.invoke(selector, "checkGrouping", table, tableAColumnNames, candidateIndexIdToSchema);
         Assert.assertEquals(2, candidateIndexIdToSchema.size());
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(1)));
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(2)));
@@ -257,6 +258,7 @@ public class MaterializedViewSelectorTest {
 
     @Test
     public void testCheckAggregationFunction(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
+            @Injectable OlapTable table,
             @Injectable MaterializedIndexMeta indexMeta1,
             @Injectable MaterializedIndexMeta indexMeta2,
             @Injectable MaterializedIndexMeta indexMeta3) {
@@ -299,8 +301,8 @@ public class MaterializedViewSelectorTest {
         Set<FunctionCallExpr> aggregatedColumnsInQueryOutput = Sets.newHashSet();
         aggregatedColumnsInQueryOutput.add(functionCallExpr);
         Deencapsulation.setField(selector, "isSPJQuery", false);
-        Deencapsulation.invoke(selector, "checkAggregationFunction", aggregatedColumnsInQueryOutput,
-                               candidateIndexIdToSchema);
+        Deencapsulation.invoke(selector, "checkAggregationFunction", table, aggregatedColumnsInQueryOutput,
+                candidateIndexIdToSchema);
         Assert.assertEquals(2, candidateIndexIdToSchema.size());
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(1)));
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(3)));
