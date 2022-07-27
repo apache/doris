@@ -136,17 +136,16 @@ public class ConnectScheduler {
         return numberConnection.get();
     }
 
-    public List<ConnectContext.ThreadInfo> listConnection(String user) {
+    public List<ConnectContext.ThreadInfo> listConnection(String user, boolean isFull) {
         List<ConnectContext.ThreadInfo> infos = Lists.newArrayList();
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
-            if (!ctx.getQualifiedUser().equals(user)
-                    && !Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(),
-                            PrivPredicate.GRANT)) {
+            if (!ctx.getQualifiedUser().equals(user) && !Env.getCurrentEnv().getAuth()
+                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 continue;
             }
 
-            infos.add(ctx.toThreadInfo());
+            infos.add(ctx.toThreadInfo(isFull));
         }
         return infos;
     }

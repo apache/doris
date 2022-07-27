@@ -63,6 +63,7 @@ suite("test_conditional_function", "query") {
     qt_sql "select nullif(null,user_id) from ${tbName} order by user_id;"
     qt_sql "select nullif(user_id,null) from ${tbName} order by user_id;"
 
+
     qt_sql "select nullif(1,1);"
     qt_sql "select nullif(1,0);"
 
@@ -71,4 +72,9 @@ suite("test_conditional_function", "query") {
     qt_sql "select is_not_null_pred(user_id) from ${tbName} order by user_id"
 
     sql "DROP TABLE ${tbName};"
+
+    qt_sql """select if(date_format(CONCAT_WS('', '9999-07', '-26'), '%Y-%m')= DATE_FORMAT( curdate(), '%Y-%m'),
+	        curdate(),
+	        DATE_FORMAT(DATE_SUB(month_ceil ( CONCAT_WS('', '9999-07', '-26')), 1), '%Y-%m-%d'));"""
+
 }
