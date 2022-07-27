@@ -135,7 +135,8 @@ public class CreateTableStmtTest {
         cols.add(col4);
         // test normal case
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
-            new KeysDesc(KeysType.UNIQUE_KEYS, colsName), null, new HashDistributionDesc(10, Lists.newArrayList("col1")), properties, null, "");
+                new KeysDesc(KeysType.UNIQUE_KEYS, colsName), null,
+                new HashDistributionDesc(10, Lists.newArrayList("col1")), properties, null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals(col3.getAggregateType(), AggregateType.REPLACE);
         Assert.assertEquals(col4.getAggregateType(), AggregateType.REPLACE);
@@ -157,7 +158,8 @@ public class CreateTableStmtTest {
         cols.add(col4);
         // test merge-on-write
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
-            new KeysDesc(KeysType.UNIQUE_KEYS, colsName), null, new HashDistributionDesc(10, Lists.newArrayList("col1")), properties, null, "");
+                new KeysDesc(KeysType.UNIQUE_KEYS, colsName), null,
+                new HashDistributionDesc(10, Lists.newArrayList("col1")), properties, null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals(col3.getAggregateType(), AggregateType.NONE);
         Assert.assertEquals(col4.getAggregateType(), AggregateType.NONE);
