@@ -54,4 +54,6 @@ suite("test_array_functions", "query") {
     qt_select "select k1, array_union(k2, k4) FROM ${tableName} ORDER BY k1"
     qt_select "select k1, array_except(k2, k4) FROM ${tableName} ORDER BY k1"
     qt_select "select k1, array_intersect(k2, k4) FROM ${tableName} ORDER BY k1"
+    qt_select "select k1, array_slice(k2, 2) FROM ${tableName} ORDER BY k1"
+    qt_select "select k1, array_slice(k2, 1, 2) FROM ${tableName} ORDER BY k1"
 }
