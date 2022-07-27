@@ -96,6 +96,7 @@ struct RowsetWriterContext {
 
     int64_t oldest_write_timestamp;
     int64_t newest_write_timestamp;
+    bool enable_unique_key_merge_on_write = false;
 };
 
 } // namespace doris

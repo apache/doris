@@ -137,7 +137,7 @@ public class ColocateGroupSchema implements Writable {
             distributionColTypes.add(ColumnType.read(in));
         }
         bucketsNum = in.readInt();
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             short replicationNum = in.readShort();
             this.replicaAlloc = new ReplicaAllocation(replicationNum);
         } else {

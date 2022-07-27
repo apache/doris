@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -46,11 +46,11 @@ public class LockTablesStmt extends StatementBase {
         for (LockTable lockTable : lockTables) {
             TableName tableName = lockTable.getTableName();
             tableName.analyze(analyzer);
-            Database db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(tableName.getDb());
+            Database db = analyzer.getEnv().getInternalDataSource().getDbOrAnalysisException(tableName.getDb());
             db.getTableOrAnalysisException(tableName.getTbl());
 
             // check auth
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(
+            if (!Env.getCurrentEnv().getAuth().checkTblPriv(
                     ConnectContext.get(), tableName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                         ConnectContext.get().getQualifiedUser(),

@@ -246,6 +246,8 @@ Status OlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.use_page_cache = true;
     }
 
+    _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
+
     return Status::OK();
 }
 

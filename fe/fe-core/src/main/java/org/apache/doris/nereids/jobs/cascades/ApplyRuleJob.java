@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -62,8 +63,13 @@ public class ApplyRuleJob extends Job {
         for (Plan plan : groupExpressionMatching) {
             List<Plan> newPlans = rule.transform(plan, context.getPlannerContext());
             for (Plan newPlan : newPlans) {
-                GroupExpression newGroupExpression = context.getPlannerContext().getMemo()
+                Pair<Boolean, GroupExpression> pair = context.getPlannerContext().getMemo()
                         .copyIn(newPlan, groupExpression.getOwnerGroup(), rule.isRewrite());
+                if (!pair.first) {
+                    continue;
+                }
+                GroupExpression newGroupExpression = pair.second;
+
                 if (newPlan instanceof LogicalPlan) {
                     pushTask(new DeriveStatsJob(newGroupExpression, context));
                     if (exploredOnly) {

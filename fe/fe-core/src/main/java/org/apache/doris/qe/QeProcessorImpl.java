@@ -98,7 +98,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
         ) {
             String user = queryInfo.getConnectContext().getQualifiedUser();
-            long maxQueryInstances = queryInfo.getConnectContext().getCatalog().getAuth().getMaxQueryInstances(user);
+            long maxQueryInstances = queryInfo.getConnectContext().getEnv().getAuth().getMaxQueryInstances(user);
             if (maxQueryInstances <= 0) {
                 maxQueryInstances = Config.default_max_query_instances;
             }
@@ -198,6 +198,15 @@ public final class QeProcessorImpl implements QeProcessor {
         }
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    @Override
+    public String getCurrentQueryByQueryId(TUniqueId queryId) {
+        QueryInfo info = coordinatorMap.get(queryId);
+        if (info != null && info.sql != null) {
+            return info.sql;
+        }
+        return "";
     }
 
     public static final class QueryInfo {

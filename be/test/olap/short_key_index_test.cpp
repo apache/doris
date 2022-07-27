@@ -19,10 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/row_cursor.h"
-#include "olap/tablet_schema_helper.h"
-#include "util/debug_util.h"
-
 namespace doris {
 
 class ShortKeyIndexTest : public testing::Test {
@@ -90,68 +86,6 @@ TEST_F(ShortKeyIndexTest, builder) {
     {
         auto iter = decoder.upper_bound("9999");
         EXPECT_FALSE(iter.valid());
-    }
-}
-
-TEST_F(ShortKeyIndexTest, encode) {
-    TabletSchema tablet_schema;
-    tablet_schema._cols.push_back(create_int_key(0));
-    tablet_schema._cols.push_back(create_int_key(1));
-    tablet_schema._cols.push_back(create_int_key(2));
-    tablet_schema._cols.push_back(create_int_value(3));
-    tablet_schema._num_columns = 4;
-    tablet_schema._num_key_columns = 3;
-    tablet_schema._num_short_key_columns = 3;
-
-    // test encoding with padding
-    {
-        RowCursor row;
-        row.init(tablet_schema, 2);
-
-        {
-            // test padding
-            {
-                auto cell = row.cell(0);
-                cell.set_is_null(false);
-                *(int*)cell.mutable_cell_ptr() = 12345;
-            }
-            {
-                auto cell = row.cell(1);
-                cell.set_is_null(false);
-                *(int*)cell.mutable_cell_ptr() = 54321;
-            }
-            std::string buf;
-            encode_key_with_padding(&buf, row, 3, true);
-            // should be \x02\x80\x00\x30\x39\x02\x80\x00\xD4\x31\x00
-            EXPECT_STREQ("0280003039028000D43100", hexdump(buf.c_str(), buf.size()).c_str());
-        }
-        // test with null
-        {
-            {
-                auto cell = row.cell(0);
-                cell.set_is_null(false);
-                *(int*)cell.mutable_cell_ptr() = 54321;
-            }
-            {
-                auto cell = row.cell(1);
-                cell.set_is_null(true);
-                *(int*)cell.mutable_cell_ptr() = 54321;
-            }
-
-            {
-                std::string buf;
-                encode_key_with_padding(&buf, row, 3, false);
-                // should be \x02\x80\x00\xD4\x31\x01\xff
-                EXPECT_STREQ("028000D43101FF", hexdump(buf.c_str(), buf.size()).c_str());
-            }
-            // encode key
-            {
-                std::string buf;
-                encode_key(&buf, row, 2);
-                // should be \x02\x80\x00\xD4\x31\x01
-                EXPECT_STREQ("028000D43101", hexdump(buf.c_str(), buf.size()).c_str());
-            }
-        }
     }
 }
 

@@ -25,7 +25,7 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
@@ -64,12 +64,12 @@ public class PolicyTest extends TestWithFeService {
         UserIdentity user = new UserIdentity("test_policy", "%");
         user.analyze(SystemInfoService.DEFAULT_CLUSTER);
         CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(user));
-        Catalog.getCurrentCatalog().getAuth().createUser(createUserStmt);
+        Env.getCurrentEnv().getAuth().createUser(createUserStmt);
         List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ADMIN_PRIV);
         TablePattern tablePattern = new TablePattern("*", "*", "*");
         tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
-        Catalog.getCurrentCatalog().getAuth().grant(grantStmt);
+        Env.getCurrentEnv().getAuth().grant(grantStmt);
         useUser("test_policy");
     }
 
@@ -85,12 +85,12 @@ public class PolicyTest extends TestWithFeService {
     @Test
     public void testExistPolicy() throws Exception {
         createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
-        Assertions.assertTrue(Catalog.getCurrentCatalog().getPolicyMgr().existPolicy("default_cluster:test_policy"));
+        Assertions.assertTrue(Env.getCurrentEnv().getPolicyMgr().existPolicy("default_cluster:test_policy"));
         dropPolicy("DROP ROW POLICY test_row_policy ON test.table1 FOR test_policy");
-        Assertions.assertFalse(Catalog.getCurrentCatalog().getPolicyMgr().existPolicy("default_cluster:test_policy"));
+        Assertions.assertFalse(Env.getCurrentEnv().getPolicyMgr().existPolicy("default_cluster:test_policy"));
         createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
         dropPolicy("DROP ROW POLICY test_row_policy ON test.table1");
-        Assertions.assertFalse(Catalog.getCurrentCatalog().getPolicyMgr().existPolicy("default_cluster:test_policy"));
+        Assertions.assertFalse(Env.getCurrentEnv().getPolicyMgr().existPolicy("default_cluster:test_policy"));
     }
 
     @Test
@@ -145,11 +145,11 @@ public class PolicyTest extends TestWithFeService {
         createPolicy("CREATE ROW POLICY test_row_policy2 ON test.table1 AS PERMISSIVE TO test_policy USING (k2 = 1)");
         ShowPolicyStmt showPolicyStmt =
                 (ShowPolicyStmt) parseAndAnalyzeStmt("SHOW ROW POLICY");
-        int firstSize = Catalog.getCurrentCatalog().getPolicyMgr().showPolicy(showPolicyStmt).getResultRows().size();
+        int firstSize = Env.getCurrentEnv().getPolicyMgr().showPolicy(showPolicyStmt).getResultRows().size();
         Assertions.assertTrue(firstSize > 0);
         dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
         dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
-        int secondSize = Catalog.getCurrentCatalog().getPolicyMgr().showPolicy(showPolicyStmt).getResultRows().size();
+        int secondSize = Env.getCurrentEnv().getPolicyMgr().showPolicy(showPolicyStmt).getResultRows().size();
         Assertions.assertEquals(2, firstSize - secondSize);
     }
 

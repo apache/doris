@@ -58,7 +58,7 @@ After deployment is complete, and before installing the plugin, you need to crea
 create table doris_audit_tbl__
 (
     query_id varchar(48) comment "Unique query id",
-    time datetime not null comment "Query start time",
+    `time` datetime not null comment "Query start time",
     client_ip varchar(32) comment "Client IP",
     user varchar(64) comment "User name",
     db varchar(96) comment "Database of this query",
@@ -76,8 +76,8 @@ create table doris_audit_tbl__
     peak_memory_bytes bigint comment "Peak memory bytes used on all backends of this query",
     stmt string comment "The original statement, trimed if longer than 2G"
 ) engine=OLAP
-duplicate key(query_id, time, client_ip)
-partition by range(time) ()
+duplicate key(query_id, `time`, client_ip)
+partition by range(`time`) ()
 distributed by hash(query_id) buckets 1
 properties(
     "dynamic_partition.time_unit" = "DAY",

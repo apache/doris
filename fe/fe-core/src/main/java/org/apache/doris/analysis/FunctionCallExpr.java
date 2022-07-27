@@ -23,9 +23,9 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
@@ -953,12 +953,12 @@ public class FunctionCallExpr extends Expr {
                     String dbName = fnName.analyzeDb(analyzer);
                     if (!Strings.isNullOrEmpty(dbName)) {
                         // check operation privilege
-                        if (!Catalog.getCurrentCatalog().getAuth()
+                        if (!Env.getCurrentEnv().getAuth()
                                 .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
                             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
                         }
                         // TODO(gaoxin): ExternalDatabase not implement udf yet.
-                        DatabaseIf db = Catalog.getCurrentCatalog().getInternalDataSource().getDbNullable(dbName);
+                        DatabaseIf db = Env.getCurrentEnv().getInternalDataSource().getDbNullable(dbName);
                         if (db != null && (db instanceof Database)) {
                             Function searchDesc =
                                     new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
@@ -1101,6 +1101,18 @@ public class FunctionCallExpr extends Expr {
             if (children.size() > 0) {
                 this.type = new ArrayType(children.get(0).getType());
             }
+        }
+
+        if (this.type instanceof ArrayType) {
+            ArrayType arrayType = (ArrayType) type;
+            boolean containsNull = false;
+            for (Expr child : children) {
+                Type childType = child.getType();
+                if (childType instanceof ArrayType) {
+                    containsNull |= ((ArrayType) childType).getContainsNull();
+                }
+            }
+            arrayType.setContainsNull(containsNull);
         }
     }
 
@@ -1306,9 +1318,15 @@ public class FunctionCallExpr extends Expr {
             fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
-        } else if (fnName.getFunction().equalsIgnoreCase("substring")) {
+        } else if (fnName.getFunction().equalsIgnoreCase("substring")
+                || fnName.getFunction().equalsIgnoreCase("cast")) {
             Type[] childTypes = getChildren().stream().map(t -> t.type).toArray(Type[]::new);
             fn = getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            type = fn.getReturnType();
+        } else if (fnName.getFunction().equalsIgnoreCase("year")) {
+            Type childType = getChild(0).type;
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
         }
     }

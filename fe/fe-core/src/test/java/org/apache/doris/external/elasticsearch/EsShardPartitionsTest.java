@@ -17,8 +17,8 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
 
 import org.junit.Assert;
@@ -28,7 +28,7 @@ public class EsShardPartitionsTest extends EsTestCase {
 
     @Test
     public void testPartition() throws Exception {
-        EsTable esTable = (EsTable) Catalog.getCurrentInternalCatalog()
+        EsTable esTable = (EsTable) Env.getCurrentInternalCatalog()
                 .getDbOrMetaException(CatalogTestUtil.testDb1).getTableOrMetaException(CatalogTestUtil.testEsTableId1);
         EsShardPartitions esShardPartitions =
                 EsShardPartitions.findShardPartitions("doe", loadJsonFromFile("data/es/test_search_shards.json"));

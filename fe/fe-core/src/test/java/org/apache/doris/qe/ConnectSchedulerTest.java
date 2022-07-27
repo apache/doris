@@ -88,9 +88,9 @@ public class ConnectSchedulerTest {
         for (int i = 0; i < 2; ++i) {
             ConnectContext context = new ConnectContext(socketChannel);
             if (i == 1) {
-                context.setCatalog(AccessTestUtil.fetchBlockCatalog());
+                context.setEnv(AccessTestUtil.fetchBlockCatalog());
             } else {
-                context.setCatalog(AccessTestUtil.fetchAdminCatalog());
+                context.setEnv(AccessTestUtil.fetchAdminCatalog());
             }
             context.setQualifiedUser("root");
             Assert.assertTrue(scheduler.submit(context));
@@ -110,7 +110,7 @@ public class ConnectSchedulerTest {
         ConnectScheduler scheduler = new ConnectScheduler(10);
 
         ConnectContext context = new ConnectContext(socketChannel);
-        context.setCatalog(AccessTestUtil.fetchAdminCatalog());
+        context.setEnv(AccessTestUtil.fetchAdminCatalog());
         context.setQualifiedUser("root");
         Assert.assertTrue(scheduler.submit(context));
         Assert.assertEquals(0, context.getConnectionId());

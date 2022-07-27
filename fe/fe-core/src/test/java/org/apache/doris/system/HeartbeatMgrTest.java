@@ -17,7 +17,7 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.Pair;
@@ -47,23 +47,23 @@ import org.junit.Test;
 public class HeartbeatMgrTest {
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
 
     @Before
     public void setUp() {
         new Expectations() {
             {
-                catalog.getSelfNode();
+                env.getSelfNode();
                 minTimes = 0;
                 result = Pair.create("192.168.1.3", 9010); // not self
 
-                catalog.isReady();
+                env.isReady();
                 minTimes = 0;
                 result = true;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
 

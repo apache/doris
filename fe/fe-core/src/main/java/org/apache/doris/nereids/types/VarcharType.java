@@ -25,7 +25,7 @@ import java.util.Objects;
 /**
  * Varchar type in Nereids.
  */
-public class VarcharType extends DataType {
+public class VarcharType extends PrimitiveType {
     private final int len;
 
     public VarcharType(int len) {
