@@ -281,7 +281,10 @@ public class CreateTableStmt extends DdlStmt {
 
         // `analyzeUniqueKeyMergeOnWrite` would modify `properties`, which will be used later,
         // so we just clone a properties map here.
-        boolean enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(new HashMap<>(properties));
+        boolean enableUniqueKeyMergeOnWrite = false;
+        if (properties != null) {
+            enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(new HashMap<>(properties));
+        }
 
         // analyze key desc
         if (engineName.equalsIgnoreCase("olap")) {
