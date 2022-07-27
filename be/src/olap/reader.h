@@ -92,6 +92,9 @@ public:
         std::vector<uint32_t>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
 
+        // used for comapction to record row ids
+        bool record_rowids = false;
+
         void check_validation() const;
 
         std::string to_string() const;

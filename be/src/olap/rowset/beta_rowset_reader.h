@@ -56,6 +56,12 @@ public:
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
+    Status current_block_row_locations(std::vector<RowLocation>* locations) override {
+        return _iterator->current_block_row_locations(locations);
+    }
+
+    Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) override;
+
 private:
     bool _should_push_down_value_predicates() const;
 

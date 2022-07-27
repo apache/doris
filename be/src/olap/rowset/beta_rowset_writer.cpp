@@ -306,6 +306,7 @@ Status BetaRowsetWriter::_create_segment_writer(
 }
 
 Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+    _segment_num_rows.push_back((*writer)->num_rows_written());
     if ((*writer)->num_rows_written() == 0) {
         return Status::OK();
     }
