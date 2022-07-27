@@ -184,14 +184,14 @@ public:
         // TODO: handle mode in the future.
         // be/src/olap/row_block2.cpp copy_data_to_column
         const auto& timestamp =
-                static_cast<const ColumnVector<DateValueType>&>(*columns[2]).get_data()[row_num];
+                static_cast<const ColumnVector<NativeType>&>(*columns[2]).get_data()[row_num];
         const int NON_EVENT_NUM = 3;
         for (int i = NON_EVENT_NUM; i < IAggregateFunction::get_argument_types().size(); i++) {
             const auto& is_set =
                     static_cast<const ColumnVector<UInt8>&>(*columns[i]).get_data()[row_num];
             if (is_set) {
                 this->data(place).add(
-                        timestamp, i - NON_EVENT_NUM,
+                        binary_cast<NativeType, DateValueType>(timestamp), i - NON_EVENT_NUM,
                         IAggregateFunction::get_argument_types().size() - NON_EVENT_NUM, window);
             }
         }
