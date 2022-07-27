@@ -55,17 +55,17 @@ public class NereidsParser {
         for (LogicalPlan logicalPlan : logicalPlans) {
             // TODO: this is a trick to support explain. Since we do not support any other command in a short time.
             //     It is acceptable. In the future, we need to refactor this.
-            ExplainOptions explainOptions = null;
             if (logicalPlan instanceof ExplainCommand) {
                 ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
-                logicalPlan = explainCommand.getLogicalPlan();
-                boolean isVerbose = explainCommand.getLevel() == ExplainLevel.VERBOSE;
-                boolean isGraph = explainCommand.getLevel() == ExplainLevel.GRAPH;
-                explainOptions = new ExplainOptions(isVerbose, isGraph);
+                LogicalPlan innerPlan = explainCommand.getLogicalPlan();
+                LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(innerPlan);
+                logicalPlanAdapter.setIsExplain(new ExplainOptions(
+                        explainCommand.getLevel() == ExplainLevel.VERBOSE,
+                        explainCommand.getLevel() == ExplainLevel.GRAPH));
+                statementBases.add(logicalPlanAdapter);
+            } else {
+                statementBases.add(new LogicalPlanAdapter(logicalPlan));
             }
-            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan);
-            logicalPlanAdapter.setIsExplain(explainOptions);
-            statementBases.add(logicalPlanAdapter);
         }
         return statementBases;
     }
