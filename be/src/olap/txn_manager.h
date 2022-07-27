@@ -42,6 +42,7 @@
 #include "olap/options.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet.h"
 #include "util/time.h"
 
@@ -171,6 +172,10 @@ private:
     // get _txn_map_lock before calling.
     void _insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
     void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
+
+    bool _check_pk_in_pre_segments(const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
+                                   const Slice& key, TabletSharedPtr tablet,
+                                   const Version& version);
 
 private:
     const int32_t _txn_map_shard_size;
