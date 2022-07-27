@@ -26,11 +26,13 @@ namespace doris {
 
 class RowCursor;
 class Conditions;
+class DeleteBitmap;
 class DeleteHandler;
 class TabletSchema;
 
 struct RowsetReaderContext {
     ReaderType reader_type = READER_QUERY;
+    Version version {-1, -1};
     const TabletSchema* tablet_schema = nullptr;
     // whether rowset should return ordered rows.
     bool need_ordered_result = true;
@@ -66,6 +68,9 @@ struct RowsetReaderContext {
     bool is_unique = false;
     //record row num merged in generic iterator
     uint64_t* merged_rows = nullptr;
+    // for unique key merge on write
+    bool enable_unique_key_merge_on_write = false;
+    const DeleteBitmap* delete_bitmap = nullptr;
 };
 
 } // namespace doris

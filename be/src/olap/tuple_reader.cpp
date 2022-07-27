@@ -85,7 +85,11 @@ Status TupleReader::init(const ReaderParams& read_params) {
         _next_row_func = &TupleReader::_direct_next_row;
         break;
     case KeysType::UNIQUE_KEYS:
-        _next_row_func = &TupleReader::_unique_key_next_row;
+        if (_tablet->enable_unique_key_merge_on_write()) {
+            _next_row_func = &TupleReader::_direct_next_row;
+        } else {
+            _next_row_func = &TupleReader::_unique_key_next_row;
+        }
         break;
     case KeysType::AGG_KEYS:
         _next_row_func = &TupleReader::_agg_key_next_row;

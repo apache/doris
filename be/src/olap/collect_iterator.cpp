@@ -34,7 +34,9 @@ void CollectIterator::init(TabletReader* reader) {
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
     // multiple data to aggregate for better performance
     if (_reader->_reader_type == READER_QUERY &&
-        (_reader->_aggregation || _reader->_tablet->keys_type() == KeysType::DUP_KEYS)) {
+        (_reader->_aggregation || _reader->_tablet->keys_type() == KeysType::DUP_KEYS ||
+         (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+          _reader->_tablet->enable_unique_key_merge_on_write()))) {
         _merge = false;
     }
 }

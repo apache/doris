@@ -153,6 +153,11 @@ Status SegmentIterator::_init(bool is_vec) {
     } else {
         _init_lazy_materialization();
     }
+    // Remove rows that have been marked deleted
+    if (_opts.delete_bitmap.count(segment_id()) > 0 &&
+        _opts.delete_bitmap[segment_id()] != nullptr) {
+        _row_bitmap -= *(_opts.delete_bitmap[segment_id()]);
+    }
     _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
     return Status::OK();
 }
