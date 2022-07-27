@@ -506,12 +506,12 @@ public:
     // Used like if (res == Status::OK())
     // if the state is ok, then both code and precise code is not initialized properly, so that should check ok state
     // ignore error messages during comparison
-    bool operator==(const Status& st) {
+    bool operator==(const Status& st) const {
         return ok() ? st.ok() : code() == st.code() && precise_code() == st.precise_code();
     }
 
     // Used like if (res != Status::OK())
-    bool operator!=(const Status& st) {
+    bool operator!=(const Status& st) const {
         return ok() ? !st.ok() : code() != st.code() || precise_code() != st.precise_code();
     }
 
