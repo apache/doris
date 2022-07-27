@@ -742,9 +742,7 @@ Status PosixEnv::get_space_info(const std::string& path, int64_t* capacity, int6
     try {
         std::filesystem::path path_name(path);
         std::filesystem::space_info path_info = std::filesystem::space(path_name);
-        if (*capacity <= 0) {
-            *capacity = path_info.capacity;
-        }
+        *capacity = path_info.capacity;
         *available = path_info.available;
     } catch (std::filesystem::filesystem_error& e) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
