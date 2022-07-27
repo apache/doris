@@ -18,6 +18,7 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.HiveBucketUtil;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
@@ -109,13 +110,21 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
 
         Configuration configuration = setConfiguration();
         InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(configuration, inputFormatName, false);
+        List<InputSplit> splits;
         if (!hivePartitions.isEmpty()) {
-            return hivePartitions.parallelStream()
+            splits = hivePartitions.parallelStream()
                     .flatMap(x -> getSplitsByPath(inputFormat, configuration, x.getSd().getLocation()).stream())
                     .collect(Collectors.toList());
         } else {
-            return getSplitsByPath(inputFormat, configuration, splitsPath);
+            splits = getSplitsByPath(inputFormat, configuration, splitsPath);
         }
+        return HiveBucketUtil.getPrunedSplitsByBuckets(
+                splits,
+                hmsTable.getName(),
+                exprs,
+                getRemoteHiveTable().getSd().getBucketCols(),
+                getRemoteHiveTable().getSd().getNumBuckets(),
+                getRemoteHiveTable().getParameters());
     }
 
     private List<InputSplit> getSplitsByPath(
