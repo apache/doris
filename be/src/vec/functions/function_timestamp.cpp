@@ -29,17 +29,70 @@
 
 namespace doris::vectorized {
 
-template <typename DateType, typename NativeType>
 struct StrToDate {
     static constexpr auto name = "str_to_date";
-    using ReturnType = DateType;
-    using ColumnType = ColumnVector<NativeType>;
 
-    static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
-                              const ColumnString::Offsets& loffsets,
-                              const ColumnString::Chars& rdata,
-                              const ColumnString::Offsets& roffsets,
-                              PaddedPODArray<NativeType>& res, NullMap& null_map) {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        ColumnPtr argument_columns[2];
+
+        // focus convert const to full column to simply execute logic
+        // handle
+        for (int i = 0; i < 2; ++i) {
+            argument_columns[i] =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
+                VectorizedUtils::update_null_map(null_map->get_data(),
+                                                 nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
+            }
+        }
+
+        auto specific_str_column = assert_cast<const ColumnString*>(argument_columns[0].get());
+        auto specific_char_column = assert_cast<const ColumnString*>(argument_columns[1].get());
+
+        auto& ldata = specific_str_column->get_chars();
+        auto& loffsets = specific_str_column->get_offsets();
+
+        auto& rdata = specific_char_column->get_chars();
+        auto& roffsets = specific_char_column->get_offsets();
+
+        ColumnPtr res = nullptr;
+        WhichDataType which(remove_nullable(block.get_by_position(result).type));
+        if (which.is_date_time_v2()) {
+            res = ColumnVector<UInt64>::create();
+            executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(
+                    context, ldata, loffsets, rdata, roffsets,
+                    static_cast<ColumnVector<UInt64>*>(res->assume_mutable().get())->get_data(),
+                    null_map->get_data());
+        } else if (which.is_date_v2()) {
+            res = ColumnVector<UInt32>::create();
+            executeImpl<DateV2Value<DateV2ValueType>, UInt32>(
+                    context, ldata, loffsets, rdata, roffsets,
+                    static_cast<ColumnVector<UInt32>*>(res->assume_mutable().get())->get_data(),
+                    null_map->get_data());
+        } else {
+            res = ColumnVector<Int64>::create();
+            executeImpl<VecDateTimeValue, Int64>(
+                    context, ldata, loffsets, rdata, roffsets,
+                    static_cast<ColumnVector<Int64>*>(res->assume_mutable().get())->get_data(),
+                    null_map->get_data());
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+
+    template <typename DateValueType, typename NativeType>
+    static void executeImpl(FunctionContext* context, const ColumnString::Chars& ldata,
+                            const ColumnString::Offsets& loffsets, const ColumnString::Chars& rdata,
+                            const ColumnString::Offsets& roffsets, PaddedPODArray<NativeType>& res,
+                            NullMap& null_map) {
         size_t size = loffsets.size();
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {
@@ -49,43 +102,76 @@ struct StrToDate {
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             int r_str_size = roffsets[i] - roffsets[i - 1] - 1;
 
-            if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
-                          std::is_same_v<DateType, DataTypeDate>) {
-                auto& ts_val = *reinterpret_cast<VecDateTimeValue*>(&res[i]);
-                if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
-                    null_map[i] = 1;
-                }
+            auto& ts_val = *reinterpret_cast<DateValueType*>(&res[i]);
+            if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
+                null_map[i] = 1;
+            }
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                 if (context->impl()->get_return_type().type ==
                     doris_udf::FunctionContext::Type::TYPE_DATETIME) {
                     ts_val.to_datetime();
                 } else {
                     ts_val.cast_to_date();
                 }
-            } else {
-                auto& ts_val = *reinterpret_cast<DateV2Value<DateV2ValueType>*>(&res[i]);
-                if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
-                    null_map[i] = 1;
-                }
             }
         }
     }
 };
 
-struct NameMakeDate {
-    static constexpr auto name = "makedate";
-};
-
-template <typename LeftDataType, typename RightDataType, typename ResultDateType,
-          typename ReturnType>
 struct MakeDateImpl {
-    using ResultDataType = ResultDateType;
-    using LeftDataColumnType = ColumnVector<typename LeftDataType::FieldType>;
-    using RightDataColumnType = ColumnVector<typename RightDataType::FieldType>;
-    using ColumnType = ColumnVector<ReturnType>;
+    static constexpr auto name = "makedate";
 
-    static void vector_vector(const PaddedPODArray<typename LeftDataType::FieldType>& ldata,
-                              const PaddedPODArray<typename RightDataType::FieldType>& rdata,
-                              PaddedPODArray<ReturnType>& res, NullMap& null_map) {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        DCHECK_EQ(arguments.size(), 2);
+        ColumnPtr argument_columns[2];
+        for (int i = 0; i < 2; ++i) {
+            argument_columns[i] =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
+                VectorizedUtils::update_null_map(null_map->get_data(),
+                                                 nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
+            }
+        }
+
+        ColumnPtr res = nullptr;
+        WhichDataType which(remove_nullable(block.get_by_position(result).type));
+        if (which.is_date_v2()) {
+            res = ColumnVector<UInt32>::create();
+            executeImpl<DateV2Value<DateV2ValueType>, UInt32>(
+                    static_cast<const ColumnVector<Int32>*>(argument_columns[0].get())->get_data(),
+                    static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())->get_data(),
+                    static_cast<ColumnVector<UInt32>*>(res->assume_mutable().get())->get_data(),
+                    null_map->get_data());
+        } else if (which.is_date_time_v2()) {
+            res = ColumnVector<UInt64>::create();
+            executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(
+                    static_cast<const ColumnVector<Int32>*>(argument_columns[0].get())->get_data(),
+                    static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())->get_data(),
+                    static_cast<ColumnVector<UInt64>*>(res->assume_mutable().get())->get_data(),
+                    null_map->get_data());
+        } else {
+            res = ColumnVector<Int64>::create();
+            executeImpl<VecDateTimeValue, Int64>(
+                    static_cast<const ColumnVector<Int32>*>(argument_columns[0].get())->get_data(),
+                    static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())->get_data(),
+                    static_cast<ColumnVector<Int64>*>(res->assume_mutable().get())->get_data(),
+                    null_map->get_data());
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+
+    template <typename DateValueType, typename ReturnType>
+    static void executeImpl(const PaddedPODArray<Int32>& ldata, const PaddedPODArray<Int32>& rdata,
+                            PaddedPODArray<ReturnType>& res, NullMap& null_map) {
         auto len = ldata.size();
         res.resize(len);
 
@@ -97,10 +183,8 @@ struct MakeDateImpl {
                 continue;
             }
 
-            if constexpr (std::is_same_v<ResultDataType, DataTypeDateTime> ||
-                          std::is_same_v<ResultDataType, DataTypeDate>) {
-                auto& res_val = *reinterpret_cast<VecDateTimeValue*>(&res[i]);
-
+            auto& res_val = *reinterpret_cast<DateValueType*>(&res[i]);
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                 VecDateTimeValue ts_value = VecDateTimeValue();
                 ts_value.set_time(l, 1, 1, 0, 0, 0);
 
@@ -113,16 +197,15 @@ struct MakeDateImpl {
 
                 TimeInterval interval(DAY, r - 1, false);
                 res_val = VecDateTimeValue::from_datetime_val(ts_val);
-                if (!res_val.date_add_interval<DAY>(interval)) {
+                if (!res_val.template date_add_interval<DAY>(interval)) {
                     null_map[i] = 1;
                     continue;
                 }
                 res_val.cast_to_date();
             } else {
-                DateV2Value<DateV2ValueType>* value = new (&res[i]) DateV2Value<DateV2ValueType>();
-                value->set_time(l, 1, 1);
+                res_val.set_time(l, 1, 1, 0, 0, 0, 0);
                 TimeInterval interval(DAY, r - 1, false);
-                if (!value->date_add_interval<DAY>(interval, *value)) {
+                if (!res_val.template date_add_interval<DAY>(interval)) {
                     null_map[i] = 1;
                 }
             }
@@ -130,7 +213,6 @@ struct MakeDateImpl {
     }
 };
 
-template <typename DateType>
 class FromDays : public IFunction {
 public:
     static constexpr auto name = "from_days";
@@ -146,47 +228,64 @@ public:
     bool use_default_implementation_for_nulls() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DateType>());
+        return make_nullable(std::make_shared<DataTypeDate>());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto res_column = ColumnInt64::create(input_rows_count);
-        auto& res_data = assert_cast<ColumnInt64&>(*res_column).get_data();
+
         ColumnPtr argument_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-
         auto data_col = assert_cast<const ColumnVector<Int32>*>(argument_column.get());
+
+        ColumnPtr res_column;
+        WhichDataType which(remove_nullable(block.get_by_position(result).type));
+        if (which.is_date()) {
+            res_column = ColumnInt64::create(input_rows_count);
+            execute_straight<VecDateTimeValue, Int64>(
+                    input_rows_count, null_map->get_data(), data_col->get_data(),
+                    static_cast<ColumnVector<Int64>*>(res_column->assume_mutable().get())
+                            ->get_data());
+        } else {
+            res_column = ColumnVector<UInt32>::create(input_rows_count);
+            execute_straight<DateV2Value<DateV2ValueType>, UInt32>(
+                    input_rows_count, null_map->get_data(), data_col->get_data(),
+                    static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
+                            ->get_data());
+        }
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
+        return Status::OK();
+    }
+
+private:
+    template <typename DateValueType, typename ReturnType>
+    void execute_straight(size_t input_rows_count, NullMap& null_map,
+                          const PaddedPODArray<Int32>& data_col,
+                          PaddedPODArray<ReturnType>& res_data) {
         for (int i = 0; i < input_rows_count; i++) {
-            if constexpr (std::is_same_v<DateType, DataTypeDate>) {
-                const auto& cur_data = data_col->get_data()[i];
-                auto& ts_value = *reinterpret_cast<VecDateTimeValue*>(&res_data[i]);
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                const auto& cur_data = data_col[i];
+                auto& ts_value = *reinterpret_cast<DateValueType*>(&res_data[i]);
                 if (!ts_value.from_date_daynr(cur_data)) {
-                    null_map->get_data()[i] = 1;
+                    null_map[i] = 1;
                     continue;
                 }
                 DateTimeVal ts_val;
                 ts_value.to_datetime_val(&ts_val);
                 ts_value = VecDateTimeValue::from_datetime_val(ts_val);
             } else {
-                const auto& cur_data = data_col->get_data()[i];
-                auto& ts_value = *reinterpret_cast<DateV2Value<DateV2ValueType>*>(&res_data[i]);
+                const auto& cur_data = data_col[i];
+                auto& ts_value = *reinterpret_cast<DateValueType*>(&res_data[i]);
                 if (!ts_value.get_date_from_daynr(cur_data)) {
-                    null_map->get_data()[i] = 1;
+                    null_map[i] = 1;
                 }
             }
         }
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
-        return Status::OK();
     }
 };
-
-using FunctionStrToDate = FunctionBinaryStringOperateToNullType<StrToDate<DataTypeDateTime, Int64>>;
-
-using FunctionMakeDate = FunctionBinaryToNullType<DataTypeInt32, DataTypeInt32, DataTypeDateTime,
-                                                  Int64, MakeDateImpl, NameMakeDate>;
 
 struct UnixTimeStampImpl {
     static Int32 trim_timestamp(Int64 timestamp) {
@@ -258,9 +357,20 @@ struct UnixTimeStampDateImpl {
                     null_map_data[i] = false;
                     col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
                 }
-            } else {
+            } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 const DateV2Value<DateV2ValueType>& ts_value =
                         reinterpret_cast<const DateV2Value<DateV2ValueType>&>(*source.data);
+                int64_t timestamp;
+                if (!ts_value.unix_timestamp(&timestamp,
+                                             context->impl()->state()->timezone_obj())) {
+                    null_map_data[i] = true;
+                } else {
+                    null_map_data[i] = false;
+                    col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                }
+            } else {
+                const DateV2Value<DateTimeV2ValueType>& ts_value =
+                        reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
                 int64_t timestamp;
                 if (!ts_value.unix_timestamp(&timestamp,
                                              context->impl()->state()->timezone_obj())) {
@@ -367,16 +477,45 @@ public:
     }
 };
 
+template <typename Impl>
+class FunctionOtherTypesToDateType : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionOtherTypesToDateType>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeDateTime>());
+    }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        return Impl::execute(context, block, arguments, result, input_rows_count);
+    }
+};
+
+using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate>;
+
+using FunctionMakeDate = FunctionOtherTypesToDateType<MakeDateImpl>;
+
 void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
     factory.register_function<FunctionMakeDate>();
-    factory.register_function<FromDays<DataTypeDate>>();
+    factory.register_function<FromDays>();
 
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampImpl>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDate>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateV2>>>();
+    factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateTimeV2>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDatetimeImpl<DataTypeDate>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDatetimeImpl<DataTypeDateV2>>>();
+    factory.register_function<
+            FunctionUnixTimestamp<UnixTimeStampDatetimeImpl<DataTypeDateTimeV2>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampStrImpl>>();
 }
 
