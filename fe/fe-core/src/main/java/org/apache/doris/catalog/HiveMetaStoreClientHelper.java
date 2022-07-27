@@ -76,6 +76,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Helper class for HiveMetaStoreClient
@@ -594,7 +595,7 @@ public class HiveMetaStoreClientHelper {
         return compoundExpr;
     }
 
-    private static SlotRef convertDorisExprToSlotRef(Expr expr) {
+    public static SlotRef convertDorisExprToSlotRef(Expr expr) {
         SlotRef slotRef = null;
         if (expr instanceof SlotRef) {
             slotRef = (SlotRef) expr;
@@ -606,7 +607,7 @@ public class HiveMetaStoreClientHelper {
         return slotRef;
     }
 
-    private static LiteralExpr convertDorisExprToLiteralExpr(Expr expr) {
+    public static LiteralExpr convertDorisExprToLiteralExpr(Expr expr) {
         LiteralExpr literalExpr = null;
         if (expr instanceof LiteralExpr) {
             literalExpr = (LiteralExpr) expr;
@@ -618,7 +619,7 @@ public class HiveMetaStoreClientHelper {
         return literalExpr;
     }
 
-    private static Object extractDorisLiteral(Expr expr) {
+    public static Object extractDorisLiteral(Expr expr) {
         if (!expr.isLiteral()) {
             return null;
         }
@@ -832,7 +833,22 @@ public class HiveMetaStoreClientHelper {
                 }
             }
             output.append(")\n");
+            if (remoteTable.getPartitionKeys().size() > 0) {
+                output.append("PARTITIONED BY (\n")
+                        .append(remoteTable.getPartitionKeys().stream().map(
+                                partition -> String.format("  `%s` `%s`", partition.getName(), partition.getType()))
+                                .collect(Collectors.joining(",\n")))
+                        .append(")\n");
+            }
             StorageDescriptor descriptor = remoteTable.getSd();
+            List<String> bucketCols = descriptor.getBucketCols();
+            if (bucketCols != null && bucketCols.size() > 0) {
+                output.append("CLUSTERED BY (\n")
+                        .append(bucketCols.stream().map(
+                                bucketCol -> "  " + bucketCol).collect(Collectors.joining(",\n")))
+                        .append(")\n")
+                        .append(String.format("INTO %d BUCKETS\n", descriptor.getNumBuckets()));
+            }
             if (descriptor.getSerdeInfo().isSetSerializationLib()) {
                 output.append("ROW FORMAT SERDE\n")
                         .append(String.format("  '%s'\n", descriptor.getSerdeInfo().getSerializationLib()));
