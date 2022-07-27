@@ -41,7 +41,13 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
 #endif
 }
 
-Compaction::~Compaction() {}
+Compaction::~Compaction() {
+#ifndef BE_TEST
+    // Compaction tracker cannot be completely accurate, offset the global impact.
+    StorageEngine::instance()->compaction_mem_tracker()->consumption_revise(
+            -_mem_tracker->consumption());
+#endif
+}
 
 Status Compaction::compact() {
     RETURN_NOT_OK(prepare_compact());
