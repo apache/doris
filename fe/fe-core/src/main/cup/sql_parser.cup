@@ -394,6 +394,7 @@ nonterminal AnalyticWindow.Type window_type;
 nonterminal AnalyticWindow.Boundary window_boundary;
 nonterminal SlotRef column_ref;
 nonterminal FunctionCallExpr column_subscript;
+nonterminal FunctionCallExpr column_slice;
 nonterminal ArrayList<TableRef> table_ref_list, base_table_ref_list;
 nonterminal ArrayList<LateralViewRef> opt_lateral_view_ref_list, lateral_view_ref_list;
 nonterminal FromClause from_clause;
@@ -4969,6 +4970,8 @@ non_pred_expr ::=
   {: RESULT = c; :}
   | column_subscript:c
   {: RESULT = c; :}
+  | column_slice:c
+  {: RESULT = c; :}
   | timestamp_arithmetic_expr:e
   {: RESULT = e; :}
   | arithmetic_expr:e
@@ -5328,6 +5331,22 @@ column_subscript ::=
      list.add(e);
      list.add(index);
      RESULT = new FunctionCallExpr("%element_extract%", list);
+  :}
+  ;
+
+column_slice ::=
+  expr:e LBRACKET expr:offset COLON RBRACKET
+  {: ArrayList<Expr> list = new ArrayList<Expr>();
+       list.add(e);
+       list.add(offset);
+       RESULT = new FunctionCallExpr("%element_slice%", list);
+  :}
+  | expr:e LBRACKET expr:offset COLON expr:length RBRACKET
+  {: ArrayList<Expr> list = new ArrayList<Expr>();
+     list.add(e);
+     list.add(offset);
+     list.add(length);
+     RESULT = new FunctionCallExpr("%element_slice%", list);
   :}
   ;
 
