@@ -711,11 +711,10 @@ public class PaloAuth implements Writable {
                 throw new DdlException("User " + userIdent + " already exist");
             }
 
+            // 3. set password
+            setPasswordInternal(userIdent, password, null, false /* err on non exist */, false /* set by resolver */,
+                    true /* is replay */);
             try {
-                // 3. set password
-                setPasswordInternal(userIdent, password, null, false /* err on non exist */,
-                        false /* set by resolver */, true /* is replay */);
-
                 // 4. grant privs of role to user
                 grantPrivsByRole(userIdent, role);
 
@@ -737,7 +736,11 @@ public class PaloAuth implements Writable {
             } catch (Throwable t) {
                 // This is a temp protection to avoid bug such as described in
                 // https://github.com/apache/doris/issues/11235
-                // Normally, all operations in try {} should not fail
+                // Normally, all operations in try..catch block should not fail
+                // Why add try..catch block after "setPasswordInternal"?
+                // Because after calling "setPasswordInternal()", the in-memory state has been changed,
+                // so we should make sure the following operations not throw any exception, if it throws,
+                // exit the process because there is no way to rollback in-memory state.
                 LOG.error("got unexpected exception when creating user. exit", t);
                 System.exit(-1);
             }
