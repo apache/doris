@@ -70,14 +70,14 @@ public class PushPredicateThroughAggregation extends OneRewriteRuleFactory {
         return logicalFilter(logicalAggregate()).then(filter -> {
             LogicalAggregate<GroupPlan> aggregate = filter.child();
             Set<Slot> groupBySlots = new HashSet<>();
-            for (Expression groupByExpression : aggregate.getGroupByExpressionList()) {
+            for (Expression groupByExpression : aggregate.getGroupByExpressions()) {
                 if (groupByExpression instanceof Slot) {
                     groupBySlots.add((Slot) groupByExpression);
                 }
             }
             List<Expression> pushDownPredicates = Lists.newArrayList();
             List<Expression> filterPredicates = Lists.newArrayList();
-            ExpressionUtils.extractConjunct(filter.getPredicates()).forEach(conjunct -> {
+            ExpressionUtils.extractConjunctive(filter.getPredicates()).forEach(conjunct -> {
                 Set<Slot> conjunctSlots = SlotExtractor.extractSlot(conjunct);
                 if (groupBySlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);
