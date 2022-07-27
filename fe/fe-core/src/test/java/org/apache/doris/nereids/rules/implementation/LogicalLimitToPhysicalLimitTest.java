@@ -19,11 +19,11 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 
 import mockit.Mocked;
 import org.junit.Assert;
@@ -34,9 +34,7 @@ import java.util.List;
 public class LogicalLimitToPhysicalLimitTest {
     @Test
     public void toPhysicalLimitTest(@Mocked Group group, @Mocked PlannerContext plannerContext) {
-        NereidsParser nereidsParser = new NereidsParser();
-        String sql = "SELECT b FROM test order by a limit 3 offset 100";
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        Plan logicalPlan = new LogicalLimit<>(3, 4, new GroupPlan(group));
         Rule rule = new LogicalLimitToPhysicalLimit().build();
         List<Plan> physicalPlans = rule.transform(logicalPlan, plannerContext);
         Assert.assertEquals(1, physicalPlans.size());
