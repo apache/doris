@@ -80,12 +80,14 @@ MemTracker::~MemTracker() {
 MemTracker* MemTracker::get_static_mem_tracker(const std::string& label) {
     // First time this label registered, make a new object, otherwise do nothing.
     // Avoid using locks to resolve erase conflicts.
+    MemTracker* tracker;
     _static_mem_trackers.lazy_emplace_l(
-            label, [&](MemTracker*) {},
+            label, [&](MemTracker* v) { tracker = v; },
             [&](const auto& ctor) {
-                ctor(label, new MemTracker(fmt::format("[Static]-{}", label)));
+                tracker = new MemTracker(fmt::format("[Static]-{}", label));
+                ctor(label, tracker);
             });
-    return _static_mem_trackers[label];
+    return tracker;
 }
 
 MemTracker::Snapshot MemTracker::make_snapshot(size_t level) const {

@@ -55,7 +55,8 @@ struct WriteRequest {
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriter {
 public:
-    static Status open(WriteRequest* req, DeltaWriter** writer, bool is_vec = false);
+    static Status open(WriteRequest* req, DeltaWriter** writer,
+                       MemTrackerLimiter* parent_tracker = nullptr, bool is_vec = false);
 
     ~DeltaWriter();
 
@@ -100,7 +101,8 @@ public:
     int64_t get_mem_consumption_snapshot() const;
 
 private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, bool is_vec);
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, MemTrackerLimiter* parent_tracker,
+                bool is_vec);
 
     // push a full memtable to flush executor
     Status _flush_memtable_async();
@@ -120,7 +122,7 @@ private:
     RowsetSharedPtr _cur_rowset;
     std::unique_ptr<RowsetWriter> _rowset_writer;
     // TODO: Recheck the lifetime of _mem_table, Look should use unique_ptr
-    std::shared_ptr<MemTable> _mem_table;
+    std::unique_ptr<MemTable> _mem_table;
     std::unique_ptr<Schema> _schema;
     //const TabletSchema* _tablet_schema;
     // tablet schema owned by delta writer, all write will use this tablet schema
@@ -131,7 +133,8 @@ private:
 
     StorageEngine* _storage_engine;
     std::unique_ptr<FlushToken> _flush_token;
-    std::unique_ptr<MemTracker> _flushed_mem_tracker;
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
+    MemTrackerLimiter* _parent_tracker;
 
     // The counter of number of segment flushed already.
     int64_t _segment_counter = 0;

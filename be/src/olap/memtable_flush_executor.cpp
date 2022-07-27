@@ -26,6 +26,30 @@
 
 namespace doris {
 
+class MemtableFlushTask final : public Runnable {
+public:
+    MemtableFlushTask(FlushToken* flush_token, std::unique_ptr<MemTable> memtable,
+                      int64_t submit_task_time, MemTrackerLimiter* tracker)
+            : _flush_token(flush_token),
+              _memtable(std::move(memtable)),
+              _submit_task_time(submit_task_time),
+              _tracker(tracker) {}
+
+    ~MemtableFlushTask() override = default;
+
+    void run() override {
+        SCOPED_ATTACH_TASK(_tracker, ThreadContext::TaskType::LOAD);
+        _flush_token->_flush_memtable(_memtable.get(), _submit_task_time);
+        _memtable.reset();
+    }
+
+private:
+    FlushToken* _flush_token;
+    std::unique_ptr<MemTable> _memtable;
+    int64_t _submit_task_time;
+    MemTrackerLimiter* _tracker;
+};
+
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
     os << "(flush time(ms)=" << stat.flush_time_ns / NANOS_PER_MILLIS
        << ", flush wait time(ms)=" << stat.flush_wait_time_ns / NANOS_PER_MILLIS
@@ -34,20 +58,15 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
     return os;
 }
 
-// The type of parameter is safe to be a reference. Because the function object
-// returned by std::bind() will increase the reference count of Memtable. i.e.,
-// after the submit() method returns, even if the caller immediately releases the
-// passed shared_ptr object, the Memtable object will not be destructed because
-// its reference count is not 0.
-Status FlushToken::submit(const std::shared_ptr<MemTable>& memtable) {
+Status FlushToken::submit(std::unique_ptr<MemTable> mem_table, MemTrackerLimiter* tracker) {
     ErrorCode s = _flush_status.load();
     if (s != OLAP_SUCCESS) {
         return Status::OLAPInternalError(s);
     }
     int64_t submit_task_time = MonotonicNanos();
-    _flush_token->submit_func(
-            std::bind(&FlushToken::_flush_memtable, this, memtable, submit_task_time));
-    return Status::OK();
+    auto task = std::make_shared<MemtableFlushTask>(this, std::move(mem_table), submit_task_time,
+                                                    tracker);
+    return _flush_token->submit(std::move(task));
 }
 
 void FlushToken::cancel() {
@@ -60,21 +79,8 @@ Status FlushToken::wait() {
     return s == OLAP_SUCCESS ? Status::OK() : Status::OLAPInternalError(s);
 }
 
-void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable, int64_t submit_task_time) {
-#ifndef BE_TEST
-    // The memtable mem tracker needs to be completely accurate,
-    // because DeltaWriter judges whether to flush memtable according to the memtable memory usage.
-    // The macro of attach thread mem tracker is affected by the destructuring order of local variables,
-    // so it cannot completely correspond to the number of new/delete bytes recorded in scoped,
-    // and there is a small range of errors. So direct track load mem tracker.
-    // TODO(zxy) After rethinking the use of switch thread mem tracker, choose the appropriate way to get
-    // load mem tracke here.
-    // DCHECK(memtable->mem_tracker()->parent_task_mem_tracker_no_own());
-    // SCOPED_ATTACH_TASK(ThreadContext::TaskType::LOAD,
-    //                           memtable->mem_tracker()->parent_task_mem_tracker_no_own());
-#endif
+void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
     _stats.flush_wait_time_ns += (MonotonicNanos() - submit_task_time);
-    SCOPED_CLEANUP({ memtable.reset(); });
     // If previous flush has failed, return directly
     if (_flush_status.load() != OLAP_SUCCESS) {
         return;
