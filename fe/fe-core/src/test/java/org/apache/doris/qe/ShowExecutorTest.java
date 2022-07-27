@@ -249,9 +249,9 @@ public class ShowExecutorTest {
         ConnectScheduler scheduler = new ConnectScheduler(10);
         new Expectations(scheduler) {
             {
-                scheduler.listConnection("testCluster:testUser");
+                scheduler.listConnection("testCluster:testUser", anyBoolean);
                 minTimes = 0;
-                result = Lists.newArrayList(ctx.toThreadInfo());
+                result = Lists.newArrayList(ctx.toThreadInfo(false));
             }
         };
 

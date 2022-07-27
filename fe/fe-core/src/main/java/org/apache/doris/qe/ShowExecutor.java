@@ -375,7 +375,8 @@ public class ShowExecutor {
         ShowProcesslistStmt showStmt = (ShowProcesslistStmt) stmt;
         List<List<String>> rowSet = Lists.newArrayList();
 
-        List<ConnectContext.ThreadInfo> threadInfos = ctx.getConnectScheduler().listConnection(ctx.getQualifiedUser());
+        List<ConnectContext.ThreadInfo> threadInfos = ctx.getConnectScheduler()
+                .listConnection(ctx.getQualifiedUser(), showStmt.isFull());
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
             rowSet.add(info.toRow(nowMs));
