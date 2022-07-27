@@ -237,7 +237,7 @@ public:
     // olap storage layer date data format:
     // 64 bits binary data [year(remaining bits), month(4 bits), day(5 bits)]
     // execute layer date/datetime and olap storage layer datetime data format:
-    // 8 bytes interger data [year(remaining digits), month(2 digits), day(2 digits), hour(2 digits), minute(2 digits) ,second(2 digits)]
+    // 8 bytes integer data [year(remaining digits), month(2 digits), day(2 digits), hour(2 digits), minute(2 digits) ,second(2 digits)]
 
     static VecDateTimeValue create_from_olap_date(uint64_t value) {
         VecDateTimeValue date;
