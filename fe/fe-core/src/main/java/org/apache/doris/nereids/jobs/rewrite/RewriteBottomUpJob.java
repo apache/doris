@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -81,12 +82,13 @@ public class RewriteBottomUpJob extends Job {
                 Preconditions.checkArgument(afters.size() == 1);
                 Plan after = afters.get(0);
                 if (after != before) {
-                    GroupExpression groupExpr = context.getPlannerContext()
+                    Pair<Boolean, GroupExpression> pair = context.getPlannerContext()
                             .getMemo()
                             .copyIn(after, group, rule.isRewrite());
-                    groupExpr.setApplied(rule);
-                    pushTask(new RewriteBottomUpJob(group, rules, context, false));
-                    return;
+                    if (pair.first) {
+                        pushTask(new RewriteBottomUpJob(group, rules, context, false));
+                        return;
+                    }
                 }
             }
         }

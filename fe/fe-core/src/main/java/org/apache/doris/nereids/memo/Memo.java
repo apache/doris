@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -47,7 +48,7 @@ public class Memo {
     private Group root;
 
     public Memo(Plan plan) {
-        root = copyIn(plan, null, false).getOwnerGroup();
+        root = copyIn(plan, null, false).second.getOwnerGroup();
     }
 
     public Group getRoot() {
@@ -69,12 +70,13 @@ public class Memo {
      * @param node {@link Plan} or {@link Expression} to be added
      * @param target target group to add node. null to generate new Group
      * @param rewrite whether to rewrite the node to the target group
-     * @return Reference of node in Memo
+     * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
+     *         and the second element is a reference of node in Memo
      */
-    public GroupExpression copyIn(Plan node, @Nullable Group target, boolean rewrite) {
+    public Pair<Boolean, GroupExpression> copyIn(Plan node, @Nullable Group target, boolean rewrite) {
         Optional<GroupExpression> groupExpr = node.getGroupExpression();
         if (!rewrite && groupExpr.isPresent() && groupExpressions.containsKey(groupExpr.get())) {
-            return groupExpr.get();
+            return new Pair(false, groupExpr.get());
         }
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < node.children().size(); i++) {
@@ -84,13 +86,14 @@ public class Memo {
             } else if (child.getGroupExpression().isPresent()) {
                 childrenGroups.add(child.getGroupExpression().get().getOwnerGroup());
             } else {
-                childrenGroups.add(copyIn(child, null, rewrite).getOwnerGroup());
+                childrenGroups.add(copyIn(child, null, rewrite).second.getOwnerGroup());
             }
         }
         node = replaceChildrenToGroupPlan(node, childrenGroups);
         GroupExpression newGroupExpression = new GroupExpression(node);
         newGroupExpression.setChildren(childrenGroups);
-        return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite, node.getLogicalProperties());
+        return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite,
+                node.getLogicalProperties());
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
 
@@ -127,9 +130,10 @@ public class Memo {
      * @param groupExpression groupExpression to insert
      * @param target target group to insert or rewrite groupExpression
      * @param rewrite whether to rewrite the groupExpression to target group
-     * @return existing groupExpression in memo or newly generated groupExpression
+     * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
+     *         and the second element is a reference of node in Memo
      */
-    private GroupExpression insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
+    private Pair<Boolean, GroupExpression> insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
             boolean rewrite, LogicalProperties logicalProperties) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
@@ -140,7 +144,7 @@ public class Memo {
             if (rewrite) {
                 mergedGroup.setLogicalProperties(logicalProperties);
             }
-            return existedGroupExpression;
+            return new Pair(false, existedGroupExpression);
         }
         if (target != null) {
             if (rewrite) {
@@ -155,7 +159,7 @@ public class Memo {
             groups.add(group);
         }
         groupExpressions.put(groupExpression, groupExpression);
-        return groupExpression;
+        return new Pair(true, groupExpression);
     }
 
     /**
