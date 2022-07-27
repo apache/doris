@@ -31,6 +31,7 @@ class DataDir;
 class DeltaWriter;
 class ExecEnv;
 class MemTable;
+class MemTrackerLimiter;
 
 // the statistic of a certain flush handler.
 // use atomic because it may be updated by multi threads
@@ -56,7 +57,7 @@ public:
     explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
             : _flush_token(std::move(flush_pool_token)), _flush_status(OLAP_SUCCESS) {}
 
-    Status submit(const std::shared_ptr<MemTable>& mem_table);
+    Status submit(std::unique_ptr<MemTable> mem_table, MemTrackerLimiter* tracker);
 
     // error has happpens, so we cancel this token
     // And remove all tasks in the queue.
@@ -69,7 +70,9 @@ public:
     const FlushStatistic& get_stats() const { return _stats; }
 
 private:
-    void _flush_memtable(std::shared_ptr<MemTable> mem_table, int64_t submit_task_time);
+    friend class MemtableFlushTask;
+
+    void _flush_memtable(MemTable* mem_table, int64_t submit_task_time);
 
     std::unique_ptr<ThreadPoolToken> _flush_token;
 

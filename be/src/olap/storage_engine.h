@@ -346,6 +346,8 @@ private:
     std::unique_ptr<MemTrackerLimiter> _batch_load_mem_tracker;
     // Count the memory consumption of all EngineChecksumTask.
     std::unique_ptr<MemTrackerLimiter> _consistency_mem_tracker;
+    // StorageEngine oneself
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;

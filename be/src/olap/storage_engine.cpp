@@ -122,6 +122,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
                   std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::BatchLoad")),
           _consistency_mem_tracker(
                   std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::Consistency")),
+          _mem_tracker(std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::Self")),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -166,7 +167,8 @@ StorageEngine::~StorageEngine() {
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
     for (auto data_dir : data_dirs) {
-        threads.emplace_back([data_dir] {
+        threads.emplace_back([this, data_dir] {
+            SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE);
             auto res = data_dir->load();
             if (!res.ok()) {
                 LOG(WARNING) << "io error when init load tables. res=" << res
@@ -217,7 +219,8 @@ Status StorageEngine::_init_store_map() {
         DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
                                      _tablet_manager.get(), _txn_manager.get());
         tmp_stores.emplace_back(store);
-        threads.emplace_back([store, &error_msg_lock, &error_msg]() {
+        threads.emplace_back([this, store, &error_msg_lock, &error_msg]() {
+            SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE);
             auto st = store->init();
             if (!st.ok()) {
                 {

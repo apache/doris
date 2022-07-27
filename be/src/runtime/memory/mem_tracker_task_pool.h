@@ -24,9 +24,10 @@
 namespace doris {
 
 using TaskTrackersMap = phmap::parallel_flat_hash_map<
-        std::string, MemTrackerLimiter*, phmap::priv::hash_default_hash<std::string>,
-        phmap::priv::hash_default_eq<std::string>,
-        std::allocator<std::pair<const std::string, MemTrackerLimiter*>>, 12, std::mutex>;
+        std::string, std::shared_ptr<MemTrackerLimiter>,
+        phmap::priv::hash_default_hash<std::string>, phmap::priv::hash_default_eq<std::string>,
+        std::allocator<std::pair<const std::string, std::shared_ptr<MemTrackerLimiter>>>, 12,
+        std::mutex>;
 
 // Global task pool for query MemTrackers. Owned by ExecEnv.
 class MemTrackerTaskPool {

@@ -30,12 +30,15 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 
 std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
-TabletsChannel::TabletsChannel(const TabletsChannelKey& key, bool is_high_priority, bool is_vec)
+TabletsChannel::TabletsChannel(const TabletsChannelKey& key, MemTrackerLimiter* parent_tracker,
+                               bool is_high_priority, bool is_vec)
         : _key(key),
           _state(kInitialized),
           _closed_senders(64),
           _is_high_priority(is_high_priority),
           _is_vec(is_vec) {
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(
+            -1, fmt::format("TabletsChannel#indexID={}", key.index_id), parent_tracker);
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
@@ -207,14 +210,6 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     return Status::OK();
 }
 
-int64_t TabletsChannel::mem_consumption() {
-    int64_t mem_usage = 0;
-    for (auto& it : _tablet_writers) {
-        mem_usage += it.second->mem_consumption();
-    }
-    return mem_usage;
-}
-
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
@@ -245,7 +240,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.ptable_schema_param = request.schema();
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, &writer, _is_vec);
+        auto st = DeltaWriter::open(&wrequest, &writer, _mem_tracker.get(), _is_vec);
         if (!st.ok()) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()

@@ -373,8 +373,8 @@ Status DiskIoMgr::init(const int64_t mem_limit) {
             ss << "work-loop(Disk: " << i << ", Thread: " << j << ")";
             // _disk_thread_group.AddThread(new Thread("disk-io-mgr", ss.str(),
             //             &DiskIoMgr::work_loop, this, _disk_queues[i]));
-            _disk_thread_group.add_thread(new std::thread(
-                    std::bind(&DiskIoMgr::work_loop, this, _disk_queues[i], _mem_tracker.get())));
+            _disk_thread_group.add_thread(
+                    new std::thread(std::bind(&DiskIoMgr::work_loop, this, _disk_queues[i])));
         }
     }
     _request_context_cache.reset(new RequestContextCache(this));
@@ -947,7 +947,7 @@ void DiskIoMgr::handle_read_finished(DiskQueue* disk_queue, RequestContext* read
     state.decrement_request_thread();
 }
 
-void DiskIoMgr::work_loop(DiskQueue* disk_queue, MemTrackerLimiter* mem_tracker) {
+void DiskIoMgr::work_loop(DiskQueue* disk_queue) {
     // The thread waits until there is work or the entire system is being shut down.
     // If there is work, performs the read or write requested and re-enqueues the
     // requesting context.
@@ -960,8 +960,7 @@ void DiskIoMgr::work_loop(DiskQueue* disk_queue, MemTrackerLimiter* mem_tracker)
     //   3. Perform the read or write as specified.
     // Cancellation checking needs to happen in both steps 1 and 3.
 
-    // tracked in the process tracker
-    // SCOPED_ATTACH_TASK(ThreadContext::TaskType::STORAGE, mem_tracker);
+    thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
     while (!_shut_down) {
         RequestContext* worker_context = nullptr;
         ;

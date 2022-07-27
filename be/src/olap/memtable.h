@@ -42,8 +42,7 @@ class MemTable {
 public:
     MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* writer_mem_tracker,
-             bool support_vec = false);
+             KeysType keys_type, RowsetWriter* rowset_writer, bool support_vec = false);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
@@ -153,7 +152,6 @@ private:
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
     std::unique_ptr<MemTracker> _mem_tracker;
-    MemTracker* _writer_mem_tracker;
     // This is a buffer, to hold the memory referenced by the rows that have not
     // been inserted into the SkipList
     std::unique_ptr<MemPool> _buffer_mem_pool;

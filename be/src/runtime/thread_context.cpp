@@ -37,25 +37,6 @@ AttachTask::AttachTask(MemTrackerLimiter* mem_tracker, const ThreadContext::Task
 #endif
 }
 
-// AttachTask::AttachTask(const TQueryType::type& query_type,
-//                                    MemTrackerLimiter* mem_tracker) {
-//     DCHECK(mem_tracker);
-// #ifdef USE_MEM_TRACKER
-//     thread_context()->attach_task(query_to_task_type(query_type), "", TUniqueId(), mem_tracker);
-// #endif
-// }
-
-// AttachTask::AttachTask(const TQueryType::type& query_type,
-//                                    MemTrackerLimiter* mem_tracker, const std::string& task_id,
-//                                    const TUniqueId& fragment_instance_id) {
-//     DCHECK(task_id != "");
-//     DCHECK(fragment_instance_id != TUniqueId());
-//     DCHECK(mem_tracker);
-// #ifdef USE_MEM_TRACKER
-//     thread_context()->attach_task(query_to_task_type(query_type), task_id, fragment_instance_id, mem_tracker);
-// #endif
-// }
-
 AttachTask::AttachTask(RuntimeState* runtime_state) {
 #ifndef BE_TEST
     DCHECK(print_id(runtime_state->query_id()) != "");
