@@ -82,6 +82,61 @@ Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const Str
     return Status::OK();
 }
 
+Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const StringValue& val,
+                                           const StringValue& pattern, unsigned char* result) {
+    auto ret = hs_scan(state->hs_database.get(), val.ptr, val.len, 0, state->hs_scratch.get(),
+                       state->hs_match_handler, (void*)result);
+    if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
+        return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
+    }
+
+    return Status::OK();
+}
+
+Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const StringValue& val,
+                                   const StringValue& pattern, unsigned char* result) {
+    std::string re_pattern(pattern.ptr, pattern.len);
+
+    hs_database_t* database = nullptr;
+    hs_scratch_t* scratch = nullptr;
+    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch));
+
+    auto ret =
+            hs_scan(database, val.ptr, val.len, 0, scratch, state->hs_match_handler, (void*)result);
+    if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
+        return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
+    }
+
+    hs_free_scratch(scratch);
+    hs_free_database(database);
+
+    return Status::OK();
+}
+
+// hyperscan compile expression to database and allocate scratch space
+Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expression,
+                                    hs_database_t** database, hs_scratch_t** scratch) {
+    hs_compile_error_t* compile_err;
+    if (hs_compile(expression, HS_FLAG_DOTALL, HS_MODE_BLOCK, NULL, database, &compile_err) !=
+        HS_SUCCESS) {
+        hs_free_compile_error(compile_err);
+        *database = nullptr;
+        if (context) context->set_error("hs_compile regex pattern error");
+        return Status::RuntimeError("hs_compile regex pattern error");
+    }
+    hs_free_compile_error(compile_err);
+
+    if (hs_alloc_scratch(*database, scratch) != HS_SUCCESS) {
+        hs_free_database(*database);
+        *database = nullptr;
+        *scratch = nullptr;
+        if (context) context->set_error("hs_alloc_scratch allocate scratch space error");
+        return Status::RuntimeError("hs_alloc_scratch allocate scratch space error");
+    }
+
+    return Status::OK();
+}
+
 Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
                                       const ColumnNumbers& arguments, size_t result,
                                       size_t /*input_rows_count*/) {
@@ -183,28 +238,20 @@ Status FunctionLikeBase::vector_vector(const ColumnString::Chars& values,
 Status FunctionLike::like_fn(LikeSearchState* state, const StringValue& val,
                              const StringValue& pattern, unsigned char* result) {
     std::string re_pattern;
-    RE2::Options opts;
-    opts.set_never_nl(false);
-    opts.set_dot_nl(true);
     convert_like_pattern(state, std::string(pattern.ptr, pattern.len), &re_pattern);
-    re2::RE2 re(re_pattern, opts);
-    if (re.ok()) {
-        *result = RE2::FullMatch(re2::StringPiece(val.ptr, val.len), re);
-        return Status::OK();
-    } else {
-        return Status::RuntimeError("Invalid pattern: {}", pattern.debug_string());
-    }
-}
 
-Status FunctionLike::constant_regex_full_fn(LikeSearchState* state, const StringValue& val,
-                                            const StringValue& pattern, unsigned char* result) {
-    *result = RE2::FullMatch(re2::StringPiece(val.ptr, val.len), *state->regex.get());
-    return Status::OK();
+    return regexp_fn(state, val, {re_pattern.c_str(), (int)re_pattern.size()}, result);
 }
 
 void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::string& pattern,
                                         std::string* re_pattern) {
     re_pattern->clear();
+
+    // add ^ to pattern head to match line head
+    if (pattern.size() > 0 && pattern[0] != '%') {
+        re_pattern->append("^");
+    }
+
     bool is_escaped = false;
     for (size_t i = 0; i < pattern.size(); ++i) {
         if (!is_escaped && pattern[i] == '%') {
@@ -228,6 +275,11 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
             re_pattern->append(1, pattern[i]);
             is_escaped = false;
         }
+    }
+
+    // add $ to pattern tail to match line tail
+    if (pattern.size() > 0 && pattern[pattern.size() - 1] != '%') {
+        re_pattern->append("$");
     }
 }
 
@@ -279,14 +331,15 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
         } else {
             std::string re_pattern;
             convert_like_pattern(&state->search_state, pattern_str, &re_pattern);
-            RE2::Options opts;
-            opts.set_never_nl(false);
-            opts.set_dot_nl(true);
-            state->search_state.regex = std::make_unique<RE2>(re_pattern, opts);
-            if (!state->search_state.regex->ok()) {
-                return Status::InternalError("Invalid regex expression: {}", pattern_str);
-            }
-            state->function = constant_regex_full_fn;
+
+            hs_database_t* database = nullptr;
+            hs_scratch_t* scratch = nullptr;
+            RETURN_IF_ERROR(hs_prepare(context, re_pattern.c_str(), &database, &scratch));
+
+            state->search_state.hs_database.reset(database);
+            state->search_state.hs_scratch.reset(scratch);
+
+            state->function = constant_regex_fn;
         }
     }
     return Status::OK();
@@ -319,39 +372,17 @@ Status FunctionRegexp::prepare(FunctionContext* context,
             state->search_state.set_search_string(search_string);
             state->function = constant_substring_fn;
         } else {
-            RE2::Options opts;
-            opts.set_never_nl(false);
-            opts.set_dot_nl(true);
-            state->search_state.regex = std::make_unique<RE2>(pattern_str, opts);
-            if (!state->search_state.regex->ok()) {
-                return Status::InternalError("Invalid regex expression: {}", pattern_str);
-            }
-            state->function = constant_regex_partial_fn;
+            hs_database_t* database = nullptr;
+            hs_scratch_t* scratch = nullptr;
+            RETURN_IF_ERROR(hs_prepare(context, pattern_str.c_str(), &database, &scratch));
+
+            state->search_state.hs_database.reset(database);
+            state->search_state.hs_scratch.reset(scratch);
+
+            state->function = constant_regex_fn;
         }
     }
     return Status::OK();
-}
-
-Status FunctionRegexp::constant_regex_partial_fn(LikeSearchState* state, const StringValue& val,
-                                                 const StringValue& pattern,
-                                                 unsigned char* result) {
-    *result = RE2::PartialMatch(re2::StringPiece(val.ptr, val.len), *state->regex);
-    return Status::OK();
-}
-
-Status FunctionRegexp::regexp_fn(LikeSearchState* state, const StringValue& val,
-                                 const StringValue& pattern, unsigned char* result) {
-    std::string re_pattern(pattern.ptr, pattern.len);
-    RE2::Options opts;
-    opts.set_never_nl(false);
-    opts.set_dot_nl(true);
-    re2::RE2 re(re_pattern, opts);
-    if (re.ok()) {
-        *result = RE2::PartialMatch(re2::StringPiece(val.ptr, val.len), re);
-        return Status::OK();
-    } else {
-        return Status::RuntimeError("Invalid pattern: {}", pattern.debug_string());
-    }
 }
 
 } // namespace doris::vectorized

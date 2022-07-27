@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <hs/hs.h>
+
 #include <functional>
 #include <memory>
 
@@ -55,6 +57,31 @@ struct LikeSearchState {
 
     /// Used for RLIKE and REGEXP predicates if the pattern is a constant argument.
     std::unique_ptr<re2::RE2> regex;
+
+    template <typename Deleter, Deleter deleter>
+    struct HyperscanDeleter {
+        template <typename T>
+        void operator()(T* ptr) const {
+            deleter(ptr);
+        }
+    };
+
+    // hyperscan compiled pattern database and scratch space, reused for performance
+    std::unique_ptr<hs_database_t, HyperscanDeleter<decltype(&hs_free_database), &hs_free_database>>
+            hs_database;
+    std::unique_ptr<hs_scratch_t, HyperscanDeleter<decltype(&hs_free_scratch), &hs_free_scratch>>
+            hs_scratch;
+
+    // hyperscan match callback
+    static int hs_match_handler(unsigned int /* from */,       // NOLINT
+                                unsigned long long /* from */, // NOLINT
+                                unsigned long long /* to */,   // NOLINT
+                                unsigned int /* flags */, void* ctx) {
+        // set result to 1 for matched row
+        *((unsigned char*)ctx) = 1;
+        /// return non-zero to indicate hyperscan stop after first matched
+        return 1;
+    }
 
     LikeSearchState() : escape_char('\\') {}
 
@@ -105,6 +132,16 @@ protected:
 
     static Status constant_substring_fn(LikeSearchState* state, const StringValue& val,
                                         const StringValue& pattern, unsigned char* result);
+
+    static Status constant_regex_fn(LikeSearchState* state, const StringValue& val,
+                                    const StringValue& pattern, unsigned char* result);
+
+    static Status regexp_fn(LikeSearchState* state, const StringValue& val,
+                            const StringValue& pattern, unsigned char* result);
+
+    // hyperscan compile expression to database and allocate scratch space
+    static Status hs_prepare(FunctionContext* context, const char* expression,
+                             hs_database_t** database, hs_scratch_t** scratch);
 };
 
 class FunctionLike : public FunctionLikeBase {
@@ -121,9 +158,6 @@ private:
     static Status like_fn(LikeSearchState* state, const StringValue& val,
                           const StringValue& pattern, unsigned char* result);
 
-    static Status constant_regex_full_fn(LikeSearchState* state, const StringValue& val,
-                                         const StringValue& pattern, unsigned char* result);
-
     static void convert_like_pattern(LikeSearchState* state, const std::string& pattern,
                                      std::string* re_pattern);
 
@@ -139,13 +173,6 @@ public:
     String get_name() const override { return name; }
 
     Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
-
-private:
-    static Status regexp_fn(LikeSearchState* state, const StringValue& val,
-                            const StringValue& pattern, unsigned char* result);
-
-    static Status constant_regex_partial_fn(LikeSearchState* state, const StringValue& val,
-                                            const StringValue& pattern, unsigned char* result);
 };
 
 void register_function_like(SimpleFunctionFactory& factory) {
