@@ -32,7 +32,6 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import javax.validation.constraints.NotNull;
 
 /**
  * Representation for group expression in cascades optimizer.
@@ -59,7 +58,7 @@ public class GroupExpression {
      * @param plan {@link Plan} to reference
      * @param children children groups in memo
      */
-    public GroupExpression(Plan plan, @NotNull List<Group> children) {
+    public GroupExpression(Plan plan, List<Group> children) {
         this.plan = Objects.requireNonNull(plan, "plan can not be null");
         this.children = Objects.requireNonNull(children);
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());

@@ -31,18 +31,21 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.statistics.ColumnStats;
 
+import com.google.common.base.Preconditions;
 
 import java.util.Map;
-
 
 /**
  * Calculate selectivity of the filter.
  */
 public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double, Void> {
 
+    private static double DEFAULT_SELECTIVITY = 0.1;
+
     private final Map<Slot, ColumnStats> slotRefToStats;
 
     public FilterSelectivityCalculator(Map<Slot, ColumnStats> slotRefToStats) {
+        Preconditions.checkState(slotRefToStats != null);
         this.slotRefToStats = slotRefToStats;
     }
 
@@ -79,26 +82,26 @@ public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double
         SlotReference left = (SlotReference) equalTo.left();
         ColumnStats columnStats = slotRefToStats.get(left);
         if (columnStats == null) {
-            return Expression.DEFAULT_SELECTIVITY;
+            return DEFAULT_SELECTIVITY;
         }
         long ndv = columnStats.getNdv();
-        return ndv < 0 ? Expression.DEFAULT_SELECTIVITY : ndv == 0 ? 0 : 1.0 / columnStats.getNdv();
+        return ndv < 0 ? DEFAULT_SELECTIVITY : ndv == 0 ? 0 : 1.0 / columnStats.getNdv();
     }
 
     // TODO: Should consider the distribution of data.
     @Override
     public Double visitGreaterThan(GreaterThan greaterThan, Void context) {
-        return Expression.DEFAULT_SELECTIVITY;
+        return DEFAULT_SELECTIVITY;
     }
 
     @Override
     public Double visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, Void context) {
-        return Expression.DEFAULT_SELECTIVITY;
+        return DEFAULT_SELECTIVITY;
     }
 
     @Override
     public Double visitLessThan(LessThan lessThan, Void context) {
-        return Expression.DEFAULT_SELECTIVITY;
+        return DEFAULT_SELECTIVITY;
     }
 
 }

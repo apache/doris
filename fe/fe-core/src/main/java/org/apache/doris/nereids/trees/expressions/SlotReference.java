@@ -45,6 +45,7 @@ public class SlotReference extends Slot {
      * Constructor for SlotReference.
      *
      * @param exprId UUID for this slot reference
+     * @param name slot reference name
      * @param dataType slot reference logical data type
      * @param nullable true if nullable
      * @param qualifier slot reference qualifier

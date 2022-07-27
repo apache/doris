@@ -79,8 +79,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
-    public StatsDeriveResult visitLogicalAggregate(LogicalAggregate<Plan> agg, Void context) {
-        return computeAggregate(agg);
+    public StatsDeriveResult visitLogicalAggregate(LogicalAggregate<Plan> aggregate, Void context) {
+        return computeAggregate(aggregate);
     }
 
     @Override
