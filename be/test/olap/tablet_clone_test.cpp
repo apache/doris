@@ -201,8 +201,8 @@ TEST_F(TabletCloneTest, convert_rowset_ids_has_file_in_s3) {
         RowsetSharedPtr rowset = tablet_rs.second;
         rowset->rowset_meta()->set_resource_id(kResourceId);
         st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                  write_req.tablet_id, write_req.schema_hash,
-                                                  tablet_rs.first.tablet_uid, version);
+                                                  tablet->tablet_id(), tablet->schema_hash(),
+                                                  tablet->tablet_uid(), version);
         ASSERT_EQ(Status::OK(), st);
         st = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);
