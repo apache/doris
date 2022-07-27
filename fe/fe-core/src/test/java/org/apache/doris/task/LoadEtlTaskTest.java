@@ -17,8 +17,8 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -63,7 +63,7 @@ public class LoadEtlTaskTest {
 
     private String label;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private InternalDataSource ds;
     @Mocked
@@ -90,9 +90,9 @@ public class LoadEtlTaskTest {
     public void testRunEtlTask(@Mocked DppScheduler dppScheduler) throws Exception {
         // mock catalog
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L);
-        new Expectations(catalog, ds) {
+        new Expectations(env, ds) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
@@ -104,13 +104,13 @@ public class LoadEtlTaskTest {
                 minTimes = 0;
                 result = db;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
         // create job
@@ -145,7 +145,7 @@ public class LoadEtlTaskTest {
                 times = 1;
                 result = true;
 
-                catalog.getLoadInstance();
+                env.getLoadInstance();
                 times = 1;
                 result = load;
             }

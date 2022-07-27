@@ -24,9 +24,9 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -91,7 +91,7 @@ public class StreamLoadPlanner {
     }
 
     private void resetAnalyzer() {
-        analyzer = new Analyzer(Catalog.getCurrentCatalog(), null);
+        analyzer = new Analyzer(Env.getCurrentEnv(), null);
         // TODO(cmy): currently we do not support UDF in stream load command.
         // Because there is no way to check the privilege of accessing UDF..
         analyzer.setUDFAllowed(false);
@@ -207,7 +207,7 @@ public class StreamLoadPlanner {
         params.setQueryGlobals(queryGlobals);
 
         // set load error hub if exist
-        LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
+        LoadErrorHub.Param param = Env.getCurrentEnv().getLoadInstance().getLoadErrorHubInfo();
         if (param != null) {
             TLoadErrorHubInfo info = param.toThrift();
             if (info != null) {

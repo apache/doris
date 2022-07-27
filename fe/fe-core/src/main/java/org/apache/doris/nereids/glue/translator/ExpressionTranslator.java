@@ -30,6 +30,7 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -37,6 +38,8 @@ import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -51,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -174,6 +178,19 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitDateLiteral(DateLiteral dateLiteral, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.DateLiteral(dateLiteral.getYear(), dateLiteral.getMonth(),
+                dateLiteral.getDay(), 0, 0, 0);
+    }
+
+    @Override
+    public Expr visitDateTimeLiteral(DateTimeLiteral dateTimeLiteral, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.DateLiteral(dateTimeLiteral.getYear(), dateTimeLiteral.getMonth(),
+                dateTimeLiteral.getDay(), dateTimeLiteral.getHour(), dateTimeLiteral.getMinute(),
+                dateTimeLiteral.getSecond());
+    }
+
+    @Override
     public Expr visitBetween(Between between, PlanTranslatorContext context) {
         throw new RuntimeException("Unexpected invocation");
     }
@@ -243,5 +260,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return new ArithmeticExpr(arithmeticOperator.getStaleOp(),
                 arithmetic.child(0).accept(this, context),
                 arithmeticOperator.isBinary() ? arithmetic.child(1).accept(this, context) : null);
+    }
+
+    @Override
+    public Expr visitTimestampArithmetic(TimestampArithmetic arithmetic, PlanTranslatorContext context) {
+        return new TimestampArithmeticExpr(arithmetic.getFuncName(), arithmetic.left().accept(this, context),
+                arithmetic.right().accept(this, context), arithmetic.getTimeUnit().toString());
     }
 }

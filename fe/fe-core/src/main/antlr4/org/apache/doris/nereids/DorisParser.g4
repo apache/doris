@@ -64,6 +64,7 @@ queryTerm
 queryPrimary
     : querySpecification                                                    #queryPrimaryDefault
     | TABLE multipartIdentifier                                             #table
+    | LEFT_PAREN query RIGHT_PAREN                                          #subquery
     ;
 
 querySpecification
@@ -171,6 +172,7 @@ expression
 
 booleanExpression
     : NOT booleanExpression                                         #logicalNot
+    | EXISTS LEFT_PAREN query RIGHT_PAREN                           #exist
     | valueExpression predicate?                                    #predicated
     | left=booleanExpression operator=AND right=booleanExpression   #logicalBinary
     | left=booleanExpression operator=OR right=booleanExpression    #logicalBinary
@@ -179,6 +181,8 @@ booleanExpression
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP) pattern=valueExpression
+    | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
+    | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     ;
 
 valueExpression
@@ -195,8 +199,8 @@ primaryExpression
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | identifier LEFT_PAREN DISTINCT? arguments+=expression
-      (COMMA arguments+=expression)* RIGHT_PAREN                                                #functionCall
+    | identifier LEFT_PAREN (DISTINCT? arguments+=expression
+      (COMMA arguments+=expression)*)? RIGHT_PAREN                                             #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
@@ -209,6 +213,8 @@ qualifiedName
 
 constant
     : NULL                                                                                     #nullLiteral
+    | interval                                                                                 #intervalLiteral
+    | identifier STRING                                                                        #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | STRING+                                                                                  #stringLiteral
@@ -224,6 +230,14 @@ booleanValue
 
 whenClause
     : WHEN condition=expression THEN result=expression
+    ;
+
+interval
+    : INTERVAL value=expression unit=unitIdentifier
+    ;
+
+unitIdentifier
+    : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`

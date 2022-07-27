@@ -24,7 +24,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -66,14 +66,14 @@ public class CoordinatorTest extends Coordinator {
 
 
     @Mocked
-    static Catalog catalog;
+    static Env env;
     @Mocked
     static EditLog editLog;
     @Mocked
     static FrontendOptions frontendOptions;
 
     static ConnectContext context = new ConnectContext(null);
-    static Analyzer analyzer = new Analyzer(catalog, context);
+    static Analyzer analyzer = new Analyzer(env, context);
     static OriginalPlanner originalPlanner = new OriginalPlanner(analyzer);
 
     static {

@@ -20,8 +20,8 @@ package org.apache.doris.cluster;
 import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DropBackendClause;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
@@ -54,7 +54,7 @@ public class SystemInfoServiceTest {
     @Mocked
     private EditLog editLog;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private InternalDataSource ds;
     private SystemInfoService systemInfoService;
@@ -89,15 +89,15 @@ public class SystemInfoServiceTest {
                 table.readUnlock();
                 minTimes = 0;
 
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = backendId;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
@@ -109,34 +109,34 @@ public class SystemInfoServiceTest {
                 minTimes = 0;
                 result = table;
 
-                catalog.getCluster(anyString);
+                env.getCluster(anyString);
                 minTimes = 0;
                 result = new Cluster("cluster", 1);
 
-                catalog.clear();
+                env.clear();
                 minTimes = 0;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
                 systemInfoService = new SystemInfoService();
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
 
                 invertedIndex = new TabletInvertedIndex();
-                Catalog.getCurrentInvertedIndex();
+                Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
 
-                Catalog.getCurrentCatalogJournalVersion();
+                Env.getCurrentEnvJournalVersion();
                 minTimes = 0;
                 result = FeConstants.meta_version;
             }
         };
 
-        analyzer = new Analyzer(catalog, new ConnectContext(null));
+        analyzer = new Analyzer(env, new ConnectContext(null));
     }
 
     public void mkdir(String dirString) {
@@ -191,7 +191,7 @@ public class SystemInfoServiceTest {
     }
 
     public void clearAllBackend() {
-        Catalog.getCurrentSystemInfo().dropAllBackend();
+        Env.getCurrentSystemInfo().dropAllBackend();
     }
 
     @Test(expected = AnalysisException.class)
@@ -218,27 +218,27 @@ public class SystemInfoServiceTest {
         AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
         stmt.analyze(analyzer);
         try {
-            Catalog.getCurrentSystemInfo().addBackends(stmt.getHostPortPairs(), true);
+            Env.getCurrentSystemInfo().addBackends(stmt.getHostPortPairs(), true);
         } catch (DdlException e) {
             Assert.fail();
         }
 
         try {
-            Catalog.getCurrentSystemInfo().addBackends(stmt.getHostPortPairs(), true);
+            Env.getCurrentSystemInfo().addBackends(stmt.getHostPortPairs(), true);
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("already exists"));
         }
 
-        Assert.assertNotNull(Catalog.getCurrentSystemInfo().getBackend(backendId));
-        Assert.assertNotNull(Catalog.getCurrentSystemInfo().getBackendWithHeartbeatPort("192.168.0.1", 1234));
+        Assert.assertNotNull(Env.getCurrentSystemInfo().getBackend(backendId));
+        Assert.assertNotNull(Env.getCurrentSystemInfo().getBackendWithHeartbeatPort("192.168.0.1", 1234));
 
-        Assert.assertTrue(Catalog.getCurrentSystemInfo().getBackendIds(false).size() == 1);
-        Assert.assertTrue(Catalog.getCurrentSystemInfo().getBackendIds(false).get(0) == backendId);
+        Assert.assertTrue(Env.getCurrentSystemInfo().getBackendIds(false).size() == 1);
+        Assert.assertTrue(Env.getCurrentSystemInfo().getBackendIds(false).get(0) == backendId);
 
-        Assert.assertTrue(Catalog.getCurrentSystemInfo().getBackendReportVersion(backendId) == 0L);
+        Assert.assertTrue(Env.getCurrentSystemInfo().getBackendReportVersion(backendId) == 0L);
 
-        Catalog.getCurrentSystemInfo().updateBackendReportVersion(backendId, 2L, 20000L, 30000L);
-        Assert.assertTrue(Catalog.getCurrentSystemInfo().getBackendReportVersion(backendId) == 2L);
+        Env.getCurrentSystemInfo().updateBackendReportVersion(backendId, 2L, 20000L, 30000L);
+        Assert.assertTrue(Env.getCurrentSystemInfo().getBackendReportVersion(backendId) == 2L);
     }
 
     @Test
@@ -247,7 +247,7 @@ public class SystemInfoServiceTest {
         AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
         stmt.analyze(analyzer);
         try {
-            Catalog.getCurrentSystemInfo().addBackends(stmt.getHostPortPairs(), true);
+            Env.getCurrentSystemInfo().addBackends(stmt.getHostPortPairs(), true);
         } catch (DdlException e) {
             e.printStackTrace();
         }
@@ -255,14 +255,14 @@ public class SystemInfoServiceTest {
         DropBackendClause dropStmt = new DropBackendClause(Lists.newArrayList("192.168.0.1:1234"));
         dropStmt.analyze(analyzer);
         try {
-            Catalog.getCurrentSystemInfo().dropBackends(dropStmt.getHostPortPairs());
+            Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostPortPairs());
         } catch (DdlException e) {
             e.printStackTrace();
             Assert.fail();
         }
 
         try {
-            Catalog.getCurrentSystemInfo().dropBackends(dropStmt.getHostPortPairs());
+            Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostPortPairs());
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
         }
@@ -276,13 +276,13 @@ public class SystemInfoServiceTest {
         File file = new File(dir, "image");
         file.createNewFile();
         CountingDataOutputStream dos = new CountingDataOutputStream(new FileOutputStream(file));
-        SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         Backend back1 = new Backend(1L, "localhost", 3);
         back1.updateOnce(4, 6, 8);
         systemInfoService.replayAddBackend(back1);
         long checksum1 = systemInfoService.saveBackends(dos, 0);
-        catalog.clear();
-        catalog = null;
+        env.clear();
+        env = null;
         dos.close();
 
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));

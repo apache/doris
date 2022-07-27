@@ -149,8 +149,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         //    1. add a project after agg, if agg function is not the top output expression.
         //    2. introduce canonicalized, semanticEquals and deterministic in Expression
         //       for removing duplicate.
-        List<Expression> groupByExpressionList = aggregate.getGroupByExprList();
-        List<NamedExpression> outputExpressionList = aggregate.getOutputExpressionList();
+        List<Expression> groupByExpressionList = aggregate.getGroupByExpressions();
+        List<NamedExpression> outputExpressionList = aggregate.getOutputExpressions();
 
         // 1. generate slot reference for each group expression
         List<SlotReference> groupSlotList = Lists.newArrayList();
@@ -189,7 +189,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // process partition list
-        List<Expression> partitionExpressionList = aggregate.getPartitionExprList();
+        List<Expression> partitionExpressionList = aggregate.getPartitionExpressions();
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         DataPartition mergePartition = DataPartition.UNPARTITIONED;
@@ -348,7 +348,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             throw new RuntimeException("Physical hash join could not execute without equal join condition.");
         } else {
             Expression eqJoinExpression = hashJoin.getCondition().get();
-            List<Expr> execEqConjunctList = ExpressionUtils.extractConjunct(eqJoinExpression).stream()
+            List<Expr> execEqConjunctList = ExpressionUtils.extractConjunctive(eqJoinExpression).stream()
                     .map(EqualTo.class::cast)
                     .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
                     .map(e -> ExpressionTranslator.translate(e, context))
@@ -400,7 +400,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment inputFragment = filter.child(0).accept(this, context);
         PlanNode planNode = inputFragment.getPlanRoot();
         Expression expression = filter.getPredicates();
-        List<Expression> expressionList = ExpressionUtils.extractConjunct(expression);
+        List<Expression> expressionList = ExpressionUtils.extractConjunctive(expression);
         expressionList.stream().map(e -> ExpressionTranslator.translate(e, context)).forEach(planNode::addConjunct);
         return inputFragment;
     }

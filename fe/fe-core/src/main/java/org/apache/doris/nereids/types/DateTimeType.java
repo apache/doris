@@ -15,20 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_bitmap_int", "datatype") {
-    sql "DROP TABLE IF EXISTS test_int_bitmap"
-    sql """
-        CREATE TABLE test_int_bitmap (`id` int, `bitmap_set` bitmap bitmap_union) 
-        ENGINE=OLAP DISTRIBUTED BY HASH(`id`) BUCKETS 5 properties("replication_num" = "1");
-        """
-    sql "insert into test_int_bitmap values(1, bitmap_hash(1)), (2, bitmap_hash(2)), (3, bitmap_hash(3))"
+package org.apache.doris.nereids.types;
 
-    qt_sql1 "select bitmap_union_count(bitmap_set) from test_int_bitmap"
-    qt_sql2 "select id,bitmap_union_count(bitmap_set) from test_int_bitmap group by id order by id"
-    order_qt_sql3 "select * from test_int_bitmap"
-    qt_desc "desc test_int_bitmap"
+import org.apache.doris.catalog.Type;
 
-    sql "DROP TABLE test_int_bitmap"
+/**
+ * Datetime type in Nereids.
+ */
+public class DateTimeType extends PrimitiveType {
+
+    public static DateTimeType INSTANCE = new DateTimeType();
+
+    @Override
+    public Type toCatalogDataType() {
+        return Type.DATETIME;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof DateTimeType;
+    }
 }
-
-

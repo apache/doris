@@ -146,4 +146,64 @@ public class ExpressionParserTest {
         String caseWhen2 = "select case when a = 1 then 2 else 3 end from test";
         assertSql(caseWhen2);
     }
+
+    @Test
+    public void testInSubquery() throws Exception {
+        String in = "select * from test where a in (select * from test1 where a = 0)";
+        assertSql(in);
+
+        String inExpr = "a in (select * from test where b = 1)";
+        assertExpr(inExpr);
+
+        String notIn = "select * from test where a not in (select * from test1 where a = 0)";
+        assertSql(notIn);
+
+        String notInExpr = "a not in (select * from test where b = 1)";
+        assertExpr(notInExpr);
+    }
+
+    @Test
+    public void testExist() throws Exception {
+        String exist = "select * from test where exists (select * from test where a = 1)";
+        assertSql(exist);
+
+        String existExpr = "exists (select * from test where b = 1)";
+        assertExpr(existExpr);
+
+        String notExist = "select * from test where not exists (select * from test where a = 1)";
+        assertSql(notExist);
+
+        String notExistExpr = "not exists (select * from test where b = 1)";
+        assertExpr(notExistExpr);
+    }
+
+    @Test
+    public void testInterval() {
+        String interval = "tt > date '1991-05-01' + interval '1' day";
+        assertExpr(interval);
+
+        interval = "tt > '1991-05-01' + interval '1' day";
+        assertExpr(interval);
+
+        interval = "tt > '1991-05-01' + interval 1 day";
+        assertExpr(interval);
+
+        interval = "tt > '1991-05-01' - interval 1 day";
+        assertExpr(interval);
+
+        interval = "tt > date '1991-05-01' - interval '1' day";
+        assertExpr(interval);
+
+        interval = "tt > interval '1' day + '1991-05-01'";
+        assertExpr(interval);
+
+        interval = "tt > interval '1' day + date '1991-05-01'";
+        assertExpr(interval);
+
+        interval = "tt > '1991-05-01'  - interval 2*1 day";
+        assertExpr(interval);
+
+        interval = "tt > now() - interval 1+1 day";
+        assertExpr(interval);
+    }
 }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -40,7 +40,7 @@ public class ConnectContextTest {
     @Mocked
     private SocketChannel socketChannel;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private ConnectScheduler connectScheduler;
 
@@ -139,9 +139,9 @@ public class ConnectContextTest {
         Assert.assertEquals(new TUniqueId(100, 200), ctx.queryId());
 
         // Catalog
-        Assert.assertNull(ctx.getCatalog());
-        ctx.setCatalog(catalog);
-        Assert.assertNotNull(ctx.getCatalog());
+        Assert.assertNull(ctx.getEnv());
+        ctx.setEnv(env);
+        Assert.assertNotNull(ctx.getEnv());
 
         // clean up
         ctx.cleanup();

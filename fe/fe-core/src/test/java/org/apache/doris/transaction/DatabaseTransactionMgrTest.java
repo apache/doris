@@ -17,10 +17,10 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -48,12 +48,12 @@ public class DatabaseTransactionMgrTest {
     public ExpectedException expectedEx = ExpectedException.none();
 
     private static FakeEditLog fakeEditLog;
-    private static FakeCatalog fakeCatalog;
+    private static FakeEnv fakeEnv;
     private static FakeTransactionIDGenerator fakeTransactionIDGenerator;
     private static GlobalTransactionMgr masterTransMgr;
     private static GlobalTransactionMgr slaveTransMgr;
-    private static Catalog masterCatalog;
-    private static Catalog slaveCatalog;
+    private static Env masterEnv;
+    private static Env slaveEnv;
     private static Map<String, Long> LabelToTxnId;
 
     private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
@@ -62,26 +62,26 @@ public class DatabaseTransactionMgrTest {
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
             InvocationTargetException, NoSuchMethodException, SecurityException, UserException {
         fakeEditLog = new FakeEditLog();
-        fakeCatalog = new FakeCatalog();
+        fakeEnv = new FakeEnv();
         fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
-        masterCatalog = CatalogTestUtil.createTestCatalog();
-        slaveCatalog = CatalogTestUtil.createTestCatalog();
+        masterEnv = CatalogTestUtil.createTestCatalog();
+        slaveEnv = CatalogTestUtil.createTestCatalog();
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
-        masterTransMgr = masterCatalog.getGlobalTransactionMgr();
-        masterTransMgr.setEditLog(masterCatalog.getEditLog());
+        masterTransMgr = masterEnv.getGlobalTransactionMgr();
+        masterTransMgr.setEditLog(masterEnv.getEditLog());
 
-        slaveTransMgr = slaveCatalog.getGlobalTransactionMgr();
-        slaveTransMgr.setEditLog(slaveCatalog.getEditLog());
+        slaveTransMgr = slaveEnv.getGlobalTransactionMgr();
+        slaveTransMgr.setEditLog(slaveEnv.getEditLog());
 
         LabelToTxnId = addTransactionToTransactionMgr();
     }
 
     public Map<String, Long> addTransactionToTransactionMgr() throws UserException {
         Map<String, Long> labelToTxnId = Maps.newHashMap();
-        FakeCatalog.setCatalog(masterCatalog);
+        FakeEnv.setEnv(masterEnv);
         long transactionId1 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLabel1,
                 transactionSource,
@@ -97,7 +97,7 @@ public class DatabaseTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
-        Table testTable1 = masterCatalog.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
+        Table testTable1 = masterEnv.getInternalDataSource().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1, transTablets);
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1, null);
@@ -122,7 +122,7 @@ public class DatabaseTransactionMgrTest {
 
         TransactionState transactionState1 = fakeEditLog.getTransaction(transactionId1);
 
-        FakeCatalog.setCatalog(slaveCatalog);
+        FakeEnv.setEnv(slaveEnv);
         slaveTransMgr.replayUpsertTransactionState(transactionState1);
         return labelToTxnId;
     }
