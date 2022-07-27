@@ -18,7 +18,7 @@
 package org.apache.doris.datasource;
 
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -153,7 +153,7 @@ public class EsExternalDataSource extends ExternalDataSource {
         dbNameToId = Maps.newConcurrentMap();
         idToDb = Maps.newConcurrentMap();
         this.esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
-        long defaultDbId = Catalog.getCurrentCatalog().getNextId();
+        long defaultDbId = Env.getCurrentEnv().getNextId();
         dbNameToId.put(DEFAULT_DB, defaultDbId);
         idToDb.put(defaultDbId, new EsExternalDatabase(this, defaultDbId, "default"));
     }

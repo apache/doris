@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog.external;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.EsExternalDataSource;
 import org.apache.doris.datasource.ExternalDataSource;
 
@@ -58,7 +58,7 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
         List<String> tableNames = extDataSource.listTableNames(null, name);
         if (tableNames != null) {
             for (String tableName : tableNames) {
-                long tblId = Catalog.getCurrentCatalog().getNextId();
+                long tblId = Env.getCurrentEnv().getNextId();
                 tableNameToId.put(tableName, tblId);
                 idToTbl.put(tblId, new EsExternalTable(tblId, tableName, name, (EsExternalDataSource) extDataSource));
             }
