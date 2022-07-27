@@ -37,22 +37,22 @@
 namespace doris::vectorized {
 
 struct AggregateFunctionSortData {
-    const SortDescription _sort_desc;
-    Block _block;
+    const SortDescription sort_desc;
+    Block block;
 
     // The construct only support the template compiler, useless
     AggregateFunctionSortData() {};
     AggregateFunctionSortData(SortDescription sort_desc, const Block& block)
-            : _sort_desc(std::move(sort_desc)), _block(block.clone_empty()) {}
+            : sort_desc(std::move(sort_desc)), block(block.clone_empty()) {}
 
     void merge(const AggregateFunctionSortData& rhs) {
-        if (_block.rows() == 0) {
-            _block = rhs._block;
+        if (block.rows() == 0) {
+            block = rhs.block;
         } else {
-            for (size_t i = 0; i < _block.columns(); i++) {
-                auto column = _block.get_by_position(i).column->assume_mutable();
-                auto column_rhs = rhs._block.get_by_position(i).column;
-                column->insert_many_from(*column_rhs, 0, rhs._block.rows());
+            for (size_t i = 0; i < block.columns(); i++) {
+                auto column = block.get_by_position(i).column->assume_mutable();
+                auto column_rhs = rhs.block.get_by_position(i).column;
+                column->insert_many_from(*column_rhs, 0, rhs.block.rows());
             }
         }
     }
@@ -61,7 +61,7 @@ struct AggregateFunctionSortData {
         PBlock pblock;
         size_t uncompressed_bytes = 0;
         size_t compressed_bytes = 0;
-        _block.serialize(&pblock, &uncompressed_bytes, &compressed_bytes);
+        block.serialize(&pblock, &uncompressed_bytes, &compressed_bytes);
 
         write_string_binary(pblock.SerializeAsString(), buf);
     }
@@ -72,30 +72,28 @@ struct AggregateFunctionSortData {
 
         PBlock pblock;
         pblock.ParseFromString(data);
-        new (&_block) Block(pblock);
+        new (&block) Block(pblock);
     }
 
     void add(const IColumn** columns, size_t columns_num, size_t row_num) {
-        DCHECK(_block.columns() == columns_num)
+        DCHECK(block.columns() == columns_num)
                 << fmt::format("block.columns()!=columns_num, block.columns()={}, columns_num={}",
-                               _block.columns(), columns_num);
+                               block.columns(), columns_num);
 
         for (size_t i = 0; i < columns_num; ++i) {
-            auto column = _block.get_by_position(i).column->assume_mutable();
+            auto column = block.get_by_position(i).column->assume_mutable();
             column->insert_from(*columns[i], row_num);
         }
     }
 
-    void sort() { sort_block(_block, _sort_desc, _block.rows()); }
+    void sort() { sort_block(block, sort_desc, block.rows()); }
 };
 
 template <typename Data>
 class AggregateFunctionSort
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionSort<Data>> {
-    using DataReal = Data;
-
 private:
-    static constexpr auto prefix_size = sizeof(DataReal);
+    static constexpr auto prefix_size = sizeof(Data);
     AggregateFunctionPtr _nested_func;
     DataTypes _arguments;
     const SortDescription& _sort_desc;
@@ -112,7 +110,7 @@ private:
 public:
     AggregateFunctionSort(const AggregateFunctionPtr& nested_func, const DataTypes& arguments,
                           const SortDescription& sort_desc)
-            : IAggregateFunctionDataHelper<DataReal, AggregateFunctionSort>(
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionSort>(
                       arguments, nested_func->get_parameters()),
               _nested_func(nested_func),
               _arguments(arguments),
@@ -143,13 +141,13 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
         auto place = const_cast<AggregateDataPtr>(targetplace);
-        if (!this->data(place)._block.is_empty_column()) {
+        if (!this->data(place).block.is_empty_column()) {
             this->data(place).sort();
 
             ColumnRawPtrs arguments_nested;
             for (int i = 0; i < _arguments.size() - _sort_desc.size(); i++) {
                 arguments_nested.emplace_back(
-                        this->data(place)._block.get_by_position(i).column.get());
+                        this->data(place).block.get_by_position(i).column.get());
             }
             _nested_func->add_batch_single_place(arguments_nested[0]->size(),
                                                  get_nested_place(place), arguments_nested.data(),
@@ -164,12 +162,12 @@ public:
     size_t align_of_data() const override { return _nested_func->align_of_data(); }
 
     void create(AggregateDataPtr __restrict place) const override {
-        new (place) DataReal(_sort_desc, _block);
+        new (place) Data(_sort_desc, _block);
         _nested_func->create(get_nested_place(place));
     }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override {
-        this->data(place).~DataReal();
+        this->data(place).~Data();
         _nested_func->destroy(get_nested_place(place));
     }
 

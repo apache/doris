@@ -538,7 +538,7 @@ public class FunctionCallExpr extends Expr {
                         "group_concat requires first parameter to be of type STRING: " + this.toSql());
             }
 
-            if (children.size() == 2 && orderByElements.isEmpty()) {
+            if (children.size() - orderByElements.size() == 2) {
                 Expr arg1 = getChild(1);
                 if (!arg1.type.isStringType() && !arg1.type.isNull()) {
                     throw new AnalysisException(
