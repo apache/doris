@@ -16,11 +16,20 @@
 # specific language governing permissions and limitations
 # under the License.
 
-curdir=`dirname "$0"`
-curdir=`cd "$curdir"; pwd`
+curdir=$(dirname "$0")
+curdir=$(
+    cd "$curdir"
+    pwd
+)
 
-export DORIS_HOME=`cd "$curdir/.."; pwd`
-export PID_DIR=`cd "$curdir"; pwd`
+export DORIS_HOME=$(
+    cd "$curdir/.."
+    pwd
+)
+export PID_DIR=$(
+    cd "$curdir"
+    pwd
+)
 
 signum=9
 if [ "x"$1 = "x--grace" ]; then
@@ -28,37 +37,47 @@ if [ "x"$1 = "x--grace" ]; then
 fi
 
 while read line; do
-    envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
-    envline=`eval "echo $envline"`
+    envline=$(echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
+    envline=$(eval "echo $envline")
     if [[ $envline == *"="* ]]; then
         eval 'export "$envline"'
     fi
-done < $DORIS_HOME/conf/be.conf
+done <$DORIS_HOME/conf/be.conf
 
 pidfile=$PID_DIR/be.pid
 
 if [ -f $pidfile ]; then
-    pid=`cat $pidfile`
-    pidcomm=`ps -p $pid -o comm=`
+    pid=$(cat $pidfile)
+
+    #check if pid valid
+    if test -z "$pid"; then
+        echo "ERROR: invalid pid."
+        exit 1
+    fi
+
+    #check if pid process exist
+    if ! kill -0 $pid; then
+        echo "ERROR: be process $pid does not exist."
+        exit 1
+    fi
+
+    pidcomm=$(ps -p $pid -o comm=)
+    #check if pid process is backend process
     if [ "doris_be"x != "$pidcomm"x ]; then
         echo "ERROR: pid process may not be be. "
         exit 1
     fi
 
-    if kill -0 $pid; then
-        if kill -${signum} $pid > /dev/null 2>&1; then
-            echo "stop $pidcomm, and remove pid file. "
-            rm $pidfile
-            exit 0
-        else
-            exit 1
-        fi
-    else
-        echo "Backend already exit, remove pid file. "
+    # kill
+    if kill -${signum} $pid >/dev/null 2>&1; then
+        echo "stop $pidcomm, and remove pid file. "
         rm $pidfile
+        exit 0
+    else
+        echo "ERROR: failed to stop $pid"
+        exit 1
     fi
 else
-    echo "$pidfile does not exist"
+    echo "ERROR: $pidfile does not exist"
     exit 1
 fi
-
