@@ -112,9 +112,9 @@ public class RevokeStmt extends DdlStmt {
 
         // Revoke operation obey the same rule as Grant operation. reuse the same method
         if (tblPattern != null) {
-            GrantStmt.checkPrivileges(analyzer, privileges, role, tblPattern);
+            GrantStmt.checkTablePrivileges(privileges, role, tblPattern);
         } else {
-            GrantStmt.checkPrivileges(analyzer, privileges, role, resourcePattern);
+            GrantStmt.checkResourcePrivileges(privileges, role, resourcePattern);
         }
     }
 

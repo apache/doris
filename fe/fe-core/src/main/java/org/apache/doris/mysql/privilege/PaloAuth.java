@@ -712,25 +712,37 @@ public class PaloAuth implements Writable {
             }
 
             // 3. set password
-            setPasswordInternal(userIdent, password, null, false /* err on non exist */,
-                    false /* set by resolver */, true /* is replay */);
+            setPasswordInternal(userIdent, password, null, false /* err on non exist */, false /* set by resolver */,
+                    true /* is replay */);
+            try {
+                // 4. grant privs of role to user
+                grantPrivsByRole(userIdent, role);
 
-            // 4. grant privs of role to user
-            grantPrivsByRole(userIdent, role);
+                // other user properties
+                propertyMgr.addUserResource(userIdent.getQualifiedUser(), false /* not system user */);
 
-            // other user properties
-            propertyMgr.addUserResource(userIdent.getQualifiedUser(), false /* not system user */);
-
-            if (!userIdent.getQualifiedUser().equals(ROOT_USER) && !userIdent.getQualifiedUser().equals(ADMIN_USER)) {
-                // grant read privs to database information_schema
-                TablePattern tblPattern = new TablePattern(DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
-                try {
-                    tblPattern.analyze(ClusterNamespace.getClusterNameFromFullName(userIdent.getQualifiedUser()));
-                } catch (AnalysisException e) {
-                    LOG.warn("should not happen", e);
+                if (!userIdent.getQualifiedUser().equals(ROOT_USER) && !userIdent.getQualifiedUser()
+                        .equals(ADMIN_USER)) {
+                    // grant read privs to database information_schema
+                    TablePattern tblPattern = new TablePattern(DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
+                    try {
+                        tblPattern.analyze(ClusterNamespace.getClusterNameFromFullName(userIdent.getQualifiedUser()));
+                    } catch (AnalysisException e) {
+                        LOG.warn("should not happen", e);
+                    }
+                    grantInternal(userIdent, null /* role */, tblPattern, PrivBitSet.of(PaloPrivilege.SELECT_PRIV),
+                            false /* err on non exist */, true /* is replay */);
                 }
-                grantInternal(userIdent, null /* role */, tblPattern, PrivBitSet.of(PaloPrivilege.SELECT_PRIV),
-                        false /* err on non exist */, true /* is replay */);
+            } catch (Throwable t) {
+                // This is a temp protection to avoid bug such as described in
+                // https://github.com/apache/doris/issues/11235
+                // Normally, all operations in try..catch block should not fail
+                // Why add try..catch block after "setPasswordInternal"?
+                // Because after calling "setPasswordInternal()", the in-memory state has been changed,
+                // so we should make sure the following operations not throw any exception, if it throws,
+                // exit the process because there is no way to rollback in-memory state.
+                LOG.error("got unexpected exception when creating user. exit", t);
+                System.exit(-1);
             }
 
             if (!isReplay) {
