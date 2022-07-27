@@ -5,6 +5,9 @@ test_materialized_view1	AGG_KEYS	record_id	INT	Yes	true	\N		true
 		store_id	INT	Yes	true	\N		true
 		sale_date	DATE	Yes	false	\N	REPLACE	true
 		sale_amt	BIGINT	Yes	false	\N	SUM	true
+								
+amt_sum	AGG_KEYS	store_id	INT	Yes	true	\N		true
+		sale_amt	BIGINT	Yes	false	\N	SUM	true
 
 -- !sql --
 1	200
@@ -21,6 +24,25 @@ test_materialized_view1	AGG_KEYS	record_id	INT	Yes	true	\N		true
 		seller_id	INT	Yes	true	\N		true
 		store_id	INT	Yes	true	\N		true
 		sale_date	DATE	Yes	false	\N	REPLACE	true
+		sale_amt	BIGINT	Yes	false	\N	SUM	true
+								
+amt_sum	AGG_KEYS	store_id	INT	Yes	true	\N		true
+		sale_amt	BIGINT	Yes	false	\N	SUM	true
+								
+amt_count	AGG_KEYS	store_id	INT	Yes	true	\N		true
+		sale_amt	BIGINT	Yes	true	\N	SUM	true
+
+-- !sql --
+1	2
+
+-- !sql --
+test_materialized_view1	AGG_KEYS	record_id	INT	Yes	true	\N		true
+		seller_id	INT	Yes	true	\N		true
+		store_id	INT	Yes	true	\N		true
+		sale_date	DATE	Yes	false	\N	REPLACE	true
+		sale_amt	BIGINT	Yes	false	\N	SUM	true
+								
+amt_sum	AGG_KEYS	store_id	INT	Yes	true	\N		true
 		sale_amt	BIGINT	Yes	false	\N	SUM	true
 								
 amt_count	AGG_KEYS	store_id	INT	Yes	true	\N		true

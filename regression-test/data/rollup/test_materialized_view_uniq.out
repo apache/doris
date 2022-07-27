@@ -28,3 +28,18 @@ amt_count	UNIQUE_KEYS	record_id	INT	Yes	true	\N		true
 		store_id	INT	Yes	true	\N		true
 		sale_amt	BIGINT	Yes	true	\N	REPLACE	true
 
+-- !sql --
+1	2
+
+-- !sql --
+test_materialized_view1	UNIQUE_KEYS	record_id	INT	Yes	true	\N		true
+		seller_id	INT	Yes	true	\N		true
+		store_id	INT	Yes	true	\N		true
+		sale_date	DATE	Yes	false	\N	REPLACE	true
+		sale_amt	BIGINT	Yes	false	\N	REPLACE	true
+								
+amt_count	UNIQUE_KEYS	record_id	INT	Yes	true	\N		true
+		seller_id	INT	Yes	true	\N		true
+		store_id	INT	Yes	true	\N		true
+		sale_amt	BIGINT	Yes	true	\N	REPLACE	true
+

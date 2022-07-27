@@ -32,7 +32,21 @@ suite("test_materialized_view_agg", "rollup") {
             ) AGGREGATE KEY (record_id,seller_id,store_id)
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
-    try_sql "CREATE materialized VIEW amt_sum AS SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id;"
+    sql "CREATE materialized VIEW amt_sum AS SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id;"
+    max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobState(tbName1)
+        if (res == "FINISHED") {
+            break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED",res)
+            }
+        }
+    }
+
     sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}';"
     qt_sql "DESC ${tbName1} ALL;"
     sql "insert into ${tbName1} values(1, 1, 1, '2020-05-30',100);"
@@ -56,7 +70,8 @@ suite("test_materialized_view_agg", "rollup") {
             }
         }
     }
-    sql "SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
+    qt_sql "DESC ${tbName1} ALL;"
+    qt_sql "SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
     qt_sql "DESC ${tbName1} ALL;"
     sql "DROP TABLE ${tbName1} FORCE;"
 }
