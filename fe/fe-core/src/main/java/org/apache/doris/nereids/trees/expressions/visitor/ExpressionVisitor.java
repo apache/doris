@@ -30,6 +30,8 @@ import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -57,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -140,6 +143,14 @@ public abstract class ExpressionVisitor<R, C> {
         return visit(doubleLiteral, context);
     }
 
+    public R visitDateLiteral(DateLiteral dateLiteral, C context) {
+        return visit(dateLiteral, context);
+    }
+
+    public R visitDateTimeLiteral(DateTimeLiteral dateTimeLiteral, C context) {
+        return visit(dateTimeLiteral, context);
+    }
+
     public R visitBetween(Between between, C context) {
         return visit(between, context);
     }
@@ -218,6 +229,10 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitSubqueryExpr(SubqueryExpr subqueryExpr, C context) {
         return visit(subqueryExpr, context);
+    }
+
+    public R visitTimestampArithmetic(TimestampArithmetic arithmetic, C context) {
+        return visit(arithmetic, context);
     }
 
     /* ********************************************************************************************

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -79,9 +80,16 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
      * Whether the expression is a constant.
      */
     public boolean isConstant() {
-        return children().stream().anyMatch(Expression::isConstant);
+        return children().stream().allMatch(Expression::isConstant);
     }
 
+    public final Expression castTo(DataType targetType) throws AnalysisException {
+        return uncheckedCastTo(targetType);
+    }
+
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        throw new RuntimeException("Do not implement uncheckedCastTo");
+    }
 
     @Override
     public boolean equals(Object o) {
