@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.Collections;
@@ -37,6 +38,7 @@ import java.util.stream.Collectors;
 
 /**
  * The node of logical plan for sub query and alias
+ *
  * @param <CHILD_TYPE> param
  */
 public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
@@ -55,8 +57,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     public List<Slot> computeOutput(Plan input) {
         return input.getOutput().stream()
-                .map(slot -> new SlotReference(slot.getName(), slot.getDataType(), slot.nullable(),
-                        Lists.newArrayList(alias)))
+                .map(slot -> slot.withQualifier(ImmutableList.of(alias)))
                 .collect(Collectors.toList());
     }
 
