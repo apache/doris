@@ -262,6 +262,9 @@ public class BindSlotReference implements AnalysisRuleFactory {
                                 throw new AnalysisException("Not supported qualifier: "
                                         + StringUtils.join(qualifier, "."));
                         }
+                    case 0:
+                        // has no qualifiers
+                        return nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
                     default:
                         throw new AnalysisException("Not supported name: "
                             + StringUtils.join(nameParts, "."));
@@ -270,7 +273,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
     }
 
-    /** BoundStar is used to wrap list of slots for temporary */
+    /** BoundStar is used to wrap list of slots for temporary. */
     private class BoundStar extends NamedExpression {
         public BoundStar(List<Slot> children) {
             super(children.toArray(new Slot[0]));
