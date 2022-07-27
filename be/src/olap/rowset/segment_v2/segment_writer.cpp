@@ -21,6 +21,7 @@
 #include "env/env.h"        // Env
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
+#include "olap/primary_key_index.h"
 #include "olap/row.h"                             // ContiguousRow
 #include "olap/row_cursor.h"                      // RowCursor
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
@@ -30,6 +31,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "util/crc32c.h"
 #include "util/faststring.h"
+#include "util/key_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -50,17 +52,21 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                                                     std::to_string(segment_id))),
           _olap_data_convertor(tablet_schema) {
     CHECK_NOTNULL(file_writer);
-    size_t num_short_key_column = _tablet_schema->num_short_key_columns();
-    for (size_t cid = 0; cid < num_short_key_column; ++cid) {
+    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+        _num_key_columns = _tablet_schema->num_key_columns();
+    } else {
+        _num_key_columns = _tablet_schema->num_short_key_columns();
+    }
+    for (size_t cid = 0; cid < _num_key_columns; ++cid) {
         const auto& column = _tablet_schema->column(cid);
-        _short_key_coders.push_back(get_key_coder(column.type()));
-        _short_key_index_size.push_back(column.index_length());
+        _key_coders.push_back(get_key_coder(column.type()));
+        _key_index_size.push_back(column.index_length());
     }
 }
 
 SegmentWriter::~SegmentWriter() {
     _mem_tracker->release(_mem_tracker->consumption());
-};
+}
 
 void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
                                      const TabletColumn& column,
@@ -108,7 +114,15 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
     }
-    _index_builder.reset(new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
+
+    // we don't need the short key index for unique key merge on write table.
+    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+        _primary_key_index_builder.reset(new PrimaryKeyIndexBuilder(_file_writer));
+        RETURN_IF_ERROR(_primary_key_index_builder->init());
+    } else {
+        _short_key_index_builder.reset(
+                new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
+    }
     return Status::OK();
 }
 
@@ -133,30 +147,30 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     }
 
     // convert column data from engine format to storage layer format
-    std::vector<vectorized::IOlapColumnDataAccessor*> short_key_columns;
-    size_t num_key_columns = _tablet_schema->num_short_key_columns();
+    std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
         auto converted_result = _olap_data_convertor.convert_column_data(cid);
         if (converted_result.first != Status::OK()) {
             return converted_result.first;
         }
-        if (cid < num_key_columns) {
-            short_key_columns.push_back(converted_result.second);
+        if (cid < _num_key_columns) {
+            key_columns.push_back(converted_result.second);
         }
         RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
                                                      converted_result.second->get_data(),
                                                      num_rows));
     }
 
-    // create short key indexes
-    std::vector<const void*> key_column_fields;
-    for (const auto pos : short_key_pos) {
-        for (const auto& column : short_key_columns) {
-            key_column_fields.push_back(column->get_data_at(pos));
+    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+        // create primary indexes
+        for (size_t pos = 0; pos < num_rows; pos++) {
+            RETURN_IF_ERROR(_primary_key_index_builder->add_item(_encode_keys(key_columns, pos)));
         }
-        std::string encoded_key = encode_short_keys(key_column_fields);
-        RETURN_IF_ERROR(_index_builder->add_item(encoded_key));
-        key_column_fields.clear();
+    } else {
+        // create short key indexes
+        for (const auto pos : short_key_pos) {
+            RETURN_IF_ERROR(_short_key_index_builder->add_item(_encode_keys(key_columns, pos)));
+        }
     }
 
     _row_count += num_rows;
@@ -175,16 +189,16 @@ int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     return std::min(size_rows, count_rows);
 }
 
-std::string SegmentWriter::encode_short_keys(const std::vector<const void*> key_column_fields,
-                                             bool null_first) {
-    size_t num_key_columns = _tablet_schema->num_short_key_columns();
-    assert(key_column_fields.size() == num_key_columns &&
-           _short_key_coders.size() == num_key_columns &&
-           _short_key_index_size.size() == num_key_columns);
+std::string SegmentWriter::_encode_keys(
+        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
+        bool null_first) {
+    assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns &&
+           _key_index_size.size() == _num_key_columns);
 
     std::string encoded_keys;
-    for (size_t cid = 0; cid < num_key_columns; ++cid) {
-        auto field = key_column_fields[cid];
+    size_t cid = 0;
+    for (const auto& column : key_columns) {
+        auto field = column->get_data_at(pos);
         if (UNLIKELY(!field)) {
             if (null_first) {
                 encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
@@ -194,7 +208,12 @@ std::string SegmentWriter::encode_short_keys(const std::vector<const void*> key_
             continue;
         }
         encoded_keys.push_back(KEY_NORMAL_MARKER);
-        _short_key_coders[cid]->encode_ascending(field, _short_key_index_size[cid], &encoded_keys);
+        if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+            _key_coders[cid]->full_encode_ascending(field, &encoded_keys);
+        } else {
+            _key_coders[cid]->encode_ascending(field, _key_index_size[cid], &encoded_keys);
+        }
+        ++cid;
     }
     return encoded_keys;
 }
@@ -206,11 +225,17 @@ Status SegmentWriter::append_row(const RowType& row) {
         RETURN_IF_ERROR(_column_writers[cid]->append(cell));
     }
 
-    // At the begin of one block, so add a short key index entry
-    if ((_row_count % _opts.num_rows_per_block) == 0) {
+    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
         std::string encoded_key;
-        encode_key(&encoded_key, row, _tablet_schema->num_short_key_columns());
-        RETURN_IF_ERROR(_index_builder->add_item(encoded_key));
+        encode_key<RowType, true, true>(&encoded_key, row, _num_key_columns);
+        RETURN_IF_ERROR(_primary_key_index_builder->add_item(encoded_key));
+    } else {
+        // At the beginning of one block, so add a short key index entry
+        if ((_row_count % _opts.num_rows_per_block) == 0) {
+            std::string encoded_key;
+            encode_key(&encoded_key, row, _num_key_columns);
+            RETURN_IF_ERROR(_short_key_index_builder->add_item(encoded_key));
+        }
     }
     ++_row_count;
     return Status::OK();
@@ -229,7 +254,11 @@ uint64_t SegmentWriter::estimate_segment_size() {
     for (auto& column_writer : _column_writers) {
         size += column_writer->estimate_buffer_size();
     }
-    size += _index_builder->size();
+    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+        size += _primary_key_index_builder->size();
+    } else {
+        size += _short_key_index_builder->size();
+    }
 
     // update the mem_tracker of segment size
     _mem_tracker->consume(size - _mem_tracker->consumption());
@@ -250,7 +279,11 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
-    RETURN_IF_ERROR(_write_short_key_index());
+    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+        RETURN_IF_ERROR(_write_primary_key_index());
+    } else {
+        RETURN_IF_ERROR(_write_short_key_index());
+    }
     *index_size = _file_writer->bytes_appended() - index_offset;
     RETURN_IF_ERROR(_write_footer());
     RETURN_IF_ERROR(_file_writer->finalize());
@@ -298,12 +331,17 @@ Status SegmentWriter::_write_bloom_filter_index() {
 Status SegmentWriter::_write_short_key_index() {
     std::vector<Slice> body;
     PageFooterPB footer;
-    RETURN_IF_ERROR(_index_builder->finalize(_row_count, &body, &footer));
+    RETURN_IF_ERROR(_short_key_index_builder->finalize(_row_count, &body, &footer));
     PagePointer pp;
     // short key index page is not compressed right now
     RETURN_IF_ERROR(PageIO::write_page(_file_writer, body, footer, &pp));
     pp.to_proto(_footer.mutable_short_key_index_page());
     return Status::OK();
+}
+
+Status SegmentWriter::_write_primary_key_index() {
+    CHECK(_primary_key_index_builder->num_rows() == _row_count);
+    return _primary_key_index_builder->finalize(_footer.mutable_primary_key_index_meta());
 }
 
 Status SegmentWriter::_write_footer() {
@@ -332,6 +370,15 @@ Status SegmentWriter::_write_footer() {
 Status SegmentWriter::_write_raw_data(const std::vector<Slice>& slices) {
     RETURN_IF_ERROR(_file_writer->appendv(&slices[0], slices.size()));
     return Status::OK();
+}
+
+Slice SegmentWriter::min_encoded_key() {
+    return (_primary_key_index_builder == nullptr) ? Slice()
+                                                   : _primary_key_index_builder->min_key();
+}
+Slice SegmentWriter::max_encoded_key() {
+    return (_primary_key_index_builder == nullptr) ? Slice()
+                                                   : _primary_key_index_builder->max_key();
 }
 
 } // namespace segment_v2
