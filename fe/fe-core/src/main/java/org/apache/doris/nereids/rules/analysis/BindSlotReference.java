@@ -221,14 +221,14 @@ public class BindSlotReference implements AnalysisRuleFactory {
         private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
             return boundSlots.stream().filter(boundSlot -> {
                 List<String> nameParts = unboundSlot.getNameParts();
-                String name = boundSlot.getName();
                 switch (nameParts.size()) {
                     case 1:
                         // Unbound slot name is `column`
-                        return nameParts.get(0).equalsIgnoreCase(name);
+                        return nameParts.get(0).equalsIgnoreCase(boundSlot.getName());
                     case 2:
                         // Unbound slot name is `table`.`column`
                         List<String> qualifier = boundSlot.getQualifier();
+                        String name = boundSlot.getName();
                         switch (qualifier.size()) {
                             case 2:
                                 // qualifier is `db`.`table`
