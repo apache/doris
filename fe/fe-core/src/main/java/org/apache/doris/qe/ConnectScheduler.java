@@ -136,7 +136,7 @@ public class ConnectScheduler {
         return numberConnection.get();
     }
 
-    public List<ConnectContext.ThreadInfo> listConnection(String user) {
+    public List<ConnectContext.ThreadInfo> listConnection(String user, boolean isFull) {
         List<ConnectContext.ThreadInfo> infos = Lists.newArrayList();
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
@@ -146,7 +146,7 @@ public class ConnectScheduler {
                 continue;
             }
 
-            infos.add(ctx.toThreadInfo());
+            infos.add(ctx.toThreadInfo(isFull));
         }
         return infos;
     }

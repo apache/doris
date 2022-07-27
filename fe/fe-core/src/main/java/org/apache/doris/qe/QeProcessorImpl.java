@@ -200,6 +200,15 @@ public final class QeProcessorImpl implements QeProcessor {
         return result;
     }
 
+    @Override
+    public String getCurrentQueryByQueryId(TUniqueId queryId) {
+        QueryInfo info = coordinatorMap.get(queryId);
+        if (info != null && info.sql != null) {
+            return info.sql;
+        }
+        return "";
+    }
+
     public static final class QueryInfo {
         private final ConnectContext connectContext;
         private final Coordinator coord;
