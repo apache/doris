@@ -192,6 +192,10 @@ public:
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
     Status submit_quick_compaction_task(TabletSharedPtr tablet);
 
+    std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
+        return _tablet_publish_txn_thread_pool;
+    }
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -381,6 +385,8 @@ private:
     std::unique_ptr<ThreadPool> _quick_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+
+    std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
 

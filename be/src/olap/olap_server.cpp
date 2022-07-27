@@ -137,6 +137,12 @@ Status StorageEngine::start_bg_threads() {
             &_cooldown_tasks_producer_thread));
     LOG(INFO) << "cooldown tasks producer thread started";
 
+    // add tablet publish version thread pool
+    ThreadPoolBuilder("TabletPublishTxnThreadPool")
+            .set_min_threads(config::tablet_publish_txn_max_thread)
+            .set_max_threads(config::tablet_publish_txn_max_thread)
+            .build(&_tablet_publish_txn_thread_pool);
+
     LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();
 }
