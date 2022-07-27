@@ -23,6 +23,7 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CaseWhenClause;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.DoubleLiteral;
@@ -242,6 +244,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             elseExpr = defaultValue.get().accept(this, context);
         }
         return new CaseExpr(null, caseWhenClauses, elseExpr);
+    }
+
+    @Override
+    public Expr visitCast(Cast cast, PlanTranslatorContext context) {
+        // left child of cast is expression, right child of cast is target type
+        return new CastExpr(cast.getDataType().toCatalogDataType(),
+                cast.left().accept(this, context));
     }
 
     // TODO: Supports for `distinct`
