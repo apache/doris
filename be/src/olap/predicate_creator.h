@@ -203,6 +203,10 @@ inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldT
         return std::make_unique<CustomPredicateCreator<uint64_t, PT, ConditionType>>(
                 timestamp_from_datetime);
     }
+    case OLAP_FIELD_TYPE_DATETIMEV2: {
+        return std::make_unique<CustomPredicateCreator<uint64_t, PT, ConditionType>>(
+                timestamp_from_datetime_v2);
+    }
     case OLAP_FIELD_TYPE_BOOL: {
         return std::make_unique<CustomPredicateCreator<bool, PT, ConditionType>>(
                 [](const std::string& condition) {
