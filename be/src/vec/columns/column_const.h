@@ -21,6 +21,7 @@
 #pragma once
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/exception.h"
 #include "vec/common/typeid_cast.h"
@@ -144,8 +145,22 @@ public:
     size_t allocated_bytes() const override { return data->allocated_bytes() + sizeof(s); }
 
     int compare_at(size_t, size_t, const IColumn& rhs, int nan_direction_hint) const override {
-        return data->compare_at(0, 0, *assert_cast<const ColumnConst&>(rhs).data,
-                                nan_direction_hint);
+        auto rhs_const_column = assert_cast<const ColumnConst&>(rhs);
+
+        auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
+        auto* rhs_nullable = check_and_get_column<ColumnNullable>(rhs_const_column.data.get());
+        if (this_nullable && rhs_nullable) {
+            return data->compare_at(0, 0, *rhs_const_column.data, nan_direction_hint);
+        } else if (this_nullable) {
+            auto rhs_nullable_column = make_nullable(rhs_const_column.data, false);
+            return this_nullable->compare_at(0, 0, *rhs_nullable_column, nan_direction_hint);
+        } else if (rhs_nullable) {
+            auto this_nullable_column = make_nullable(data, false);
+            return this_nullable_column->compare_at(0, 0, *rhs_const_column.data,
+                                                    nan_direction_hint);
+        } else {
+            return data->compare_at(0, 0, *rhs_const_column.data, nan_direction_hint);
+        }
     }
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
