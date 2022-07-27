@@ -92,6 +92,8 @@ public:
     // only used by UT
     const SegmentFooterPB& footer() const { return _footer; }
 
+    Status load_index();
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, const TabletSchema* tablet_schema);
@@ -99,9 +101,6 @@ private:
     Status _open();
     Status _parse_footer();
     Status _create_column_readers();
-    // Load and decode short key index.
-    // May be called multiple times, subsequent calls will no op.
-    Status _load_index();
 
 private:
     friend class SegmentIterator;

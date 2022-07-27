@@ -17,6 +17,8 @@
 
 #include "olap/task/engine_publish_version_task.h"
 
+#include <util/defer_op.h>
+
 #include <map>
 
 #include "olap/data_dir.h"
@@ -34,13 +36,38 @@ EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publi
           _error_tablet_ids(error_tablet_ids),
           _succ_tablet_ids(succ_tablet_ids) {}
 
+void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
+    std::lock_guard<std::mutex> lck(_tablet_ids_mutex);
+    _error_tablet_ids->push_back(tablet_id);
+}
+
+void EnginePublishVersionTask::add_succ_tablet_id(int64_t tablet_id) {
+    std::lock_guard<std::mutex> lck(_tablet_ids_mutex);
+    _succ_tablet_ids->push_back(tablet_id);
+}
+
+void EnginePublishVersionTask::wait() {
+    std::unique_lock<std::mutex> lock(_tablet_finish_sleep_mutex);
+    _tablet_finish_sleep_cond.wait_for(lock, std::chrono::milliseconds(10));
+}
+
+void EnginePublishVersionTask::notify() {
+    std::unique_lock<std::mutex> lock(_tablet_finish_sleep_mutex);
+    _tablet_finish_sleep_cond.notify_one();
+}
+
 Status EnginePublishVersionTask::finish() {
     Status res = Status::OK();
     int64_t transaction_id = _publish_version_req.transaction_id;
     VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
 
     // each partition
+    bool meet_version_not_continuous = false;
+    std::atomic<int64_t> total_task_num(0);
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
+        if (meet_version_not_continuous) {
+            break;
+        }
         int64_t partition_id = par_ver_info.partition_id;
         // get all partition related tablets and check whether the tablet have the related version
         std::set<TabletInfo> partition_related_tablet_infos;
@@ -60,7 +87,9 @@ Status EnginePublishVersionTask::finish() {
 
         // each tablet
         for (auto& tablet_rs : tablet_related_rs) {
-            Status publish_status = Status::OK();
+            if (meet_version_not_continuous) {
+                break;
+            }
             TabletInfo tablet_info = tablet_rs.first;
             RowsetSharedPtr rowset = tablet_rs.second;
             VLOG_CRITICAL << "begin to publish version on tablet. "
@@ -86,39 +115,45 @@ Status EnginePublishVersionTask::finish() {
                 res = Status::OLAPInternalError(OLAP_ERR_PUSH_TABLE_NOT_EXIST);
                 continue;
             }
-
-            publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
-                    partition_id, tablet, transaction_id, version);
-            if (publish_status != Status::OK()) {
-                LOG(WARNING) << "failed to publish version. rowset_id=" << rowset->rowset_id()
-                             << ", tablet_id=" << tablet_info.tablet_id
-                             << ", txn_id=" << transaction_id;
-                _error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = publish_status;
+            Version max_version = tablet->max_version();
+            // in uniq key model with merge-on-write, we should see all
+            // previous version when update delete bitmap, so add a check
+            // here and wait pre version publish or lock timeout
+            if (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                tablet->enable_unique_key_merge_on_write() &&
+                version.first != max_version.second + 1) {
+                LOG(INFO) << "uniq key with merge-on-write version not continuous, current max "
+                             "version="
+                          << max_version.second << ", publish_version=" << version.first
+                          << " tablet_id=" << tablet->tablet_id();
+                meet_version_not_continuous = true;
+                res = Status::OLAPInternalError(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS);
                 continue;
             }
-
-            // add visible rowset to tablet
-            publish_status = tablet->add_inc_rowset(rowset);
-            if (publish_status != Status::OK() &&
-                publish_status.precise_code() != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
-                LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id="
-                             << rowset->rowset_id() << ", tablet_id=" << tablet_info.tablet_id
-                             << ", txn_id=" << transaction_id << ", res=" << publish_status;
-                _error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = publish_status;
-                continue;
-            }
-            if (_succ_tablet_ids != nullptr) {
-                _succ_tablet_ids->push_back(tablet_info.tablet_id);
-            }
-            partition_related_tablet_infos.erase(tablet_info);
-            VLOG_NOTICE << "publish version successfully on tablet. tablet=" << tablet->full_name()
-                        << ", transaction_id=" << transaction_id << ", version=" << version.first
-                        << ", res=" << publish_status;
+            total_task_num.fetch_add(1);
+            auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
+                    this, tablet, rowset, partition_id, transaction_id, version, tablet_info,
+                    &total_task_num);
+            auto submit_st =
+                    StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
+                            [=]() { tablet_publish_txn_ptr->handle(); });
+            CHECK(submit_st.ok());
         }
+    }
+    // wait for all publish txn finished
+    while (total_task_num.load() != 0) {
+        wait();
+    }
 
-        // check if the related tablet remained all have the version
+    // check if the related tablet remained all have the version
+    for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
+        int64_t partition_id = par_ver_info.partition_id;
+        // get all partition related tablets and check whether the tablet have the related version
+        std::set<TabletInfo> partition_related_tablet_infos;
+        StorageEngine::instance()->tablet_manager()->get_partition_related_tablets(
+                partition_id, &partition_related_tablet_infos);
+
+        Version version(par_ver_info.version, par_ver_info.version);
         for (auto& tablet_info : partition_related_tablet_infos) {
             // has to use strict mode to check if check all tablets
             if (!_publish_version_req.strict_mode) {
@@ -127,11 +162,11 @@ Status EnginePublishVersionTask::finish() {
             TabletSharedPtr tablet =
                     StorageEngine::instance()->tablet_manager()->get_tablet(tablet_info.tablet_id);
             if (tablet == nullptr) {
-                _error_tablet_ids->push_back(tablet_info.tablet_id);
+                add_error_tablet_id(tablet_info.tablet_id);
             } else {
                 // check if the version exist, if not exist, then set publish failed
                 if (!tablet->check_version_exist(version)) {
-                    _error_tablet_ids->push_back(tablet_info.tablet_id);
+                    add_error_tablet_id(tablet_info.tablet_id);
                 }
             }
         }
@@ -141,6 +176,53 @@ Status EnginePublishVersionTask::finish() {
               << "transaction_id=" << transaction_id
               << ", error_tablet_size=" << _error_tablet_ids->size();
     return res;
+}
+
+TabletPublishTxnTask::TabletPublishTxnTask(EnginePublishVersionTask* engine_task,
+                                           TabletSharedPtr tablet, RowsetSharedPtr rowset,
+                                           int64_t partition_id, int64_t transaction_id,
+                                           Version version, const TabletInfo& tablet_info,
+                                           std::atomic<int64_t>* total_task_num)
+        : _engine_publish_version_task(engine_task),
+          _tablet(tablet),
+          _rowset(rowset),
+          _partition_id(partition_id),
+          _transaction_id(transaction_id),
+          _version(version),
+          _tablet_info(tablet_info),
+          _total_task_num(total_task_num) {}
+
+void TabletPublishTxnTask::handle() {
+    Defer defer {[&] {
+        if (_total_task_num->fetch_sub(1) == 1) {
+            _engine_publish_version_task->notify();
+        }
+    }};
+    auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
+            _partition_id, _tablet, _transaction_id, _version);
+    if (publish_status != Status::OK()) {
+        LOG(WARNING) << "failed to publish version. rowset_id=" << _rowset->rowset_id()
+                     << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id;
+        _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
+        return;
+    }
+
+    // add visible rowset to tablet
+    publish_status = _tablet->add_inc_rowset(_rowset);
+    if (publish_status != Status::OK() &&
+        publish_status.precise_code() != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
+        LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id=" << _rowset->rowset_id()
+                     << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
+                     << ", res=" << publish_status;
+        _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
+        return;
+    }
+    _engine_publish_version_task->add_succ_tablet_id(_tablet_info.tablet_id);
+    VLOG_NOTICE << "publish version successfully on tablet. tablet=" << _tablet->full_name()
+                << ", transaction_id=" << _transaction_id << ", version=" << _version.first
+                << ", res=" << publish_status;
+
+    return;
 }
 
 } // namespace doris
