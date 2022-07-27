@@ -203,9 +203,8 @@ public class Memo {
             groups.add(group);
         }
         groupExpressions.put(groupExpression, groupExpression);
-        return new Pair(true, groupExpression);
         groupExpressionAdapterMap.put(adapter, adapter);
-        return groupExpression;
+        return new Pair(true, groupExpression);
     }
 
     /**
