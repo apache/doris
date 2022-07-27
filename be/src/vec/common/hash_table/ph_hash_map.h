@@ -19,26 +19,28 @@
 
 #include <parallel_hashmap/phmap.h>
 
-ALWAYS_INLINE inline char** lookup_result_get_mapped(std::pair<const StringRef, char*>* it) {
+#include "vec/common/hash_table/hash.h"
+#include "vec/common/hash_table/hash_table_utils.h"
+
+template <typename Key, typename Mapped>
+ALWAYS_INLINE inline auto lookup_result_get_mapped(std::pair<const Key, Mapped>* it) {
     return &(it->second);
 }
 
-template <typename Map>
-struct IsPhmapTraits {
-    constexpr static bool value = false;
-};
-
-template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
+template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
+          bool use_parallel = false>
 class PHHashMap : private boost::noncopyable {
 public:
     using Self = PHHashMap;
-    using HashMapImpl = phmap::flat_hash_map<Key, Mapped, Hash>;
+    using HashMapImpl =
+            std::conditional_t<use_parallel, phmap::parallel_flat_hash_map<Key, Mapped, Hash>,
+                               phmap::flat_hash_map<Key, Mapped, Hash>>;
 
     using key_type = Key;
     using mapped_type = Mapped;
-    using value_type = Key;
+    using value_type = std::pair<const Key, Mapped>;
 
-    using LookupResult = typename HashMapImpl::value_type*;
+    using LookupResult = std::pair<const Key, Mapped>*;
 
     using const_iterator_impl = typename HashMapImpl::const_iterator;
     using iterator_impl = typename HashMapImpl::iterator;
@@ -121,17 +123,30 @@ public:
                                bool& inserted) {
         const auto& key = key_holder_get_key(key_holder);
         inserted = false;
-        auto it_ = _hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
-            inserted = true;
-            key_holder_persist_key(key_holder);
-            ctor(key, nullptr);
-        });
-        it = &*it_;
+        if constexpr (use_parallel) {
+            auto it_ = _hash_map.lazy_emplace_with_hash(hash_value, key, [&](const auto& ctor) {
+                inserted = true;
+                key_holder_persist_key(key_holder);
+                ctor(key, nullptr);
+            });
+            it = &*it_;
+        } else {
+            auto it_ = _hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
+                inserted = true;
+                key_holder_persist_key(key_holder);
+                ctor(key, nullptr);
+            });
+            it = &*it_;
+        }
     }
 
     size_t hash(const Key& x) const { return _hash_map.hash(x); }
 
-    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) { _hash_map.prefetch_hash(hash_value); }
+    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
+        if constexpr (!use_parallel) _hash_map.prefetch_hash(hash_value);
+    }
+
+    void ALWAYS_INLINE prefetch_by_key(Key key) { _hash_map.prefetch(key); }
 
     /// Call func(const Key &, Mapped &) for each hash map element.
     template <typename Func>
@@ -164,7 +179,8 @@ public:
     HashMapImpl _hash_map;
 };
 
-template <typename Key, typename Mapped, typename Hash>
-struct IsPhmapTraits<PHHashMap<Key, Mapped, Hash>> {
-    constexpr static bool value = true;
+template <typename Key, typename Mapped, typename Hash, bool use_parallel>
+struct HashTableTraits<PHHashMap<Key, Mapped, Hash, use_parallel>> {
+    static constexpr bool is_phmap = true;
+    static constexpr bool is_parallel_phmap = use_parallel;
 };

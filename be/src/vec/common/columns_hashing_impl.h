@@ -25,6 +25,7 @@
 #include "vec/common/aggregation_common.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
+#include "vec/common/hash_table/ph_hash_map.h"
 // #include <Interpreters/AggregationCommon.h>
 
 namespace doris::vectorized {
