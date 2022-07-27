@@ -1641,6 +1641,7 @@ Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB&
     context.oldest_write_timestamp = oldest_write_timestamp;
     context.newest_write_timestamp = newest_write_timestamp;
     context.tablet_schema = tablet_schema;
+    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     _init_context_common_fields(context);
     return RowsetFactory::create_rowset_writer(context, rowset_writer);
 }
@@ -1658,6 +1659,7 @@ Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load
     context.oldest_write_timestamp = -1;
     context.newest_write_timestamp = -1;
     context.tablet_schema = tablet_schema;
+    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     _init_context_common_fields(context);
     return RowsetFactory::create_rowset_writer(context, rowset_writer);
 }

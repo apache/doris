@@ -196,15 +196,18 @@ valueExpression
 primaryExpression
     : CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
+    | name=CAST LEFT_PAREN expression AS identifier RIGHT_PAREN                                #cast
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | identifier LEFT_PAREN DISTINCT? arguments+=expression
-      (COMMA arguments+=expression)* RIGHT_PAREN                                                #functionCall
+    | identifier LEFT_PAREN (DISTINCT? arguments+=expression
+      (COMMA arguments+=expression)*)? RIGHT_PAREN                                             #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
+    | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
+      source=valueExpression RIGHT_PAREN                                                       #extract
     ;
 
 qualifiedName
@@ -213,6 +216,8 @@ qualifiedName
 
 constant
     : NULL                                                                                     #nullLiteral
+    | interval                                                                                 #intervalLiteral
+    | identifier STRING                                                                        #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | STRING+                                                                                  #stringLiteral
@@ -228,6 +233,14 @@ booleanValue
 
 whenClause
     : WHEN condition=expression THEN result=expression
+    ;
+
+interval
+    : INTERVAL value=expression unit=unitIdentifier
+    ;
+
+unitIdentifier
+    : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
@@ -314,6 +327,7 @@ ansiNonReserved
     | DATA
     | DATABASE
     | DATABASES
+    | DATE
     | DATEADD
     | DATE_ADD
     | DATEDIFF
@@ -567,6 +581,7 @@ nonReserved
     | DATA
     | DATABASE
     | DATABASES
+    | DATE
     | DATEADD
     | DATE_ADD
     | DATEDIFF

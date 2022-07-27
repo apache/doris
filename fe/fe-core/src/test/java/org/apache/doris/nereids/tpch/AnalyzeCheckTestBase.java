@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.tpch;
 
+import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.analyzer.Unbound;
-import org.apache.doris.nereids.rules.rewrite.logical.TestAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -30,7 +30,7 @@ import java.util.List;
 
 public abstract class AnalyzeCheckTestBase extends TestWithFeService {
     protected void checkAnalyze(String sql) {
-        LogicalPlan analyzed = new TestAnalyzer(connectContext).analyze(sql);
+        LogicalPlan analyzed = new NereidsAnalyzer(connectContext).analyze(sql);
         Assertions.assertTrue(checkBound(analyzed));
     }
 

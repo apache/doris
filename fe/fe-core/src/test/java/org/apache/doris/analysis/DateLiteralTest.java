@@ -26,8 +26,6 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.time.LocalDateTime;
-
 public class DateLiteralTest {
 
     @Test
@@ -254,16 +252,16 @@ public class DateLiteralTest {
     public void testDateFormatForDatetimeV2() {
         boolean hasException = false;
         try {
-            DateLiteral literal = new DateLiteral("1997-10-7 00:00:00.123456", Type.DATETIMEV2);
+            DateLiteral literal = new DateLiteral("1997-10-7 00:00:00.123456", ScalarType.createDatetimeV2Type(6));
             Assert.assertEquals(1997, literal.getYear());
             Assert.assertEquals(123456, literal.getMicrosecond());
 
-            literal = new DateLiteral("2021-06-1 00:00:00.123456", Type.DATETIMEV2);
+            literal = new DateLiteral("2021-06-1 00:00:00.123456", ScalarType.createDatetimeV2Type(6));
             Assert.assertEquals(2021, literal.getYear());
             Assert.assertEquals(6, literal.getMonth());
             Assert.assertEquals(1, literal.getDay());
 
-            literal = new DateLiteral("2022-6-01 00:00:00.123456", Type.DATETIMEV2);
+            literal = new DateLiteral("2022-6-01 00:00:00.123456", ScalarType.createDatetimeV2Type(6));
             Assert.assertEquals(2022, literal.getYear());
             Assert.assertEquals(6, literal.getMonth());
             Assert.assertEquals(1, literal.getDay());
@@ -387,18 +385,5 @@ public class DateLiteralTest {
             hasException = true;
         }
         Assert.assertFalse(hasException);
-    }
-
-    @Test
-    public void testDateTimeV2Decimal() {
-        DateLiteral dateLiteral1 = new DateLiteral(LocalDateTime.now(),
-                DateLiteral.getDefaultDateType(ScalarType.createDatetimeV2Type(3)));
-        Assert.assertTrue((dateLiteral1.getDecimalNumber() >= 100 && dateLiteral1.getDecimalNumber() < 1000)
-                || dateLiteral1.getDecimalNumber() == 0);
-
-        DateLiteral dateLiteral2 = new DateLiteral(LocalDateTime.now(),
-                DateLiteral.getDefaultDateType(ScalarType.createDatetimeV2Type(5)));
-        Assert.assertTrue((dateLiteral2.getDecimalNumber() >= 10000 && dateLiteral2.getDecimalNumber() < 100000)
-                || dateLiteral2.getDecimalNumber() == 0);
     }
 }

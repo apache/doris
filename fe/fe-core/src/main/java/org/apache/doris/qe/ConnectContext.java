@@ -504,8 +504,8 @@ public class ConnectContext {
 
     // kill operation with no protect.
     public void kill(boolean killConnection) {
-        LOG.warn("kill timeout query, {}, kill connection: {}",
-                getMysqlChannel().getRemoteHostPortString(), killConnection);
+        LOG.warn("kill query from {}, kill connection: {}", getMysqlChannel().getRemoteHostPortString(),
+                killConnection);
 
         if (killConnection) {
             isKilled = true;
@@ -551,10 +551,11 @@ public class ConnectContext {
     }
 
     // Helper to dump connection information.
-    public ThreadInfo toThreadInfo() {
+    public ThreadInfo toThreadInfo(boolean isFull) {
         if (threadInfo == null) {
             threadInfo = new ThreadInfo();
         }
+        threadInfo.isFull = isFull;
         return threadInfo;
     }
 
@@ -584,6 +585,8 @@ public class ConnectContext {
     }
 
     public class ThreadInfo {
+        public boolean isFull;
+
         public List<String> toRow(long nowMs) {
             List<String> row = Lists.newArrayList();
             row.add("" + connectionId);
@@ -594,7 +597,15 @@ public class ConnectContext {
             row.add(command.toString());
             row.add("" + (nowMs - startTime) / 1000);
             row.add("");
-            row.add("");
+            if (queryId != null) {
+                String sql = QeProcessorImpl.INSTANCE.getCurrentQueryByQueryId(queryId);
+                if (!isFull) {
+                    sql = sql.substring(0, Math.min(sql.length(), 100));
+                }
+                row.add(sql);
+            } else {
+                row.add("");
+            }
             return row;
         }
     }
@@ -604,3 +615,4 @@ public class ConnectContext {
     }
 
 }
+

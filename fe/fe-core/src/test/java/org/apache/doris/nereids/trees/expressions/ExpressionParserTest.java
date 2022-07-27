@@ -176,4 +176,55 @@ public class ExpressionParserTest {
         String notExistExpr = "not exists (select * from test where b = 1)";
         assertExpr(notExistExpr);
     }
+
+    @Test
+    public void testInterval() {
+        String interval = "tt > date '1991-05-01' + interval '1' day";
+        assertExpr(interval);
+
+        interval = "tt > '1991-05-01' + interval '1' day";
+        assertExpr(interval);
+
+        interval = "tt > '1991-05-01' + interval 1 day";
+        assertExpr(interval);
+
+        interval = "tt > '1991-05-01' - interval 1 day";
+        assertExpr(interval);
+
+        interval = "tt > date '1991-05-01' - interval '1' day";
+        assertExpr(interval);
+
+        interval = "tt > interval '1' day + '1991-05-01'";
+        assertExpr(interval);
+
+        interval = "tt > interval '1' day + date '1991-05-01'";
+        assertExpr(interval);
+
+        interval = "tt > '1991-05-01'  - interval 2*1 day";
+        assertExpr(interval);
+
+        interval = "tt > now() - interval 1+1 day";
+        assertExpr(interval);
+    }
+
+    @Test
+    public void testExtract() throws Exception {
+        String extract = "SELECT EXTRACT(YEAR FROM TIMESTAMP '2022-02-21 00:00:00') AS year FROM TEST;";
+        assertSql(extract);
+
+        String extract2 = "SELECT EXTRACT(YEAR FROM DATE '2022-02-21 00:00:00') AS year FROM TEST;";
+        assertSql(extract2);
+
+        String extract3 = "SELECT EXTRACT(YEAR FROM '2022-02-21 00:00:00') AS year FROM TEST;";
+        assertSql(extract3);
+    }
+
+    @Test
+    public void testCast() throws Exception {
+        String cast = "SELECT CAST(A AS STRING) FROM TEST;";
+        assertSql(cast);
+
+        String cast2 = "SELECT CAST(A AS INT) AS I FROM TEST;";
+        assertSql(cast2);
+    }
 }

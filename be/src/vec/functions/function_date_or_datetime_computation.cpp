@@ -23,8 +23,8 @@ namespace doris::vectorized {
 
 using FunctionAddSeconds = FunctionDateOrDateTimeComputation<
         AddSecondsImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionAddSecondsV2 =
-        FunctionDateOrDateTimeComputation<AddSecondsImpl<DataTypeDateV2, UInt32, DataTypeDateV2>>;
+using FunctionAddSecondsV2 = FunctionDateOrDateTimeComputation<
+        AddSecondsImpl<DataTypeDateV2, UInt32, DataTypeDateTimeV2>>;
 using FunctionAddMinutes = FunctionDateOrDateTimeComputation<
         AddMinutesImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
 using FunctionAddHours =
@@ -35,10 +35,10 @@ using FunctionAddWeeks =
         FunctionDateOrDateTimeComputation<AddWeeksImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
 using FunctionAddMonths =
         FunctionDateOrDateTimeComputation<AddMonthsImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionAddMinutesV2 =
-        FunctionDateOrDateTimeComputation<AddMinutesImpl<DataTypeDateV2, UInt32, DataTypeDateV2>>;
+using FunctionAddMinutesV2 = FunctionDateOrDateTimeComputation<
+        AddMinutesImpl<DataTypeDateV2, UInt32, DataTypeDateTimeV2>>;
 using FunctionAddHoursV2 =
-        FunctionDateOrDateTimeComputation<AddHoursImpl<DataTypeDateV2, UInt32, DataTypeDateV2>>;
+        FunctionDateOrDateTimeComputation<AddHoursImpl<DataTypeDateV2, UInt32, DataTypeDateTimeV2>>;
 using FunctionAddDaysV2 =
         FunctionDateOrDateTimeComputation<AddDaysImpl<DataTypeDateV2, UInt32, DataTypeDateV2>>;
 using FunctionAddWeeksV2 =
@@ -71,11 +71,11 @@ using FunctionSubQuarters = FunctionDateOrDateTimeComputation<
 using FunctionSubYears = FunctionDateOrDateTimeComputation<
         SubtractYearsImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
 using FunctionSubSecondsV2 = FunctionDateOrDateTimeComputation<
-        SubtractSecondsImpl<DataTypeDateV2, UInt32, DataTypeDateV2>>;
+        SubtractSecondsImpl<DataTypeDateV2, UInt32, DataTypeDateTimeV2>>;
 using FunctionSubMinutesV2 = FunctionDateOrDateTimeComputation<
-        SubtractMinutesImpl<DataTypeDateV2, UInt32, DataTypeDateV2>>;
+        SubtractMinutesImpl<DataTypeDateV2, UInt32, DataTypeDateTimeV2>>;
 using FunctionSubHoursV2 = FunctionDateOrDateTimeComputation<
-        SubtractHoursImpl<DataTypeDateV2, UInt32, DataTypeDateV2>>;
+        SubtractHoursImpl<DataTypeDateV2, UInt32, DataTypeDateTimeV2>>;
 using FunctionSubDaysV2 =
         FunctionDateOrDateTimeComputation<SubtractDaysImpl<DataTypeDateV2, UInt32, DataTypeDateV2>>;
 using FunctionSubWeeksV2 = FunctionDateOrDateTimeComputation<
