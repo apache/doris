@@ -1004,7 +1004,6 @@ public class StmtExecutor implements ProfileWriter {
         sendResult(isOutfileQuery, false, queryStmt, channel, null, null);
     }
 
-
     private void sendResult(boolean isOutfileQuery, boolean isSendFields, Queriable queryStmt, MysqlChannel channel,
             CacheAnalyzer cacheAnalyzer, InternalService.PFetchCacheResult cacheResult) throws Exception {
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,

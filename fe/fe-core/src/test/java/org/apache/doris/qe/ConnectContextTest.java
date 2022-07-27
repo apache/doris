@@ -116,8 +116,8 @@ public class ConnectContextTest {
         Assert.assertEquals(MysqlCommand.COM_PING, ctx.getCommand());
 
         // Thread info
-        Assert.assertNotNull(ctx.toThreadInfo());
-        List<String> row = ctx.toThreadInfo().toRow(1000);
+        Assert.assertNotNull(ctx.toThreadInfo(false));
+        List<String> row = ctx.toThreadInfo(false).toRow(1000);
         Assert.assertEquals(9, row.size());
         Assert.assertEquals("101", row.get(0));
         Assert.assertEquals("testUser", row.get(1));

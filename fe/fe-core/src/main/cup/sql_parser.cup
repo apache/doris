@@ -2654,7 +2654,7 @@ show_param ::=
     /* show processlist */
     | opt_full KW_PROCESSLIST
     {:
-        RESULT = new ShowProcesslistStmt();
+        RESULT = new ShowProcesslistStmt(parser.isVerbose);
     :}
     /* routine */
     | procedure_or_function KW_STATUS opt_wild_where
