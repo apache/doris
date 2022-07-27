@@ -23,6 +23,7 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/rowid_conversion.h"
 #include "olap/tablet_schema.h"
 #include "vec/core/block.h"
 
@@ -93,6 +94,7 @@ public:
     int block_row_max = 4096;
 
     const TabletSchema* tablet_schema = nullptr;
+    bool record_rowids = false;
 };
 
 // Used to read data in RowBlockV2 one by one
@@ -117,6 +119,10 @@ public:
     }
 
     virtual Status next_batch(vectorized::Block* block) {
+        return Status::NotSupported("to be implemented");
+    }
+
+    virtual Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
         return Status::NotSupported("to be implemented");
     }
 
