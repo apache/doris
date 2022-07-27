@@ -32,8 +32,9 @@ public class BindSubQueryAlias implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                RuleType.BINDING_ALIAS_SLOT.build(
-                        logicalSubQueryAlias().then(alias -> new LogicalSubQueryAlias<>(alias.getAlias(), alias.child())
+                RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
+                        logicalSubQueryAlias().then(alias ->
+                                new LogicalSubQueryAlias<>(alias.getAlias(), alias.child())
                         )
                 )
         );
