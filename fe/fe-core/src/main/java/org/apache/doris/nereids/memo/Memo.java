@@ -46,7 +46,6 @@ public class Memo {
     private final List<Group> groups = Lists.newArrayList();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
-    private final Map<GroupExpressionAdapter, GroupExpressionAdapter> groupExpressionAdapterMap = Maps.newHashMap();
     private Group root;
 
     public Memo(Plan plan) {
@@ -124,44 +123,6 @@ public class Memo {
     }
 
     /**
-     * The class is a package class for GroupExpression because the equals() of the latter
-     * can not divide UnboundRelation from LogicalScanOlap as their logical properties are
-     * the same, but actually they are not the same.
-     * TODO: refactor the GroupExpression to avoid the situation.
-     */
-    private static class GroupExpressionAdapter {
-        private final GroupExpression groupExpr;
-
-        public GroupExpressionAdapter(GroupExpression groupExpr) {
-            this.groupExpr = groupExpr;
-        }
-
-        public GroupExpression getGroupExpr() {
-            return groupExpr;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (o == null || getClass() != o.getClass()) {
-                return false;
-            }
-            GroupExpressionAdapter that = (GroupExpressionAdapter) o;
-            if (that.groupExpr.getPlan() instanceof LogicalOlapScan) {
-                return this.groupExpr == ((GroupExpressionAdapter) o).groupExpr;
-            }
-            return this.groupExpr.equals(that.groupExpr);
-        }
-
-        @Override
-        public int hashCode() {
-            return groupExpr.hashCode();
-        }
-    }
-
-    /**
      * Insert or rewrite groupExpression to target group.
      * If group expression is already in memo and target group is not null, we merge two groups.
      * If target is null, generate new group.
@@ -175,15 +136,11 @@ public class Memo {
      */
     private Pair<Boolean, GroupExpression> insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
             boolean rewrite, LogicalProperties logicalProperties) {
-        GroupExpressionAdapter adapter = new GroupExpressionAdapter(groupExpression);
-
-        GroupExpressionAdapter existedGroupExpressionAdapter = groupExpressionAdapterMap.get(adapter);
-
-        if (existedGroupExpressionAdapter != null) {
-            GroupExpression existedGroupExpression = existedGroupExpressionAdapter.getGroupExpr();
+        GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
+        if (existedGroupExpression != null) {
             Group mergedGroup = existedGroupExpression.getOwnerGroup();
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
-                mergedGroup = mergeGroup(existedGroupExpression.getOwnerGroup(), target);
+                mergedGroup = mergeGroup(target, existedGroupExpression.getOwnerGroup());
             }
             if (rewrite) {
                 mergedGroup.setLogicalProperties(logicalProperties);
@@ -203,7 +160,6 @@ public class Memo {
             groups.add(group);
         }
         groupExpressions.put(groupExpression, groupExpression);
-        groupExpressionAdapterMap.put(adapter, adapter);
         return new Pair(true, groupExpression);
     }
 

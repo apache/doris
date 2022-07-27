@@ -21,6 +21,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
@@ -37,6 +40,8 @@ import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -59,8 +64,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
             "SELECT T1.ID ID FROM T1",
             "SELECT T.ID FROM T1 T",
             "SELECT A.ID, B.SCORE FROM T1 A, T2 B WHERE A.ID = B.ID GROUP BY A.ID ORDER BY A.ID",
-            "SELECT X.ID FROM (SELECT * FROM T1 A JOIN (SELECT ID ID1 FROM T1) AS B ON A.ID = B.ID1) X WHERE X.SCORE < 20",
-            "SELECT X.ID + X.SCORE FROM (SELECT * FROM T1 A JOIN (SELECT SUM(ID + 1) ID1 FROM T1 T GROUP BY ID) AS B ON A.ID = B.ID1 ORDER BY A.ID DESC) X WHERE X.ID - X.SCORE < 20"
+            "SELECT * FROM T1 JOIN T2 ON T1.ID = T2.ID JOIN T2 T ON T1.ID = T.ID"
     );
 
     @Override
@@ -115,7 +119,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testFinalizeAnalyze() {
-        finalizeAnalyze(testSql.get(10));
+        finalizeAnalyze(testSql.get(5));
     }
 
     @Test
@@ -128,23 +132,25 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testPlan() throws AnalysisException {
-        System.out.println(new NereidsPlanner(connectContext).plan(
-                parser.parseSingle(testSql.get(10)),
-                new PhysicalProperties(),
-                connectContext
-        ).treeString());
+        PhysicalPlan plan = testPlanCase(testSql.get(9));
+        PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
+        System.out.println(root.getPlanRoot());
     }
 
     @Test
     public void testPlanAllCase() throws AnalysisException {
         for (String sql : testSql) {
             System.out.println("*****\nStart test: " + sql + "\n*****\n");
-            System.out.println(new NereidsPlanner(connectContext).plan(
-                    parser.parseSingle(sql),
-                    new PhysicalProperties(),
-                    connectContext
-            ).treeString());
+            testPlanCase(sql);
         }
+    }
+
+    private PhysicalPlan testPlanCase(String sql) throws AnalysisException {
+        return new NereidsPlanner(connectContext).plan(
+                parser.parseSingle(sql),
+                new PhysicalProperties(),
+                connectContext
+        );
     }
 
     private void checkAnalyze(String sql) {
@@ -236,26 +242,9 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         }
         return true;
     }
+
+    private boolean checkPlan() {
+        return true;
+    }
 }
 
-/*
-CREATE TABLE T1 (
-    ID bigint,
-    SCORE bigint
-)
-DUPLICATE KEY(id)
-DISTRIBUTED BY HASH(id) BUCKETS 1
-PROPERTIES (
-    "replication_num" = "1"
-);
-
-CREATE TABLE T2 (
-    ID bigint,
-    SCORE bigint
-)
-DUPLICATE KEY(id)
-DISTRIBUTED BY HASH(id) BUCKETS 1
-PROPERTIES (
-    "replication_num" = "1"
-);
- */
