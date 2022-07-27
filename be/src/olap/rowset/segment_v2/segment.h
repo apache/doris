@@ -77,28 +77,14 @@ public:
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
 
-    size_t num_short_keys() const { return _tablet_schema.num_short_key_columns(); }
-
-    uint32_t num_rows_per_block() const {
+    const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
-        return _sk_index_decoder->num_rows_per_block();
-    }
-    ShortKeyIndexIterator lower_bound(const Slice& key) const {
-        DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
-        return _sk_index_decoder->lower_bound(key);
-    }
-    ShortKeyIndexIterator upper_bound(const Slice& key) const {
-        DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
-        return _sk_index_decoder->upper_bound(key);
+        return _sk_index_decoder.get();
     }
 
-    // This will return the last row block in this segment.
-    // NOTE: Before call this function , client should assure that
-    // this segment is not empty.
-    uint32_t last_block() const {
+    const PrimaryKeyIndexReader* get_primary_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
-        DCHECK(num_rows() > 0);
-        return _sk_index_decoder->num_items() - 1;
+        return _pk_index_reader.get();
     }
 
     Status lookup_row_key(const Slice& key, RowLocation* row_location);

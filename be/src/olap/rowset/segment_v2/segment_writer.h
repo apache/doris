@@ -40,6 +40,7 @@ class RowCursor;
 class TabletSchema;
 class TabletColumn;
 class ShortKeyIndexBuilder;
+class PrimaryKeyIndexBuilder;
 class KeyCoder;
 
 namespace io {
@@ -55,6 +56,7 @@ extern const uint32_t k_segment_magic_length;
 
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
+    bool enable_unique_key_merge_on_write = false;
 };
 
 class SegmentWriter {
@@ -81,6 +83,8 @@ public:
 
     static void init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
                                  const TabletColumn& column, const TabletSchema* tablet_schema);
+    Slice min_encoded_key();
+    Slice max_encoded_key();
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -90,11 +94,11 @@ private:
     Status _write_bitmap_index();
     Status _write_bloom_filter_index();
     Status _write_short_key_index();
+    Status _write_primary_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
-
-    std::string encode_short_keys(const std::vector<const void*> key_column_fields,
-                                  bool null_first = true);
+    std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+                             size_t pos, bool null_first = true);
 
 private:
     uint32_t _segment_id;
@@ -107,14 +111,17 @@ private:
     io::FileWriter* _file_writer;
 
     SegmentFooterPB _footer;
-    std::unique_ptr<ShortKeyIndexBuilder> _index_builder;
+    size_t _num_key_columns;
+    std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
+    std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
     std::unique_ptr<MemTracker> _mem_tracker;
     uint32_t _row_count = 0;
 
     vectorized::OlapBlockDataConvertor _olap_data_convertor;
-    std::vector<const KeyCoder*> _short_key_coders;
-    std::vector<uint16_t> _short_key_index_size;
+    // used for building short key index or primary key index during vectorized write.
+    std::vector<const KeyCoder*> _key_coders;
+    std::vector<uint16_t> _key_index_size;
     size_t _short_key_row_pos = 0;
 };
 

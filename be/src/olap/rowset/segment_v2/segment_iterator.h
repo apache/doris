@@ -72,6 +72,11 @@ private:
     Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
     Status _lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
                            rowid_t* rowid);
+    // lookup the ordinal of given key from short key index
+    Status _lookup_ordinal_from_sk_index(const RowCursor& key, bool is_include, rowid_t upper_bound,
+                                         rowid_t* rowid);
+    // lookup the ordinal of given key from primary key index
+    Status _lookup_ordinal_from_pk_index(const RowCursor& key, bool is_include, rowid_t* rowid);
     Status _seek_and_peek(rowid_t rowid);
 
     // calculate row ranges that satisfy requested column conditions using various column index
