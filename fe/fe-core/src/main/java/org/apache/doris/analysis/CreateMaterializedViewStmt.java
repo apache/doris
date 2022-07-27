@@ -18,9 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
@@ -145,10 +145,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzeFromClause();
 
         if (selectStmt.getAggInfo() != null) {
-            if (getOriginKeysType() != KeysType.DUP_KEYS) {
-                throw new AnalysisException("Only duplicate table support aggregate function("
-                        + selectStmt.getAggInfo().debugString() + ").");
-            }
             mvKeysType = KeysType.AGG_KEYS;
         } else {
             mvKeysType = getOriginKeysType();
@@ -263,7 +259,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         dbName = tableName.getDb();
 
         try {
-            Database currentDb = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+            Database currentDb = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
             olapTable = (OlapTable) currentDb.getTableOrAnalysisException(baseIndexName);
         } catch (Exception e) {
             olapTable = null;

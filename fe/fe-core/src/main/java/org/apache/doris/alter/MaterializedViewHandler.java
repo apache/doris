@@ -476,12 +476,16 @@ public class MaterializedViewHandler extends AlterHandler {
 
                 if (!baseColumn.isKey() && KeysType.DUP_KEYS != originKeysType) {
                     if (mvAggregationType == null) {
-                        mvAggregationType = baseColumn.getAggregationType();
+                        mvAggregationType = baseAggregationType;
                         mvColumnItem.setAggregationType(mvAggregationType, true);
                     } else {
-                        throw new DdlException(
-                                "The mv column of unique/aggregate table cannot include aggregate function("
-                                        + mvAggregationType + ")");
+                        if (mvAggregationType != baseAggregationType) {
+                            throw new DdlException(
+                                    "The mv column of unique/aggregate table"
+                                            + "must keep same aggregate function with base table(mvAggregationType["
+                                            + mvAggregationType + "], baseAggregationType[" + baseAggregationType
+                                            + "])");
+                        }
                     }
                 }
 
