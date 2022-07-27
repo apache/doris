@@ -26,8 +26,6 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.time.LocalDateTime;
-
 public class DateLiteralTest {
 
     @Test
