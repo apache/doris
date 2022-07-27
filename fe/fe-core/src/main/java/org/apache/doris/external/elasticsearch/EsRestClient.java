@@ -17,6 +17,9 @@
 
 package org.apache.doris.external.elasticsearch;
 
+import org.apache.doris.common.util.JsonUtil;
+
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -25,17 +28,15 @@ import org.apache.http.HttpHeaders;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.util.Strings;
-import org.codehaus.jackson.JsonParser;
-import org.codehaus.jackson.map.DeserializationConfig;
-import org.codehaus.jackson.map.ObjectMapper;
-import org.codehaus.jackson.map.SerializationConfig;
 
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.HostnameVerifier;
@@ -45,38 +46,39 @@ import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
+/**
+ * For get es metadata by http/https.
+ **/
 public class EsRestClient {
 
     private static final Logger LOG = LogManager.getLogger(EsRestClient.class);
-    private ObjectMapper mapper;
-
-    {
-        mapper = new ObjectMapper();
-        mapper.configure(DeserializationConfig.Feature.USE_ANNOTATIONS, false);
-        mapper.configure(SerializationConfig.Feature.USE_ANNOTATIONS, false);
-    }
-
-    private static OkHttpClient networkClient = new OkHttpClient.Builder()
-            .readTimeout(10, TimeUnit.SECONDS)
-            .build();
+    private static OkHttpClient networkClient = new OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build();
 
     private static OkHttpClient sslNetworkClient;
-
     private Request.Builder builder;
     private String[] nodes;
     private String currentNode;
     private int currentNodeIndex = 0;
     private boolean httpSslEnable;
 
+    /**
+     * For EsTable.
+     **/
     public EsRestClient(String[] nodes, String authUser, String authPassword, boolean httpSslEnable) {
         this.nodes = nodes;
         this.builder = new Request.Builder();
         if (!Strings.isEmpty(authUser) && !Strings.isEmpty(authPassword)) {
-            this.builder.addHeader(HttpHeaders.AUTHORIZATION,
-                    Credentials.basic(authUser, authPassword));
+            this.builder.addHeader(HttpHeaders.AUTHORIZATION, Credentials.basic(authUser, authPassword));
         }
         this.currentNode = nodes[currentNodeIndex];
         this.httpSslEnable = httpSslEnable;
+    }
+
+    public OkHttpClient getClient() {
+        if (httpSslEnable) {
+            return getOrCreateSslNetworkClient();
+        }
+        return networkClient;
     }
 
     private void selectNextNode() {
@@ -88,6 +90,9 @@ public class EsRestClient {
         currentNode = nodes[currentNodeIndex];
     }
 
+    /**
+     * Get http nodes.
+     **/
     public Map<String, EsNodeInfo> getHttpNodes() throws DorisEsException {
         Map<String, Map<String, Object>> nodesData = get("_nodes/http", "nodes");
         if (nodesData == null) {
@@ -104,26 +109,7 @@ public class EsRestClient {
     }
 
     /**
-     * Get remote ES Cluster version
-     *
-     * @return
-     * @throws Exception
-     */
-    public EsMajorVersion version() throws DorisEsException {
-        Map<String, Object> result = get("/", null);
-        if (result == null) {
-            throw new DorisEsException("Unable to retrieve ES main cluster info.");
-        }
-        Map<String, String> versionBody = (Map<String, String>) result.get("version");
-        return EsMajorVersion.parse(versionBody.get("number"));
-    }
-
-    /**
-     * Get mapping for indexName
-     *
-     * @param indexName
-     * @return
-     * @throws Exception
+     * Get mapping for indexName.
      */
     public String getMapping(String indexName) throws DorisEsException {
         String path = indexName + "/_mapping";
@@ -134,14 +120,48 @@ public class EsRestClient {
         return indexMapping;
     }
 
+    /**
+     * Check whether index exist.
+     **/
+    public boolean existIndex(OkHttpClient httpClient, String indexName) {
+        String path = indexName + "/_mapping";
+        Response response;
+        try {
+            response = executeResponse(httpClient, path);
+            if (response.isSuccessful()) {
+                return true;
+            }
+        } catch (IOException e) {
+            LOG.warn("existIndex error", e);
+            return false;
+        }
+        return false;
+    }
 
     /**
-     * Get Shard location
-     *
-     * @param indexName
-     * @return
-     * @throws DorisEsException
-     */
+     * Get all index.
+     **/
+    public List<String> getIndexes() {
+        String indexes = execute("_cat/indices?h=index&format=json&s=index:asc");
+        if (indexes == null) {
+            throw new DorisEsException("get es indexes error");
+        }
+        List<String> ret = new ArrayList<>();
+        ArrayNode jsonNodes = JsonUtil.parseArray(indexes);
+        jsonNodes.forEach(json -> {
+            // es 7.17 has .geoip_databases, but _mapping response 400.
+            String index = json.get("index").asText();
+            if (!index.startsWith(".")) {
+                ret.add(index);
+            }
+        });
+        return ret;
+    }
+
+
+    /**
+     * Get Shard location.
+     **/
     public EsShardPartitions searchShards(String indexName) throws DorisEsException {
         String path = indexName + "/_search_shards";
         String searchShards = execute(path);
@@ -156,13 +176,23 @@ public class EsRestClient {
      **/
     private synchronized OkHttpClient getOrCreateSslNetworkClient() {
         if (sslNetworkClient == null) {
-            sslNetworkClient = new OkHttpClient.Builder()
-                    .readTimeout(10, TimeUnit.SECONDS)
+            sslNetworkClient = new OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS)
                     .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
-                    .hostnameVerifier(new TrustAllHostnameVerifier())
-                    .build();
+                    .hostnameVerifier(new TrustAllHostnameVerifier()).build();
         }
         return sslNetworkClient;
+    }
+
+    private Response executeResponse(OkHttpClient httpClient, String path) throws IOException {
+        currentNode = currentNode.trim();
+        if (!(currentNode.startsWith("http://") || currentNode.startsWith("https://"))) {
+            currentNode = "http://" + currentNode;
+        }
+        Request request = builder.get().url(currentNode + "/" + path).build();
+        if (LOG.isInfoEnabled()) {
+            LOG.info("es rest client request URL: {}", currentNode + "/" + path);
+        }
+        return httpClient.newCall(request).execute();
     }
 
     /**
@@ -187,29 +217,16 @@ public class EsRestClient {
             // User may set a config like described below:
             // hosts: "http://192.168.0.1:8200, http://192.168.0.2:8200"
             // then currentNode will be "http://192.168.0.1:8200", " http://192.168.0.2:8200"
-            currentNode = currentNode.trim();
-            if (!(currentNode.startsWith("http://") || currentNode.startsWith("https://"))) {
-                currentNode = "http://" + currentNode;
-            }
-            Request request = builder.get()
-                    .url(currentNode + "/" + path)
-                    .build();
-            Response response = null;
             if (LOG.isTraceEnabled()) {
                 LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
             }
-            try {
-                response = httpClient.newCall(request).execute();
+            try (Response response = executeResponse(httpClient, path)) {
                 if (response.isSuccessful()) {
                     return response.body().string();
                 }
             } catch (IOException e) {
                 LOG.warn("request node [{}] [{}] failures {}, try next nodes", currentNode, path, e);
                 scratchExceptionForThrow = new DorisEsException(e.getMessage());
-            } finally {
-                if (response != null) {
-                    response.close();
-                }
             }
             selectNextNode();
         }
@@ -226,10 +243,9 @@ public class EsRestClient {
 
     @SuppressWarnings("unchecked")
     private <T> T parseContent(String response, String key) {
-        Map<String, Object> map = Collections.emptyMap();
+        Map<String, Object> map;
         try {
-            JsonParser jsonParser = mapper.getJsonFactory().createJsonParser(response);
-            map = mapper.readValue(jsonParser, Map.class);
+            map = JsonUtil.readValue(response, Map.class);
         } catch (IOException ex) {
             LOG.error("parse es response failure: [{}]", response);
             throw new DorisEsException(ex.getMessage());
@@ -262,7 +278,7 @@ public class EsRestClient {
         SSLSocketFactory ssfFactory;
         try {
             SSLContext sc = SSLContext.getInstance("TLS");
-            sc.init(null, new TrustManager[]{new TrustAllCerts()}, new SecureRandom());
+            sc.init(null, new TrustManager[] {new TrustAllCerts()}, new SecureRandom());
             ssfFactory = sc.getSocketFactory();
         } catch (Exception e) {
             throw new DorisEsException("Errors happens when create ssl socket");

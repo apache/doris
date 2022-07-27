@@ -124,6 +124,9 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
         return Lists.newArrayList(idToCatalog.keySet());
     }
 
+    /**
+     * Get db allow return null
+     **/
     public DatabaseIf getDbNullable(long dbId) {
         DatabaseIf db = internalDataSource.getDbNullable(dbId);
         if (db != null) {
@@ -308,7 +311,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     /**
      * Reply for create catalog event.
      */
-    public void replayCreateCatalog(CatalogLog log) {
+    public void replayCreateCatalog(CatalogLog log) throws DdlException {
         writeLock();
         try {
             DataSourceIf ds = CatalogFactory.constructorFromLog(log);
