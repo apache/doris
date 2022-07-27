@@ -241,10 +241,11 @@ public class BindSlotReference implements AnalysisRuleFactory {
         private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
             return boundSlots.stream().filter(boundSlot -> {
                 List<String> nameParts = unboundSlot.getNameParts();
+                String name = boundSlot.getName();
                 switch (nameParts.size()) {
                     case 1:
                         // Unbound slot name is `column`
-                        return nameParts.get(0).equalsIgnoreCase(boundSlot.getName());
+                        return nameParts.get(0).equalsIgnoreCase(name);
                     case 2:
                         // Unbound slot name is `table`.`column`
                         List<String> qualifier = boundSlot.getQualifier();
@@ -252,11 +253,11 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             case 2:
                                 // qualifier is `db`.`table`
                                 return nameParts.get(0).equalsIgnoreCase(qualifier.get(1))
-                                        && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
+                                        && nameParts.get(1).equalsIgnoreCase(name);
                             case 1:
                                 // qualifier is `table`
                                 return nameParts.get(0).equalsIgnoreCase(qualifier.get(0))
-                                        && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
+                                        && nameParts.get(1).equalsIgnoreCase(name);
                             default:
                                 throw new AnalysisException("Not supported qualifier: "
                                         + StringUtils.join(qualifier, "."));
