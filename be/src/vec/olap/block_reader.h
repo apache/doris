@@ -45,6 +45,8 @@ public:
         return (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
     }
 
+    std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
+
 private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
@@ -101,6 +103,8 @@ private:
 
     Status (BlockReader::*_next_block_func)(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
                                             bool* eof) = nullptr;
+
+    std::vector<RowLocation> _block_row_locations;
 };
 
 } // namespace vectorized

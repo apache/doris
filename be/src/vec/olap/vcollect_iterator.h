@@ -25,6 +25,7 @@
 
 #include "olap/olap_define.h"
 #include "olap/reader.h"
+#include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset_reader.h"
 #include "vec/core/block.h"
 
@@ -64,6 +65,12 @@ public:
 
     bool is_merge() const { return _merge; }
 
+    RowLocation current_row_location() { return _inner_iter->current_row_location(); }
+
+    Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
+        return _inner_iter->current_block_row_locations(block_row_locations);
+    }
+
 private:
     // This interface is the actual implementation of the new version of iterator.
     // It currently contains two implementations, one is Level0Iterator,
@@ -92,6 +99,10 @@ private:
         virtual ~LevelIterator() = default;
 
         const TabletSchema& tablet_schema() const { return _schema; };
+
+        virtual RowLocation current_row_location() = 0;
+
+        virtual Status current_block_row_locations(std::vector<RowLocation>* row_location) = 0;
 
     protected:
         const TabletSchema& _schema;
@@ -132,12 +143,19 @@ private:
 
         Status next(Block* block) override;
 
+        RowLocation current_row_location() override;
+
+        Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override {
+            return Status::NotSupported("Level0Iterator don't need to implement the function");
+        }
+
     private:
         Status _refresh_current_row();
 
         RowsetReaderSharedPtr _rs_reader;
         TabletReader* _reader = nullptr;
         std::shared_ptr<Block> _block;
+        std::vector<RowLocation> _block_row_locations;
     };
 
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
@@ -153,6 +171,10 @@ private:
         Status next(IteratorRowRef* ref) override;
 
         Status next(Block* block) override;
+
+        RowLocation current_row_location() override { return _cur_child->current_row_location(); }
+
+        Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
 
         ~Level1Iterator();
 
@@ -186,6 +208,8 @@ private:
 
         // batch size, get from TabletReader
         int _batch_size;
+
+        std::vector<RowLocation> _block_row_locations;
     };
 
     std::unique_ptr<LevelIterator> _inner_iter;

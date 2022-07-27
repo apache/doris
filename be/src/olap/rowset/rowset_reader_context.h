@@ -71,6 +71,7 @@ struct RowsetReaderContext {
     // for unique key merge on write
     bool enable_unique_key_merge_on_write = false;
     const DeleteBitmap* delete_bitmap = nullptr;
+    bool record_rowids = false;
 };
 
 } // namespace doris

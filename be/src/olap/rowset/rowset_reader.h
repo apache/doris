@@ -22,6 +22,7 @@
 #include <unordered_map>
 
 #include "gen_cpp/olap_file.pb.h"
+#include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "vec/core/block.h"
@@ -64,6 +65,13 @@ public:
 
     virtual int64_t oldest_write_timestamp() = 0;
     virtual int64_t newest_write_timestamp() = 0;
+    virtual Status current_block_row_locations(std::vector<RowLocation>* locations) {
+        return Status::NotSupported("to be implemented");
+    }
+
+    virtual Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) {
+        return Status::NotSupported("to be implemented");
+    }
 };
 
 } // namespace doris

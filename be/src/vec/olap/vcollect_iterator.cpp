@@ -213,6 +213,11 @@ Status VCollectIterator::Level0Iterator::_refresh_current_row() {
                 _ref.row_pos = -1;
                 return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
             }
+
+            if (UNLIKELY(_reader->_reader_context.record_rowids)) {
+                RETURN_NOT_OK(_rs_reader->current_block_row_locations(&_block_row_locations));
+                DCHECK_EQ(_block_row_locations.size(), _block->rows());
+            }
         }
     } while (_block->rows() != 0);
     _ref.row_pos = -1;
@@ -241,6 +246,12 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
         }
         return Status::OK();
     }
+}
+
+RowLocation VCollectIterator::Level0Iterator::current_row_location() {
+    RowLocation& segment_row_id = _block_row_locations[_ref.row_pos];
+    return RowLocation(_rs_reader->rowset()->rowset_id(), segment_row_id.segment_id,
+                       segment_row_id.row_id);
 }
 
 VCollectIterator::Level1Iterator::Level1Iterator(
@@ -408,6 +419,9 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     auto target_columns = block->mutate_columns();
     size_t column_count = block->columns();
     IteratorRowRef cur_row = _ref;
+    if (UNLIKELY(_reader->_reader_context.record_rowids)) {
+        _block_row_locations.resize(_batch_size);
+    }
     do {
         const auto& src_block = cur_row.block;
         assert(src_block->columns() == column_count);
@@ -415,9 +429,15 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             target_columns[i]->insert_from(*(src_block->get_by_position(i).column),
                                            cur_row.row_pos);
         }
+        if (UNLIKELY(_reader->_reader_context.record_rowids)) {
+            _block_row_locations[target_block_row] = _cur_child->current_row_location();
+        }
         ++target_block_row;
         auto res = _merge_next(&cur_row);
         if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
+            if (UNLIKELY(_reader->_reader_context.record_rowids)) {
+                _block_row_locations.resize(target_block_row);
+            }
             return res;
         }
 
@@ -450,6 +470,15 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
+}
+
+Status VCollectIterator::Level1Iterator::current_block_row_locations(
+        std::vector<RowLocation>* block_row_locations) {
+    // The function only used for compaction, so _merge is always true.
+    DCHECK(_merge);
+    DCHECK(_reader->_reader_context.record_rowids);
+    *block_row_locations = _block_row_locations;
+    return Status::OK();
 }
 
 } // namespace vectorized

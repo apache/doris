@@ -97,6 +97,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     }
     read_options.use_page_cache = read_context->use_page_cache;
     read_options.tablet_schema = read_context->tablet_schema;
+    read_options.record_rowids = read_context->record_rowids;
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
@@ -261,4 +262,12 @@ bool BetaRowsetReader::_should_push_down_value_predicates() const {
             _context->enable_unique_key_merge_on_write);
 }
 
+Status BetaRowsetReader::get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) {
+    auto& seg_ptrs = _segment_cache_handle.get_segments();
+    segment_num_rows->resize(seg_ptrs.size());
+    for (size_t i = 0; i < seg_ptrs.size(); i++) {
+        (*segment_num_rows)[i] = seg_ptrs[i]->num_rows();
+    }
+    return Status::OK();
+}
 } // namespace doris

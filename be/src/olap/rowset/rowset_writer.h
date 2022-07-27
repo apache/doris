@@ -76,6 +76,10 @@ public:
 
     virtual RowsetTypePB type() const = 0;
 
+    virtual Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const {
+        return Status::NotSupported("to be implemented");
+    }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 };
