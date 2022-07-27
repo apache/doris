@@ -800,7 +800,7 @@ public class Analyzer {
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
         // TODO: need to remove this outer join'
-        result.setIsNullable(col.isAllowNull() || isOuterJoined(d.getId()));
+        result.setIsNullable(col.isAllowNull());
 
         slotRefMap.put(key, result);
         return result;
