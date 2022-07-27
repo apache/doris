@@ -428,7 +428,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
         const ColumnWithTypeAndName& arg_then = block.get_by_position(arguments[1]);
         const ColumnWithTypeAndName& arg_else = block.get_by_position(arguments[2]);
 
@@ -438,6 +437,10 @@ public:
             block.replace_by_position(result, arg_then.column);
             return Status::OK();
         }
+
+        ColumnWithTypeAndName& cond_column = block.get_by_position(arguments[0]);
+        cond_column.column = materialize_column_if_const(cond_column.column);
+        const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
 
         Status ret = Status::OK();
         if (execute_for_null_condition(context, block, arg_cond, arg_then, arg_else, result) ||

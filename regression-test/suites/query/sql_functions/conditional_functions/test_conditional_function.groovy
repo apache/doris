@@ -49,4 +49,8 @@ suite("test_conditional_function", "query") {
     qt_sql "select nullif(1,1);"
     qt_sql "select nullif(1,0);"
 
+    qt_sql """select if(date_format(CONCAT_WS('', '9999-07', '-26'), '%Y-%m')= DATE_FORMAT( curdate(), '%Y-%m'),
+	        curdate(),
+	        DATE_FORMAT(DATE_SUB(month_ceil ( CONCAT_WS('', '9999-07', '-26')), 1), '%Y-%m-%d'));"""
+
 }
