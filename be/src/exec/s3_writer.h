@@ -21,8 +21,9 @@
 #include <string>
 
 #include "exec/file_writer.h"
+#include "runtime/exec_env.h"
+#include "runtime/tmp_file_mgr.h"
 #include "util/s3_uri.h"
-
 namespace Aws {
 namespace Utils {
 class TempFile;

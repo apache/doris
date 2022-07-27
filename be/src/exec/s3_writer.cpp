@@ -41,10 +41,15 @@ S3Writer::S3Writer(const std::map<std::string, std::string>& properties, const s
         : _properties(properties),
           _path(path),
           _uri(path),
-          _client(ClientFactory::instance().create(_properties)),
-          _temp_file(std::make_shared<Aws::Utils::TempFile>(
-                  std::ios_base::binary | std::ios_base::trunc | std::ios_base::in |
-                  std::ios_base::out)) {
+          _client(ClientFactory::instance().create(_properties)) {
+    std::string tmp_path = ExecEnv::GetInstance()->tmp_file_mgr()->get_tmp_dir_path();
+    LOG(INFO) << "init aws s3 client with tmp path " << tmp_path;
+    if (tmp_path.at(tmp_path.size() - 1) != '/') {
+        tmp_path.append("/");
+    }
+    _temp_file = std::make_shared<Aws::Utils::TempFile>(
+            tmp_path.c_str(), ".doris_tmp",
+            std::ios_base::binary | std::ios_base::trunc | std::ios_base::in | std::ios_base::out);
     DCHECK(_client) << "init aws s3 client error.";
 }
 
