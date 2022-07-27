@@ -189,6 +189,7 @@ inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,
         reinterpret_cast<vectorized::ColumnHLL*>(col_ptr)->get_data().emplace_back(HyperLogLog(Slice(data, len)));
         break;
     }
+    case TYPE_STRING:
     case TYPE_VARCHAR:
     case TYPE_CHAR: {
         if (need_escape) {
