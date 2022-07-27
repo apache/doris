@@ -1318,9 +1318,15 @@ public class FunctionCallExpr extends Expr {
             fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
-        } else if (fnName.getFunction().equalsIgnoreCase("substring")) {
+        } else if (fnName.getFunction().equalsIgnoreCase("substring")
+                || fnName.getFunction().equalsIgnoreCase("cast")) {
             Type[] childTypes = getChildren().stream().map(t -> t.type).toArray(Type[]::new);
             fn = getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            type = fn.getReturnType();
+        } else if (fnName.getFunction().equalsIgnoreCase("year")) {
+            Type childType = getChild(0).type;
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
         }
     }

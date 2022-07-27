@@ -142,16 +142,28 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
         case TYPE_INT:
         case TYPE_FLOAT:
         case TYPE_DATEV2:
-            _agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
+            if (_is_merge)
+                _agg_data.init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
+            else
+                _agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
             return;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
         case TYPE_DATE:
         case TYPE_DATETIME:
         case TYPE_DATETIMEV2:
-            _agg_data.init(AggregatedDataVariants::Type::int64_key, is_nullable);
+            if (_is_merge)
+                _agg_data.init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
+            else
+                _agg_data.init(AggregatedDataVariants::Type::int64_key, is_nullable);
             return;
-        case TYPE_LARGEINT:
+        case TYPE_LARGEINT: {
+            if (_is_merge)
+                _agg_data.init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
+            else
+                _agg_data.init(AggregatedDataVariants::Type::int128_key, is_nullable);
+            return;
+        }
         case TYPE_DECIMALV2:
         case TYPE_DECIMAL32:
         case TYPE_DECIMAL64:
@@ -163,11 +175,20 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
                                         : type_ptr->get_type_id();
             WhichDataType which(idx);
             if (which.is_decimal32()) {
-                _agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
+                if (_is_merge)
+                    _agg_data.init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
+                else
+                    _agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
             } else if (which.is_decimal64()) {
-                _agg_data.init(AggregatedDataVariants::Type::int64_key, is_nullable);
+                if (_is_merge)
+                    _agg_data.init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
+                else
+                    _agg_data.init(AggregatedDataVariants::Type::int64_key, is_nullable);
             } else {
-                _agg_data.init(AggregatedDataVariants::Type::int128_key, is_nullable);
+                if (_is_merge)
+                    _agg_data.init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
+                else
+                    _agg_data.init(AggregatedDataVariants::Type::int128_key, is_nullable);
             }
             return;
         }
@@ -208,20 +229,38 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
         if (use_fixed_key) {
             if (has_null) {
                 if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
-                    _agg_data.init(AggregatedDataVariants::Type::int64_keys, has_null);
+                    if (_is_merge)
+                        _agg_data.init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int64_keys, has_null);
                 } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
                            sizeof(UInt128)) {
-                    _agg_data.init(AggregatedDataVariants::Type::int128_keys, has_null);
+                    if (_is_merge)
+                        _agg_data.init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int128_keys, has_null);
                 } else {
-                    _agg_data.init(AggregatedDataVariants::Type::int256_keys, has_null);
+                    if (_is_merge)
+                        _agg_data.init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int256_keys, has_null);
                 }
             } else {
                 if (key_byte_size <= sizeof(UInt64)) {
-                    _agg_data.init(AggregatedDataVariants::Type::int64_keys, has_null);
+                    if (_is_merge)
+                        _agg_data.init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int64_keys, has_null);
                 } else if (key_byte_size <= sizeof(UInt128)) {
-                    _agg_data.init(AggregatedDataVariants::Type::int128_keys, has_null);
+                    if (_is_merge)
+                        _agg_data.init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int128_keys, has_null);
                 } else {
-                    _agg_data.init(AggregatedDataVariants::Type::int256_keys, has_null);
+                    if (_is_merge)
+                        _agg_data.init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int256_keys, has_null);
                 }
             }
         } else {
@@ -794,10 +833,18 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
 
                     std::vector<size_t> hash_values;
 
-                    if constexpr (IsPhmapTraits<HashTableType>::value) {
+                    if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                         if (hash_values.size() < rows) hash_values.resize(rows);
-                        for (size_t i = 0; i < rows; ++i) {
-                            hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
+                                              AggState>::value) {
+                            for (size_t i = 0; i < rows; ++i) {
+                                hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                            }
+                        } else {
+                            for (size_t i = 0; i < rows; ++i) {
+                                hash_values[i] = agg_method.data.hash(
+                                        state.get_key_holder(i, _agg_arena_pool));
+                            }
                         }
                     }
 
@@ -806,10 +853,15 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                         AggregateDataPtr aggregate_data = nullptr;
 
                         auto emplace_result = [&]() {
-                            if constexpr (IsPhmapTraits<HashTableType>::value) {
+                            if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                                 if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
-                                    agg_method.data.prefetch_by_hash(
-                                            hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                                    if constexpr (HashTableTraits<
+                                                          HashTableType>::is_parallel_phmap) {
+                                        agg_method.data.prefetch_by_key(state.get_key_holder(
+                                                i + HASH_MAP_PREFETCH_DIST, _agg_arena_pool));
+                                    } else
+                                        agg_method.data.prefetch_by_hash(
+                                                hash_values[i + HASH_MAP_PREFETCH_DIST]);
                                 }
 
                                 return state.emplace_key(agg_method.data, hash_values[i], i,
@@ -879,10 +931,18 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
 
                 std::vector<size_t> hash_values;
 
-                if constexpr (IsPhmapTraits<HashTableType>::value) {
+                if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                     if (hash_values.size() < rows) hash_values.resize(rows);
-                    for (size_t i = 0; i < rows; ++i) {
-                        hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
+                                          AggState>::value) {
+                        for (size_t i = 0; i < rows; ++i) {
+                            hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                        }
+                    } else {
+                        for (size_t i = 0; i < rows; ++i) {
+                            hash_values[i] =
+                                    agg_method.data.hash(state.get_key_holder(i, _agg_arena_pool));
+                        }
                     }
                 }
 
@@ -891,10 +951,14 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
                     AggregateDataPtr aggregate_data = nullptr;
 
                     auto emplace_result = [&]() {
-                        if constexpr (IsPhmapTraits<HashTableType>::value) {
+                        if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                             if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
-                                agg_method.data.prefetch_by_hash(
-                                        hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                                if constexpr (HashTableTraits<HashTableType>::is_parallel_phmap) {
+                                    agg_method.data.prefetch_by_key(state.get_key_holder(
+                                            i + HASH_MAP_PREFETCH_DIST, _agg_arena_pool));
+                                } else
+                                    agg_method.data.prefetch_by_hash(
+                                            hash_values[i + HASH_MAP_PREFETCH_DIST]);
                             }
 
                             return state.emplace_key(agg_method.data, hash_values[i], i,
@@ -1141,10 +1205,18 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
 
                 std::vector<size_t> hash_values;
 
-                if constexpr (IsPhmapTraits<HashTableType>::value) {
+                if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                     if (hash_values.size() < rows) hash_values.resize(rows);
-                    for (size_t i = 0; i < rows; ++i) {
-                        hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
+                                          AggState>::value) {
+                        for (size_t i = 0; i < rows; ++i) {
+                            hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                        }
+                    } else {
+                        for (size_t i = 0; i < rows; ++i) {
+                            hash_values[i] =
+                                    agg_method.data.hash(state.get_key_holder(i, _agg_arena_pool));
+                        }
                     }
                 }
 
@@ -1153,12 +1225,15 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
                     AggregateDataPtr aggregate_data = nullptr;
 
                     auto emplace_result = [&]() {
-                        if constexpr (IsPhmapTraits<HashTableType>::value) {
+                        if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                             if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
-                                agg_method.data.prefetch_by_hash(
-                                        hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                                if constexpr (HashTableTraits<HashTableType>::is_parallel_phmap) {
+                                    agg_method.data.prefetch_by_key(state.get_key_holder(
+                                            i + HASH_MAP_PREFETCH_DIST, _agg_arena_pool));
+                                } else
+                                    agg_method.data.prefetch_by_hash(
+                                            hash_values[i + HASH_MAP_PREFETCH_DIST]);
                             }
-
                             return state.emplace_key(agg_method.data, hash_values[i], i,
                                                      _agg_arena_pool);
                         } else {
