@@ -19,12 +19,18 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TKeysType;
 
+/**
+ * Olap Table key type.
+ **/
 public enum KeysType {
     PRIMARY_KEYS,
     DUP_KEYS,
     UNIQUE_KEYS,
     AGG_KEYS;
 
+    /**
+     * Determine whether it is an aggregation type.
+     **/
     public boolean isAggregationFamily() {
         switch (this) {
             case AGG_KEYS:
@@ -35,6 +41,9 @@ public enum KeysType {
         }
     }
 
+    /**
+     * Type convert to thrift.
+     **/
     public TKeysType toThrift() {
         switch (this) {
             case PRIMARY_KEYS:
@@ -50,6 +59,9 @@ public enum KeysType {
         }
     }
 
+    /**
+     * Type convert from thrift
+     **/
     public static KeysType fromThrift(TKeysType tKeysType) {
         switch (tKeysType) {
             case PRIMARY_KEYS:
@@ -65,6 +77,9 @@ public enum KeysType {
         }
     }
 
+    /**
+     * Type convert to sql.
+     **/
     public String toSql() {
         switch (this) {
             case PRIMARY_KEYS:
@@ -80,6 +95,9 @@ public enum KeysType {
         }
     }
 
+    /**
+     * Type convert to information_schema, try to be compatible with mysql.
+     **/
     public String toMetadata() {
         switch (this) {
             case PRIMARY_KEYS:
@@ -91,7 +109,7 @@ public enum KeysType {
             case AGG_KEYS:
                 return "AGG";
             default:
-                return null;
+                return "";
         }
     }
 }

@@ -345,8 +345,10 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         if (_desc_result.columns[_column_index].columnDesc.__isset.columnKey) {
             str_slot->len = _desc_result.columns[_column_index].columnDesc.columnKey.length();
-            str_slot->ptr = (char*)pool->allocate(_desc_result.columns[_column_index].columnDesc.columnKey.length());
-            memcpy(str_slot->ptr, _desc_result.columns[_column_index].columnDesc.columnKey.c_str(), str_slot->len);
+            str_slot->ptr = (char*)pool->allocate(
+                    _desc_result.columns[_column_index].columnDesc.columnKey.length());
+            memcpy(str_slot->ptr, _desc_result.columns[_column_index].columnDesc.columnKey.c_str(),
+                   str_slot->len);
         } else {
             str_slot->len = strlen("") + 1;
             str_slot->ptr = (char*)pool->allocate(str_slot->len);
