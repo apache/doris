@@ -293,10 +293,10 @@ bool read_date_v2_text_impl(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
-bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf) {
+bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, UInt32 scale = -1) {
     static_assert(std::is_same_v<UInt64, T>);
     auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count());
+    auto ans = dv.from_date_str(buf.position(), buf.count(), scale);
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
@@ -374,7 +374,7 @@ bool try_read_date_v2_text(T& x, ReadBuffer& in) {
 }
 
 template <typename T>
-bool try_read_datetime_v2_text(T& x, ReadBuffer& in) {
-    return read_datetime_v2_text_impl<T>(x, in);
+bool try_read_datetime_v2_text(T& x, ReadBuffer& in, UInt32 scale) {
+    return read_datetime_v2_text_impl<T>(x, in, scale);
 }
 } // namespace doris::vectorized

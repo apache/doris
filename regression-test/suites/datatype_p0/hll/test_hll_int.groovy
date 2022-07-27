@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hll_int", "datatype") {
+suite("test_hll_int") {
     sql "DROP TABLE IF EXISTS test_int_hll"
     sql """
         CREATE TABLE test_int_hll (`id` int COMMENT "", `hll_set` hll hll_union COMMENT "") 
