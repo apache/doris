@@ -120,9 +120,9 @@ public class GrantStmt extends DdlStmt {
         }
 
         if (tblPattern != null) {
-            checkPrivileges(analyzer, privileges, role, tblPattern);
+            checkTablePrivileges(privileges, role, tblPattern);
         } else {
-            checkPrivileges(analyzer, privileges, role, resourcePattern);
+            checkResourcePrivileges(privileges, role, resourcePattern);
         }
     }
 
@@ -135,15 +135,15 @@ public class GrantStmt extends DdlStmt {
      * 5.1 User should has GLOBAL level GRANT_PRIV
      * 5.2 or user has DATABASE/TABLE level GRANT_PRIV if grant/revoke to/from certain database or table.
      * 5.3 or user should has 'resource' GRANT_PRIV if grant/revoke to/from certain 'resource'
+     * 6. Can not grant USAGE_PRIV to database or table
      *
-     * @param analyzer
      * @param privileges
      * @param role
      * @param tblPattern
      * @throws AnalysisException
      */
-    public static void checkPrivileges(Analyzer analyzer, List<PaloPrivilege> privileges,
-                                       String role, TablePattern tblPattern) throws AnalysisException {
+    public static void checkTablePrivileges(List<PaloPrivilege> privileges, String role, TablePattern tblPattern)
+            throws AnalysisException {
         // Rule 1
         if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && (privileges.contains(PaloPrivilege.ADMIN_PRIV)
                 || privileges.contains(PaloPrivilege.NODE_PRIV))) {
@@ -153,7 +153,7 @@ public class GrantStmt extends DdlStmt {
         // Rule 2
         if (privileges.contains(PaloPrivilege.NODE_PRIV) && !Catalog.getCurrentCatalog().getAuth()
                 .checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
-            throw new AnalysisException("Only the user with NODE_PRIV can grant NODE_PRIV to other user");
+            throw new AnalysisException("Only user with NODE_PRIV can grant/revoke NODE_PRIV to other user");
         }
 
         if (role != null) {
@@ -178,18 +178,23 @@ public class GrantStmt extends DdlStmt {
                 }
             }
         }
+
+        // Rule 6
+        if (privileges.contains(PaloPrivilege.USAGE_PRIV)) {
+            throw new AnalysisException("Can not grant/revoke USAGE_PRIV to/from database or table");
+        }
     }
 
-    public static void checkPrivileges(Analyzer analyzer, List<PaloPrivilege> privileges,
-                                       String role, ResourcePattern resourcePattern) throws AnalysisException {
+    public static void checkResourcePrivileges(List<PaloPrivilege> privileges, String role,
+            ResourcePattern resourcePattern) throws AnalysisException {
         // Rule 1
         if (privileges.contains(PaloPrivilege.NODE_PRIV)) {
-            throw new AnalysisException("Can not grant NODE_PRIV to any other users or roles");
+            throw new AnalysisException("Can not grant/revoke NODE_PRIV to/from any other users or roles");
         }
 
         // Rule 2
         if (resourcePattern.getPrivLevel() != PrivLevel.GLOBAL && privileges.contains(PaloPrivilege.ADMIN_PRIV)) {
-            throw new AnalysisException("ADMIN_PRIV privilege can only be granted on resource *");
+            throw new AnalysisException("ADMIN_PRIV privilege can only be granted/revoked on/from resource *");
         }
 
         if (role != null) {
