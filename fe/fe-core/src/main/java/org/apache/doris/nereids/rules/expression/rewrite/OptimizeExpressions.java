@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.rules.expression.rewrite.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.ExtractCommonFactorRule;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 
 import com.google.common.collect.ImmutableList;
 
@@ -30,7 +29,6 @@ import java.util.List;
  */
 public class OptimizeExpressions extends ExpressionRewrite {
     public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
-            SimplifyNotExprRule.INSTANCE,
             ExtractCommonFactorRule.INSTANCE,
             DistinctPredicatesRule.INSTANCE);
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);
