@@ -61,5 +61,7 @@ header:
     - "docs/.vuepress/public/js/jquery.min.js"
     - "docs/.vuepress/public/js/wow.min.js"
     - "docs/package-lock.json"
+    - "regression-test/suites/tpch_sf1/script/README"
+    - "regression-test/suites/tpch_sf1/script/task.batch"
 
   comment: on-failure

@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_explain_tpch_sf_1_q20", "tpch_sf1") {
+    String realDb = context.config.getDbNameByFile(context.file)
+    // get parent directory's group
+    realDb = realDb.substring(0, realDb.lastIndexOf("_"))
+
+    sql "use ${realDb}"
+
     explain {
             sql """
 		SELECT
@@ -56,33 +62,35 @@ suite("test_explain_tpch_sf_1_q20", "tpch_sf1") {
             explainStr ->
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 23> `s_name` ASC") && 
-		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[Tables are not in the same group]\n" + 
-				"  |  equal join conjunct: `s_suppkey` = `ps_suppkey`\n" + 
-				"  |  runtime filters: RF000[in_or_bloom] <- `ps_suppkey`") && 
-		explainStr.contains("output slot ids: 18 19 \n" + 
-				"  |  hash output slot ids: 18 19 ") && 
+		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
+				"  |  equal join conjunct: <slot 25> = <slot 36>") && 
+		explainStr.contains("vec output tuple id: 13") && 
+		explainStr.contains("output slot ids: 38 39 \n" + 
+				"  |  hash output slot ids: 26 27 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `s_nationkey` = `n_nationkey`\n" + 
-				"  |  runtime filters: RF001[in_or_bloom] <- `n_nationkey`") && 
-		explainStr.contains("output slot ids: 17 18 19 \n" + 
+				"  |  runtime filters: RF000[in_or_bloom] <- `n_nationkey`") && 
+		explainStr.contains("vec output tuple id: 10") && 
+		explainStr.contains("output slot ids: 25 26 27 \n" + 
 				"  |  hash output slot ids: 17 18 19 ") && 
 		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
-				"     runtime filters: RF000[in_or_bloom] -> `s_suppkey`, RF001[in_or_bloom] -> `s_nationkey`") && 
+				"     runtime filters: RF000[in_or_bloom] -> `s_nationkey`") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: `ps_suppkey` = <slot 9> `l_suppkey`\n" + 
-				"  |  equal join conjunct: `ps_partkey` = <slot 8> `l_partkey`\n" + 
-				"  |  other join predicates: `ps_availqty` > 0.5 * <slot 10> sum(`l_quantity`)") && 
-		explainStr.contains("other join predicates: `ps_availqty` > 0.5 * <slot 10> sum(`l_quantity`)\n" + 
-				"  |  runtime filters: RF002[in_or_bloom] <- <slot 9> `l_suppkey`, RF003[in_or_bloom] <- <slot 8> `l_partkey`") && 
-		explainStr.contains("output slot ids: 15 \n" + 
-				"  |  hash output slot ids: 15 14 10 ") && 
+				"  |  equal join conjunct: <slot 33> = <slot 9> `l_suppkey`\n" + 
+				"  |  equal join conjunct: <slot 31> = <slot 8> `l_partkey`\n" + 
+				"  |  other join predicates: <slot 53> > 0.5 * <slot 57>") && 
+		explainStr.contains("other join predicates: <slot 53> > 0.5 * <slot 57>") && 
+		explainStr.contains("vec output tuple id: 12") && 
+		explainStr.contains("output slot ids: 36 \n" + 
+				"  |  hash output slot ids: 32 33 10 ") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `ps_partkey` = `p_partkey`\n" + 
-				"  |  runtime filters: RF004[in_or_bloom] <- `p_partkey`") && 
-		explainStr.contains("output slot ids: 3 14 15 \n" + 
+				"  |  runtime filters: RF001[in_or_bloom] <- `p_partkey`") && 
+		explainStr.contains("vec output tuple id: 11") && 
+		explainStr.contains("output slot ids: 31 32 33 \n" + 
 				"  |  hash output slot ids: 3 14 15 ") && 
 		explainStr.contains("TABLE: partsupp(partsupp), PREAGGREGATION: ON\n" + 
-				"     runtime filters: RF002[in_or_bloom] -> `ps_suppkey`, RF003[in_or_bloom] -> `ps_partkey`, RF004[in_or_bloom] -> `ps_partkey`") && 
+				"     runtime filters: RF001[in_or_bloom] -> `ps_partkey`") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
 				"  |  output: sum(<slot 10> sum(`l_quantity`))\n" + 
 				"  |  group by: <slot 8> `l_partkey`, <slot 9> `l_suppkey`") && 

@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_explain_tpch_sf_1_q4", "tpch_sf1") {
+    String realDb = context.config.getDbNameByFile(context.file)
+    // get parent directory's group
+    realDb = realDb.substring(0, realDb.lastIndexOf("_"))
+
+    sql "use ${realDb}"
+
     explain {
             sql """
 		SELECT
@@ -48,11 +54,12 @@ suite("test_explain_tpch_sf_1_q4", "tpch_sf1") {
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
 				"  |  output: count(*)\n" + 
-				"  |  group by: `o_orderpriority`") && 
+				"  |  group by: <slot 41>") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `o_orderkey` = `l_orderkey`\n" + 
 				"  |  runtime filters: RF000[in_or_bloom] <- `l_orderkey`") && 
-		explainStr.contains("output slot ids: 34 \n" + 
+		explainStr.contains("vec output tuple id: 5") && 
+		explainStr.contains("output slot ids: 41 \n" + 
 				"  |  hash output slot ids: 34 ") && 
 		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `o_orderdate` >= '1993-07-01 00:00:00', `o_orderdate` < '1993-10-01 00:00:00'\n" + 

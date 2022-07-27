@@ -16,8 +16,15 @@
 // under the License.
 
 suite("test_explain_tpch_sf_1_q6", "tpch_sf1") {
+    String realDb = context.config.getDbNameByFile(context.file)
+    // get parent directory's group
+    realDb = realDb.substring(0, realDb.lastIndexOf("_"))
+
+    sql "use ${realDb}"
+
     explain {
             sql """
+		
 		SELECT sum(l_extendedprice * l_discount) AS revenue
 		FROM
 		  lineitem
@@ -26,6 +33,7 @@ suite("test_explain_tpch_sf_1_q6", "tpch_sf1") {
 		  AND l_shipdate < DATE '1994-01-01' + INTERVAL '1' YEAR
 		AND l_discount BETWEEN 0.06 - 0.01 AND .06 + 0.01
 		AND l_quantity < 24
+		
 
             """
         check {

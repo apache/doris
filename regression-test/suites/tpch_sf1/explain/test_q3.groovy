@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_explain_tpch_sf_1_q3", "tpch_sf1") {
+    String realDb = context.config.getDbNameByFile(context.file)
+    // get parent directory's group
+    realDb = realDb.substring(0, realDb.lastIndexOf("_"))
+
+    sql "use ${realDb}"
+
     explain {
             sql """
 		SELECT
@@ -47,27 +53,31 @@ suite("test_explain_tpch_sf_1_q3", "tpch_sf1") {
             explainStr ->
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 14> <slot 13> sum(`l_extendedprice` * (1 - `l_discount`)) DESC, <slot 15> <slot 11> `o_orderdate` ASC") && 
-		explainStr.contains("VAGGREGATE (update finalize)\n" + 
-				"  |  output: sum(`l_extendedprice` * (1 - `l_discount`))\n" + 
-				"  |  group by: `l_orderkey`, `o_orderdate`, `o_shippriority`") && 
+		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
+				"  |  output: sum(<slot 13> sum(`l_extendedprice` * (1 - `l_discount`)))\n" + 
+				"  |  group by: <slot 10> `l_orderkey`, <slot 11> `o_orderdate`, <slot 12> `o_shippriority`") && 
+		explainStr.contains("VAGGREGATE (update serialize)\n" + 
+				"  |  STREAMING\n" + 
+				"  |  output: sum(<slot 27> * (1 - <slot 28>))\n" + 
+				"  |  group by: <slot 26>, <slot 30>, <slot 31>") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: `o_custkey` = `c_custkey`\n" + 
-				"  |  runtime filters: RF000[in_or_bloom] <- `c_custkey`") && 
-		explainStr.contains("output slot ids: 0 1 2 3 4 \n" + 
-				"  |  hash output slot ids: 0 1 2 3 4 ") && 
+				"  |  equal join conjunct: <slot 24> = `c_custkey`") && 
+		explainStr.contains("vec output tuple id: 6") && 
+		explainStr.contains("output slot ids: 26 27 28 30 31 \n" + 
+				"  |  hash output slot ids: 18 19 20 22 23 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `l_orderkey` = `o_orderkey`\n" + 
-				"  |  runtime filters: RF001[in_or_bloom] <- `o_orderkey`") && 
-		explainStr.contains("output slot ids: 0 1 2 3 4 7 \n" + 
+				"  |  runtime filters: RF000[in_or_bloom] <- `o_orderkey`") && 
+		explainStr.contains("vec output tuple id: 5") && 
+		explainStr.contains("output slot ids: 18 19 20 22 23 24 \n" + 
 				"  |  hash output slot ids: 0 1 2 3 4 7 ") && 
 		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l_shipdate` > '1995-03-15 00:00:00'\n" + 
-				"     runtime filters: RF001[in_or_bloom] -> `l_orderkey`") && 
+				"     runtime filters: RF000[in_or_bloom] -> `l_orderkey`") && 
 		explainStr.contains("TABLE: customer(customer), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `c_mktsegment` = 'BUILDING'") && 
 		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
-				"     PREDICATES: `o_orderdate` < '1995-03-15 00:00:00'\n" + 
-				"     runtime filters: RF000[in_or_bloom] -> `o_custkey`") 
+				"     PREDICATES: `o_orderdate` < '1995-03-15 00:00:00'") 
             
         }
     }

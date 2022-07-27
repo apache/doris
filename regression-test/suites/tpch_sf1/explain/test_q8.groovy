@@ -15,88 +15,113 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_explain_tpch_sf_1_q9", "tpch_sf1") {
+suite("test_explain_tpch_sf_1_q8", "tpch_sf1") {
+    String realDb = context.config.getDbNameByFile(context.file)
+    // get parent directory's group
+    realDb = realDb.substring(0, realDb.lastIndexOf("_"))
+
+    sql "use ${realDb}"
+
     explain {
             sql """
 		SELECT
-		  nation,
 		  o_year,
-		  sum(amount) AS sum_profit
+		  sum(CASE
+		      WHEN nation = 'BRAZIL'
+		        THEN volume
+		      ELSE 0
+		      END) / sum(volume) AS mkt_share
 		FROM (
 		       SELECT
-		         n_name                                                          AS nation,
-		         extract(YEAR FROM o_orderdate)                                  AS o_year,
-		         l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity AS amount
+		         extract(YEAR FROM o_orderdate)     AS o_year,
+		         l_extendedprice * (1 - l_discount) AS volume,
+		         n2.n_name                          AS nation
 		       FROM
 		         part,
 		         supplier,
 		         lineitem,
-		         partsupp,
 		         orders,
-		         nation
+		         customer,
+		         nation n1,
+		         nation n2,
+		         region
 		       WHERE
-		         s_suppkey = l_suppkey
-		         AND ps_suppkey = l_suppkey
-		         AND ps_partkey = l_partkey
-		         AND p_partkey = l_partkey
-		         AND o_orderkey = l_orderkey
-		         AND s_nationkey = n_nationkey
-		         AND p_name LIKE '%green%'
-		     ) AS profit
+		         p_partkey = l_partkey
+		         AND s_suppkey = l_suppkey
+		         AND l_orderkey = o_orderkey
+		         AND o_custkey = c_custkey
+		         AND c_nationkey = n1.n_nationkey
+		         AND n1.n_regionkey = r_regionkey
+		         AND r_name = 'AMERICA'
+		         AND s_nationkey = n2.n_nationkey
+		         AND o_orderdate BETWEEN DATE '1995-01-01' AND DATE '1996-12-31'
+		         AND p_type = 'ECONOMY ANODIZED STEEL'
+		     ) AS all_nations
 		GROUP BY
-		  nation,
 		  o_year
 		ORDER BY
-		  nation,
-		  o_year DESC
+		  o_year
 
             """
         check {
             explainStr ->
 		explainStr.contains("VTOP-N\n" + 
-				"  |  order by: <slot 23> <slot 20> `nation` ASC, <slot 24> <slot 21> `o_year` DESC") && 
+				"  |  order by: <slot 26> <slot 23> `o_year` ASC") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: sum(<slot 22> sum(`amount`))\n" + 
-				"  |  group by: <slot 20> `nation`, <slot 21> `o_year`") && 
+				"  |  output: sum(<slot 24> sum(CASE WHEN `nation` = 'BRAZIL' THEN `volume` ELSE 0 END)), sum(<slot 25> sum(`volume`))\n" + 
+				"  |  group by: <slot 23> `o_year`") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
-				"  |  output: sum(`l_extendedprice` * (1 - `l_discount`) - `ps_supplycost` * `l_quantity`)\n" + 
-				"  |  group by: `n_name`, year(`o_orderdate`)") && 
+				"  |  output: sum(CASE WHEN <slot 117> = 'BRAZIL' THEN <slot 105> * (1 - <slot 106>) ELSE 0 END), sum(<slot 105> * (1 - <slot 106>))\n" + 
+				"  |  group by: year(<slot 114>)") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: `s_nationkey` = `n_nationkey`\n" + 
-				"  |  runtime filters: RF000[in_or_bloom] <- `n_nationkey`") && 
-		explainStr.contains("output slot ids: 2 3 5 4 1 0 \n" + 
-				"  |  hash output slot ids: 2 3 5 4 1 0 ") && 
-		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
-				"  |  equal join conjunct: `l_orderkey` = `o_orderkey`\n" + 
-				"  |  runtime filters: RF001[in_or_bloom] <- `o_orderkey`") && 
-		explainStr.contains("output slot ids: 2 3 5 14 4 1 \n" + 
-				"  |  hash output slot ids: 2 3 5 14 4 1 ") && 
+				"  |  equal join conjunct: <slot 104> = `r_regionkey`") && 
+		explainStr.contains("vec output tuple id: 17") && 
+		explainStr.contains("output slot ids: 105 106 114 117 \n" + 
+				"  |  hash output slot ids: 96 99 87 88 ") && 
+		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
+				"  |  equal join conjunct: <slot 86> = `n1`.`n_nationkey`") && 
+		explainStr.contains("vec output tuple id: 16") && 
+		explainStr.contains("output slot ids: 87 88 96 99 104 \n" + 
+				"  |  hash output slot ids: 80 83 71 72 14 ") && 
+		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
+				"  |  equal join conjunct: <slot 68> = `c_custkey`") && 
+		explainStr.contains("vec output tuple id: 15") && 
+		explainStr.contains("output slot ids: 71 72 80 83 86 \n" + 
+				"  |  hash output slot ids: 66 69 57 58 12 ") && 
+		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
+				"  |  equal join conjunct: <slot 53> = `n2`.`n_nationkey`") && 
+		explainStr.contains("vec output tuple id: 14") && 
+		explainStr.contains("output slot ids: 57 58 66 68 69 \n" + 
+				"  |  hash output slot ids: 3 54 56 45 46 ") && 
+		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
+				"  |  equal join conjunct: <slot 40> = `o_orderkey`") && 
+		explainStr.contains("vec output tuple id: 13") && 
+		explainStr.contains("output slot ids: 45 46 53 54 56 \n" + 
+				"  |  hash output slot ids: 0 36 37 10 44 ") && 
+		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
+				"  |  equal join conjunct: <slot 32> = `s_suppkey`") && 
+		explainStr.contains("vec output tuple id: 12") && 
+		explainStr.contains("output slot ids: 36 37 40 44 \n" + 
+				"  |  hash output slot ids: 33 17 29 30 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `l_partkey` = `p_partkey`\n" + 
-				"  |  runtime filters: RF002[in_or_bloom] <- `p_partkey`") && 
-		explainStr.contains("output slot ids: 2 3 5 13 14 4 \n" + 
-				"  |  hash output slot ids: 2 3 5 13 14 4 ") && 
-		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
-				"  |  equal join conjunct: `l_suppkey` = `ps_suppkey`\n" + 
-				"  |  equal join conjunct: `l_partkey` = `ps_partkey`\n" + 
-				"  |  runtime filters: RF003[in_or_bloom] <- `ps_suppkey`, RF004[in_or_bloom] <- `ps_partkey`") && 
-		explainStr.contains("output slot ids: 2 3 5 10 13 14 4 \n" + 
-				"  |  hash output slot ids: 2 3 5 10 13 14 4 ") && 
-		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
-				"  |  equal join conjunct: `l_suppkey` = `s_suppkey`\n" + 
-				"  |  runtime filters: RF005[in_or_bloom] <- `s_suppkey`") && 
-		explainStr.contains("output slot ids: 2 3 5 7 10 13 14 \n" + 
-				"  |  hash output slot ids: 2 3 5 7 10 13 14 ") && 
+				"  |  runtime filters: RF000[in_or_bloom] <- `p_partkey`") && 
+		explainStr.contains("vec output tuple id: 11") && 
+		explainStr.contains("output slot ids: 29 30 32 33 \n" + 
+				"  |  hash output slot ids: 1 2 7 8 ") && 
 		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
-				"     runtime filters: RF001[in_or_bloom] -> `l_orderkey`, RF002[in_or_bloom] -> `l_partkey`, RF003[in_or_bloom] -> `l_suppkey`, RF004[in_or_bloom] -> `l_partkey`, RF005[in_or_bloom] -> `l_suppkey`") && 
+				"     runtime filters: RF000[in_or_bloom] -> `l_partkey`") && 
+		explainStr.contains("TABLE: region(region), PREAGGREGATION: ON\n" + 
+				"     PREDICATES: `r_name` = 'AMERICA'") && 
 		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: customer(customer), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
+				"     PREDICATES: `o_orderdate` >= '1995-01-01 00:00:00', `o_orderdate` <= '1996-12-31 00:00:00'") && 
+		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON") && 
 		explainStr.contains("TABLE: part(part), PREAGGREGATION: ON\n" + 
-				"     PREDICATES: `p_name` LIKE '%green%'") && 
-		explainStr.contains("TABLE: partsupp(partsupp), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
-				"     runtime filters: RF000[in_or_bloom] -> `s_nationkey`") 
+				"     PREDICATES: `p_type` = 'ECONOMY ANODIZED STEEL'") 
             
         }
     }
