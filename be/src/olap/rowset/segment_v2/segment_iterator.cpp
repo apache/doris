@@ -41,7 +41,7 @@ namespace segment_v2 {
 // Example:
 //   input bitmap:  [0 1 4 5 6 7 10 15 16 17 18 19]
 //   output ranges: [0,2), [4,8), [10,11), [15,20) (when max_range_size=10)
-//   output ranges: [0,2), [4,8), [10,11), [15,18), [18,20) (when max_range_size=3)
+//   output ranges: [0,2), [4,7), [7,8), [10,11), [15,18), [18,20) (when max_range_size=3)
 class SegmentIterator::BitmapRangeIterator {
 public:
     BitmapRangeIterator() {}
@@ -111,7 +111,7 @@ private:
 // Example:
 //   input bitmap:  [0 1 4 5 6 7 10 15 16 17 18 19]
 //   output ranges: , [15,20), [10,11), [4,8), [0,2) (when max_range_size=10)
-//   output ranges: [18,20), [15,18), [10,11), [4,8), [0,2) (when max_range_size=3)
+//   output ranges: [17,20), [15,17), [10,11), [5,8), [4, 5), [0,2) (when max_range_size=3)
 class SegmentIterator::BackwardBitmapRangeIterator : public SegmentIterator::BitmapRangeIterator {
 public:
     explicit BackwardBitmapRangeIterator(const roaring::Roaring& bitmap) {

@@ -120,6 +120,7 @@ private:
 
     private:
         int _sequence;
+        // reverse the compare order
         bool _is_reverse = false;
     };
 
@@ -203,6 +204,7 @@ private:
         // from the first rowset, the second rowset, .., the last rowset. The output of CollectorIterator is also
         // *partially* ordered.
         bool _merge = true;
+        // reverse the compare order
         bool _is_reverse = false;
 
         bool _skip_same;
@@ -222,6 +224,7 @@ private:
     std::list<LevelIterator*> _children;
 
     bool _merge = true;
+    // reverse the compare order
     bool _is_reverse = false;
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;

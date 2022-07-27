@@ -178,7 +178,7 @@ public:
         if (_is_unique) {
             result ? this->set_skip(true) : rhs.set_skip(true);
         }
-        return UNLIKELY(_is_reverse) ? !result : result;
+        return result;
     }
 
     void copy_row(vectorized::Block* block) {

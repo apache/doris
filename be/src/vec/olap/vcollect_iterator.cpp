@@ -152,7 +152,7 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
     bool lower = (cmp_res != 0) ? (cmp_res < 0) : (lhs->version() < rhs->version());
     lower ? lhs->set_same(true) : rhs->set_same(true);
 
-    return UNLIKELY(_is_reverse) ? !lower : lower;
+    return lower;
 }
 
 Status VCollectIterator::current_row(IteratorRowRef* ref) const {

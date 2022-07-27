@@ -36,7 +36,7 @@ struct RowsetReaderContext {
     const TabletSchema* tablet_schema = nullptr;
     // whether rowset should return ordered rows.
     bool need_ordered_result = true;
-    //
+    // used for special optimization for query : ORDER BY key LIMIT n
     bool read_orderby_key = false;
     bool read_orderby_key_reverse = false;
     // projection columns: the set of columns rowset reader should return
