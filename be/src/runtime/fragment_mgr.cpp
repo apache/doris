@@ -477,6 +477,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     std::string func_name {"PlanFragmentExecutor::_exec_actual"};
 #ifndef BE_TEST
     auto span = exec_state->executor()->runtime_state()->get_tracer()->StartSpan(func_name);
+    SCOPED_ATTACH_TASK(exec_state->executor()->runtime_state());
 #else
     auto span = telemetry::get_noop_tracer()->StartSpan(func_name);
 #endif
@@ -493,9 +494,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
             .query_id(exec_state->query_id())
             .instance_id(exec_state->fragment_instance_id())
             .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
-#ifndef BE_TEST
-    SCOPED_ATTACH_TASK(exec_state->executor()->runtime_state());
-#endif
+
     exec_state->execute();
 
     std::shared_ptr<QueryFragmentsCtx> fragments_ctx = exec_state->get_fragments_ctx();
