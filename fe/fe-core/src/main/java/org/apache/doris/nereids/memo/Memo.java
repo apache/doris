@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -145,9 +146,9 @@ public class Memo {
                 return false;
             }
             GroupExpressionAdapter that = (GroupExpressionAdapter) o;
-            //            if (that.groupExpr.getPlan() instanceof LogicalOlapScan) {
-            //                return this.groupExpr == ((GroupExpressionAdapter) o).groupExpr;
-            //            }
+            if (that.groupExpr.getPlan() instanceof LogicalOlapScan) {
+                return this.groupExpr == ((GroupExpressionAdapter) o).groupExpr;
+            }
             return this.groupExpr.equals(that.groupExpr);
         }
 
