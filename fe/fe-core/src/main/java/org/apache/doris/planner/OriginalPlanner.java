@@ -202,7 +202,9 @@ public class OriginalPlanner extends Planner {
 
         // Push sort node down to the bottom of olapscan.
         // Because the olapscan must be in the end. So get the last two nodes.
-        pushSortToOlapScan();
+        if (VectorizedUtil.isVectorized()) {
+            pushSortToOlapScan();
+        }
 
         // Optimize the transfer of query statistic when query doesn't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
