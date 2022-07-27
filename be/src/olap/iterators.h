@@ -72,6 +72,13 @@ public:
     // delete conditions used by column index to filter pages
     std::vector<const Conditions*> delete_conditions;
 
+    // For unique-key merge-on-write, the effect is similar to delete_conditions
+    // that filters out rows that are deleted in realtime.
+    // For a particular row, if delete_bitmap.contains(rowid) means that row is
+    // marked deleted and invisible to user anymore.
+    // segment_id -> roaring::Roaring*
+    std::unordered_map<uint32_t, std::shared_ptr<roaring::Roaring>> delete_bitmap;
+
     std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates =
             std::make_shared<AndBlockColumnPredicate>();
     // reader's column predicate, nullptr if not existed
