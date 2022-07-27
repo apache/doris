@@ -61,7 +61,7 @@
     qt_where_equal """ select * from numbers("10") where number%2 = 1; """
     qt_where_gt """ select * from numbers("10") where number-1 > 1; """
     qt_where_lt """ select * from numbers("10") where number+1 < 9; """
-    qt_groupby """ select number from numbers("10") where number>=4 group by number; """
+    qt_groupby """ select number from numbers("10") where number>=4 group by number order by number; """
     qt_join_where """
                     select a.number as num1, b.number as num2
                     from numbers("10") a inner join numbers("10") b 
