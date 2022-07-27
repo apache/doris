@@ -548,10 +548,6 @@ public class DateLiteral extends LiteralExpr {
         type = ScalarType.createDatetimeV2Type(newScale);
     }
 
-    public long getDecimalNumber() {
-        return Double.valueOf(microsecond / (Math.pow(10, 6 - ((ScalarType) type).decimalScale()))).longValue();
-    }
-
     private String convertToString(PrimitiveType type) {
         if (type == PrimitiveType.DATE || type == PrimitiveType.DATEV2) {
             return String.format("%04d-%02d-%02d", year, month, day);
