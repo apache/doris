@@ -112,5 +112,4 @@ public class MergeConsecutiveProjectsTest {
         Assertions.assertEquals(1, finalProject.getProjects().size());
         Assertions.assertTrue(((Alias) finalProject.getProjects().get(0)).child().equals(finalExpression));
     }
-
 }
