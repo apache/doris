@@ -825,7 +825,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     break;
                 case DorisParser.IN:
                     if (ctx.query() == null) {
-                        //TODO: InPredicate
                         outExpression = new InPredicate(
                             valueExpression,
                             getExpression(ctx.expression)

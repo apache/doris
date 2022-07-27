@@ -39,7 +39,7 @@ public class InPredicate extends Expression {
 
     public InPredicate(Expression compareExpr, List<Expression> optionsList) {
         super(new Builder<Expression>().add(compareExpr).addAll(optionsList).build().toArray(new Expression[0]));
-        this.compareExpr = compareExpr;
+        this.compareExpr = Objects.requireNonNull(compareExpr, "Compare Expr cannot be null");
         this.optionsList = ImmutableList.copyOf(Objects.requireNonNull(optionsList, "In list cannot be null"));
     }
 
