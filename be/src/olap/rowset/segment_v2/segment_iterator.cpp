@@ -31,6 +31,7 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/short_key_index.h"
 #include "util/doris_metrics.h"
+#include "util/key_util.h"
 #include "util/simd/bits.h"
 
 namespace doris {
@@ -383,7 +384,16 @@ int compare_row_with_lhs_columns(const LhsRowType& lhs, const RhsRowType& rhs) {
     return 0;
 }
 
-// look up one key to get its ordinal at which can get data.
+Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
+                                        rowid_t* rowid) {
+    if (_segment->_tablet_schema.keys_type() == UNIQUE_KEYS &&
+        _segment->get_primary_key_index() != nullptr) {
+        return _lookup_ordinal_from_pk_index(key, is_include, rowid);
+    }
+    return _lookup_ordinal_from_sk_index(key, is_include, upper_bound, rowid);
+}
+
+// look up one key to get its ordinal at which can get data by using short key index.
 // 'upper_bound' is defined the max ordinal the function will search.
 // We use upper_bound to reduce search times.
 // If we find a valid ordinal, it will be set in rowid and with Status::OK()
@@ -392,13 +402,17 @@ int compare_row_with_lhs_columns(const LhsRowType& lhs, const RhsRowType& rhs) {
 // 1. get [start, end) ordinal through short key index
 // 2. binary search to find exact ordinal that match the input condition
 // Make is_include template to reduce branch
-Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
-                                        rowid_t* rowid) {
+Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool is_include,
+                                                      rowid_t upper_bound, rowid_t* rowid) {
+    const ShortKeyIndexDecoder* sk_index_decoder = _segment->get_short_key_index();
+    DCHECK(sk_index_decoder != nullptr);
+
     std::string index_key;
-    encode_key_with_padding(&index_key, key, _segment->num_short_keys(), is_include);
+    encode_key_with_padding(&index_key, key, _segment->_tablet_schema.num_short_key_columns(),
+                            is_include);
 
     uint32_t start_block_id = 0;
-    auto start_iter = _segment->lower_bound(index_key);
+    auto start_iter = sk_index_decoder->lower_bound(index_key);
     if (start_iter.valid()) {
         // Because previous block may contain this key, so we should set rowid to
         // last block's first row.
@@ -410,14 +424,14 @@ Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, r
         // When we don't find a valid index item, which means all short key is
         // smaller than input key, this means that this key may exist in the last
         // row block. so we set the rowid to first row of last row block.
-        start_block_id = _segment->last_block();
+        start_block_id = sk_index_decoder->num_items() - 1;
     }
-    rowid_t start = start_block_id * _segment->num_rows_per_block();
+    rowid_t start = start_block_id * sk_index_decoder->num_rows_per_block();
 
     rowid_t end = upper_bound;
-    auto end_iter = _segment->upper_bound(index_key);
+    auto end_iter = sk_index_decoder->upper_bound(index_key);
     if (end_iter.valid()) {
-        end = end_iter.ordinal() * _segment->num_rows_per_block();
+        end = end_iter.ordinal() * sk_index_decoder->num_rows_per_block();
     }
 
     // binary search to find the exact key
@@ -441,6 +455,38 @@ Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, r
     }
 
     *rowid = start;
+    return Status::OK();
+}
+
+Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool is_include,
+                                                      rowid_t* rowid) {
+    DCHECK(_segment->_tablet_schema.keys_type() == UNIQUE_KEYS);
+    const PrimaryKeyIndexReader* pk_index_reader = _segment->get_primary_key_index();
+    DCHECK(pk_index_reader != nullptr);
+
+    std::string index_key;
+    encode_key_with_padding<RowCursor, true, true>(
+            &index_key, key, _segment->_tablet_schema.num_key_columns(), is_include);
+    bool exact_match = false;
+
+    std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
+    RETURN_IF_ERROR(pk_index_reader->new_iterator(&index_iterator));
+
+    Status status = index_iterator->seek_at_or_after(&index_key, &exact_match);
+    if (UNLIKELY(!status.ok())) {
+        *rowid = num_rows();
+        if (status.is_not_found()) {
+            return Status::OK();
+        }
+        return status;
+    }
+    *rowid = index_iterator->get_current_ordinal();
+
+    // find the key in primary key index, and the is_include is false, so move
+    // to the next row.
+    if (exact_match && !is_include) {
+        *rowid += 1;
+    }
     return Status::OK();
 }
 
