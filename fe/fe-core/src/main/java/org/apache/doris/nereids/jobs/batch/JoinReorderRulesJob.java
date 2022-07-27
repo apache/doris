@@ -27,7 +27,7 @@ import com.google.common.collect.ImmutableList;
  */
 public class JoinReorderRulesJob extends BatchRulesJob {
 
-    public JoinReorderRulesJob(PlannerContext plannerContext) {
+    public  JoinReorderRulesJob(PlannerContext plannerContext) {
         super(plannerContext);
         rulesJob.addAll(ImmutableList.of(
                 topDownBatch(ImmutableList.of(new ReorderJoin()))

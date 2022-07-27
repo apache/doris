@@ -111,7 +111,6 @@ public class NereidsPlanner extends Planner {
             deriveStats();
         }
         optimize();
-
         // Get plan directly. Just for SSB.
         return getRoot().extractPlan();
     }
