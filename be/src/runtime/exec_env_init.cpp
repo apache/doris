@@ -362,6 +362,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_query_pool_mem_tracker);
     SAFE_DELETE(_load_pool_mem_tracker);
     SAFE_DELETE(_task_pool_mem_tracker_registry);
+    SAFE_DELETE(_buffer_reservation);
 
     DEREGISTER_HOOK_METRIC(query_mem_consumption);
     DEREGISTER_HOOK_METRIC(load_mem_consumption);

@@ -1032,13 +1032,13 @@ public:
         return false;
     }
 
-    bool operator==(const Roaring64MapSetBitForwardIterator& o) {
+    bool operator==(const Roaring64MapSetBitForwardIterator& o) const {
         if (map_iter == map_end && o.map_iter == o.map_end) return true;
         if (o.map_iter == o.map_end) return false;
         return **this == *o;
     }
 
-    bool operator!=(const Roaring64MapSetBitForwardIterator& o) {
+    bool operator!=(const Roaring64MapSetBitForwardIterator& o) const {
         if (map_iter == map_end && o.map_iter == o.map_end) return false;
         if (o.map_iter == o.map_end) return true;
         return **this != *o;

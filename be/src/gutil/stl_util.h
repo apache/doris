@@ -433,9 +433,9 @@ private:
 template <class STLContainer>
 class TemplatedElementDeleter : public BaseDeleter {
 public:
-    explicit TemplatedElementDeleter<STLContainer>(STLContainer* ptr) : container_ptr_(ptr) {}
+    explicit TemplatedElementDeleter(STLContainer* ptr) : container_ptr_(ptr) {}
 
-    virtual ~TemplatedElementDeleter<STLContainer>() { STLDeleteElements(container_ptr_); }
+    virtual ~TemplatedElementDeleter() { STLDeleteElements(container_ptr_); }
 
 private:
     STLContainer* container_ptr_;
@@ -466,9 +466,9 @@ private:
 template <class STLContainer>
 class TemplatedValueDeleter : public BaseDeleter {
 public:
-    explicit TemplatedValueDeleter<STLContainer>(STLContainer* ptr) : container_ptr_(ptr) {}
+    explicit TemplatedValueDeleter(STLContainer* ptr) : container_ptr_(ptr) {}
 
-    virtual ~TemplatedValueDeleter<STLContainer>() { STLDeleteValues(container_ptr_); }
+    virtual ~TemplatedValueDeleter() { STLDeleteValues(container_ptr_); }
 
 private:
     STLContainer* container_ptr_;
@@ -502,8 +502,8 @@ private:
 template <class STLContainer>
 class STLElementDeleter {
 public:
-    STLElementDeleter<STLContainer>(STLContainer* ptr) : container_ptr_(ptr) {}
-    ~STLElementDeleter<STLContainer>() { STLDeleteElements(container_ptr_); }
+    STLElementDeleter(STLContainer* ptr) : container_ptr_(ptr) {}
+    ~STLElementDeleter() { STLDeleteElements(container_ptr_); }
 
 private:
     STLContainer* container_ptr_;
@@ -512,8 +512,8 @@ private:
 template <class STLContainer>
 class STLValueDeleter {
 public:
-    STLValueDeleter<STLContainer>(STLContainer* ptr) : container_ptr_(ptr) {}
-    ~STLValueDeleter<STLContainer>() { STLDeleteValues(container_ptr_); }
+    STLValueDeleter(STLContainer* ptr) : container_ptr_(ptr) {}
+    ~STLValueDeleter() { STLDeleteValues(container_ptr_); }
 
 private:
     STLContainer* container_ptr_;
@@ -762,49 +762,6 @@ template <typename F, typename G1, typename G2>
 BinaryComposeBinary<F, G1, G2> BinaryCompose2(F f, G1 g1, G2 g2) {
     return BinaryComposeBinary<F, G1, G2>(f, g1, g2);
 }
-
-// This is a wrapper for an STL allocator which keeps a count of the
-// active bytes allocated by this class of allocators.  This is NOT
-// THREAD SAFE.  This should only be used in situations where you can
-// ensure that only a single thread performs allocation and
-// deallocation.
-template <typename T, typename Alloc = std::allocator<T>>
-class STLCountingAllocator : public Alloc {
-public:
-    typedef typename Alloc::pointer pointer;
-    typedef typename Alloc::size_type size_type;
-
-    STLCountingAllocator() : bytes_used_(NULL) {}
-    STLCountingAllocator(int64* b) : bytes_used_(b) {} // TODO(user): explicit?
-
-    // Constructor used for rebinding
-    template <class U>
-    STLCountingAllocator(const STLCountingAllocator<U>& x)
-            : Alloc(x), bytes_used_(x.bytes_used()) {}
-
-    pointer allocate(size_type n, std::allocator<void>::const_pointer hint = 0) {
-        assert(bytes_used_ != NULL);
-        *bytes_used_ += n * sizeof(T);
-        return Alloc::allocate(n, hint);
-    }
-
-    void deallocate(pointer p, size_type n) {
-        Alloc::deallocate(p, n);
-        assert(bytes_used_ != NULL);
-        *bytes_used_ -= n * sizeof(T);
-    }
-
-    // Rebind allows an allocator<T> to be used for a different type
-    template <class U>
-    struct rebind {
-        typedef STLCountingAllocator<U, typename Alloc::template rebind<U>::other> other;
-    };
-
-    int64* bytes_used() const { return bytes_used_; }
-
-private:
-    int64* bytes_used_;
-};
 
 // Even though a struct has no data members, it cannot have zero size
 // according to the standard.  However, "empty base-class

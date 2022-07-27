@@ -85,9 +85,8 @@ void mt_updater(int32_t loop, T* counter, std::atomic<uint64_t>* used_time) {
 TEST_F(MetricsTest, CounterPerf) {
     static const int kLoopCount = LOOP_LESS_OR_MORE(10, 100000000);
     static const int kThreadLoopCount = LOOP_LESS_OR_MORE(1000, 1000000);
-    // volatile int64_t
     {
-        volatile int64_t sum = 0;
+        int64_t sum = 0;
         MonotonicStopWatch watch;
         watch.start();
         for (int i = 0; i < kLoopCount; ++i) {
