@@ -53,7 +53,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
         return ImmutableList.of(
             RuleType.BINDING_PROJECT_SLOT.build(
                 logicalProject().then(project -> {
-                    List<NamedExpression> boundSlots = bind(project.getProjects(), project.children(), project);
+                    List<NamedExpression> boundSlots =
+                            bind(project.getProjects(), project.children(), project);
                     return new LogicalProject<>(flatBoundStar(boundSlots), project.child());
                 })
             ),
@@ -152,8 +153,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 default:
                     throw new AnalysisException(unboundSlot + " is ambiguous： "
                         + bounded.stream()
-                        .map(Slot::toString)
-                        .collect(Collectors.joining(", ")));
+                            .map(Slot::toString)
+                            .collect(Collectors.joining(", ")));
             }
         }
 
@@ -185,8 +186,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                         List<String> boundSlotQualifier = boundSlot.getQualifier();
                         switch (boundSlotQualifier.size()) {
                             // bound slot is `column` and no qualified
-                            case 0:
-                                return false;
+                            case 0: return false;
                             case 1: // bound slot is `table`.`column`
                                 return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(0));
                             case 2:// bound slot is `db`.`table`.`column`
@@ -204,7 +204,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                                 return false;
                             case 2:// bound slot is `db`.`table`.`column`
                                 return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(0))
-                                    && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(1));
+                                        && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(1));
                             default:
                                 throw new AnalysisException("Not supported qualifier: "
                                     + StringUtils.join(qualifierStar, ".") + ".*");
@@ -232,14 +232,14 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             case 2:
                                 // qualifier is `db`.`table`
                                 return nameParts.get(0).equalsIgnoreCase(qualifier.get(1))
-                                    && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
+                                        && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
                             case 1:
                                 // qualifier is `table`
                                 return nameParts.get(0).equalsIgnoreCase(qualifier.get(0))
-                                    && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
+                                        && nameParts.get(1).equalsIgnoreCase(boundSlot.getName());
                             default:
                                 throw new AnalysisException("Not supported qualifier: "
-                                    + StringUtils.join(qualifier, "."));
+                                        + StringUtils.join(qualifier, "."));
                         }
                     default:
                         throw new AnalysisException("Not supported name: "
@@ -249,9 +249,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
     }
 
-    /**
-     * BoundStar is used to wrap list of slots for temporary.
-     */
+    /** BoundStar is used to wrap list of slots for temporary */
     private class BoundStar extends NamedExpression {
         public BoundStar(List<Slot> children) {
             super(children.toArray(new Slot[0]));
