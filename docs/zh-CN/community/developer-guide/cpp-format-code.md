@@ -1,7 +1,7 @@
 ---
 {
-    "title": "C++ Format Code",
-    "language": "en"
+    "title": "C++ 代码格式化",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,81 +24,82 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# C++ code formatting
+# C++ 代码格式化
 
-Doris uses clang-format for code formatting, and provides a package script in the build-support directory:
+Doris使用clang-format进行代码格式化，并在build-support目录下提供了封装脚本：
 
 * `clang-format.sh`.
 
-    Format the C/C++ code in the `be/src` and `be/test` directories.
+    格式化 `be/src` 和 `be/test` 目录下的 C/C++ 代码。
 
 * `check-format.sh`.
 
-    Check the C/C++ code format in the `be/src` and `be/test` directories, and output diff, but the content of the file will not be modified.
+    检查 `be/src` 和 `be/test` 目录下的 C/C++ 代码格式，并将 diff 输出，但不会修改文件内容。
 
-## Code style customization
+## 代码风格定制
 
-The code style of Doris is slightly modified on the basis of Google Style and is customized as a `.clang-format` file located in the root directory of Doris.
+Doris的代码风格在Google Style的基础上稍有改动，定制为 `.clang-format` 文件，位于Doris根目录。
 
-Currently, the `.clang-format` configuration file is adapted to versions above clang-format-13.0.1.
+目前，`.clang-format` 配置文件适配clang-format-13.0.1以上的版本。
 
-The code that you do not want to be formatted is recorded in the `.clang-format-ignore` file. These codes usually come from third-party code bases, and it is recommended to keep the original code style.
+`.clang-format-ignore` 文件中记录了不希望被格式化的代码。这些代码通常来自第三方代码库，建议保持原有代码风格。
 
-## Environmental preparation
+## 环境准备
 
-You need to download and install clang-format, or you can use the clang-format plug-in provided by IDE or Editor, as described below.
+需要下载安装clang-format，也可使用IDE或Editor提供的clang-format插件，下面分别介绍。
 
-### Download and install clang-format
+### 下载安装clang-format
 
-It is recommended to use NPM to install clang-format 14 (different versions of clang-format may produce different code formats, it is recommended to use version 14):
+推荐使用 NPM 安装 clang-format 14（不同版本的 clang-format 可能产生不同的代码格式，建议使用 14 版本）：
 
 `npm install clang-format@1.6.0`
 
-Ubuntu: `apt-get install clang-format`
+Ubuntu: `apt-get install clang-format` 
 
-The current version is 10.0, you can also specify the old version, for example: `apt-get install clang-format-9`. It is recommended to compile version 14.0 from source code.
+当前版本为10.0，也可指定旧版本，例如: `apt-get install clang-format-9`，建议源码编译14.0版本。
 
 Mac: `brew install clang-format`
 
-Centos 7:
+Centos 7: 
 
-The version of clang-format installed by centos yum is too old and supports too few StyleOptions. It is recommended to compile version 14.0 from source code.
+centos yum安装的clang-format版本过老，支持的StyleOption太少，建议源码编译14.0版本。
 
 LDB toolchain:
 
-If you are using [LDB toolchain](/docs/install/source-install/compilation-with-ldb-toolchain),
-the latest version (>= v0.11) of [LDB toolchain](https://github.com/amosbird/ldb_toolchain_gen/releases) has already included clang-format with 13.0.1 version.
+如果使用 [LDB toolchain](/docs/install/source-install/compilation-with-ldb-toolchain)，
+最新版本的 [LDB toolchain](https://github.com/amosbird/ldb_toolchain_gen/releases)（>= v0.11）已经包含了预编译的clang-format
+13.0.1的二进制文件。
 
-### clang-format plugin
+### clang-format插件
 
-Clion IDE can use the plug-in "ClangFormat", search and download in `File->Setting->Plugins`. But the version can’t match
-The version of the clang-format program matches, judging from the supported StyleOption, it should be lower than clang-format-9.0.
+Clion IDE可使用插件"ClangFormat"，`File->Setting->Plugins`搜索下载。但版本无法和
+clang-format程序的版本匹配，从支持的StyleOption上看，应该是低于clang-format-9.0。
 
-## How to use
+## 使用方式
 
-### Command line operation
+### 命令行运行
 
-cd to the root directory of Doris, and then execute the following command:
+cd到Doris根目录下，然后执行如下命令:
 
 `build-support/clang-format.sh`
 
-> Note: The `clang-format.sh` script requires python 3 to be installed on your machine
+> 注：`clang-format.sh`脚本要求您的机器上安装了python 3
 
-### Use clang-format in IDE or Editor
+### 在IDE或Editor中使用clang-format
 
 #### Clion
 
-If Clion uses a plug-in, just click `Reformat Code`.
+Clion如果使用插件，点击`Reformat Code`即可。
 
 #### VS Code
 
-VS Code needs to install the extension Clang-Format, but you need to provide the location of the clang-format execution program.
+VS Code需安装扩展程序Clang-Format，但需要自行提供clang-format执行程序的位置。
 
-Open the VS Code configuration page, directly search for "clang_format", and fill in
+打开VS Code配置页面，直接搜索"clang_format"，填上
 
 ```
-"clang_format_path": "$clang-format path$",
+"clang_format_path":  "$clang-format path$",
 "clang_format_style": "file"
 ```
 
-Then, right-click on `Format Document`.
+然后，右键点击`Format Document`即可。

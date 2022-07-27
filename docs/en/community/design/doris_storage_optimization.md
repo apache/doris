@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Doris存储文件格式优化",
-    "language": "zh-CN"
+    "title": "Doris Storage File Format Optimization",
+    "language": "en"
 }
 ---
 
@@ -24,30 +24,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Doris存储文件格式优化 #
 
-## 文件格式 ##
+# Doris Storage File Format Optimization #
+
+## File format ##
 
 ![](/images/segment_v2.png)
-<center>图1. doris segment文件格式</center>
+<center>1. doris segment</center>
 
-文件包括：
-- 文件开始是8个字节的magic code，用于识别文件格式和版本
-- Data Region：用于存储各个列的数据信息，这里的数据是按需分page加载的
-- Index Region: doris中将各个列的index数据统一存储在Index Region，这里的数据会按照列粒度进行加载，所以跟列的数据信息分开存储
-- Footer信息
-	- FileFooterPB:定义文件的元数据信息
-	- 4个字节的footer pb内容的checksum
-	- 4个字节的FileFooterPB消息长度，用于读取FileFooterPB
-	- 8个字节的MAGIC CODE，之所以在末位存储，是方便不同的场景进行文件类型的识别
+Documents include:
+- The file starts with an 8-byte magic code to identify the file format and version
+- Data Region: Used to store data information for each column, where the data is loaded on demand by pages.
+- Index Region: Doris stores the index data of each column in Index Region, where the data is loaded according to column granularity, so the data information of the following column is stored separately.
+- Footer
+	- FileFooterPB: Metadata Information for Definition Files
+	- Checksum of 4 bytes of footer Pb content
+	- Four bytes FileFooterPB message length for reading FileFooterPB
+	- The 8 byte MAGIC CODE is stored in the last bit to facilitate the identification of file types in different scenarios.
 
-文件中的数据按照page的方式进行组织，page是编码和压缩的基本单位。现在的page类型包括以下几种:
+The data in the file is organized in the form of page, which is the basic unit of coding and compression. Current page types include the following:
 
 ### DataPage ###
 
-DataPage分为两种：nullable和non-nullable的data page。
+Data Page is divided into two types: nullable and non-nullable data pages.
 
-nullable的data page内容包括：
+Nullable's data page includes:
 ```
 
                  +----------------+
@@ -65,7 +66,7 @@ nullable的data page内容包括：
                  +----------------+
 ```
 
-non-nullable data page结构如下：
+non -zero data page32467;- 26500;- 229140;-
 
 ```
                  |----------------|
@@ -79,65 +80,65 @@ non-nullable data page结构如下：
                  +----------------+
 ```
 
-其中各个字段含义如下：
+The meanings of each field are as follows:
 
 - value count
-	- 表示page中的行数
-- first row id
-	- page中第一行的行号
+	- Represents the number of rows in a page
+- First row id
+	- Line number of the first line in page
 - bitmap length
-	- 表示接下来bitmap的字节数
+	- Represents the number of bytes in the next bitmap
 - null bitmap
-	- 表示null信息的bitmap
-- data
-	- 存储经过encoding和compress之后的数据
-	- 需要在数据的头部信息中写入：is_compressed
-	- 各种不同编码的data需要在头部信息写入一些字段信息，以实现数据的解析
-		- TODO：添加各种encoding的header信息
-- checksum
-	- 存储page粒度的校验和，包括page的header和之后的实际数据
+	- bitmap representing null information
+- Data
+	- Store data after encoding and compress
+	- You need to write in the header information of the data: is_compressed
+	- Various kinds of data encoded by different codes need to write some field information in the header information in order to achieve data parsing.
+	- TODO: Add header information for various encodings
+- Checksum
+	- Store page granularity checksum, including page header and subsequent actual data
 
 
 ### Bloom Filter Pages ###
 
-针对每个bloom filter列,会在page的粒度相应的生成一个bloom filter的page，保存在bloom filter pages区域
+For each bloom filter column, a page of the bloom filter is generated corresponding to the granularity of the page and saved in the bloom filter pages area.
 
 ### Ordinal Index Page ###
 
-针对每个列，都会按照page粒度，建立行号的稀疏索引。内容为这个page的起始行的行号到这个block的指针（包括offset和length）
+For each column, a sparse index of row numbers is established according to page granularity. The content is a pointer to the block (including offset and length) for the line number of the start line of the page
 
 ### Short Key Index page ###
 
-我们会每隔N行（可配置）生成一个short key的稀疏索引，索引的内容为：short key->行号(ordinal)
+We generate a sparse index of short key every N rows (configurable) with the contents of short key - > line number (ordinal)
 
-### Column的其他索引 ###
+### Column's other indexes ###
 
-该格式设计支持后续扩展其他的索引信息，比如bitmap索引，spatial索引等等，只需要将需要的数据写到现有的列数据后面，并且添加对应的元数据字段到FileFooterPB中
+The format design supports the subsequent expansion of other index information, such as bitmap index, spatial index, etc. It only needs to write the required data to the existing column data, and add the corresponding metadata fields to FileFooterPB.
 
-### 元数据定义 ###
-SegmentFooterPB的定义为：
+### Metadata Definition ###
+SegmentFooterPB is defined as:
 
 ```
 message ColumnPB {
-    required int32 unique_id = 1;   // 这里使用column id, 不使用column name是因为计划支持修改列名
-    optional string name = 2;   // 列的名字,  当name为__DORIS_DELETE_SIGN__, 表示该列为隐藏的删除列
-    required string type = 3;   // 列类型
-    optional bool is_key = 4;   // 是否是主键列
-    optional string aggregation = 5;    // 聚合方式
-    optional bool is_nullable = 6;      // 是否有null
-    optional bytes default_value = 7;   // 默认值
-    optional int32 precision = 8;       // 精度
+    required int32 unique_id = 1;   // The column id is used here, and the column name is not used
+    optional string name = 2;   // Column name,  when name equals __DORIS_DELETE_SIGN__, this column is a hidden delete column
+    required string type = 3;   // Column type
+    optional bool is_key = 4;   // Whether column is a primary key column
+    optional string aggregation = 5;    // Aggregate type
+    optional bool is_nullable = 6;      // Whether column is allowed to assgin null
+    optional bytes default_value = 7;   // Defalut value
+    optional int32 precision = 8;       // Precision of column
     optional int32 frac = 9;
-    optional int32 length = 10;         // 长度
-    optional int32 index_length = 11;   // 索引长度
-    optional bool is_bf_column = 12;    // 是否有bf词典
-    optional bool has_bitmap_index = 15 [default=false];  // 是否有bitmap索引
+    optional int32 length = 10;         // Length of column
+    optional int32 index_length = 11;   // Length of column index
+    optional bool is_bf_column = 12;    // Whether column has bloom filter index
+    optional bool has_bitmap_index = 15 [default=false];  // Whether column has bitmap index
 }
 
-// page偏移
+// page offset
 message PagePointerPB {
-	required uint64 offset; // page在文件中的偏移
-	required uint32 length; // page的大小
+	required uint64 offset; // offset of page in segment file
+	required uint32 length; // length of page
 }
 
 message MetadataPairPB {
@@ -146,89 +147,89 @@ message MetadataPairPB {
 }
 
 message ColumnMetaPB {
-	optional ColumnMessage encoding; // 编码方式
+	optional ColumnMessage encoding; // Encoding of column
 
-	optional PagePointerPB dict_page // 词典page
-	repeated PagePointerPB bloom_filter_pages; // bloom filter词典信息
-	optional PagePointerPB ordinal_index_page; // 行号索引数据
-	optional PagePointerPB page_zone_map_page; // page级别统计信息索引数据
+	optional PagePointerPB dict_page // Dictionary page
+	repeated PagePointerPB bloom_filter_pages; // Bloom filter pages
+	optional PagePointerPB ordinal_index_page; // Ordinal index page
+	optional PagePointerPB page_zone_map_page; // Page level of statistics index data
 
-	optional PagePointerPB bitmap_index_page; // bitmap索引数据
+	optional PagePointerPB bitmap_index_page; // Bitmap index page
 
-	optional uint64 data_footprint; // 列中索引的大小
-	optional uint64 index_footprint; // 列中数据的大小
-	optional uint64 raw_data_footprint; // 原始列数据大小
+	optional uint64 data_footprint; // The size of the index in the column
+	optional uint64 index_footprint; // The size of the data in the column
+	optional uint64 raw_data_footprint; // Original column data size
 
-	optional CompressKind compress_kind; // 列的压缩方式
+	optional CompressKind compress_kind; // Column compression type
 
-	optional ZoneMapPB column_zone_map; //文件级别的过滤条件
+	optional ZoneMapPB column_zone_map; // Segment level of statistics index data
 	repeated MetadataPairPB column_meta_datas;
 }
 
 message SegmentFooterPB {
-	optional uint32 version = 2 [default = 1]; // 用于版本兼容和升级使用
-	repeated ColumnPB schema = 5; // 列Schema
-  optional uint64 num_values = 4; // 文件中保存的行数
-  optional uint64 index_footprint = 7; // 索引大小
-  optional uint64 data_footprint = 8; // 数据大小
-	optional uint64 raw_data_footprint = 8; // 原始数据大小
+	optional uint32 version = 2 [default = 1]; // For version compatibility and upgrade use
+	repeated ColumnPB schema = 5; // Schema of columns
+  optional uint64 num_values = 4; // Number of lines saved in the file
+  optional uint64 index_footprint = 7; // Index size
+  optional uint64 data_footprint = 8; // Data size
+	optional uint64 raw_data_footprint = 8; // Original data size
 
-  optional CompressKind compress_kind = 9 [default = COMPRESS_LZO]; // 压缩方式
-  repeated ColumnMetaPB column_metas = 10; // 列元数据
-	optional PagePointerPB key_index_page; // short key索引page
+  optional CompressKind compress_kind = 9 [default = COMPRESS_LZO]; // Compression type
+  repeated ColumnMetaPB column_metas = 10; // Column metadata
+	optional PagePointerPB key_index_page = 11; // short key index page
 }
 
 ```
 
-## 读写逻辑 ##
+## Read-write logic ##
 
-### 写入 ###
+### Write ###
 
-大体的写入流程如下：
-1. 写入magic
-2. 根据schema信息，生成对应的ColumnWriter，每个ColumnWriter按照不同的类型，获取对应的encoding信息（可配置），根据encoding，生成对应的encoder
-3. 调用encoder->add(value)进行数据写入，每隔K行，生成一个short key index entry，并且，如果当前的page满足一定条件（大小超过1M或者行数为K），就生成一个新的page，缓存在内存中。
-4. 不断的循环步骤3，直到数据写入完成。将各个列的数据依序刷入文件中
-5. 生成FileFooterPB信息，写入文件中。
+The general writing process is as follows:
+1. Write magic
+2. Generate corresponding Column Writer according to schema information. Each Column Writer obtains corresponding encoding information (configurable) according to different types, and generates corresponding encoder according to encoding.
+3. Call encoder - > add (value) for data writing. Each K line generates a short key index entry, and if the current page satisfies certain conditions (the size exceeds 1M or the number of rows is K), a new page is generated and cached in memory.
+4. Continuous cycle step 3 until data writing is completed. Brush the data of each column into the file in sequence
+5. Generate FileFooterPB information and write it to the file.
 
-相关的问题：
+Relevant issues:
 
-- short key的索引如何生成？
-	- 现在还是按照每隔多少行生成一个short key的稀疏索引，保持每隔1024行生成一个short的稀疏索引,具体的内容是：short key -> ordinal
+- How does the index of short key be generated?
+	- Now we still generate a short key sparse index according to how many rows are sparse, and keep a short sparse index generated every 1024 rows. The specific content is: short key - > ordinal
 
-- ordinal索引里面应该存什么？
-	- 存储page的第一个ordinal到page pointer的映射信息
-- 不同encoding类型的page里存什么？
-	- 词典压缩
+- What should be stored in the ordinal index?
+	- Store the first ordinal to page pointer mapping information for pages
+- What are stored in pages of different encoding types?
+	- Dictionary Compression
 	- plain
 	- rle
 	- bshuf
 
-### 读取 ###
+### Read ###
 
-1. 读取文件的magic，判断文件类型和版本
-2. 读取FileFooterPB，进行checksum校验
-3. 按照需要的列，读取short key索引和对应列的数据ordinal索引信息
-4. 使用start key和end key，通过short key索引定位到要读取的行号，然后通过ordinal索引确定需要读取的row ranges, 同时需要通过统计信息、bitmap索引等过滤需要读取的row ranges
-5. 然后按照row ranges通过ordinal索引读取行的数据
+1. Read the magic of the file and judge the type and version of the file.
+2. Read FileFooterPB and check sum
+3. Read short key index and data ordinal index information of corresponding columns according to required columns
+4. Use start key and end key, locate the row number to be read through short key index, then determine the row ranges to be read through ordinal index, and filter the row ranges to be read through statistics, bitmap index and so on.
+5. Then read row data through ordinal index according to row ranges
 
-相关的问题：
-1. 如何实现在page内部快速的定位到某一行？
+Relevant issues:
+1. How to quickly locate a row within the page?
 
-	page内部是的数据是经过encoding的，无法快速进行行级数据的定位。不同的encoding方式，在内部进行快速的行号定位的方案不一样，需要具体分析：
-	- 如果是rle编码的，需要通过解析rle的header进行skip，直到到达包含该行的那个rle块之后，再进行反解。
-	- binary plain encoding：会在page的中存储offset信息，并且会在page header中指定offset信息的offset，读取的时候会先解析offset信息到数组中，这样子就可以通过各个行的offset数据信息快速的定位block某一行的数据
-2. 如何实现块的高效读取？可以考虑将相邻的块在读取的时候进行merge，一次性读取？
-	这个需要在读取的时候，判断block是否连续，如果连续，就一次性的读取
+	The data inside the page is encoding, so it cannot locate the row-level data quickly. Different encoding methods have different schemes for fast line number positioning in-house, which need to be analyzed concretely:
+	- If it is rle-coded, skip is performed by resolving the head of RLE until the RLE block containing the row is reached, and then the reverse solution is performed.
+	- binary plain encoding: offset information will be stored in the page, and offset information will be specified in the page header. When reading, offset information will be parsed into the array first, so that you can quickly locate the data of a row of block through offset data information of each row.
+2. How to achieve efficient block reading? Consider merging adjacent blocks while they are being read, one-time reading?
+This requires judging whether the block is continuous at the time of reading, and if it is continuous, reading it once.
 
-## 编码 ##
+## Coding ##
 
-现有的doris存储中，针对string类型的编码，采用plain encoding的方式，效率比较低。经过对比，发现在百度统计的场景下，数据会因为string类型的编码膨胀超过一倍。所以，计划引入基于词典的编码压缩。
+In the existing Doris storage, plain encoding is adopted for string type encoding, which is inefficient. After comparison, it is found that in Baidu statistics scenario, data will expand more than twice because of string type coding. Therefore, it is planned to introduce dictionary-based coding compression.
 
-## 压缩 ##
+## Compression ##
 
-实现可扩展的压缩框架，支持多种压缩算法，方便后续添加新的压缩算法，计划引入zstd压缩。
+It implements a scalable compression framework, supports a variety of compression algorithms, facilitates the subsequent addition of new compression algorithms, and plans to introduce zstd compression.
 
 ## TODO ##
-1. 如何实现嵌套类型？如何在嵌套类型中进行行号定位？
-2. 如何优化现在的ScanRange拆分导致的下游bitmap、column statistic统计等进行多次？
+1. How to implement nested types? How to locate line numbers in nested types?
+2. How to optimize the downstream bitmap and column statistics caused by ScanRange splitting?

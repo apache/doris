@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Release Doris Core",
-    "language": "en"
+    "title": "发布 Doris 主代码",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,55 +24,55 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Release Doris Core
+# 发布 Doris Core
 
-Doris Core refers to the content published in https://github.com/apache/doris.
+Doris Core 指发布 https://github.com/apache/doris 中的内容。
 
-## Preparing for release
+## 准备发布
 
-First, see the [release preparation](./release-prepare.md) documentation for release preparation.
+首先，请参阅 [发版准备](./release-prepare.md) 文档进行发版准备。
 
-### Preparing a branch
+### 准备分支
 
-You need to create a new branch before releasing. For example.
+发布前需要先新建一个分支。例如：
 
 ```
 $ git checkout -b branch-0.9
 ```
 
-This branch should be more fully tested to make features available, bugs converged, and important bugs fixed.
-This process requires waiting for the community to see if there are any necessary patches that need to be merged in for this release, and if so, cherry-picking it to the release branch.
+这个分支要进行比较充分的测试，使得功能可用，bug收敛，重要bug都得到修复。
+这个过程需要等待社区，看看是否有必要的patch需要在这个版本合入，如果有，需要把它 cherry-pick 到发布分支。
 
-### Clean up issues
+### 清理issue
 
-Go through all the issues that belong to this release, close the ones that are done, and if they can't be done, defer them to a later release.
+将属于这个版本的所有 issue 都过一遍，关闭已经完成的，如果没法完成的，推迟到更晚的版本。
 
-### Merge necessary patches
+### 合并必要的Patch
 
-If someone in the community says there are important bugs that need to be merged in, then the Release Manager needs to evaluate and merge the important patches into the release branch.
+在发布等待过程中，可能会有比较重要的Patch合入，如果社区有人说要有重要的Bug需要合入，那么 Release Manager 需要评估并将重要的Patch合入到发布分支中。
 
-## Validation branch
+## 验证分支
 
-### Stability testing
+### 稳定性测试
 
-Pass the batched branch to the QA students for stability testing. If during the testing process, there are issues that need to be fixed, then if during the testing process, there are issues that need to be fixed, then after they are fixed, the PRs that fix the issues need to be merged into the branch of the pending release.
+将打好的分支交给 QA 同学进行稳定性测试。如果在测试过程中，出现需要修复的问题，则如果在测试过程中，出现需要修复的问题，待修复好后，需要将修复问题的 PR 合入到待发版本的分支中。
 
-Only after the whole branch is stable, can you prepare to release the version.
+待整个分支稳定后，才能准备发版本。
 
-### Compile verification
+### 编译验证
 
-Please refer to the compilation documentation for compilation to ensure that the source code is compiled correctly.
+请参阅编译文档进行编译，以确保源码编译正确性。
 
-### Prepare Release Notes
+### 准备 Release Notes
 
-## Community Posting Voting Process
+## 社区发布投票流程
 
-### Tagging
+### 打 tag
 
-Once the above branch is more stable, you can tag this branch.
-Remember to modify the `build_version` variable in `gensrc/script/gen_build_version.sh` when creating the tag. For example `build_version="0.10.0-release"`
+当上述分支已经比较稳定后，就可以在此分支上打 tag。
+记得在创建 tag 时，修改 `gensrc/script/gen_build_version.sh` 中的 `build_version` 变量。如 `build_version="0.10.0-release"`
 
-Example:
+例如：
 
 ```
 $ git checkout branch-0.9
@@ -81,15 +81,15 @@ $ git push origin 0.9.0-rc01
 Counting objects: 1, done.
 Writing objects: 100% (1/1), 165 bytes | 0 bytes/s, done.
 Total 1 (delta 0), reused 0 (delta 0)
-To git@github.com:apache/incubator-doris.git
+To git@github.com:apache/doris.git
  * [new tag]         0.9.0-rc01 -> 0.9.0-rc01
 
 $ git tag
 ```
 
-### Package, sign and upload
+### 打包、签名上传
 
-For the following steps, you also need to log in to the user account directly through a terminal such as SecureCRT, not through `su - user` or `ssh`, otherwise the password input box will not be displayed and an error will be reported.
+如下步骤，也需要通过 SecureCRT 等终端直接登录用户账户，不能通过 su - user 或者 ssh 转，否则密码输入 box 会显示不出来而报错。
 
 ```
 $ git checkout 0.9.0-rc01
@@ -105,13 +105,13 @@ $ sha512sum apache-doris-0.9.0-incubating-src.tar.gz > apache-doris-0.9.0-incuba
 $ sha512sum --check apache-doris-0.9.0-incubating-src.tar.gz.sha512
 ```
 
-Then upload the packaged content to the svn repository by first downloading the svn library at:
+然后将打包的内容上传到svn仓库中，首先下载 svn 库：
 
 ```
-svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
+svn co https://dist.apache.org/repos/dist/dev/doris/
 ```
 
-Organize all the previously obtained files into the following svn path:
+将之前得到的全部文件组织成以下svn路径
 
 ```
 ./doris/
@@ -122,14 +122,14 @@ Organize all the previously obtained files into the following svn path:
 `-- KEYS
 ```
 
-Upload these file:
+上传这些文件
 
 ```
 svn add 0.11.0-rc1
 svn commit -m "Add 0.11.0-rc1"
 ```
 
-### Email the community at dev@doris.apache.org to vote
+### 发邮件到社区 dev@doris.apache.org 进行投票
 
 [VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -158,9 +158,8 @@ https://downloads.apache.org/incubator/doris/KEYS
 It is also listed here:
 https://people.apache.org/keys/committer/lide.asc
 
-To verify and build, you can refer to following wiki:
-https://github.com/apache/incubator-doris/wiki/How-to-verify-Apache-Release
-https://wiki.apache.org/incubator/IncubatorReleaseChecklist
+To verify and build, you can refer to following link:
+http://doris.incubator.apache.org/community/release-and-verify/release-verify.html
 
 The vote will be open for at least 72 hours.
 [ ] +1 Approve the release
@@ -186,7 +185,7 @@ of the completeness or stability of the code, it does indicate
 that the project has yet to be fully endorsed by the ASF.
 ```
 
-### After the vote is approved, send the Result email
+### 投票通过后，发 Result 邮件
 
 [Result][VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -206,9 +205,9 @@ xxx
 
 ```
 
-### Email general@incubator.apache.org to vote
+### 发邮件到 general@incubator.apache.org 进行投票
 
-**If not an incubator program, please skip**
+**如非孵化器项目，请跳过**
 
 [VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -226,18 +225,18 @@ The vote result email thread:
 https://lists.apache.org/thread.html/64d229f0ba15d66adc83306bc8d7b7ccd5910ecb7e842718ce6a61da@%3Cdev.doris.apache.org%3E
 
 The release candidate has been tagged in GitHub as 0.9.0-rc01, available here:
-https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
+https://github.com/apache/doris/releases/tag/0.9.0-rc01
 
 There is no CHANGE LOG file because this is the first release of Apache Doris.
 Thanks to everyone who has contributed to this release, and there is a simple release notes can be found here:
-https://github.com/apache/incubator-doris/issues/406
+https://github.com/apache/doris/issues/406
 
 The artifacts (source, signature and checksum) corresponding to this release candidate can be found here:
 https://dist.apache.org/repos/dist/dev/incubator/doris/0.9/0.9.0-rc01/
 
 This has been signed with PGP key 33DBF2E0, corresponding to lide@apache.org.
 KEYS file is available here:
-https://downloads.apache.org/incubator/doris/KEYS
+https://downloads.apache.org/doris/KEYS
 It is also listed here:
 https://people.apache.org/keys/committer/lide.asc
 
@@ -251,17 +250,17 @@ To verify and build, you can refer to following instruction:
 Firstly, you must be install and start docker service, and then you could build Doris as following steps:
 
 Step1: Pull the docker image with Doris building environment
-$ docker pull apache/incubator-doris:build-env-1.3.1
+$ docker pull apache/doris:build-env-1.3.1
 You can check it by listing images, its size is about 3.28GB.
 
 Step2: Run the Docker image
 You can run image directly:
-$ docker run -it apache/incubator-doris:build-env-1.3.1
+$ docker run -it apache/doris:build-env-1.3.1
 
 Step3: Download Doris source
 Now you should in docker environment, and you can download Doris source package.
 (If you have downloaded source and it is not in image, you can map its path to image in Step2.)
-$ wget https://dist.apache.org/repos/dist/dev/incubator/doris/0.9/0.9.0-rc01/apache-doris-0.9.0.rc01-incubating-src.tar.gz
+$ wget https://dist.apache.org/repos/dist/dev/doris/0.9/0.9.0-rc01/apache-doris-0.9.0.rc01-incubating-src.tar.gz
 
 Step4: Build Doris
 Now you can decompress and enter Doris source path and build Doris.
@@ -288,13 +287,13 @@ of the completeness or stability of the code, it does indicate
 that the project has yet to be fully endorsed by the ASF.
 ```
 
-The thread link for the email can be found here.
+邮件的 thread 连接可以在这里找到：
 
 `https://lists.apache.org/list.html?dev@doris.apache.org`
 
-### Send Result email to general@incubator.apache.org
+### 发 Result 邮件到 general@incubator.apache.org
 
-**If not an incubator project, please skip**
+**如非孵化器项目，请跳过**
 
 [RESULT][VOTE] Release Apache Doris 0.9.0-incubating-rc01
 
@@ -319,6 +318,6 @@ Best Regards,
 xxx
 ```
 
-## Completing the release
+## 完成发布
 
-Please refer to the [Release Completion](./release-complete.md) document to complete the release process.
+请参阅 [完成发布](./release-complete.md) 文档完成所有发布流程。

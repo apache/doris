@@ -1,8 +1,11 @@
 ---
-{ 'title': 'Doris BE开发调试环境 -- vscode', 'language': 'zh-CN' }
+{
+    "title": "BE development and debugging environment under Linux",
+    "language": "en"
+}
 ---
 
-<!--
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -21,88 +24,86 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Apache Doris Be 开发调试
+# Apache Doris Be development and debugging
 
-## 前期准备工作
+## initial preparation work
 
-**本教程是在 Ubuntu 20.04 下进行的**
+**This tutorial was conducted under Ubuntu 20.04**
 
-**文中的出现的 BE 二进制文件名称 `doris_be`，在之前的版本中为 `palo_be`。**
+**The name of the BE binary that appears in this doc is `doris_be`, which was `palo_be` in previous versions.**
 
-1. 下载 doris 源代码
+1. Download the doris source code
 
-    下载地址为：[apache/doris: Apache Doris (github.com)](https://github.com/apache/doris)
+   URL：[apache/doris: Apache Doris (github.com)](https://github.com/apache/doris)
 
-2. 安装 GCC 8.3.1+，Oracle JDK 1.8+，Python 2.7+，确认 gcc, java, python 命令指向正确版本, 设置 JAVA_HOME 环境变量
+2. Install GCC 8.3.1+, Oracle JDK 1.8+, Python 2.7+, confirm that the gcc, java, python commands point to the correct version, and set the JAVA_HOME environment variable
 
-3. 安装其他依赖包
+3. Install other dependent packages
 
 ```
 sudo apt install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python brotli
 sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
 sudo apt update
-sudo apt install gcc-10 g++-10
+sudo apt install gcc-10 g++-10 
 sudo apt-get install autoconf automake libtool autopoint
 ```
 
-4. 安装 openssl-devel
-
+4. install : libssl-dev
 ```
-sudo apt install -y openssl-devel
-```
-
-## 编译
-
-以下操作步骤在 /home/workspace 目录下进行
-
-1. 下载源码
-
-```
-git clone https://github.com/apache/doris.git
+sudo apt install -y libssl-dev
 ```
 
-2. 编译第三方依赖包
+## Compile
+
+The following steps are carried out in the /home/workspace directory
+
+1. dowload source
+
+```
+git clone https://github.com/apache/doris.git 
+```
+
+2. Compile third-party dependency packages
 
 ```
  cd /home/workspace/doris/thirdparty
  ./build-thirdparty.sh
 ```
 
-3. 编译 doris 产品代码
+3. Compile doris product code
 
 ```
 cd /home/workspace/doris
 ./build.sh
 ```
 
-注意：这个编译有以下几条指令：
+Note: This compilation has the following instructions:
 
+```shell
+./build.sh  #Compile be and fe at the same time
+./build.sh  --be #Only compile be
+./build.sh  --fe #Only compilefe
+./build.sh  --fe --be --clean#Delete and compile be fe at the same time
+./build.sh  --fe  --clean#Delete and compile fe
+./build.sh  --be  --clean#Delete and compile be
+./build.sh  --be --fe  --clean#Delete and compile be fe at the same time
 ```
-./build.sh  #同时编译be 和fe
-./build.sh  --be #只编译be
-./build.sh  --fe #只编译fe
-./build.sh  --fe --be#同时编译be fe
-./build.sh  --fe --be --clean#删除并同时编译be fe
-./build.sh  --fe  --clean#删除并编译fe
-./build.sh  --be  --clean#删除并编译be
-./build.sh  --be --fe  --clean#删除并同时编译be fe
-```
 
-如果不出意外，应该会编译成功，最终的部署文件将产出到 /home/workspace/doris/output/ 目录下。如果还遇到其他问题，可以参照 doris 的安装文档 http://doris.apache.org。
+If nothing happens, the compilation should be successful, and the final deployment file will be output to the /home/workspace/doris/output/ directory. If you still encounter other problems, you can refer to the doris installation document http://doris.apache.org.
 
-## 部署调试
+## Deployment and debugging
 
-1. 给 be 编译结果文件授权
+1. Authorize be compilation result files
 
 ```
 chmod  /home/workspace/doris/output/be/lib/doris_be
 ```
 
-注意： /home/workspace/doris/output/be/lib/doris_be 为 be 的执行文件。
+Note: /home/workspace/doris/output/be/lib/doris_be is the executable file of be.
 
-2. 创建数据存放目录
+2. Create a data storage directory
 
-通过查看/home/workspace/doris/output/be/conf/be.conf
+By viewing /home/workspace/doris/output/be/conf/be.conf
 
 ```
 # INFO, WARNING, ERROR, FATAL
@@ -118,28 +119,28 @@ brpc_port = 8060
 # use CIDR format, e.g. 10.10.10.0/
 # Default value is empty.
 priority_networks = 192.168.59.0/24 # data root path, separate by ';'
-storage_root_path = /soft/be/storage
+storage_root_path = /soft/be/storage 
 # sys_log_dir = ${PALO_HOME}/log
 # sys_log_roll_mode = SIZE-MB-
 # sys_log_roll_num =
 # sys_log_verbose_modules =
 # log_buffer_level = -
-# palo_cgroups
+# palo_cgroups 
 ```
 
-需要创建一个文件夹，这是 be 数据存放的地方
+Need to create this folder, this is where the be data is stored
 
 ```
 mkdir -p /soft/be/storage
 ```
 
-3. 打开 vscode，并打开 be 源码所在目录，在本案例中打开目录为 **/home/workspace/doris/**
+3. Open vscode, and open the directory where the be source code is located. In this case, open the directory as **/home/workspace/doris/**，For details on how to vscode, refer to the online tutorial
 
-4. 安装 vscode ms c++ 调试插件
+4. Install the vscode ms c++ debugging plug-in, the plug-in identified by the red box in the figure below
 
-![](/images/image-20210618104004956.png)
+![](/images/image-20210618104042192.png)
 
-5. 创建 launch.json 文件，文件内容如下：
+5. Create a launch.json file, the content of the file is as follows:
 
 ```
 {
@@ -172,9 +173,9 @@ mkdir -p /soft/be/storage
 }
 ```
 
-其中，environment 定义了几个环境变量 DORIS_HOME UDF_RUNTIME_DIR LOG_DIR PID_DIR，这是 doris_be 运行时需要的环境变量，如果没有设置，启动会失败。
+Among them, environment defines several environment variables DORIS_HOME UDF_RUNTIME_DIR LOG_DIR PID_DIR, which are the environment variables needed when doris_be is running. If it is not set, the startup will fail
 
-**注意：如果希望是 attach(附加进程）调试，配置代码如下：**
+**Note: If you want attach (additional process) debugging, the configuration code is as follows:**
 
 ```
 {
@@ -200,19 +201,19 @@ mkdir -p /soft/be/storage
 }
 ```
 
-配置中 **"request": "attach"， "processId":PID**，这两个配置是重点： 分别设置 gdb 的调试模式为 attach，附加进程的 processId，否则会失败。如何查找进程 id，可以在命令行中输入以下命令：
+In the configuration **"request": "attach", "processId": PID**, these two configurations are the key points: set the debug mode of gdb to attach and attach the processId of the process, otherwise it will fail. To find the process id, you can enter the following command in the command line:
 
 ```
 ps -ef | grep palo*
 ```
 
-如图：
+As shown in the figure:
 
 ![](/images/image-20210618095240216.png)
 
-其中的 15200 即为当前运行的 be 的进程 id.
+Among them, 15200 is the process id of the currently running be.
 
-一个完整的 launch.json 的例子如下：
+An example of a complete launch.json is as follows:
 
 ```
  {
@@ -273,8 +274,9 @@ ps -ef | grep palo*
 }
 ```
 
-6. 点击调试即可
+6. Click to debug
 
-    下面就可以开始你的 Doris DEBUG 之旅了
+   You can start your debugging journey with the rest,
 
 ![](/images/image-20210618091006146.png)
+

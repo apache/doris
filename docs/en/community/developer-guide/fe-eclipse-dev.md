@@ -1,7 +1,7 @@
 ---
 {
-    "title": "FE 开发环境搭建 - Eclipse",
-    "language": "zh-CN"
+    "title": "Setting FE dev env - Eclipse",
+    "language": "en"
 }
 ---
 
@@ -24,138 +24,136 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 使用 Eclipse 搭建 FE 开发环境
+# Setting FE dev env using Eclipse
 
-## 环境准备
+## Preparation
 
 * JDK 1.8+
 * Maven 3.x+
-* Eclipse，并已安装 [M2Eclipse](http://www.eclipse.org/m2e/)
+* Eclipse, with [M2Eclipse](http://www.eclipse.org/m2e/) installed
 
-### 代码生成
+### Code Generation
 
-FE 模块需要部分生成代码，如 Thrift、Protobuf, jflex, cup 等框架的生成代码。这部分需要在 Linux 或者 Mac环境生成。
+The FE module requires part of the generated code, such as Thrift, Protobuf, Jflex, CUP and other frameworks. 
 
-#### windows下开发获取生成代码步骤
+#### Windows
 
-1. 在 Linux 下， 进入 `fe 目录下执行以下命令：
+1. Under Linux, enter the source code directory `fe` and execute the following command:
 
    ```
-   mvn  generate-sources
+    mvn  generate-sources
    ```
+    
+2. If use windows as development environment, then package the generated `fe/fe-core/target/generated-sources` directory:
 
-2. 如果使用window开发 需要将生成的 `fe/fe-core/target/generated-sources` 目录打包：
+   `fe/fe-core/target/ && tar czf java.tar.gz generated-sources/`
 
-    `fe/fe-core/target/ && tar czf java.tar.gz generated-sources/`
-
-3. 将 `java.tar.gz` 拷贝到开发环境的 `fe/fe-core/target/` 目录下，并解压
+3. Copy `java.tar.gz` to the `fe/fe-core/target/` directory of the development environment and unzip
 
     ```
     cp java.tar.gz /path/to/doris/fe/fe-core/target/
     cd /path/to/doris/fe/fe-core/target/ && tar xzf java.tar.gz
     ```
 
-#### mac下开发获取生成代码步骤
+#### MacOS
 
-mac下可以直接使用maven构建的步骤生成代码, 或者说可以直接编译. 
+We can use maven to do code generation or in other words build FE project
+directly on MacOS.
 
-1. 安装thrift的解释器(0.13.0), 如果没有的话到官网下载源码进行编译安装或者直接时
-	 使用`brew` 安装一个.
-
-2. 创建一个文件夹`thirdparty/installed/bin`, 然后将thrift 命令建立一个软链到这个
-	 路径下(当然你可以copy二进制).
+1. Install apache thrift from source code or `brew` if you don't have one
+2. Create a directory `thirdparty/installed/bin`, and link command thrift into
+	 it.
 
 	```
 	mkdir -p thirdparty/installed/bin
 	ln -s ${thrift_installed_full_path} thirdparty/installed/bin/thrift
 	```
-
-3. 调用maven直接进行构建, 如果出现一些错误请检查`$JAVA_HOME`路径以及java版本以及
-	 thrift是否能正常正确运行.
+3. Call `maven` to build FE project, if something went wrong, check you
+	 `$JAVA_HOME`, java version and newly installed command `thrift` work
+	 correctly.
 
 	```
 	cd fe && mvn package -DskipTests=true -Dos.arch=x86_64
 	```
 
-上述第3步中`-Dos.arch=x86_64` 是为了兼容苹果的m系列处理器(`os.arch=aarch64`),
-protobuf会使用x86_64架构的protoc二进制进行代码生成, 如果是使用m系列处理器的mac,
-有roseta做兼容所以不会有问题.
+Option `-Dos.arch=x86_64` in step 3 is for compatibility of Apple's M series
+CPU.
 
 Note: 
-0. cup和jfex均使用java的jar包程序进行编译, 代码生成的流程可以平台无关
-1. protobuf文件使用了现成的开源插件`protoc-jar-maven-plugin`进行跨平台的生成,
-	 本质上是下载已经编译好的对应平台二进制, 进行protobuf代码生成.
-2. thrift是目前(2022-06-26-Sun) FE在maven构建上唯一一个依赖
-	 `thirdparty/installed`的工具. 目前还没有使用类似protobuf的生成插件替换(TODO).
+0. cup and jfex use java jar to do code generation, the process is platform
+	 independent.
+1. Code generation of protobuf is done by `protoc-jar-maven-plugin`, which uses 
+	 precompiled binaries of different archs to make it seems platform independent.
+2. thrift is the only one relies on `thirdparty/installed`, which needs to be
+	 built from source. We will make it independent on `thirdparty/installed`
+	 someday (TODO).
 
-## 导入 FE 工程
+## Import FE project
 
-### 使用eclipse工程导入
+### Import as eclipse project
 
-1. 在开发环境的 `fe/` 目录下，执行以下命令生成 Eclipse 工程文件：
+1. In the `fe/` directory of the development environment, execute the following command to generate the Eclipse project file:
 
     `cd /path/to/doris/fe/ && mvn -npr eclipse:eclipse -Dskip.plugin=true`
+    
+    After the execution is completed, the `.project` and `.classpath` files will be generated in the `fe/` directory.
 
-    执行完成后，会在 `fe/` 目录下生成 `.project` 和 `.classpath` 文件
+2. Import FE project
 
-2. 导入 FE 工程
+    * Open Eclipse, choose `File -> Import`.
+    * Choose `General -> Existing Projects into Workspace`.
+    * `Select root directory` and choose `fe/` directory, click `Finish` to finish.
+    * Right click the project, and choose `Build Path -> Configure Build Path`.
+    * In the `Java Build Path` dialog, choose the `Source` tab, click `Add Folder`, and select the `java/` directory that was copied and unzipped before adding.
+    * Click `Apply and Close` to finish.
 
-    * 打开 Eclipse，选择 `File -> Import`。
-    * 选择 `General -> Existing Projects into Workspace`。
-    * `Select root directory` 选择 `fe/` 目录，点击 `Finish` 完成导入。
-    * 右击工程，选择 `Build Path -> Configure Build Path`。
-    * 在 `Java Build Path` 对话框中，选择 `Source` 标签页，点击 `Add Folder`，勾选添加之前拷贝并解压的 `java/` 目录。
-    * 点击 `Apply and Close` 完成。
-
-
-至此，FE 导入完成。Eclipse 中的工程目录大致如下：
+At this point, FE project import is complete. The project directory in Eclipse is roughly as follows:
 
 ![](/images/eclipse-import-fe-project-1.png)
 
+### Import as maven project
 
-### 使用maven工程导入
+We are able to build FE with maven, if we have done all the operations related
+to MacOS. And we are now of course able to import FE project as a maven project
+in eclipse.
 
-经过前边mac相关的操作之后, 我们应该能够直接本地maven构建了. 能够maven构建的项目
-是可以使用eclipse m2e 插件直接导入的.
+In eclipse menu `File` select `Import -> Maven -> Existing Maven Projects`,
+Choose doris fe directory to finish import. It's recommended to use working set
+to manage the all modules of FE.
 
-在eclipse File 菜单中依次选择`Import -> Maven -> Existing Maven Projects`
-然后选择doris fe文件夹即可完成导入. 导入时建议选择working set管理FE的多个module.
+Enjoy developing and debugging FE in eclipse!
 
-至此, 我们已经可以使用eclipse进行FE的开发调试.
+## Run Unit Test
 
-## 运行单元测试
+Right-click on the unit test file you want to run and select `Run As -> JUnit Test`. (If you want to debug, select `Debug As -> JUnit Test`).
 
-在想要运行的单元测试文件上右击，选择 `Run As -> JUnit Test`。（如果要单步调试，则选择 `Debug As -> JUnit Test`）。
-
-如果出现以下错误：
+If the following error occurs:
 
 ```
 java.lang.Exception: Method xxxx should have no parameters
 ```
 
-则右击单元测试文件，选择 `Run As -> Run Configurations...`。（如果要单步调试，则选择 `Debug As -> Debug Configurations...`）。
+Then right-click the unit test file and select `Run As -> Run Configurations...`. (If you want to debug, select `Debug As -> Debug Configurations...`).
 
-在 `Arguments` 标签页中的 `VM arguments` 中添加：
+Add to the `VM arguments` in the `Arguments` tab:
 
 ```
 -javaagent:${settings.localRepository}/org/jmockit/jmockit/1.48/jmockit-1.48.jar
 ```
 
-其中 `${settings.localRepository}` 要换成 maven lib 库的路径，如：
+Among them, `${settings.localRepository}` should be replaced with the path of the maven library path, such as:
 
 ```
 -javaagent:/Users/cmy/.m2/repository/org/jmockit/jmockit/1.48/jmockit-1.48.jar
 ```
 
-之后在运行 `Run/Debug` 即可。
+Then just run `Run/Debug`.
 
-FE的单元测试会首先启动一个FE服务，然后由测试用例作为客户端执行相应的测试逻辑。在UT报错时，UT的日志只会打印相应的客户端日志，如果需要**查看服务端日志**，可以在路径`${DORIS_HOME}/fe/mocked`下查看。
+## Run FE
 
-## 运行 FE
+You can directly start an FE process in Eclipse to facilitate debugging the code.
 
-可以在 Eclipse 中直接启动一个 FE 进程，方便对代码进行调试。
-
-1. 创建一个运行目录：
+1. Create a runtime directory
 
     ```
     mkdir /path/to/doris/fe/run/
@@ -163,56 +161,57 @@ FE的单元测试会首先启动一个FE服务，然后由测试用例作为客�
     mkdir conf/ log/ palo-meta/
     ```
     
-2. 创建配置文件
+2. Create configuration file
     
-    在第一步创建的 `conf/` 目录下创建配置文件 `fe.conf`。你可以直接将源码目录下 `conf/fe.conf` 拷贝过来并做简单修改。
+    Create the configuration file `fe.conf` in the `conf/` directory created in the first step. You can directly copy `conf/fe.conf` in the source directory and make simple changes.
     
-3. 在 Eclipse 中找到 `src/main/java/org/apache/doris/PaloFe.java` 文件，右击选择 `Run As -> Run Configurations...`。在 `Environment` 标签页中添加如下环境变量：
+3. Find the `src/main/java/org/apache/doris/PaloFe.java` file in Eclipse, right-click and select `Run As -> Run Configurations...`. Add the following environment variables to the `Environment` tab:
 
     * `DORIS_HOME: /path/to/doris/fe/run/`
     * `PID_DIR: /path/to/doris/fe/run/`
     * `LOG_DIR: /path/to/doris/fe/run/log`
 
-4. 右击 `PaloFe.java`，选择 `Run As -> Java Application`，则可以启动 FE。
+4. Right-click `PaloFe.java` and select `Run As -> Java Application` to start FE.
 
-## 代码更新
+To run a UT, a FE service will be started at first. And then, UT cases execute as client and test corresponding logics. When errors occur, only client logs will be print in UT logs. If you need more information from **server logs**, you can view logs in `${DORIS_HOME}/fe/mocked`.
 
-### eclipse工程
+## Code Update
 
-1. 更新词法、语法文件或者thrift 和proto 文件
+### Imported as eclipse project
+1. Update lexical and grammar files or proto and thrift files
 
-    如果修改了 `fe/fe-core/src/main/cup/sql_parser.cup` 或者 `fe/fe-core/src/main/jflex/sql_scanner.flex`文件或者proto 和thrift 文件。则需在 `fe` 目录下执行以下命令：
+    If you modified `fe/src/main/cup/sql_parser.cup` or `fe/src/main/jflex/sql_scanner.flex` file or proto and thrift files. You need to execute the following commands in the `fe/` directory:
     
     ```
     mvn  generate-sources
     ```
     
-    之后在 Eclipse 中刷新工程即可。
-    
-2. 更新 maven 依赖
+    Then refresh the project in Eclipse.
+        
+2. Update maven dependencies
 
-    如果更新了 `fe/pom.xml` 中的依赖，则需在 `fe/` 目录下执行以下命令：
+    If you update the dependency in `fe/pom.xml`, you need to execute the following command in the `fe/` directory:
 
     `mvn -npr eclipse:eclipse -Dskip.plugin=true`
     
-    之后在 Eclipse 中刷新工程即可。如无法更新，建议删除工程，并按照该文档重新导入一遍即可。
+    Then refresh the project in Eclipse. If it cannot be updated, it is recommended to delete the project and import it again according to this document.
 
-### maven工程
+### Imported as maven project
 
-1. 更新词法、语法文件或者thrift 和proto 文件 在fe目录下命令行执行一次
+1. Update lexical and grammar files or proto and thrift files
 	```
 	cd fe && mvn package -DskipTests=true -Dos.arch=x86_64
 	```
-2. 更新maven依赖, 直接在eclipse里`Package Explorer` 右键选中maven项目
-	 `maven -> update project...`
+2. Update maven dependencies, in eclipse `Package Explorer` right click on the
+	 project `maven -> update project...`
 
-3. 在eclipse中刷新工程.
+3. Refresh project in eclipse
 
-## Import 顺序
+## Imports Order
 
-为了保持 Java 的 Import 顺序，请执行如下操作设定项目的 Import Order
+In order to maintain the Imports order of Java, please perform the following operations to set the Imports Order of the project.
 
-1. 创建文件 `fe_doris.importorder` 并写入以下内容：
+1. Create the file `fe_doris.importorder` and write the following:
 
     ```
     #Organize Import Order
@@ -224,4 +223,4 @@ FE的单元测试会首先启动一个FE服务，然后由测试用例作为客�
     0=org.apache.doris
     ```
 
-2. 打开 Eclipse 的偏好设置（Preferences），选择 `Java -> Code Style -> Organize Imports`。点击 `Import` 导入上述文件。
+2. Open Eclipse Preferences, select `Java -> Code Style -> Organize Imports`. Click `Import` to import the above file.

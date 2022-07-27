@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Github Checks",
-    "language": "en"
+    "title": "Github 准入检查",
+    "language": "zh-CN"
 }
 
 ---
@@ -25,7 +25,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Github Checks
+# Github 准入检查
 
-Please refer to: [Github Checks Guidance](https://cwiki.apache.org/confluence/display/DORIS/Github+Checks+Guidance)
+请参阅：[Github Checks Guidance](https://cwiki.apache.org/confluence/display/DORIS/Github+Checks+Guidance)
 

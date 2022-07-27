@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Doris BE Storage Layer Benchmark Tool",
-    "language": "en"
+    "title": "Doris BE存储层Benchmark工具",
+    "language": "zh-CN"
 }
 
 ---
@@ -25,85 +25,84 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Doris BE Storage Layer Benchmark Tool
+# Doris BE存储层Benchmark工具
 
-## usage
+## 用途
 
-It can be used to test the performance of some parts of the BE storage layer (for example, segment, page). According to the input data, the designated object is constructed, and the google benchmark is used for performance testing. 
+    可以用来测试BE存储层的一些部分(例如segment、page)的性能。根据输入数据构造出指定对象,利用google benchmark进行性能测试。
 
-## Compilation
+## 编译
 
-1. To ensure that the environment has been able to successfully compile the Doris ontology, you can refer to [Installation and deployment](/docs/install/source-install/compilation)。
+1. 确保环境已经能顺利编译Doris本体,可以参考[编译与部署](/docs/install/source-install/compilation)。
 
-2. Execute`run-be-ut.sh`
+2. 运行目录下的`run-be-ut.sh`
 
-3. The compiled executable file is located in `./be/ut_build_ASAN/test/tools/benchmark_tool`
+3. 编译出的可执行文件位于`./be/ut_build_ASAN/test/tools/benchmark_tool`
 
-## operator
+## 使用
 
-#### Use randomly generated data set for segment read test 
+#### 使用随机生成的数据集进行Segment读取测试
 
-The data set will be used to write a `segment` file first, and then the time-consuming scan of the entire `segment` will be counted. 
+会先利用数据集写入一个`segment`文件,然后对scan整个`segment`的耗时进行统计。
 
 > ./benchmark_tool --operation=SegmentScan --column_type=int,varchar --rows_number=10000 --iterations=0
 
-The `column_type` here can set the schema, the column type of the `segment` layer currently supports `int, char, varchar, string`, the length of the `char` type is `8`, and both `varchar` and `string` types have length restrictions Is the maximum value. The default value is `int,varchar`. 
+这里的`column_type`可以设置表结构,`segment`层的表结构类型目前支持`int、char、varchar、string`,`char`类型的长度为`8`,`varchar`和`string`类型长度限制都为最大值。默认值为`int,varchar`。
 
-The data set is generated according to the following rules. 
->int: Random in [1,1000000]. 
+数据集按以下规则生成。
+>int: 在[1,1000000]内随机。
 
-The data character set of string type is uppercase and lowercase English letters, and the length varies according to the type. 
-> char: Length random in [1,8]。
-> varchar: Length random in [1,128]。 
-> string: Length random in [1,100000]。
+字符串类型的数据字符集为大小写英文字母,长度根据类型不同。
+> char: 长度在[1,8]内随机。
+> varchar: 长度在[1,128]内随机。 
+> string: 长度在[1,100000]内随机。
 
-`rows_number` indicates the number of rows of data, the default value is `10000`. 
+`rows_number`表示数据的行数,默认值为`10000`。
 
-`iterations` indicates the number of iterations, the benchmark will repeat the test, and then calculate the average time. If `iterations` is `0`, it means that the number of iterations is automatically selected by the benchmark. The default value is `10`. 
+`iterations`表示迭代次数,benchmark会重复进行测试,然后计算平均耗时。如果`iterations`为`0`则表示由benchmark自动选择迭代次数。默认值为`10`。
 
-#### Use randomly generated data set for segment write test 
+#### 使用随机生成的数据集进行Segment写入测试
 
-Perform time-consuming statistics on the process of adding data sets to segments and writing them to disk. 
+对将数据集添加进segment并写入磁盘的流程进行耗时统计。
 
 > ./benchmark_tool --operation=SegmentWrite
 
-#### Use the data set imported from the file for segment read test 
+#### 使用从文件导入的数据集进行Segment读取测试
 
 > ./benchmark_tool --operation=SegmentScanByFile --input_file=./sample.dat
 
-The `input_file` here is the imported data set file. 
-The first row of the data set file defines the schema, and each row corresponds to a row of data, and each data is separated by `,`. 
+这里的`input_file`为导入的数据集文件。
+数据集文件第一行为表结构定义,之后每行分别对应一行数据,每个数据用`,`隔开。
 
-Example: 
+举例: 
 ```
 int,char,varchar
 123,hello,world
 321,good,bye
 ```
 
-The type support is also `int`, `char`, `varchar`, `string`. Note that the data length of the `char` type cannot exceed 8. 
+类型支持同样为`int`、`char`、`varchar`、`string`,注意`char`类型数据长度不能超过8。
 
-#### Use the data set imported from the file for segment write test 
+#### 使用从文件导入的数据集进行Segment写入测试
 
 > ./benchmark_tool --operation=SegmentWriteByFile --input_file=./sample.dat
 
-#### Use randomly generated data set for page dictionary encoding test 
+#### 使用随机生成的数据集进行page字典编码测试
 
 > ./benchmark_tool --operation=BinaryDictPageEncode --rows_number=10000 --iterations=0
 
-Randomly generate varchar with a length between [1,8], and perform time-consuming statistics on encoding. 
+会随机生成长度在[1,8]之间的varchar,并对编码进行耗时统计。
 
-#### Use randomly generated data set for page dictionary decoding test 
+#### 使用随机生成的数据集进行page字典解码测试
 
 > ./benchmark_tool --operation=BinaryDictPageDecode
 
-Randomly generate varchar with a length between [1,8] and encode, and perform time-consuming statistics on decoding. 
+会随机生成长度在[1,8]之间的varchar并编码,并对解码进行耗时统计。
 
-## Custom test
+## Custom测试
 
-Here, users are supported to use their own functions for performance testing, which can be implemented in `/be/test/tools/benchmark_tool.cpp`. 
-
-For example: 
+这里支持用户使用自己编写的函数进行性能测试,具体可以实现在`/be/test/tools/benchmark_tool.cpp`。
+例如实现有：
 ```cpp
 void custom_run_plus() {
     int p = 100000;
@@ -122,17 +121,17 @@ void custom_run_mod() {
     }
 }
 ```
-You can join the test by registering `CustomBenchmark`. 
+则可以通过注册`CustomBenchmark`来加入测试。
 ```cpp
 benchmarks.emplace_back(
                     new doris::CustomBenchmark("custom_run_plus", 0,
-                    	custom_init, custom_run_plus));
+                        custom_init, custom_run_plus));
 benchmarks.emplace_back(
                     new doris::CustomBenchmark("custom_run_mod", 0,
-                    	custom_init, custom_run_mod));
+                        custom_init, custom_run_mod));
 ```
-The `custom_init` here is the initialization step of each round of testing (not counted as time-consuming). If the user has an object that needs to be initialized, it can be implemented by a derived class of `CustomBenchmark`. 
-After running, the results are as follows: 
+这里的`init`为每轮测试的初始化步骤(不会计入耗时),如果用户有需要初始化的对象则可以通过`CustomBenchmark`的派生类来实现。
+运行后有如下结果:
 ```
 2021-08-30T10:29:35+08:00
 Running ./benchmark_tool

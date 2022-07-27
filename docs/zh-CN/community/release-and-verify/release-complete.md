@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Complete Release",
-    "language": "en"
+    "title": "完成发布",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,14 +24,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Complete release
+# 完成发布
 
-The steps in this document follow after the release has been voted on and approved in the dev@doris.
+本文档中的步骤，是在完成 dev@doris 邮件组中的发版投票并通过后，进行的后续步骤。
 
-## Upload package to release
+## 上传 package 到 release
 
-When the official release poll is successful, send the [Result] email first, then prepare the release package.
-Copy the source package, signature file and hash file from the corresponding folder of the previous release under dev to another directory 1.xx, note that the file name should not be rcxx (you can rename, but do not recalculate the signature, the hash can be recalculated, the result will not change)
+当正式发布投票成功后，先发[Result]邮件，然后就准备 release package。
+将之前在dev下发布的对应文件夹下的源码包、签名文件和hash文件拷贝到另一个目录 1.1.0，注意文件名字中不要rcxx (可以rename，但不要重新计算签名，hash可以重新计算，结果不会变)
 
 ```
 From:
@@ -44,7 +44,7 @@ Eg:
 svn mv -m "move doris 1.1.0-rc05 to release" https://dist.apache.org/repos/dist/dev/doris/1.1 https://dist.apache.org/repos/dist/release/doris/1.1
 ```
 
-For the first release, you need to copy the KEYS file as well. Then add it to the svn release.
+第一次发布的话 KEYS 文件也需要拷贝过来。然后add到svn release 下。
 
 ```
 add 成功后就可以在下面网址上看到你发布的文件
@@ -54,13 +54,13 @@ https://dist.apache.org/repos/dist/release/doris/1.xx/
 http://www.apache.org/dist/doris/1.xx/
 ```
 
-## Post links on Doris official website and github
+## 在 Doris 官网和 github 发布链接
 
-We will use Doris Core as an example. For other components, replace the name with the corresponding one.
+我们以 Doris Core 为例。其他组件注意替换对应的名称。
 
-### Create a download link
+### 创建下载链接
 
-Download Link:
+下载链接：
 
 ```
 http://www.apache.org/dyn/closer.cgi?filename=doris/1.xx/apache-doris-1.xx-src.tar.gz&action=download
@@ -68,7 +68,7 @@ http://www.apache.org/dyn/closer.cgi?filename=doris/1.xx/apache-doris-1.xx-src.t
 wget --trust-server-names "https://www.apache.org/dyn/mirrors/mirrors.cgi?action=download&filename=doris/1.xx/apache-doris-1.xx-src.tar.gz"
 ```
 
-Original Location:
+原始位置:
 
 ```
 https://www.apache.org/dist/doris/1.xx/
@@ -76,7 +76,7 @@ https://www.apache.org/dist/doris/1.xx/
 http://www.apache.org/dyn/closer.cgi/doris/1.xx/apache-doris-1.xx-src.tar.gz
 ```
 
-Ssource package:
+源码包：
 
 ```
 http://www.apache.org/dyn/closer.cgi/doris/1.xx/apache-doris-1.xx-src.tar.gz
@@ -89,7 +89,6 @@ http://archive.apache.org/dist/doris/1.xx/apache-doris-1.xx-src.tar.gz.sha512
 ```
 
 KEYS:
-
 ```
 http://archive.apache.org/dist/doris/KEYS
 ```
@@ -98,54 +97,52 @@ refer to: <http://www.apache.org/dev/release-download-pages#closer>
 
 ### Maven
 
-Find staging repo on [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories) and click `Release` to release.
+在 [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories) 中找到对应的 Staging Repo, 点击 `Release` 进行正式发布。
 
-### Prepare the release note
+### 准备 release note
 
-The following two places need to be modified.
+需要修改如下两个地方：
 
-1. Github's release page
+1、Github 的 release 页面
 
 ```
 https://github.com/apache/doris/releases/tag/0.9.0-rc01
 ```
 
-2、Doris official website download page
+2、Doris 官网下载页面
 
-The download page is a markdown file with the following address.
-
+下载页面是一个 markdown 文件，地址如下。
 ```
-docs/zh-cn/downloads/downloads.md
+docs/zh-CN/downloads/downloads.md
 docs/en/downloads/downloads.md
 ```
 
-1. you need to change the download package address of the last release to the archive address of apache (see later).
-2. Add the download information for the new version.
+1. 需要将上一次发布版本的下载包地址改为 apache 的归档地址（见后）。
+2. 增加新版本的下载信息。
 
-### Clean up old versions of packages on svn
+### svn 上清理旧版本的包
 
-1. Deleting old packages on svn
+1. svn 上删除旧版本的包
 
-Since svn only needs to keep the latest version of packages, old versions of packages should be cleaned from svn when a new version is released.
+由于 svn 只需要保存最新版本的包，所以当有新版本发布的时候，旧版本的包就应该从 svn 上清理。
 
 ```
 https://dist.apache.org/repos/dist/release/doris/
 https://dist.apache.org/repos/dist/dev/doris/
 ```
+保持这两个地址中，只有最新版本的包即可。
 
-Keep these two addresses with only the latest package versions. 2.
-
-2. Change the download address of the older packages on the official Doris website to the address of the archive page 
+2. 将 Doris 官网的下载页面中，旧版本包的下载地址改为归档页面的地址 
 
 ```
-Download page: http://doris.apache.org/downloads.html
-Archive page: http://archive.apache.org/dist/doris
+下载页面: http://doris.apache.org/downloads.html
+归档页面: http://archive.apache.org/dist/doris
 ```
 
-Apache has a synchronization mechanism to archive the history of releases, see [how to archive](https://www.apache.org/legal/release-policy.html#how-to-archive)
-So even if an old package is removed from svn, it can still be found on the archive page.
+Apache 会有同步机制去将历史的发布版本进行一个归档，具体操作见：[how to archive](https://www.apache.org/legal/release-policy.html#how-to-archive)
+所以即使旧的包从 svn 上清除，还是可以在归档页面中找到。
 
-## Announce
+## Announce 邮件
 
 Title:
 
@@ -153,13 +150,13 @@ Title:
 [ANNOUNCE] Apache Doris 1.xx release
 ```
 
-To mail：
+发送邮件组：
 
 ```
 dev@doris.apache.org
 ```
 
-Email body:
+邮件正文：
 
 ```
 Hi All,

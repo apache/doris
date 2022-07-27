@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Doris Team",
-    "language": "en"
+    "title": "Doris 团队",
+    "language": "zh-CN"
 }
 ---
 
@@ -26,11 +26,11 @@ under the License.
 
 # PMC Members & Committers
 
-We'd like to thank the following committers to the Apache Doris project who have helped get the project to where it is today. This list might be stale, the canonical list is located on [Apache's website](https://people.apache.org/committers-by-project.html#doris).
+我们要感谢以下提交者，他们帮助Apache Doris 取得了今天的进展。此列表可能已过时，正式列表位于 [Apache 的网站上](https://people.apache.org/committers-by-project.html#doris) 。
 
 ## PMC (15)
 
-| Apache ID                                                    | Github Username       | Public Name        |
+| Apache ID                                                    | Github 用户名       | 公开名        |
 | :----------------------------------------------------------- | :------------------ | :------------ |
 | [lingbin](https://people.apache.org/committer-index.html#lingbin) | lingbin             | Bin Ling      |
 | [wangbo](https://people.apache.org/committer-index.html#wangbo) | wangbo              | Bo Wang       |
@@ -43,16 +43,16 @@ We'd like to thank the following committers to the Apache Doris project who have
 | [lingmiao](https://people.apache.org/committer-index.html#lingmiao) | EmmyMiao87          | Ling Miao     |
 | [wenming](https://people.apache.org/committer-index.html#wenming) | moonming      | Ming Wen          |
 | [morningman](https://people.apache.org/committer-index.html#morningman) | morningman          | Mingyu Chen   |
-| [maruyue](https://people.apache.org/committer-index.html#maruyue) | maruyue                   | Ruyue Ma      |
+| [maruyue](https://people.apache.org/committer-index.html#maruyue) | maruyue                    | Ruyue Ma      |
 | [ningjiang](https://people.apache.org/committer-index.html#ningjiang) | WillemJiang   | Willem Ning Jiang |
 | [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
 | [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93            | Zuo Wei       |
 
 ## Committers (38)
 
-(the listing excludes PMC members above)
+(如下列表不包含上述 PMC 成员)
 
-| Apache ID                                                    | Github Username    | Public Name         |
+| Apache ID                                                    | Github 用户名    | 公开名         |
 | :----------------------------------------------------------- | :--------------- | :------------- |
 | [lichaoyong](https://people.apache.org/committer-index.html#lichaoyong) | chaoyli             | Chaoyong Li   |
 | [zhaoc](https://people.apache.org/committer-index.html#zhaoc) | imay                | Chun Zhao     |
@@ -75,8 +75,8 @@ We'd like to thank the following committers to the Apache Doris project who have
 | [laiyingchun](https://people.apache.org/committer-index.html#laiyingchun) | acelyc111        | Yingchun Lai   |
 | [dataroaring](https://people.apache.org/committer-index.html#dataroaring) | dataroaring | Yongqiang Yang   |
 | [wyf](https://people.apache.org/committer-index.html#wyf)    | wuyunfeng        | Yunfeng Wu     |
-| [zenoyang](https://people.apache.org/committer-index.html#zenoyang)    |  zenoyang       | Zeno Yang     |
-| [zshao](https://people.apache.org/committer-index.html#zshao)    | zshao        | Zheng Shao |
+| [zenoyang](https://people.apache.org/committer-index.html#zenoyang)    | zenoyang  | Zeno Yang     |
+| [zshao](https://people.apache.org/committer-index.html#zshao)    | zshao | Zheng Shao |
 
 ## Contributors
 

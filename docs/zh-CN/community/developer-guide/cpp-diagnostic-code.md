@@ -1,7 +1,7 @@
 ---
 {
-    "title": "C++ Code Diagnostic",
-    "language": "en"
+    "title": "C++ 代码分析",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,31 +24,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# C++ Code Diagnostic
+# C++ 代码分析
 
-Doris support to use [Clangd](https://clangd.llvm.org/) and [Clang-Tidy](https://clang.llvm.org/extra/clang-tidy/) 
-to diagnostic code. Clangd and Clang-Tidy already has in [LDB-toolchain](/docs/install/source-install/compilation-with-ldb-toolchain)，also can install by self.
+Doris支持使用[Clangd](https://clangd.llvm.org/)和[Clang-Tidy](https://clang.llvm.org/extra/clang-tidy/)进行代码静态分析。Clangd和Clang-Tidy在 [LDB-toolchain](/docs/install/source-install/compilation-with-ldb-toolchain)
+中已经内置，另外也可以自己安装或者编译。
 
 ### Clang-Tidy
-Clang-Tidy can do some diagnostic cofig, config file `.clang-tidy` is in Doris root path. Compared with vscode-cpptools, clangd can provide more powerful and accurate code jumping for vscode, and integrates the analysis and quick-fix functions of clang-tidy.
+Clang-Tidy中可以做一些代码分析的配置,配置文件`.clang-tidy`在Doris根目录下。
 
-### Enable clangd on VSCODE
+### 在VSCODE中配置Clangd
 
-First we should install clangd plugin, then edit `settings.json` or just change config on gui.
+首先需要安装clangd插件，然后在`settings.json`中编辑或者直接在首选项中更改插件配置。相比于vscode-cpptools，clangd可以为vscode提供更强大和准确的代码转跳，并且集成了clang-tidy的分析和快速修复功能。
 
 ```json
-    "clangd.path": "ldb_toolchain/bin/clangd", //clangd path
+    "clangd.path": "ldb_toolchain/bin/clangd", //clangd的路径
     "clangd.arguments": [
         "--background-index",
-        "--clang-tidy", //enable clang-tidy
-        "--compile-commands-dir=doris/be/build_RELEASE/", //clangd should read compile_commands.json create by cmake, so you should compile once
+        "--clang-tidy", //开启clang-tidy
+        "--compile-commands-dir=doris/be/build_RELEASE/", //会用到cmake生成的compile_commands.json,所以需要先编译一次生成该文件
         "--completion-style=detailed",
-        "-j=5", //clangd diagnostic parallelism
+        "-j=5", //clangd分析文件的并行数
         "--all-scopes-completion",
         "--pch-storage=memory",
         "--pretty",
         "-log=verbose",
-        "--query-driver=ldb_toolchain/bin/*" //path of compiler
+        "--query-driver=ldb_toolchain/bin/*" //编译器路径
     ],
-    "clangd.trace": "/home/disk2/pxl/dev/baidu/bdg/doris/core/output/clangd-server.log" //clangd log path
+    "clangd.trace": "/home/disk2/pxl/dev/baidu/bdg/doris/core/output/clangd-server.log" //clangd的日志路径,可以自己设定
 ```

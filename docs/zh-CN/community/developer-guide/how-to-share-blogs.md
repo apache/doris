@@ -1,7 +1,7 @@
 ---
 {
-  "title": "How to share blogs", 
-  "language": "en"
+  "title": "如何分享Blog", 
+  "language": "zh-CN"
 }
 ---
 
@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# How to share a blog
+# 如何分享 Blog
 
-The Doris community welcomes the sharing of Doris-related articles. Once merged, these articles will appear on the official Doris website.
+Doris 社区欢迎大家分享 Doris 相关的文章。这些文章一经合入，将会出现在 Doris 官网网站上。
 
-Articles include, but are not limited to.
+文章内容包括但不限于：
 
-* Doris usage tips
-* Introduction to Doris features
-* Doris system tuning
-* How Doris works
-* Doris business scenarios in practice
+* Doris 使用技巧
+* Doris 功能介绍
+* Doris 系统调优
+* Doris 功能原理解读
+* Doris 业务场景实践
 
-For details, please go to: https://github.com/apache/doris-website [README](https://github.com/apache/doris-website)
+具体说明，请前往：https://github.com/apache/doris-website 参阅 [README](https://github.com/apache/doris-website)

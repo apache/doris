@@ -1,5 +1,5 @@
 ---
-{ "title": "问题反馈", "language": "zh-CN" }
+{ "title": "Feedback", "language": "zh-CN" }
 ---
 
 <!--
@@ -21,25 +21,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 问题反馈
+# Feedback
 
-## 反馈提示
+## Feedback Tips
 
-- 详细描述问题，提供重要的细节（日志，关键报错，已经进行过的排查/分析）
-- 最小化问题，对问题自行分析—缩小问题的范围，方便解答/排查
-- 给出最小化具体复现步骤
-- 关注问题本身，尽可能不关联业务/场景（如果有必要，请提供尽可能清晰明确的信息/上下文）
+- Describe the problem in detail, providing important details (logs, critical errors, investigations/analyses that have been performed)
+- Minimize the problem, analyze the problem by yourself - narrow the scope of the problem, easy to answer / troubleshoot
+- Give the minimization specific reproduction steps
+- focus on the problem itself, as unrelated to the business/scenario as possible (if necessary, provide as clear and unambiguous context as possible)
 
-## 反馈方式
+## Feedback Method
 
-如果你在使用 Doris 的过程中发现任何问题或建议，可以通过以下方式进行反馈：
+If you find any problems or suggestions while using Doris, you can provide feedback in the following ways:
 
-1. 邮件列表
+1. Mailing List
 
-   你可以通过发送一封任意标题和内容的邮件到 `dev-subscribe@doris.apache.org`，之后根据指引订阅这个邮件列表。
+   You can send an email with any subject and content to `dev-subscribe@doris.apache.org`, and then follow the instructions to subscribe to this mailing list.
 
-   之后，你就可以发送邮件至 `dev@doris.apache.org` 来描述的问题或建议。
+   After that, you can send an email to `dev@doris.apache.org` to describe the problem or suggestion.
 
 2. Github
 
-   提交一个 [Github Issue](https://github.com/apache/incubator-doris/issues/new/choose)
+   Submit a [Github Issue](https://github.com/apache/doris/issues/new/choose)

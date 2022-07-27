@@ -1,6 +1,6 @@
 ---
 {
-    "title": "How to Become Doris Committer",
+    "title": "如何成为 Committer",
     "language": "zh-CN"
 }
 ---
@@ -24,14 +24,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# How to Become Doris Committer
+# 如何成为 Committer
 
-In an Apache project, developers have three roles:
+在 Apache 项目中，开发者有三种角色：
 
-1. Contributor: When the developer's code is officially merged into the code, the developer automatically becomes the project's Contributor.
-2. Committer: Committer has permission to merge into the code base. Committers are generally elected by the PMC (Project Management Committee).
-3. PMC Member: a member of the project management committee. Have the right to vote on project decisions (such as version releases, etc.). It is generally elected by the PMC (Project Management Committee) through voting.
+1. Contributor：当开发者的代码正式合入代码后，该开发这自动成为该项目的 Contributor。
+2. Committer：Committer 对代码库有合入权限。Committer 一般由 PMC（项目管理委员会）经过投票推举产生。
+3. PMC Member：项目管理委员会成员。对项目的决策（如版本发布等）有投票权。一般由 PMC（项目管理委员会）经过投票推举产生。
 
-Different roles have different rights and obligations. There are no strict conditions on how to become a Committer or PMC Member, you can refer to here for more information:
+不同的角色拥有不同的权利和义务。如何成为 Committer 或 PMC Member 并没有严格的条件，你可以参考这里了解更多信息：
 
 [Guidance for committer promotion](https://cwiki.apache.org/confluence/display/DORIS/Guidance+for+committer+promotion)

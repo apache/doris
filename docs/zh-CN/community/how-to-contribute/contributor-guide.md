@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Contributor Guide",
-    "language": "en"
+    "title": "Contributor 指南",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,69 +24,71 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Contributor Guide
+# Contributor 指南
 
-## New Contributor Guidelines
+## Contributor 新人指南
 
-### Subscribe to the public mailing lists
+### 订阅公共邮件列表
 
-If you haven’t yet, subscribe to {dev,commits}@doris.apache.org mailing lists.
-Commits mailing list is especially important because all of Github Issue, Pull Request and build notifications are sent there.
+请订阅{dev,commits}@doris.apache.org邮件列表，通过发送邮件到{dev,commits}-subscribe@doris.apache.org完成订阅。
+commits邮件非常重要，因为所有的GitHub Issue，PR提交都会发往这个邮件列表。
 
-### Subscribe to the private mailing list
+### 订阅private邮件列表
 
-Subscribe to private@doris.apache.org by sending an email to private-subscribe@doris.apache.org.
-Keep in mind that this list is private and your subscription needs to be approved by a moderator.
-If you are PPMC, you can subscribe the mailing list through [Subscription Helper](https://whimsy.apache.org/committers/subscribe)
+订阅private@doris.apache.org通过发送邮件到private-subscribe@doris.apache.org完成订阅。
+这个订阅操作需要邮件列表的moderator进行审核才能订阅成功。
+如果你是PPMC的话, 可以通过通过[邮件列表订阅帮手](https://whimsy.apache.org/committers/subscribe)直接完成订阅。
 
-### Link your ASF and Github account
+### 关联你的 ASF 账号与 Github 账号
 
-We use Github for managing issues and user contributions (pull requests).
-As such, you need to link your Github.com account with your ASF account using [Gitbox](https://gitbox.apache.org/setup/).
-This way you will get write access to [Doris](https://github.com/apache/doris) repository
-and you will be able to manage issues and pull request directly through our Github repository.
+我们用GitHub来管理我们的Issue以及用户贡献。
+所以你需要把你的ASF账号与GitHub账号进行关联来获得[Doris仓库](https://github.com/apache/doris)的写入权限。
+通过在[Gitbox](https://gitbox.apache.org/setup/)完成操作后，你就可以对GitHub仓库中的Issue，PR进行管理。
 
-## Code Review Guidelines
+## Code Review指南
 
-1. Always maintain a high standard of review so that the quality of the entire product can be better guaranteed.
+1. 始终保持一个较高的标准来进行review，这样才能更好地保证整个产品的质量。
 
-2. Changes to the architecture or the user interface need to be fully discussed by the community. This can be either in a mail group or in a GitHub issue. 
+2. 对于用户接口类的、整体架构方面的修改，需要在社区进行充分地讨论，可以在邮件组发起，也可以在issue上发起。
+用户接口的改变包括支持新的SQL函数，支持新的HTTP接口，支持新的功能等。这样能够保证产品的一致性。
 
-3. Test coverage. The added logic needs to be covered by a corresponding test. When the old code for which there is no test is changed, this requirement can be appropriately relaxed.
+3. 测试覆盖。新增的逻辑需要有对应的测试来覆盖。对于已有老代码，不好增加的可以酌情考虑。
 
-4. Documentation. Newly added features must be documented, otherwise such code is not allowed.
+4. 文档。新增加的功能必须要有文档来说明，否则这样的代码不允许合入。必须要有英文文档，最好有中文文档。
 
-5. Readability of the code. If reviewers are not very clear about the logic of the code, then you can ask the contributor to explain the logic. And writing sufficient comments in the code to explain the logic is encouraged.
+5. 代码的可读性。如果review的同学对于代码逻辑不是很清晰，那么可以要求contributor去解释这段逻辑，并且需要在代码里写充分的注释来解释逻辑。
 
-6. Try to give a clear conclusion at the end of your comments, "approve" or "change request". If it's a minor issue, you can just leave a comment.
+6. 尽量在评论的结尾给出明确的结论。是同意，还是要change request。如果是小问题，可以只留评论。
 
-7. Recommend to submit a "+1 Comment" rather than a "+1 Approve" to indicate that it looks good to me but I am not sure whether this part of the function is correct. It needs someone else's approve.
+7. 如果你已经看过了代码，觉得没有问题，但是觉得需要其他同学来确认下，可以留下+1 Comment。
 
-8. Respect each other and learn from each other. Maintain a polite tone when commenting, try to give reasons for the suggestions.
+8. 互相尊重，互相学习。在评论的时候保持礼貌的口吻，提建议尽量给出建议的理由。
 
-## Pull Request Guidelines
+## Pull Request指南
 
-1. During a PR, there are three types of roles. Contributor: the PR submitter; Reviewer: the person who needs to make code-level review on the PR; and Moderator: the person responsible for coordinating the entire PR process. For example, the moderator should assign reviewers, push the author to make changes according to the comments, set different tags for the PR, and merge the PR etc. For a specific PR, a person may act in different roles, such as when a contributor submitted one PR, he may himself be both the contributor and the moderator of that PR.
+1. 一个PR合入需要三种角色的参与。Contributor：PR的提交者；Reviewer：对PR进行代码级评论的人；Moderator：PR合入的协调者。
+Moderator主要负责给PR设定相关标签，推动相关reviewer进行评论，推动作者对PR进行修改，合入PR等工作。
+在一个具体的PR中，一个人可能充当不同的角色，比如一个Contributor 自己提交的PR，既是Contributor，又是这个PR的Moderator。
 
-2. Contributors can assign a PR to itself as a moderator. After assigning it to themselves, the other contributor will know that this PR has been in charge.
+2. Contributor 可以把一个PR分配给自己作为整个PR的moderator，负责后续PR的推动工作。分配给自己之后，其他的Contributor 就知道这个PR有相关人负责了。
 
-3. The contributor is encouraged to act as a moderator for its own PR.
+3. 鼓励Contributor 作为自己PR的Moderator。
 
-4. The reviewer needs to perform a code-level review, refer Code Review Guidelines
+4. Reviewer需要进行代码级的review，可以参考Code Review Guideline。
 
-5. Once a reviewer has commented on a PR, they need to keep following up on subsequent changes to that PR.
+5. Reviewer一旦评论了某个PR之后，需要持续跟进这个PR的后续改动，不鼓励评论了之后就不再管Contributor的后续回复了。
 
-6. A PR must get at least a +1 approved from committer who is not the author.
+6. 一个PR至少要获得一个非作者外的Committer +1才能进行被合入。
 
-7. After the first +1 to the PR, wait at least one working day before merging. The main purpose is to wait for the rest of the community to come to review.
+7. PR获得第一个+1后，至少要等一个工作日后才能进行合入。主要目的是等待社区其他同学来进行review。
 
-8. For architecture or user interface changes, a PR needs to get at least 3 +1's to merge.
+8. 对于接口类、整体架构方面的修改，至少要获得3个+1才能进行合入。
 
-9. Regression cases should pass before merging.
+9. 需要回归测试全部通过才能被合入。
 
-10. Moderator needs to make sure all comments are resolved before merging.
+10. Moderator需要在确定所有的评论都被回复之后才能进行代码合入。
 
-11. Select "squash and merge" to merge.
+11. 代码合入选择“squash and merge”方式进行合入。
 
-12. When there is a disagreement about a modification, try to discuss the resolution. If the discussion doesn't work out, it can be resolved by a vote in private@doris.apache.org by the majority rules.
+12. 对于一个修改不同的reviewer有争议时，可以尝试讨论解决。如果讨论没有办法解决，可以在private@doris中发邮件投票解决，采取少数服从多数的原则。
 

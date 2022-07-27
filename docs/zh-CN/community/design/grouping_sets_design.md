@@ -1,7 +1,7 @@
 ---
 {
-    "title": "GROUPING SETS DESIGN",
-    "language": "en"
+    "title": "GROUPING SETS 设计文档",
+    "language": "zh-CN"
 }
 ---
 
@@ -23,25 +23,25 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-# GROUPING SETS DESIGN
 
-## 1. GROUPING SETS Background
+# GROUPING SETS 设计文档
 
-The `CUBE`, `ROLLUP`, and `GROUPING` `SETS` extensions to SQL make querying and reporting easier and faster. `CUBE`, `ROLLUP`, and grouping sets produce a single result set that is equivalent to a `UNION` `ALL` of differently grouped rows. `ROLLUP` calculates aggregations such as `SUM`, `COUNT`, `MAX`, `MIN`, and `AVG` at increasing levels of aggregation, from the most detailed up to a grand total. `CUBE` is an extension similar to `ROLLUP`, enabling a single statement to calculate all possible combinations of aggregations. The `CUBE`, `ROLLUP`, and the `GROUPING` `SETS` extension lets you specify just the groupings needed in the `GROUP` `BY` clause. This allows efficient analysis across multiple dimensions without performing a `CUBE` operation. Computing a `CUBE` creates a heavy processing load, so replacing cubes with grouping sets can significantly increase performance.
-To enhance performance, `CUBE`, `ROLLUP`, and `GROUPING SETS` can be parallelized: multiple processes can simultaneously execute all of these statements. These capabilities make aggregate calculations more efficient, thereby enhancing database performance, and scalability.
+## 1. GROUPING SETS 相关背景知识
 
-The three `GROUPING` functions help you identify the group each row belongs to and enable sorting subtotal rows and filtering results.
+### 1.1 GROUPING SETS 子句
 
-### 1.1 GROUPING SETS Syntax
+GROUP BY GROUPING SETS 是对 GROUP BY 子句的扩展，它能够在一个 GROUP BY 子句中一次实现多个集合的分组。其结果等价于将多个相应 GROUP BY 子句进行 UNION 操作。
 
-`GROUPING SETS` syntax lets you define multiple groupings in the same query. `GROUP BY` computes all the groupings specified and combines them with `UNION ALL`. For example, consider the following statement:
+特别地，一个空的子集意味着将所有的行聚集到一个分组。
+GROUP BY 子句是只含有一个元素的 GROUP BY GROUPING SETS 的特例。
+
+例如，GROUPING SETS 语句：
 
 ```
 SELECT k1, k2, SUM( k3 ) FROM t GROUP BY GROUPING SETS ( (k1, k2), (k1), (k2), ( ) );
 ```
 
-
-This statement is equivalent to:
+其查询结果等价于：
 
 ```
 SELECT k1, k2, SUM( k3 ) FROM t GROUP BY k1, k2
@@ -53,7 +53,7 @@ UNION
 SELECT null, null, SUM( k3 ) FROM t
 ```
 
-This is an example of real query:
+下面是一个实际数据的例子：
 
 ```
 mysql> SELECT * FROM t;
@@ -88,17 +88,15 @@ mysql> SELECT k1, k2, SUM(k3) FROM t GROUP BY GROUPING SETS ( (k1, k2), (k2), (k
 9 rows in set (0.06 sec)
 ```
 
-### 1.2 ROLLUP Syntax
+### 1.2 ROLLUP 子句
 
-`ROLLUP` enables a `SELECT` statement to calculate multiple levels of subtotals across a specified group of dimensions. It also calculates a grand total. `ROLLUP` is a simple extension to the `GROUP` `BY` clause, so its syntax is extremely easy to use. The `ROLLUP` extension is highly efficient, adding minimal overhead to a query.
-
-`ROLLUP` appears in the `GROUP` `BY` clause in a `SELECT` statement. Its form is:
+ROLLUP 是对 GROUPING SETS 的扩展。
 
 ```
 SELECT a, b,c, SUM( d ) FROM tab1 GROUP BY ROLLUP(a,b,c)
 ```
 
-This statement is equivalent to GROUPING SETS as followed:
+这个 ROLLUP 等价于下面的 GROUPING SETS：
 
 ```
 GROUPING SETS (
@@ -109,15 +107,17 @@ GROUPING SETS (
 )
 ```
 
-### 1.3 CUBE Syntax
+### 1.3 CUBE 子句
 
-Like `ROLLUP`   `CUBE` generates all the subtotals that could be calculated for a data cube with the specified dimensions.
+CUBE 也是对 GROUPING SETS 的扩展。
 
 ```
-SELECT a, b,c, SUM( d ) FROM tab1 GROUP BY CUBE(a,b,c)
+CUBE ( e1, e2, e3, ... )
 ```
 
-e.g.  CUBE ( a, b, c )  is equivalent to GROUPING SETS as followed:
+其含义是 GROUPING SETS 后面列表中的所有子集。
+
+例如，CUBE ( a, b, c ) 等价于下面的 GROUPING SETS：
 
 ```
 GROUPING SETS (
@@ -132,15 +132,14 @@ GROUPING SETS (
 )
 ```
 
-### 1.4 GROUPING and GROUPING_ID Function
+### 1.4 GROUPING 和 GROUPING_ID 函数
+当我们没有统计某一列时，它的值显示为 NULL，这也可能是列本身就有 NULL 值，这就需要一种方法区分是没有统计还是值本来就是 NULL。为此引入 GROUPING 和 GROUPING_ID 函数。
+GROUPING(column:Column) 函数用于区分分组后的单个列是普通列和聚合列。如果是聚合列，则返回1，反之，则是0. GROUPING() 只能有一个参数列。
 
-Indicates whether a specified column expression in a `GROUP BY` list is aggregated or not. `GROUPING `returns 1 for aggregated or 0 for not aggregated in the result set. `GROUPING` can be used only in the `SELECT` list, `HAVING`, and `ORDER BY` clauses when `GROUP BY` is specified.
+GROUPING_ID(column1, column2) 则根据指定的column 顺序，否则根据聚合的时候给的集合的元素顺序，计算出一个列列表的 bitmap 值，一个列如果是聚合列为0，否则为1. GROUPING_ID()函数返回位向量的十进制值。
+比如 [0 1 0] ->2 从下列第三个查询可以看到这种对应关系
 
-`GROUPING_ID` describes which of a list of expressions are grouped in a row produced by a `GROUP BY` query. The `GROUPING_ID` function simply returns the decimal equivalent of the binary value formed as a result of the concatenation of the values returned by the `GROUPING` functions.
-
-Each `GROUPING_ID` argument must be an element of the `GROUP BY` list. `GROUPING_ID ()` returns an **integer** bitmap whose lowest N bits may be lit. A lit **bit** indicates the corresponding argument is not a grouping column for the given output row. The lowest-order **bit** corresponds to argument N, and the N-1th lowest-order **bit** corresponds to argument 1. If the column is a grouping column the bit is 0 else is 1.
-
-For example:
+例如，对于下面的表：
 
 ```
 mysql> select * from t;
@@ -158,7 +157,7 @@ mysql> select * from t;
 +------+------+------+
 ```
 
-grouping sets result:
+grouping sets 的结果如下：
 
 ```
 mysql> SELECT k1, k2, GROUPING(k1), GROUPING(k2), SUM(k3) FROM t GROUP BY GROUPING SETS ( (k1, k2), (k2), (k1), ( ) );
@@ -210,36 +209,37 @@ mysql> SELECT k1, k2, grouping(k1), grouping(k2), GROUPING_ID(k1,k2), SUM(k4) FR
 9 rows in set (0.02 sec)
 
 ```
-### 1.5 Composition and nesting of GROUPING SETS
 
-First of all, a GROUP BY clause is essentially a special case of GROUPING SETS, for example:
+### 1.5 GROUPING SETS 的组合与嵌套
+
+首先，一个 GROUP BY 子句本质上是一个 GROUPING SETS 的特例, 例如：
 
 ```
    GROUP BY a
-is equivalent to:
+等同于
    GROUP BY GROUPING SETS((a))
-also,
+同样地，
    GROUP BY a,b,c
-is equivalent to:
+等同于
    GROUP BY GROUPING SETS((a,b,c))
 ```
 
-Similarly, CUBE and ROLLUP can be expanded into GROUPING SETS, so the various combinations and nesting of GROUP BY, CUBE, ROLLUP, GROUPING SETS are essentially the combination and nesting of GROUPING SETS.
+同样的，CUBE 和 ROLLUP 也可以展开成 GROUPING SETS，因此 GROUP BY, CUBE, ROLLUP, GROUPING SETS 的各种组合和嵌套本质上就是 GROUPING SETS 的组合与嵌套。
 
-For GROUPING SETS nesting, it is semantically equivalent to writing the statements inside the nest directly outside. (ref:<https://www.brytlyt.com/documentation/data-manipulation-dml/grouping-sets-rollup-cube/>) mentions: 
+对于 GROUPING SETS 的嵌套，语义上等价于将嵌套内的语句直接写到外面。（参考：<https://www.brytlyt.com/documentation/data-manipulation-dml/grouping-sets-rollup-cube/>），其中写道：
 
 ```
 The CUBE and ROLLUP constructs can be used either directly in the GROUP BY clause, or nested inside a GROUPING SETS clause. If one GROUPING SETS clause is nested inside another, the effect is the same as if all the elements of the inner clause had been written directly in the outer clause.
 ```
 
-For a combined list of multiple GROUPING SETS, many databases consider it a cross product relationship.
+对于多个 GROUPING SETS 的组合列表，很多数据库认为是叉乘（cross product）的关系。
 
-for example:
+例如：
 
 ```
 GROUP BY a, CUBE (b, c), GROUPING SETS ((d), (e))
 
-is equivalent to:
+等同于：
 
 GROUP BY GROUPING SETS (
 (a, b, c, d), (a, b, c, e),
@@ -249,21 +249,24 @@ GROUP BY GROUPING SETS (
 )
 ```
 
-For the combination and nesting of GROUPING SETS, each database support is not the same. For example snowflake does not support any combination and nesting.
+对于 GROUPING SETS 的组合与嵌套，各个数据库支持不太一样。例如 snowflake 不支持任何的组合和嵌套。
 （<https://docs.snowflake.net/manuals/sql-reference/constructs/group-by.html>）
 
-Oracle supports both composition and nesting.
+Oracle 既支持组合，也支持嵌套。
 （<https://docs.oracle.com/cd/B19306_01/server.102/b14223/aggreg.htm#i1006842>）
 
-Presto supports composition, but not nesting.
+Presto 支持组合，但不支持嵌套。
 （<https://prestodb.github.io/docs/current/sql/select.html>）
 
-## 2. Object
+## 2. 设计目标
 
-Support `GROUPING SETS`,  `ROLLUP` and `CUBE ` syntax, implements 1.1, 1.2, 1.3 1.4, 1.5, not support the combination
- and nesting of GROUPING SETS in current version.
+从语法上支持 GROUPING SETS， ROLLUP 和 CUBE。实现上述所述的1.1, 1.2, 1.3 1.4.
 
-### 2.1 GROUPING SETS Syntax
+对于1.6 GROUPING SETS 的组合与嵌套 先不实现。
+
+具体语法列出如下：
+
+### 2.1 GROUPING SETS 语法
 
 ```
 SELECT ...
@@ -275,10 +278,11 @@ GROUP BY GROUPING SETS ( groupSet [ , groupSet [ , ... ] ] )
 groupSet ::= { ( expr  [ , expr [ , ... ] ] )}
 
 <expr>
-Expression, column name.
+各种表达式，包括列名.
+
 ```
 
-### 2.2 ROLLUP Syntax
+### 2.2 ROLLUP 语法
 
 ```
 SELECT ...
@@ -288,10 +292,11 @@ GROUP BY ROLLUP ( expr  [ , expr [ , ... ] ] )
 [ ... ]
 
 <expr>
-Expression, column name.
+各种表达式，包括列名.
+
 ```
 
-### 2.3 CUBE Syntax
+### 2.3 CUBE 语法
 
 ```
 SELECT ...
@@ -301,33 +306,38 @@ GROUP BY CUBE ( expr  [ , expr [ , ... ] ] )
 [ ... ]
 
 <expr>
-Expression, column name.
+各种表达式，包括列名.
+
 ```
 
-## 3. Implementation
+## 3. 实现方案
 
-### 3.1 Overall Design Approaches
+### 3.1 整体思路
 
-For `GROUPING SET`  is equivalent to the `UNION` of  `GROUP BY` . So we can expand input rows, and run an GROUP BY on these rows.
+既然 GROUPING SET 子句逻辑上等价于多个相应 GROUP BY 子句的 UNION，可以通过扩展输入行(此输入行已经是通过下推条件过滤和投影后的), 在此基础上进行一个单一的 GROUP BY 操作来达到目的。
 
-For example:
+关键是怎样扩展输入行呢？下面举例说明：
+
+例如，对应下面的语句：
 
 ```
 SELECT a, b FROM src GROUP BY a, b GROUPING SETS ((a, b), (a), (b), ());
+
 ```
 
-Data in table src:
+假定 src 表的数据如下：
 
 ```
 1, 2
 3, 4
-```
-
-Base on  GROUPING SETS , we can expend the input to:
 
 ```
-1, 2       (GROUPING_ID: a, b -> 00 -> 0)
-1, null    (GROUPING_ID: a, null -> 01 -> 1)
+
+根据 GROUPING SETS 子句给出的列表，可以将输入行扩展为下面的 8 行 （GROUPING SETS集合数 * 行数, 同时为每行生成对应的 全列的GROUPING_ID: 和其他grouping 函数的值
+
+```
+1, 2       (GROUPING_ID: a, b -> 00->0)
+1, null    (GUPING_ID: a, null -> 01 -> 1)
 null, 2    (GROUPING_ID: null, b -> 10 -> 2)
 null, null (GROUPING_ID: null, null -> 11 -> 3)
 
@@ -335,13 +345,14 @@ null, null (GROUPING_ID: null, null -> 11 -> 3)
 3, null    (GROUPING_ID: a, null -> 01 -> 1)
 null, 4    (GROUPING_ID: null, b -> 10 -> 2)
 null, null (GROUPING_ID: null, null -> 11 -> 3)
+
 ```
 
-And then use those row as input, then GROUP BY  a, b, GROUPING_ID
+然后，将上面的 8 行数据作为输入，对 a, b, GROUPING_ID 进行 GROUP BY 操作即可。
 
-### 3.2 Example
+### 3.2 具体例子验证说明
 
-Table t:
+假设有一个 t 表，包含如下列和数据：
 
 ```
 mysql> select * from t;
@@ -358,17 +369,19 @@ mysql> select * from t;
 | b    | B    |    5 |
 +------+------+------+
 8 rows in set (0.01 sec)
+
 ```
 
-for the query:
+对于如下的查询：
 
 ```
 SELECT k1, k2, GROUPING_ID(k1,k2), SUM(k3) FROM t GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ());
+
 ```
 
-First, expand the input, every row expand into 4 rows ( the size of GROUPING SETS), and insert GROUPING_ID column
+首先，对输入行进行扩展，每行数据扩展成 4 行 (GROUPING SETS子句的集合数目)，同时增加 GROUPING_ID() 列 ：
 
-e.g.  a, A, 1 expanded to:
+例如 a, A, 1 扩展后变成下面的 4 行：
 
 ```
 +------+------+------+-------------------------+
@@ -379,9 +392,10 @@ e.g.  a, A, 1 expanded to:
 | NULL | A    |    1 |                       2 |
 | NULL | NULL |    1 |                       3 |
 +------+------+------+-------------------------+
+
 ```
 
-Finally, all rows expended as follows (32 rows):
+最终， 全部扩展后的输入行如下（总共 32 行）：
 
 ```
 +------+------+------+-------------------------+
@@ -421,9 +435,10 @@ Finally, all rows expended as follows (32 rows):
 | NULL | NULL |    5 |                       3 |
 +------+------+------+-------------------------+
 32 rows in set.
+
 ```
 
-now GROUP BY k1, k2, GROUPING_ID(k1,k2):
+现在对k1, k2, GROUPING_ID(`k1`, `k2`) 进行 GROUP BY：
 
 ```
 +------+------+-------------------------+-----------+
@@ -440,9 +455,10 @@ now GROUP BY k1, k2, GROUPING_ID(k1,k2):
 | NULL | NULL |                       3 |        18 |
 +------+------+-------------------------+-----------+
 9 rows in set (0.02 sec)
+
 ```
 
-The result is equivalent to the UNION ALL
+可以看到，其结果与对 GROUPING SETS 子句后每个子集进行 GROUP BY 后再进行 UNION 的结果一致。
 
 ```
 select k1, k2, sum(k3) from t group by k1, k2
@@ -467,35 +483,35 @@ select NULL, NULL, sum(k3) from t;
 | NULL | NULL |        18 |
 +------+------+-----------+
 9 rows in set (0.06 sec)
+
 ```
 
-### 3.3 FE 
+### 3.3 FE 规划阶段
 
-#### 3.3.1 Tasks
+#### 3.3.1 主要任务
 
-1. Add GroupByClause, replace groupingExprs.
-2. Add Grouping Sets, Cube and RollUp syntax.
-3. Add GroupByClause in SelectStmt.
-4. Add GroupingFunctionCallExpr, implements grouping grouping_id function call
-5. Add VirtualSlot, generate the map of virtual slots and real slots
-6. add virtual column GROUPING_ID and other virtual columns generated by grouping and grouping_id, insert into groupingExprs,
-7. Add a PlanNode, name as RepeatNode. For GroupingSets aggregation insert RepeatNode to the plan.
+1. 引入 GroupByClause 类，封装 Group By 相关信息，替换原有的 groupingExprs.
+2. 增加 Grouping Sets, Cube 和 RollUp 的语法支持和语法检查、错误处理和错误信息；
+3. 在 SelectStmt 类中增加 GroupByClause 成员；
+4. 引入 GroupingFunctionCallExpr 类，封装grouping 和grouping_id 函数调用
+5. 引入 VirtualSlot 类，封装grouping，grouping_id  生成的虚拟列和实际列的对应关系
+6. 增加虚拟列 GROUPING_ID 和其他grouping，grouping_id 函数对应的虚拟列，并将此列加入到原有的 groupingExprs 表达式列表中；
+7. 增加一个 PlanNode，考虑更通用的功能，命名为 RepeatNode。对于 GroupingSets 的聚合，在执行计划中插入 RepeatNode。
 
 #### 3.3.2 Tuple
 
-In order to add GROUPING_ID to groupingExprs in GroupByClause, need to create virtual SlotRef, also, need tot create a tuple for this slot, named GROUPING\_\_ID Tuple.
+在 GroupByClause 类中为了将 GROUPING_ID 加到 groupingExprs 表达式列表中，需要创建 virtual SlotRef, 相应的，需要对这个 slot 创建一个 tuple, 叫 GROUPING_ID Tuple。
 
-For the plannode RepeatNode, its input are all the tuples of its children and its output tuple are the repeat data and GROUPING_ID.
+对于 RepeatNode 这个执行计划，其输入是子节点的所有 tuple， 输出的 tuple 除了 repeat 子节点的数据外，还需要填写 GROUPING_ID 和其他grouping，grouping_id 对应的虚拟列，因此。
 
 
-#### 3.3.3 Expression and Function Substitution
+### 3.4 BE 查询执行阶段
 
-expr -> if(bitand(pos, grouping_id)=0, expr, null) for expr in extension grouping clause
-grouping_id() -> grouping_id(grouping_id) for grouping_id function
+主要任务：
 
-### 3.4 BE
+1. 通过 RepeatNode 的执行类，增加扩展输入行的逻辑，其功能是在聚合之前将原有数据进行 repeat：对每行增加一列 GROUPING_ID， 然后按照 GroupingSets 中的集合数进行 repeat，并对对应列置为 null。根据grouping list设置新增虚拟列的值
+2. 实现 grouping_id() 和grouping() 函数。
 
-#### 3.4.1 Tasks
 
-1. Add RepeatNode executor, expend the input data and append GROUPING_ID to every row
-2. Implements grouping_id() and grouping() function.
+
+

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Java 代码格式化",
-    "language": "zh-CN"
+    "title": "Java Format Code",
+    "language": "en"
 }
 ---
 
@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Java 代码格式化
+# Java Format Code
 
-Doris 中 Java 部分代码的格式化工作通常有 IDE 来自动完成。这里仅列举通用格式规则，开发这需要根据格式规则，在不同 IDE 中设置对应的代码风格。
+The formatting of the Java part of the code in Doris is usually done automatically by the IDE. Only the general format rules are listed here. For developer, you need to set the corresponding code styles in different IDEs according to the format rules.
 
 ## Import Order
 
@@ -39,58 +39,61 @@ standard java package
 <blank line>
 ```
 
-* 禁止使用 `import *`
-* 禁止使用 `import static`
+* Do not use `import *`
+* Do not use `import static`
 
-## 编译时检查
+## Check when compile
 
-现在，在使用`maven`进行编译时，会默认进行`CheckStyle`检查。此检查会略微降低编译速度。如果想跳过此检查，请使用如下命令进行编译
+Now, when compiling with `caven`, `CheckStyle` checks are done by default. This will slightly slow down compilation. If you want to skip checkstyle, please use the following command to compile
 ```
 mvn clean install -DskipTests -Dcheckstyle.skip
 ```
 
-## Checkstyle 插件
+## Checkstyle Plugin
 
-现在的 `CI` 之中会有 `formatter-check` 进行代码格式化检测。
+Now we have `formatter-check` in `CI` to check the code format.
 
 ### IDEA
 
-如果使用 `IDEA` 进行 Java 开发，请在设置中安装 `Checkstyle-IDEA` 插件。
+If you use `IDEA` to develop Java code, please install `Checkstyle-IDEA` plugin.
 
-在 `Tools->Checkstyle` 的 `Configuration File` 里点击 `Use a local Checkstyle file`，选择项目的 `fe/check/checkstyle/checkstyle.xml` 文件。
+Setting the `checkstyle.xml` file in `Tools->Checkstyle`.
 
-**注意：** 保证`Checkstyle`的版本在9.3及以上（推荐使用最新版本）。
+Click the plus sign under Configuration File, select `Use a local Checkstyle file`, and select the `fe/check/checkstyle/checkstyle.xml` file.
+
+**NOTE:** Make sure that the version of `Checkstyle` is 9.3 or newer (the latest version is recommended).
 
 ![](/images/idea-checkstyle-version.png)
 
-**可以使用 `Checkstyle-IDEA` 插件来对代码进行 `Checkstyle` 检测**。
+**You can use `Checkstyle-IDEA` plugin to check `Checkstyle` of your code real-time.**
 
-![](/images/idea-checkstyle-plugin-cn.png)
+![](/images/idea-checkstyle-plugin-en.png)
 
 ### VS Code
 
-如果使用 VS Code 进行 Java 开发，请安装 `Checkstyle for Java` 插件，按照[文档](https://code.visualstudio.com/docs/java/java-linting)里的说明和动图进行配置。
+If you use VS Code to develop Java code, please install `Checkstyle for Java` plugin, and config according to the [document](https://code.visualstudio.com/docs/java/java-linting) and the picture
 
 ## IDEA
 
-###  自动格式化
+### Auto format code
 
-推荐使用 `IDEA` 的自动格式化功能。
+The automatic formatting function of `IDEA` is also recommended.
 
-在 `Preferences->Editor->Code Style->Java` 的配置标识点击 `Import Scheme`，点击 `IntelliJ IDEA code style XML`，选择项目的 `build-support/IntelliJ-code-format.xml` 文件。
+Go to `Preferences->Editor->Code Style->Java` click the config sign and select `Import Scheme`，select `IntelliJ IDEA code style XML`，and select the `build-support/IntelliJ-code-format.xml` file.
 
-### Rearrange Code
+### Auto rearrange code
 
-Checkstyle 会按照 [Class and Interface Declarations](https://www.oracle.com/java/technologies/javase/codeconventions-fileorganization.html#1852) 检测代码的 declarations 顺序。
+Checkstyle will check declarations order according to [Class and Interface Declarations](https://www.oracle.com/java/technologies/javase/codeconventions-fileorganization.html#1852) .
 
-在导入上面的 `build-support/IntelliJ-code-format.xml` 文件后，使用 `Code/Rearrange Code` 自动完成排序
+After add the `build-support/IntelliJ-code-format.xml` file. Click `Code/Rearrange Code` to auto rearrange code.
 
 ![](/images/idea-rearrange-code.png)
 
 ## Remove unused header
 
-默认快捷键 **CTRL + ALT + O --->** 仅仅删除未使用的导入。
+**CTRL + ALT + O --->** to remove the unused imports in windows.
 
-自动移除并且 Reorder ：
+Auto remove unused header and reorder according to configure xml:
 
-点击 `Preferences->Editor->General->Auto Import->Optimize Imports on the Fly`
+Click `Preferences->Editor->Auto Import->Optimize Imports on the Fly`
+
