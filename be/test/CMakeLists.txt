@@ -184,6 +184,7 @@ set(OLAP_TEST_FILES
     olap/generic_iterators_test.cpp
     olap/key_coder_test.cpp
     olap/short_key_index_test.cpp
+    olap/primary_key_index_test.cpp
     olap/page_cache_test.cpp
     olap/hll_test.cpp
     olap/selection_vector_test.cpp
@@ -312,6 +313,7 @@ set(UTIL_TEST_FILES
     util/quantile_state_test.cpp
     util/hdfs_storage_backend_test.cpp
     util/interval_tree_test.cpp
+    util/key_util_test.cpp
 )
 set(VEC_TEST_FILES
     vec/aggregate_functions/agg_collect_test.cpp

@@ -25,6 +25,7 @@
 #include "olap/tablet_schema_helper.h"
 #include "util/debug_util.h"
 #include "util/file_utils.h"
+#include "util/key_util.h"
 
 namespace doris {
 
@@ -71,6 +72,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     EXPECT_TRUE(file_writer->close().ok());
     EXPECT_EQ(num_rows, builder.num_rows());
 
+    FilePathDesc path_desc(filename);
     PrimaryKeyIndexReader index_reader;
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
@@ -125,6 +127,44 @@ TEST_F(PrimaryKeyIndexTest, builder) {
         auto status = index_iterator->seek_at_or_after(&slice, &exact_match);
         EXPECT_FALSE(exact_match);
         EXPECT_TRUE(status.is_not_found());
+    }
+
+    // read all key
+    {
+        int32_t remaining = num_rows;
+        std::string last_key;
+        int num_batch = 0;
+        int batch_size = 1024;
+        MemPool pool;
+        while (remaining > 0) {
+            std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
+            DCHECK(index_reader.new_iterator(&iter).ok());
+
+            size_t num_to_read = std::min(batch_size, remaining);
+            std::unique_ptr<ColumnVectorBatch> cvb;
+            DCHECK(ColumnVectorBatch::create(num_to_read, false, index_reader.type_info(), nullptr,
+                                             &cvb)
+                           .ok());
+            ColumnBlock block(cvb.get(), &pool);
+            ColumnBlockView column_block_view(&block);
+            Slice last_key_slice(last_key);
+            DCHECK(iter->seek_at_or_after(&last_key_slice, &exact_match).ok());
+
+            size_t num_read = num_to_read;
+            DCHECK(iter->next_batch(&num_read, &column_block_view).ok());
+            DCHECK(num_to_read == num_read);
+            last_key = (reinterpret_cast<const Slice*>(cvb->cell_ptr(num_read - 1)))->to_string();
+            // exclude last_key, last_key will be read in next batch.
+            if (num_read == batch_size && num_read != remaining) {
+                num_read -= 1;
+            }
+            for (size_t i = 0; i < num_read; i++) {
+                const Slice* key = reinterpret_cast<const Slice*>(cvb->cell_ptr(i));
+                DCHECK_EQ(keys[i + (batch_size - 1) * num_batch], key->to_string());
+            }
+            num_batch++;
+            remaining -= num_read;
+        }
     }
 }
 

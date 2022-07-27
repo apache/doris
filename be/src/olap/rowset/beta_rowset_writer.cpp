@@ -287,6 +287,7 @@ Status BetaRowsetWriter::_create_segment_writer(
 
     DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
+    writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segment,
                                                 _context.tablet_schema, _context.data_dir,
                                                 _context.max_rows_per_segment, writer_options));
