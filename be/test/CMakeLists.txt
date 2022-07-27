@@ -195,6 +195,7 @@ set(OLAP_TEST_FILES
     # olap/memtable_flush_executor_test.cpp
     # olap/push_handler_test.cpp
     olap/tablet_cooldown_test.cpp
+    olap/rowid_conversion_test.cpp
 )
 
 set(RUNTIME_TEST_FILES

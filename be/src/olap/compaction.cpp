@@ -154,6 +154,10 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
     Merger::Statistics stats;
     Status res;
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
+        stats.rowid_conversion = &_rowid_conversion;
+    }
 
     if (use_vectorized_compaction) {
         res = Merger::vmerge_rowsets(_tablet, compaction_type(), &cur_tablet_schema,
