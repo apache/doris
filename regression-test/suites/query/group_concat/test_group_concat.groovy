@@ -15,33 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+suite("test_group_concat", "query") {
+    qt_select """
+                SELECT group_concat(k6) FROM test_query_db.test where k6='false'
+              """
 
-import com.google.common.base.Strings;
-
-public class SqlUtils {
-    public static String escapeUnquote(String ident) {
-        return ident.replaceAll("``", "`");
-    }
-
-    public static String getIdentSql(String ident) {
-        StringBuilder sb = new StringBuilder();
-        sb.append('`');
-        for (char ch : ident.toCharArray()) {
-            if (ch == '`') {
-                sb.append("``");
-            } else {
-                sb.append(ch);
-            }
-        }
-        sb.append('`');
-        return sb.toString();
-    }
-
-    public static String escapeQuota(String str) {
-        if (Strings.isNullOrEmpty(str)) {
-            return str;
-        }
-        return str.replaceAll("\"", "\\\\\"");
-    }
+    qt_select """
+                SELECT group_concat(DISTINCT k6) FROM test_query_db.test where k6='false'
+              """
 }
