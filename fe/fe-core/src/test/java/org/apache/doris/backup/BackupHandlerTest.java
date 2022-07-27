@@ -41,7 +41,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -84,7 +84,7 @@ public class BackupHandlerTest {
     @Mocked
     private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
     @Mocked
     private BrokerMgr brokerMgr;
     @Mocked
@@ -135,15 +135,15 @@ public class BackupHandlerTest {
         };
 
         db = CatalogMocker.mockDb();
-        ds = Deencapsulation.newInstance(InternalDataSource.class);
+        catalog = Deencapsulation.newInstance(InternalCatalog.class);
 
         new Expectations() {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbOrDdlException(anyString);
+                catalog.getDbOrDdlException(anyString);
                 minTimes = 0;
                 result = db;
             }
@@ -251,7 +251,8 @@ public class BackupHandlerTest {
 
         // process backup
         List<TableRef> tblRefs = Lists.newArrayList();
-        tblRefs.add(new TableRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME), null));
+        tblRefs.add(new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
+                CatalogMocker.TEST_TBL_NAME), null));
         AbstractBackupTableRefClause tableRefClause = new AbstractBackupTableRefClause(false, tblRefs);
         BackupStmt backupStmt = new BackupStmt(new LabelName(CatalogMocker.TEST_DB_NAME, "label1"), "repo",
                 tableRefClause, null);
@@ -259,8 +260,8 @@ public class BackupHandlerTest {
 
         // handleFinishedSnapshotTask
         BackupJob backupJob = (BackupJob) handler.getJob(CatalogMocker.TEST_DB_ID);
-        SnapshotTask snapshotTask = new SnapshotTask(null, 0, 0, backupJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                0, 0, 0, 0, 0, 0, 1, false);
+        SnapshotTask snapshotTask = new SnapshotTask(null, 0, 0, backupJob.getJobId(), CatalogMocker.TEST_DB_ID, 0, 0,
+                0, 0, 0, 0, 1, false);
         TFinishTaskRequest request = new TFinishTaskRequest();
         List<String> snapshotFiles = Lists.newArrayList();
         request.setSnapshotFiles(snapshotFiles);
@@ -297,7 +298,8 @@ public class BackupHandlerTest {
 
         // process restore
         List<TableRef> tblRefs2 = Lists.newArrayList();
-        tblRefs2.add(new TableRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME), null));
+        tblRefs2.add(new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
+                CatalogMocker.TEST_TBL_NAME), null));
         Map<String, String> properties = Maps.newHashMap();
         properties.put("backup_timestamp", "2018-08-08-08-08-08");
         AbstractBackupTableRefClause abstractBackupTableRefClause = new AbstractBackupTableRefClause(false, tblRefs2);

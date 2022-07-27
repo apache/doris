@@ -846,27 +846,27 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getDataSourceMgr().replayCreateCatalog(log);
+                    env.getCatalogMgr().replayCreateCatalog(log);
                     break;
                 }
                 case OperationType.OP_DROP_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getDataSourceMgr().replayDropCatalog(log);
+                    env.getCatalogMgr().replayDropCatalog(log);
                     break;
                 }
                 case OperationType.OP_ALTER_CATALOG_NAME: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getDataSourceMgr().replayAlterCatalogName(log);
+                    env.getCatalogMgr().replayAlterCatalogName(log);
                     break;
                 }
                 case OperationType.OP_ALTER_CATALOG_PROPS: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getDataSourceMgr().replayAlterCatalogProps(log);
+                    env.getCatalogMgr().replayAlterCatalogProps(log);
                     break;
                 }
                 case OperationType.OP_REFRESH_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getDataSourceMgr().replayRefreshCatalog(log);
+                    env.getCatalogMgr().replayRefreshCatalog(log);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
@@ -1502,7 +1502,7 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_POLICY, log);
     }
 
-    public void logDatasourceLog(short id, CatalogLog log) {
+    public void logCatalogLog(short id, CatalogLog log) {
         logEdit(id, log);
     }
 

@@ -30,9 +30,9 @@ import java.io.IOException;
 import java.util.Map;
 
 /**
- * Save the properties of a data source.
+ * Save the properties of a catalog.
  */
-public class DataSourceMgrProperty implements Writable {
+public class CatalogMgrProperty implements Writable {
     @SerializedName(value = "properties")
     private Map<String, String> properties = Maps.newHashMap();
 
@@ -41,8 +41,8 @@ public class DataSourceMgrProperty implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static DataSourceMgrProperty read(DataInput in) throws IOException {
+    public static CatalogMgrProperty read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, DataSourceMgrProperty.class);
+        return GsonUtils.GSON.fromJson(json, CatalogMgrProperty.class);
     }
 }

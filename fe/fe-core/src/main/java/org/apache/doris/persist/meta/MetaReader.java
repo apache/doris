@@ -88,7 +88,7 @@ public class MetaReader {
                 }
                 MetaPersistMethod persistMethod = PersistMetaModules.MODULES_MAP.get(metaIndex.name);
                 if (persistMethod == null) {
-                    throw new IOException("Unknown meta module: " + metaIndex.name + ". Known moduels: "
+                    throw new IOException("Unknown meta module: " + metaIndex.name + ". Known modules: "
                             + PersistMetaModules.MODULE_NAMES);
                 }
                 checksum = (long) persistMethod.readMethod.invoke(env, dis, checksum);

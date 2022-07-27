@@ -35,24 +35,24 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The abstract class for all types of external data sources.
+ * The abstract class for all types of external catalogs.
  */
 @Data
-public abstract class ExternalDataSource implements DataSourceIf<ExternalDatabase>, Writable {
-    // Unique id of this data source, will be assigned after data source is loaded.
+public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Writable {
+    // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
     protected long id;
     @SerializedName(value = "name")
     protected String name;
     @SerializedName(value = "type")
     protected String type;
-    // save properties of this data source, such as hive meta store url.
-    @SerializedName(value = "dsProperty")
-    protected DataSourceProperty dsProperty = new DataSourceProperty();
+    // save properties of this catalog, such as hive meta store url.
+    @SerializedName(value = "catalogProperty")
+    protected CatalogProperty catalogProperty = new CatalogProperty();
     protected boolean initialized = false;
 
     /**
-     * @return names of database in this data source.
+     * @return names of database in this catalog.
      */
     public abstract List<String> listDatabaseNames(SessionContext ctx);
 
@@ -105,17 +105,17 @@ public abstract class ExternalDataSource implements DataSourceIf<ExternalDatabas
 
     @Override
     public Map<String, String> getProperties() {
-        return dsProperty.getProperties();
+        return catalogProperty.getProperties();
     }
 
     @Override
-    public void modifyDatasourceName(String name) {
+    public void modifyCatalogName(String name) {
         this.name = name;
     }
 
     @Override
-    public void modifyDatasourceProps(Map<String, String> props) {
-        dsProperty.setProperties(props);
+    public void modifyCatalogProps(Map<String, String> props) {
+        catalogProperty.setProperties(props);
     }
 
     @Override
@@ -130,8 +130,8 @@ public abstract class ExternalDataSource implements DataSourceIf<ExternalDatabas
         return ClusterNamespace.getNameFromFullName(tableName);
     }
 
-    public static ExternalDataSource read(DataInput in) throws IOException {
+    public static ExternalCatalog read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ExternalDataSource.class);
+        return GsonUtils.GSON.fromJson(json, ExternalCatalog.class);
     }
 }

@@ -22,7 +22,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -486,13 +486,13 @@ public class Util {
             throw new AnalysisException("Catalog name is empty.");
         }
 
-        if (!catalog.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+        if (!catalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             FeNameFormat.checkCommonName("catalog", catalog);
         }
     }
 
     public static void prohibitExternalCatalog(String catalog, String msg) throws AnalysisException {
-        if (!Strings.isNullOrEmpty(catalog) && !catalog.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+        if (!Strings.isNullOrEmpty(catalog) && !catalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             throw new AnalysisException(String.format("External catalog '%s' is not allowed in '%s'", catalog, msg));
         }
     }

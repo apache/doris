@@ -23,7 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.UnitTestUtil;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.DppScheduler;
 import org.apache.doris.load.EtlSubmitResult;
 import org.apache.doris.load.Load;
@@ -60,7 +60,7 @@ public class LoadPendingTaskTest {
     @Mocked
     private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
     @Mocked
     private EditLog editLog;
     @Mocked
@@ -93,17 +93,17 @@ public class LoadPendingTaskTest {
         globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
 
         // mock catalog
-        new Expectations(env, ds) {
+        new Expectations(env, catalog) {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable(dbId);
+                catalog.getDbNullable(dbId);
                 minTimes = 0;
                 result = db;
 
-                ds.getDbNullable(db.getFullName());
+                catalog.getDbNullable(db.getFullName());
                 minTimes = 0;
                 result = db;
 

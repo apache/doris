@@ -872,7 +872,7 @@ public class MaterializedViewHandler extends AlterHandler {
         long rollupIndexId = dropInfo.getIndexId();
 
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-        Database db = env.getInternalDataSource().getDbOrMetaException(dbId);
+        Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         olapTable.writeLock();
         try {
