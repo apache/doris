@@ -25,9 +25,8 @@ import java.util.List;
 /**
  * It is responsible for this class to schedule all network request sent to remote ES Cluster
  * Request sequence
- * 1. GET /
- * 2. GET {index}/_mapping
- * 3. GET {index}/_search_shards
+ * 1. GET {index}/_mapping
+ * 2. GET {index}/_search_shards
  * <p>
  * note: step 1 is not necessary
  */
@@ -37,7 +36,6 @@ public class EsMetaStateTracker {
     private SearchContext searchContext;
 
     public EsMetaStateTracker(EsRestClient client, EsTable esTable) {
-        builtinSearchPhase.add(new VersionPhase(client));
         builtinSearchPhase.add(new MappingPhase(client));
         builtinSearchPhase.add(new PartitionPhase(client));
         searchContext = new SearchContext(esTable);

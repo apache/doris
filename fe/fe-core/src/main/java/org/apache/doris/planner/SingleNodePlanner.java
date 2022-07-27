@@ -1727,6 +1727,9 @@ public class SingleNodePlanner {
             case HMS_EXTERNAL_TABLE:
                 scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HMS_FILE_SCAN_NODE");
                 break;
+            case ES_EXTERNAL_TABLE:
+                scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode", true);
+                break;
             default:
                 break;
         }
