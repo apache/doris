@@ -163,7 +163,7 @@ public class PropertyAnalyzer {
             } else if (key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_POLICY)) {
                 remoteStoragePolicy = value;
             } else if (key.equalsIgnoreCase(PROPERTIES_DATA_BASE_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
+                DateLiteral dateLiteral = new DateLiteral(value, DateLiteral.getDefaultDateType(Type.DATETIME));
                 dataBaseTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
             } else if (!hasStoragePolicy && key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
                 if (!Strings.isNullOrEmpty(value)) {
