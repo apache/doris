@@ -18,8 +18,6 @@
 #include "olap/rowset/segment_v2/column_writer.h"
 
 #include <cstddef>
-#include <cstdint>
-#include <type_traits>
 
 #include "common/logging.h"
 #include "env/env.h"

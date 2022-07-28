@@ -17,10 +17,7 @@
 
 #pragma once
 
-#include <cstddef>
 #include <memory> // for unique_ptr
-#include <type_traits>
-#include <variant>
 
 #include "common/status.h"         // for Status
 #include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
