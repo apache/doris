@@ -92,6 +92,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
 
+    public static final String ENABLE_NEREIDS_CBO = "enable_nereids_cbo";
+
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
     // if set to true, some of stmt will be forwarded to master FE to get result
@@ -430,6 +432,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
     private boolean enableJoinReorderBasedCost = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_CBO)
+    private boolean enableNereidsCBO = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE)
     private boolean enableFoldConstantByBe = false;
@@ -977,6 +982,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableJoinReorderBasedCost(boolean enableJoinReorderBasedCost) {
         this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
+    }
+
+    public boolean isEnableNereidsCBO() {
+        return enableNereidsCBO;
+    }
+
+    public void setEnableNereidsCBO(boolean enableNereidsCBO) {
+        this.enableNereidsCBO = enableNereidsCBO;
     }
 
     public void setDisableJoinReorder(boolean disableJoinReorder) {

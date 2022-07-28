@@ -29,6 +29,7 @@ import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
 import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.batch.PredicatePushDownRulesJob;
+import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -105,6 +106,10 @@ public class NereidsPlanner extends Planner {
                 .setJobContext(outputProperties);
 
         rewrite();
+        // TODO: remove this condition, when stats collector is fully developed.
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsCBO()) {
+            deriveStats();
+        }
         optimize();
 
         // Get plan directly. Just for SSB.
@@ -118,6 +123,10 @@ public class NereidsPlanner extends Planner {
         new JoinReorderRulesJob(plannerContext).execute();
         new PredicatePushDownRulesJob(plannerContext).execute();
         new DisassembleRulesJob(plannerContext).execute();
+    }
+
+    private void deriveStats() {
+        new DeriveStatsJob(getRoot().getLogicalExpression(), plannerContext.getCurrentJobContext()).execute();
     }
 
     /**

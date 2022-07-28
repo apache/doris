@@ -110,7 +110,6 @@ public class SlotReference extends Slot {
         return nullable == that.nullable
                 && dataType.equals(that.dataType)
                 && exprId.equals(that.exprId)
-                && dataType.equals(that.dataType)
                 && name.equals(that.name)
                 && qualifier.equals(that.qualifier);
     }

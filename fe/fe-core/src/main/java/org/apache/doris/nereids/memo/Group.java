@@ -69,6 +69,13 @@ public class Group {
         groupExpression.setOwnerGroup(this);
     }
 
+    /**
+     * For unit test only.
+     */
+    public Group() {
+        groupId = null;
+    }
+
     public GroupId getGroupId() {
         return groupId;
     }

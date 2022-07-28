@@ -18,9 +18,11 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.common.Id;
+import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.Maps;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -32,19 +34,36 @@ public class StatsDeriveResult {
     private long rowCount = -1;
     // The data size of the corresponding column in the operator
     // The actual key is slotId
-    private final Map<Id, Float> columnToDataSize = Maps.newHashMap();
+    private final Map<Id, Float> columnIdToDataSize = Maps.newHashMap();
     // The ndv of the corresponding column in the operator
     // The actual key is slotId
-    private final Map<Id, Long> columnToNdv = Maps.newHashMap();
+    private final Map<Id, Long> columnIdToNdv = Maps.newHashMap();
 
-    public StatsDeriveResult(long rowCount, Map<Id, Float> columnToDataSize, Map<Id, Long> columnToNdv) {
+    private Map<Slot, ColumnStats> slotToColumnStats;
+
+    public StatsDeriveResult(long rowCount, Map<Slot, ColumnStats> slotToColumnStats) {
         this.rowCount = rowCount;
-        this.columnToDataSize.putAll(columnToDataSize);
-        this.columnToNdv.putAll(columnToNdv);
+        this.slotToColumnStats = slotToColumnStats;
+    }
+
+    public StatsDeriveResult(long rowCount, Map<Id, Float> columnIdToDataSize, Map<Id, Long> columnIdToNdv) {
+        this.rowCount = rowCount;
+        this.columnIdToDataSize.putAll(columnIdToDataSize);
+        this.columnIdToNdv.putAll(columnIdToNdv);
+    }
+
+    public StatsDeriveResult(StatsDeriveResult another) {
+        this.rowCount = another.rowCount;
+        this.columnIdToDataSize.putAll(another.columnIdToDataSize);
+        this.columnIdToNdv.putAll(another.columnIdToNdv);
+        slotToColumnStats = new HashMap<>();
+        for (Entry<Slot, ColumnStats> entry : another.slotToColumnStats.entrySet()) {
+            slotToColumnStats.put(entry.getKey(), entry.getValue().copy());
+        }
     }
 
     public float computeSize() {
-        return Math.max(1, columnToDataSize.values().stream().reduce((float) 0, Float::sum)) * rowCount;
+        return Math.max(1, columnIdToDataSize.values().stream().reduce((float) 0, Float::sum)) * rowCount;
     }
 
     /**
@@ -57,7 +76,7 @@ public class StatsDeriveResult {
         float count = 0;
         boolean exist = false;
 
-        for (Entry<Id, Float> entry : columnToDataSize.entrySet()) {
+        for (Entry<Id, Float> entry : columnIdToDataSize.entrySet()) {
             if (slotIds.contains(entry.getKey())) {
                 count += entry.getValue();
                 exist = true;
@@ -77,11 +96,38 @@ public class StatsDeriveResult {
         return rowCount;
     }
 
-    public Map<Id, Long> getColumnToNdv() {
-        return columnToNdv;
+    public Map<Id, Long> getColumnIdToNdv() {
+        return columnIdToNdv;
     }
 
-    public Map<Id, Float> getColumnToDataSize() {
-        return columnToDataSize;
+    public Map<Id, Float> getColumnIdToDataSize() {
+        return columnIdToDataSize;
+    }
+
+    public Map<Slot, ColumnStats> getSlotToColumnStats() {
+        return slotToColumnStats;
+    }
+
+    public void setSlotToColumnStats(Map<Slot, ColumnStats> slotToColumnStats) {
+        this.slotToColumnStats = slotToColumnStats;
+    }
+
+    public StatsDeriveResult multiplyDouble(double selectivity) {
+        rowCount *= selectivity;
+        for (Entry<Slot, ColumnStats> entry : slotToColumnStats.entrySet()) {
+            entry.getValue().multiplyDouble(selectivity);
+        }
+        return this;
+    }
+
+    public StatsDeriveResult merge(StatsDeriveResult other) {
+        for (Entry<Slot, ColumnStats> entry : other.getSlotToColumnStats().entrySet()) {
+            this.slotToColumnStats.put(entry.getKey(), entry.getValue().copy());
+        }
+        return this;
+    }
+
+    public StatsDeriveResult copy() {
+        return new StatsDeriveResult(this);
     }
 }

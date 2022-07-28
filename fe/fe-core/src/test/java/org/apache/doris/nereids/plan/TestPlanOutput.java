@@ -104,6 +104,11 @@ public class TestPlanOutput {
             public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
                 return null;
             }
+
+            @Override
+            public Table getTable() {
+                return null;
+            }
         };
     }
 }

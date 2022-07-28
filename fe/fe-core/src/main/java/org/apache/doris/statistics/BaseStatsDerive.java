@@ -155,7 +155,7 @@ public class BaseStatsDerive {
     protected HashMap<Id, Float> deriveColumnToDataSize() {
         HashMap<Id, Float> columnToDataSize = new HashMap<>();
         for (StatsDeriveResult child : childrenStatsResult) {
-            columnToDataSize.putAll(child.getColumnToDataSize());
+            columnToDataSize.putAll(child.getColumnIdToDataSize());
         }
         return columnToDataSize;
     }
@@ -163,7 +163,7 @@ public class BaseStatsDerive {
     protected HashMap<Id, Long> deriveColumnToNdv() {
         HashMap<Id, Long> columnToNdv = new HashMap<>();
         for (StatsDeriveResult child : childrenStatsResult) {
-            columnToNdv.putAll(child.getColumnToNdv());
+            columnToNdv.putAll(child.getColumnIdToNdv());
         }
         return columnToNdv;
     }
