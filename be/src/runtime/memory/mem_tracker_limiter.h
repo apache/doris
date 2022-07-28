@@ -111,6 +111,7 @@ public:
     // Note that 'f' must be valid for the lifetime of this tracker limiter.
     void add_gc_function(GcFunction f) { _gc_functions.push_back(f); }
 
+    // TODO Should be managed in a separate process_mem_mgr, not in MemTracker
     // If consumption is higher than max_consumption, attempts to free memory by calling
     // any added GC functions.  Returns true if max_consumption is still exceeded. Takes gc_lock.
     // Note: If the cache of segment/chunk is released due to insufficient query memory at a certain moment,

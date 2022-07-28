@@ -210,8 +210,8 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
         // If you do not want this check, set_check_attach=true
         // TODO(zxy) The current p0 test cannot guarantee that all threads are checked,
         // so disable it and try to open it when memory tracking is not on time.
-        DCHECK(!_check_attach || btls_key != EMPTY_BTLS_KEY ||
-               _limiter_tracker->label() != "Process");
+        // DCHECK(!_check_attach || btls_key != EMPTY_BTLS_KEY ||
+        //        _limiter_tracker->label() != "Process");
 #endif
         Status st = _limiter_tracker->try_consume(_untracked_mem);
         if (!st) {
