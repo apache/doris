@@ -35,9 +35,9 @@ suite("test_lag_lead_window") {
     sql """ set enable_vectorized_engine = false """
 
     qt_select_default """ select min(t.cc) over(PARTITION by t.cc  order by t.aa) ,
-                            lag(t.cc,1,'') over (PARTITION by t.cc  order by t.aa) as l1 from ${tableName} t; """
+                            lag(t.cc,1,'') over (PARTITION by t.cc  order by t.aa) as l1 from ${tableName} t order by aa, bb, cc; """
 
     qt_select_default2 """ select min(t.cc) over(PARTITION by t.cc  order by t.aa) ,
-                            lead(t.cc,1,'') over (PARTITION by t.cc  order by t.aa) as l1 from ${tableName} t; """
+                            lead(t.cc,1,'') over (PARTITION by t.cc  order by t.aa) as l1 from ${tableName} t order by aa, bb, cc; """
 
 }
