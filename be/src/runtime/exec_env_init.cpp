@@ -114,8 +114,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         LOG(INFO) << "scan thread pool use PriorityThreadPool";
     }
 
-    _remote_scan_thread_pool = new PriorityThreadPool(config::doris_remote_scanner_thread_pool_thread_num,
-                                                      config::doris_remote_scanner_thread_pool_queue_size);
+    _remote_scan_thread_pool =
+            new PriorityThreadPool(config::doris_remote_scanner_thread_pool_thread_num,
+                                   config::doris_remote_scanner_thread_pool_queue_size);
 
     ThreadPoolBuilder("LimitedScanThreadPool")
             .set_min_threads(1)
