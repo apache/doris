@@ -1740,7 +1740,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
             for (Column column : baseSchema) {
                 column.setUniqueId(olapTable.incAndGetMaxColUniqueId());
                 LOG.debug("table: {}, newColumn: {}, uniqueId: {}", olapTable.getName(), column.getName(),
-                    column.getUniqueId());
+                        column.getUniqueId());
             }
         } else {
             LOG.info("table: {} doesn't use light schema change", olapTable.getName());
