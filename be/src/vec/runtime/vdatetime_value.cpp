@@ -1781,9 +1781,6 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
         field_idx++;
     }
     int num_field = field_idx;
-    if constexpr (!is_datetime) {
-        DCHECK(num_field == 3);
-    }
     if (!is_interval_format) {
         year_len = date_len[0];
     }
