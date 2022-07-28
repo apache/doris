@@ -576,7 +576,7 @@ public final class MetricRepo {
             visitor.visit(sb, MetricVisitor.FE_PREFIX, metric);
         }
         // system metric
-        for (Metric metric : DORIS_METRIC_REGISTER.getMetrics()) {
+        for (Metric metric : DORIS_METRIC_REGISTER.getSystemMetrics()) {
             visitor.visit(sb, MetricVisitor.SYS_PREFIX, metric);
         }
 
