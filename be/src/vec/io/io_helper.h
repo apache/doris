@@ -322,7 +322,7 @@ bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scal
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
 
-    x.value = binary_cast<DecimalV2Value, Int128>(dv);
+    x.value = dv.value();
     return ans;
 }
 
