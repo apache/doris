@@ -36,6 +36,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
+import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -249,14 +250,27 @@ public class AggregationNode extends PlanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.AGGREGATION_NODE;
         List<TExpr> aggregateFunctions = Lists.newArrayList();
+        List<TSortInfo> aggSortInfos = Lists.newArrayList();
         // only serialize agg exprs that are being materialized
         for (FunctionCallExpr e : aggInfo.getMaterializedAggregateExprs()) {
             aggregateFunctions.add(e.treeToThrift());
+            List<TExpr> orderingExpr = Lists.newArrayList();
+            List<Boolean> isAscs = Lists.newArrayList();
+            List<Boolean> nullFirsts = Lists.newArrayList();
+
+            e.getOrderByElements().forEach(o -> {
+                orderingExpr.add(o.getExpr().treeToThrift());
+                isAscs.add(o.getIsAsc());
+                nullFirsts.add(o.getNullsFirstParam());
+            });
+            aggSortInfos.add(new TSortInfo(orderingExpr, isAscs, nullFirsts));
         }
+
         msg.agg_node = new TAggregationNode(
                 aggregateFunctions,
                 aggInfo.getIntermediateTupleId().asInt(),
                 aggInfo.getOutputTupleId().asInt(), needsFinalize);
+        msg.agg_node.setAggSortInfos(aggSortInfos);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
