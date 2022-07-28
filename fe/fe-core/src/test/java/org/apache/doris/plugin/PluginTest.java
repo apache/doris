@@ -15,11 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package plugin;
-
-import org.apache.doris.plugin.Plugin;
-import org.apache.doris.plugin.PluginContext;
-import org.apache.doris.plugin.PluginInfo;
+package org.apache.doris.plugin;
 
 import java.io.IOException;
 import java.util.HashMap;

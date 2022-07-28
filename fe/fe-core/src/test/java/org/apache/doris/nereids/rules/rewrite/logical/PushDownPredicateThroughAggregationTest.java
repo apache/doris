@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite.logical;
 
 
-
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
@@ -46,8 +45,8 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -101,19 +100,19 @@ public class PushDownPredicateThroughAggregationTest {
                 .getLogicalExpression().child(0)
                 .getLogicalExpression();
         aggregation = groupExpression.getPlan();
-        Assert.assertTrue(aggregation instanceof LogicalAggregate);
+        Assertions.assertTrue(aggregation instanceof LogicalAggregate);
 
         groupExpression = groupExpression.child(0).getLogicalExpression();
         Plan bottomFilter = groupExpression.getPlan();
-        Assert.assertTrue(bottomFilter instanceof LogicalFilter);
+        Assertions.assertTrue(bottomFilter instanceof LogicalFilter);
         Expression greater = ((LogicalFilter<?>) bottomFilter).getPredicates();
-        Assert.assertTrue(greater instanceof GreaterThan);
-        Assert.assertTrue(greater.child(0) instanceof Slot);
-        Assert.assertEquals("gender", ((Slot) greater.child(0)).getName());
+        Assertions.assertTrue(greater instanceof GreaterThan);
+        Assertions.assertTrue(greater.child(0) instanceof Slot);
+        Assertions.assertEquals("gender", ((Slot) greater.child(0)).getName());
 
         groupExpression = groupExpression.child(0).getLogicalExpression();
         Plan scan2 = groupExpression.getPlan();
-        Assert.assertTrue(scan2 instanceof LogicalOlapScan);
+        Assertions.assertTrue(scan2 instanceof LogicalOlapScan);
     }
 
     /**
@@ -174,30 +173,30 @@ public class PushDownPredicateThroughAggregationTest {
         Group rootGroup = memo.getRoot();
         GroupExpression groupExpression = rootGroup.getLogicalExpression().child(0).getLogicalExpression();
         Plan upperFilter = groupExpression.getPlan();
-        Assert.assertTrue(upperFilter instanceof LogicalFilter);
+        Assertions.assertTrue(upperFilter instanceof LogicalFilter);
         Expression upperPredicates = ((LogicalFilter<?>) upperFilter).getPredicates();
-        Assert.assertTrue(upperPredicates instanceof  EqualTo);
-        Assert.assertTrue(upperPredicates.child(0) instanceof Slot);
+        Assertions.assertTrue(upperPredicates instanceof EqualTo);
+        Assertions.assertTrue(upperPredicates.child(0) instanceof Slot);
         groupExpression = groupExpression.child(0).getLogicalExpression();
         aggregation = groupExpression.getPlan();
-        Assert.assertTrue(aggregation instanceof LogicalAggregate);
+        Assertions.assertTrue(aggregation instanceof LogicalAggregate);
         groupExpression = groupExpression.child(0).getLogicalExpression();
         Plan bottomFilter = groupExpression.getPlan();
-        Assert.assertTrue(bottomFilter instanceof LogicalFilter);
+        Assertions.assertTrue(bottomFilter instanceof LogicalFilter);
         Expression bottomPredicates = ((LogicalFilter<?>) bottomFilter).getPredicates();
-        Assert.assertTrue(bottomPredicates instanceof And);
-        Assert.assertEquals(2, bottomPredicates.children().size());
+        Assertions.assertTrue(bottomPredicates instanceof And);
+        Assertions.assertEquals(2, bottomPredicates.children().size());
         Expression greater = bottomPredicates.child(0);
-        Assert.assertTrue(greater instanceof GreaterThan);
-        Assert.assertTrue(greater.child(0) instanceof Slot);
-        Assert.assertEquals("gender", ((Slot) greater.child(0)).getName());
+        Assertions.assertTrue(greater instanceof GreaterThan);
+        Assertions.assertTrue(greater.child(0) instanceof Slot);
+        Assertions.assertEquals("gender", ((Slot) greater.child(0)).getName());
         Expression less = bottomPredicates.child(1);
-        Assert.assertTrue(less instanceof LessThanEqual);
-        Assert.assertTrue(less.child(0) instanceof Add);
+        Assertions.assertTrue(less instanceof LessThanEqual);
+        Assertions.assertTrue(less.child(0) instanceof Add);
 
         groupExpression = groupExpression.child(0).getLogicalExpression();
         Plan scan2 = groupExpression.getPlan();
-        Assert.assertTrue(scan2 instanceof LogicalOlapScan);
+        Assertions.assertTrue(scan2 instanceof LogicalOlapScan);
     }
 
     private Memo rewrite(Plan plan) {
