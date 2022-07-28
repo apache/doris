@@ -85,12 +85,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v1
-        with:
-          node-version: 16.14.0
-
       - name: Build docs
         run: |
-          cd docs &&  /bin/bash build_help_zip.sh && export NODE_OPTIONS="--max-old-space-size=8192" && npm install && npm run build
+          cd docs && /bin/bash build_help_zip.sh
 
