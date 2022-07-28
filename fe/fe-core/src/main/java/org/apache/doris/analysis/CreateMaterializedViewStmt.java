@@ -411,7 +411,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             case FunctionSet.COUNT:
                 mvColumnName = mvColumnBuilder(functionName, baseColumnName);
                 mvAggregateType = AggregateType.SUM;
-                defineExpr = new FunctionCallExpr(IsNullPredicate.IS_NOT_NULL, Lists.newArrayList(baseColumnRef));
+                defineExpr = new CaseExpr(null, Lists.newArrayList(new CaseWhenClause(
+                        new IsNullPredicate(baseColumnRef, false),
+                        new IntLiteral(0, Type.BIGINT))), new IntLiteral(1, Type.BIGINT));
                 defineExpr.analyze(analyzer);
                 type = Type.BIGINT;
                 break;

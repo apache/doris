@@ -38,7 +38,7 @@ import com.google.common.collect.Lists;
  * For example:
  * Table: (k1 int ,k2 varchar)
  * MV: (k1 int, mv_count_k2 bigint sum)
- *       mv_count_k1 = is_not_null_pred(k1)
+ *       mv_count_k1 = case when k2 is null then 0 else 1
  * Query: select k1, count(k2) from table group by k1
  * Rewritten query: select k1, sum(mv_count_k2) from table group by k1
  */

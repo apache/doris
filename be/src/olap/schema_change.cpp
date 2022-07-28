@@ -630,7 +630,7 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
                     _do_materialized_transform = to_bitmap;
                 } else if (_schema_mapping[i].materialized_function == "hll_hash") {
                     _do_materialized_transform = hll_hash;
-                } else if (_schema_mapping[i].materialized_function == "is_not_null_pred") {
+                } else if (_schema_mapping[i].materialized_function == "count_field") {
                     _do_materialized_transform = count_field;
                 } else {
                     LOG(WARNING) << "error materialized view function : "
@@ -785,15 +785,11 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
     }
 
-    std::vector<bool> nullable_tuples;
-    for (int i = 0; i < ref_block->columns(); i++) {
-        nullable_tuples.emplace_back(ref_block->get_by_position(i).column->is_nullable());
-    }
-
     ObjectPool pool;
     RuntimeState* state = pool.add(new RuntimeState());
     state->set_desc_tbl(&_desc_tbl);
-    RowDescriptor row_desc = RowDescriptor::create_default(_desc_tbl, nullable_tuples, true);
+    RowDescriptor row_desc =
+            RowDescriptor(_desc_tbl.get_tuple_descriptor(_desc_tbl.get_row_tuples()[0]), false);
 
     const int row_size = ref_block->rows();
     const int column_size = new_block->columns();
@@ -1715,8 +1711,7 @@ Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& req
 
 std::shared_mutex SchemaChangeHandler::_mutex;
 std::unordered_set<int64_t> SchemaChangeHandler::_tablet_ids_in_converting;
-std::set<std::string> SchemaChangeHandler::_supported_functions = {"hll_hash", "to_bitmap",
-                                                                   "is_not_null_pred"};
+std::set<std::string> SchemaChangeHandler::_supported_functions = {"hll_hash", "to_bitmap"};
 
 // In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
 // It will cost a lot of time to wait and the task is very difficult to understand.
@@ -1953,6 +1948,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                             return Status::NotSupported("Unknow materialized view expr " +
                                                         mv_param.mv_expr);
                         }
+                    } else if (item.mv_expr.nodes[0].node_type == TExprNodeType::CASE_EXPR) {
+                        mv_param.mv_expr = "count_field";
                     }
 
                     mv_param.expr = std::make_shared<TExpr>(item.mv_expr);

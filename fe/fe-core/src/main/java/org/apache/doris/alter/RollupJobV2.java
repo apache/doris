@@ -152,7 +152,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         this.rollupSchema = rollupSchema;
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrException(dbId,
+        Database db = Env.getCurrentInternalCatalog().getDbOrException(dbId,
                 s -> new AnalysisException("Databasee " + s + " does not exist"));
 
         OlapTable tbl;
@@ -426,8 +426,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                     List<Column> fullSchema = tbl.getBaseSchema(true);
                     DescriptorTable descTable = new DescriptorTable();
+                    TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                     for (Column column : fullSchema) {
-                        TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                         destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);

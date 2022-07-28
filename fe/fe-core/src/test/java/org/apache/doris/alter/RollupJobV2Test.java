@@ -328,7 +328,7 @@ public class RollupJobV2Test {
         Column column = new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", "");
         columns.add(column);
 
-        Database db = masterCatalog.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        Database db = masterEnv.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
 
         IntSupplier colUniqueIdSupplier = new IntSupplier() {
