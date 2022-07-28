@@ -429,8 +429,6 @@ public class StmtExecutor implements ProfileWriter {
                     LOG.warn("handle insert stmt fail", t);
                     // the transaction of this insert may already begun, we will abort it at outer finally block.
                     throw t;
-                } finally {
-                    QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
                 }
             } else if (parsedStmt instanceof DdlStmt) {
                 handleDdlStmt();
@@ -1353,6 +1351,8 @@ public class StmtExecutor implements ProfileWriter {
                  * which exactly like the old insert stmt usage pattern.
                  */
                 throwable = t;
+            } finally {
+                QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             }
 
             // Go here, which means:
