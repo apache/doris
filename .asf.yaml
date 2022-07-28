@@ -49,6 +49,7 @@ github:
         strict: false
         contexts:
           - Clang Formatter
+          - BE UT (Clang)
           - License Check
           - P0 regression (Doris P0 Regression)
           - FE UT (Doris FE UT)
