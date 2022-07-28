@@ -90,8 +90,9 @@ public class FunctionCallExpr extends Expr {
     // private BuiltinAggregateFunction.Operator aggOp;
     private FunctionParams fnParams;
 
-    // represent original parament from aggregate function
     private FunctionParams aggFnParams;
+
+    private List<OrderByElement> orderByElements = Lists.newArrayList();
 
     // check analytic function
     private boolean isAnalyticFnCall = false;
@@ -155,6 +156,27 @@ public class FunctionCallExpr extends Expr {
         this(fnName, params, false);
     }
 
+    public FunctionCallExpr(
+            FunctionName fnName, FunctionParams params, List<OrderByElement> orderByElements) throws AnalysisException {
+        this(fnName, params, false);
+        this.orderByElements = orderByElements;
+        if (!orderByElements.isEmpty()) {
+            if (!VectorizedUtil.isVectorized()) {
+                throw new AnalysisException(
+                    "ORDER BY for arguments only support in vec exec engine");
+            } else if (!AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
+                    fnName.getFunction().toLowerCase())) {
+                throw new AnalysisException(
+                    "ORDER BY not support for the function:" + fnName.getFunction().toLowerCase());
+            } else if (params.isDistinct()) {
+                throw new AnalysisException(
+                    "ORDER BY not support for the distinct, support in the furture:"
+                        + fnName.getFunction().toLowerCase());
+            }
+        }
+        setChildren();
+    }
+
     private FunctionCallExpr(
             FunctionName fnName, FunctionParams params, boolean isMergeAggFn) {
         super();
@@ -187,6 +209,7 @@ public class FunctionCallExpr extends Expr {
     protected FunctionCallExpr(FunctionCallExpr other) {
         super(other);
         fnName = other.fnName;
+        orderByElements = other.orderByElements;
         isAnalyticFnCall = other.isAnalyticFnCall;
         //   aggOp = other.aggOp;
         // fnParams = other.fnParams;
@@ -289,6 +312,8 @@ public class FunctionCallExpr extends Expr {
                     || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
                     || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
                 result.add("\'***\'");
+            } else if (orderByElements.size() > 0 && i == len - orderByElements.size()) {
+                result.add("ORDER BY " + children.get(i).toSql());
             } else {
                 result.add(children.get(i).toSql());
             }
@@ -503,7 +528,7 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fnName.getFunction().equalsIgnoreCase("group_concat")) {
-            if (children.size() > 2 || children.isEmpty()) {
+            if (children.size() - orderByElements.size() > 2 || children.isEmpty()) {
                 throw new AnalysisException(
                         "group_concat requires one or two parameters: " + this.toSql());
             }
@@ -514,13 +539,14 @@ public class FunctionCallExpr extends Expr {
                         "group_concat requires first parameter to be of type STRING: " + this.toSql());
             }
 
-            if (children.size() == 2) {
+            if (children.size() - orderByElements.size() == 2) {
                 Expr arg1 = getChild(1);
                 if (!arg1.type.isStringType() && !arg1.type.isNull()) {
                     throw new AnalysisException(
                             "group_concat requires second parameter to be of type STRING: " + this.toSql());
                 }
             }
+
             return;
         }
 
@@ -926,6 +952,15 @@ public class FunctionCallExpr extends Expr {
             childTypes[2] = assignmentCompatibleType;
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
+                fnName.getFunction().toLowerCase())) {
+            // order by elements add as child like windows function. so if we get the
+            // param of arg, we need remove the order by elements
+            Type[] childTypes = collectChildReturnTypes();
+            Type[] newChildTypes = new Type[children.size() - orderByElements.size()];
+            System.arraycopy(childTypes, 0, newChildTypes, 0, newChildTypes.length);
+            fn = getBuiltinFunction(fnName.getFunction(), newChildTypes,
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {
@@ -1024,7 +1059,7 @@ public class FunctionCallExpr extends Expr {
             Type[] args = fn.getArgs();
             if (args.length > 0) {
                 // Implicitly cast all the children to match the function if necessary
-                for (int i = 0; i < argTypes.length; ++i) {
+                for (int i = 0; i < argTypes.length - orderByElements.size(); ++i) {
                     // For varargs, we must compare with the last type in callArgs.argTypes.
                     int ix = Math.min(args.length - 1, i);
                     if (!argTypes[i].matchesType(args[ix]) && Config.use_date_v2_by_default
@@ -1327,7 +1362,6 @@ public class FunctionCallExpr extends Expr {
         return result.toString();
     }
 
-    @Override
     public void finalizeImplForNereids() throws AnalysisException {
         // TODO: support other functions
         // TODO: Supports type conversion to match the type of the function's parameters
@@ -1355,5 +1389,17 @@ public class FunctionCallExpr extends Expr {
      */
     public void setMergeForNereids(boolean isMergeAggFn) {
         this.isMergeAggFn = isMergeAggFn;
+    }
+
+    public List<OrderByElement> getOrderByElements() {
+        return orderByElements;
+    }
+
+    public void setOrderByElements(List<OrderByElement> orderByElements) {
+        this.orderByElements = orderByElements;
+    }
+
+    private void setChildren() {
+        orderByElements.forEach(o -> addChild(o.getExpr()));
     }
 }
