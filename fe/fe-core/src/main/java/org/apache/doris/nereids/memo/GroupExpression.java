@@ -168,6 +168,8 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
+        // if the plan is LogicalOlapScan, this == that should be true,
+        // because equals() can not divide UnboundRelation and the plan above.
         if (plan instanceof LogicalOlapScan) {
             return false;
         }

@@ -122,6 +122,7 @@ import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
+import java.text.ParseException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -198,6 +199,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (null != ctx.strictIdentifier()) {
             String alias = ctx.strictIdentifier().getText();
             if (null != ctx.identifierList()) {
+                throw new IllegalStateException("Do not implemented");
                 // List<String> colName = visitIdentifierSeq(ctx.identifierList().identifierSeq());
                 // TODO: multi-colName
             } else {

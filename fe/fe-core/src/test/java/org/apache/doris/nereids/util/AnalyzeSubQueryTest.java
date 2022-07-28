@@ -19,23 +19,13 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
-import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
-import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.RuleFactory;
-import org.apache.doris.nereids.rules.analysis.BindFunction;
-import org.apache.doris.nereids.rules.analysis.BindRelation;
-import org.apache.doris.nereids.rules.analysis.BindSlotReference;
-import org.apache.doris.nereids.rules.analysis.BindSubQueryAlias;
-import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
+import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -62,7 +52,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
             "SELECT * FROM (SELECT * FROM T1 T) T2",
             "SELECT T1.ID ID FROM T1",
             "SELECT T.ID FROM T1 T",
-            "SELECT A.ID, B.SCORE FROM T1 A, T2 B WHERE A.ID = B.ID GROUP BY A.ID ORDER BY A.ID",
+            "SELECT A.ID FROM T1 A, T2 B WHERE A.ID = B.ID GROUP BY A.ID ORDER BY A.ID",
             "SELECT * FROM T1 JOIN T2 ON T1.ID = T2.ID JOIN T2 T ON T1.ID = T.ID"
     );
 
@@ -106,7 +96,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testAnalyze() {
-        checkAnalyze(testSql.get(10));
+        checkAnalyze(testSql.get(8));
     }
 
     @Test
@@ -131,7 +121,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testPlan() throws AnalysisException {
-        PhysicalPlan plan = testPlanCase(testSql.get(9));
+        PhysicalPlan plan = testPlanCase(testSql.get(8));
         PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
         System.out.println(root.getPlanRoot());
     }
@@ -159,20 +149,10 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     }
 
     private void finalizeAnalyze(String sql) {
-        Memo memo = new Memo(parser.parseSingle(sql));
-        PlannerContext plannerContext = new PlannerContext(memo, connectContext);
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
-        plannerContext.setCurrentJobContext(jobContext);
-
-        executeRewriteBottomUpJob(plannerContext,
-                new BindFunction(),
-                new BindRelation(),
-                new BindSubQueryAlias(),
-                new BindSlotReference(),
-                new ProjectToGlobalAggregate());
-        System.out.println(memo.copyOut().treeString());
-        new FinalizeAnalyzeJob(plannerContext).execute();
-        System.out.println(memo.copyOut().treeString());
+        LogicalPlan plan = analyze(sql);
+        System.out.println(plan.treeString());
+        plan = (LogicalPlan) PlanRewriter.bottomUpRewrite(plan, connectContext, new EliminateAliasNode());
+        System.out.println(plan.treeString());
     }
 
     private LogicalPlan analyze(String sql) {
@@ -186,27 +166,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     }
 
     private LogicalPlan analyze(LogicalPlan inputPlan, ConnectContext connectContext) {
-        Memo memo = new Memo(inputPlan);
-
-        PlannerContext plannerContext = new PlannerContext(memo, connectContext);
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
-        plannerContext.setCurrentJobContext(jobContext);
-
-        executeRewriteBottomUpJob(plannerContext,
-                new BindFunction(),
-                new BindRelation(),
-                new BindSubQueryAlias(),
-                new BindSlotReference(),
-                new ProjectToGlobalAggregate());
-        return (LogicalPlan) memo.copyOut();
-    }
-
-    private void executeRewriteBottomUpJob(PlannerContext plannerContext, RuleFactory... ruleFactory) {
-        Group rootGroup = plannerContext.getMemo().getRoot();
-        RewriteBottomUpJob job = new RewriteBottomUpJob(rootGroup,
-                plannerContext.getCurrentJobContext(), Lists.newArrayList(ruleFactory));
-        plannerContext.pushJob(job);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
+        return new NereidsAnalyzer(connectContext).analyze(inputPlan);
     }
 
     /**
@@ -239,10 +199,6 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
                 return false;
             }
         }
-        return true;
-    }
-
-    private boolean checkPlan() {
         return true;
     }
 }
