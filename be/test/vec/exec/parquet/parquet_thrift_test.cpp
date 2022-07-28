@@ -15,17 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <glog/logging.h>
+#include <gtest/gtest.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <string>
+
 #include "io/buffered_reader.h"
 #include "io/file_reader.h"
-#include <gtest/gtest.h>
-#include "util/runtime_profile.h"
 #include "io/local_file_reader.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
-#include <glog/logging.h>
 
 namespace doris {
 namespace vectorized {
@@ -50,15 +52,15 @@ TEST_F(ParquetThriftReaderTest, normal) {
     std::shared_ptr<FileMetaData> metaData;
     reader->open();
     parse_thrift_footer(reader, metaData);
-    tparquet::FileMetaData t_metadata =  metaData->to_thrift_metadata();
+    tparquet::FileMetaData t_metadata = metaData->to_thrift_metadata();
     LOG(WARNING) << "num row groups: " << metaData->num_row_groups();
     LOG(WARNING) << "num columns: " << metaData->num_columns();
     LOG(WARNING) << "=====================================";
-    for (auto value: t_metadata.row_groups) {
-    LOG(WARNING) << "row group num_rows: " << value.num_rows;
-}
+    for (auto value : t_metadata.row_groups) {
+        LOG(WARNING) << "row group num_rows: " << value.num_rows;
+    }
     LOG(WARNING) << "=====================================";
-    for (auto value: t_metadata.schema) {
+    for (auto value : t_metadata.schema) {
         LOG(WARNING) << "schema column name: " << value.name;
         LOG(WARNING) << "schema column type: " << value.type;
         LOG(WARNING) << "schema column repetition_type: " << value.repetition_type;
