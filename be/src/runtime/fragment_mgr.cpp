@@ -640,6 +640,15 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                 fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
             }
         }
+        if (params.__isset.fragment && params.fragment.__isset.plan &&
+            params.fragment.plan.nodes.size() > 0) {
+            for (auto& node : params.fragment.plan.nodes) {
+                if (node.limit > 0 && node.limit < 1024) {
+                    fragments_ctx->set_serial_thread_token();
+                    break;
+                }
+            }
+        }
 
         {
             // Find _fragments_ctx_map again, in case some other request has already
