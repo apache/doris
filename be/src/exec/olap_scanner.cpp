@@ -571,6 +571,7 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(_parent->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_del_filtered);
+    COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_del_by_bitmap);
     COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_vec_del_cond_filtered);
 
     COUNTER_UPDATE(_parent->_conditions_filtered_counter, stats.rows_conditions_filtered);

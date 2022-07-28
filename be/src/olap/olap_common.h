@@ -309,6 +309,7 @@ struct OlapReaderStatistics {
     // and it is also used to record the replaced rows in the Unique key model in the "Reader" class.
     // In segmentv2, if you want to get all filtered rows, you need the sum of "rows_del_filtered" and "rows_conditions_filtered".
     int64_t rows_del_filtered = 0;
+    int64_t rows_del_by_bitmap = 0;
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
 

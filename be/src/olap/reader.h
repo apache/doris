@@ -130,8 +130,9 @@ public:
     uint64_t merged_rows() const { return _merged_rows; }
 
     uint64_t filtered_rows() const {
-        return _stats.rows_del_filtered + _stats.rows_conditions_filtered +
-               _stats.rows_vec_del_cond_filtered + _stats.rows_vec_cond_filtered;
+        return _stats.rows_del_filtered + _stats.rows_del_by_bitmap +
+               _stats.rows_conditions_filtered + _stats.rows_vec_del_cond_filtered +
+               _stats.rows_vec_cond_filtered;
     }
 
     void set_batch_size(int batch_size) { _batch_size = batch_size; }
