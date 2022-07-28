@@ -23,7 +23,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -38,7 +37,7 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
     protected final List<NODE_TYPE> children;
     // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
     // https://github.com/apache/doris/pull/9807#discussion_r884829067
-    protected final Optional<GroupExpression> groupExpression;
+
 
     public AbstractTreeNode(NODE_TYPE... children) {
         this(Optional.empty(), children);
@@ -52,12 +51,7 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
      */
     public AbstractTreeNode(Optional<GroupExpression> groupExpression, NODE_TYPE... children) {
         this.children = ImmutableList.copyOf(children);
-        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
-    }
 
-    @Override
-    public Optional<GroupExpression> getGroupExpression() {
-        return groupExpression;
     }
 
     @Override
