@@ -36,6 +36,8 @@
 
      qt_select_default """  select variance(aa) from ${tableName}; """
 
-     qt_select_default2 """ select variance(bb) from ${tableName}; """
+     // doris decimal variance implementation have deviation,
+     // use round to check result
+     qt_select_default2 """ select round(variance(bb), 6) from ${tableName}; """
 
  }

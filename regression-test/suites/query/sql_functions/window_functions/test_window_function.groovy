@@ -32,6 +32,10 @@ suite("test_window_function", "query") {
                 avg( closing_price ) over ( PARTITION BY stock_symbol ORDER BY closing_date rows BETWEEN 1 preceding AND 1 following ) AS moving_average 
             FROM
                 ${windowFunctionTable1}   
+            ORDER BY
+                stock_symbol,
+                closing_date,
+                closing_price
            """
     // LEAD
     qt_sql """ 
@@ -50,7 +54,7 @@ suite("test_window_function", "query") {
 
     // LEAD not nullable coredump
     qt_sql """
-           select t1.new_time from (select closing_date, lead(closing_date, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date = t1.closing_date;
+           select t1.new_time from (select closing_date, lead(closing_date, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date = t1.closing_date order by t1.new_time desc;
            """
 
     // LAG
@@ -82,7 +86,9 @@ suite("test_window_function", "query") {
                 FROM
                     ${windowFunctionTable2} 
                 WHERE
-                    property IN ( 'odd', 'even' );
+                    property IN ( 'odd', 'even' )
+                ORDER BY
+                    property, x;
            """
     // AVG
     qt_sql """
@@ -93,7 +99,9 @@ suite("test_window_function", "query") {
                FROM
                     ${windowFunctionTable2} 
                WHERE
-                    property IN ( 'odd', 'even' );
+                    property IN ( 'odd', 'even' )
+               ORDER BY
+                    property, x;
            """
     // COUNT
     qt_sql """
@@ -104,7 +112,9 @@ suite("test_window_function", "query") {
                FROM
                     ${windowFunctionTable2}  
                WHERE
-                    property IN ( 'odd', 'even' );
+                    property IN ( 'odd', 'even' )
+               ORDER BY
+                    property, x;
            """
     sql """ truncate table ${windowFunctionTable2} """
     sql """ insert into  ${windowFunctionTable2} values (2,'even'),(4,'even'),(6,'even'),(8,'even'),(10,'even'),(1,'odd'),(3,'odd'),(5,'odd'),(7,'odd'),(9,'odd'); """
@@ -140,11 +150,11 @@ suite("test_window_function", "query") {
     sql """ insert into  ${windowFunctionTable3} values (1,1),(1,2),(1,2),(2,1),(2,2),(2,3),(3,1),(3,1),(3,2); """
 
     // RANK
-    qt_sql """ select x, y, rank() over(partition by x order by y) as rank from ${windowFunctionTable3} ; """
+    qt_sql """ select x, y, rank() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
     // DENSE_RANK
-    qt_sql """ select x, y, dense_rank() over(partition by x order by y) as rank from ${windowFunctionTable3} ; """
+    qt_sql """ select x, y, dense_rank() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
     // ROW_NUMBER
-    qt_sql """ select x, y, row_number() over(partition by x order by y) as rank from ${windowFunctionTable3} ; """
+    qt_sql """ select x, y, row_number() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
 
     sql """ drop table   ${windowFunctionTable3}  """
 
@@ -155,9 +165,9 @@ suite("test_window_function", "query") {
     sql """ insert into ${windowFunctionTable4} VALUES ('Pete','USA','Hello'),('John','USA','Hi'),('Boris','Germany','Guten tag'),('Michael','Germany','Guten morgen'),('Bjorn','Sweden','Hej'),('Mats','Sweden','Tja')"""
 
     // first_value
-    qt_sql """ select country, name,first_value(greeting) over (partition by country order by name, greeting) as greeting from ${windowFunctionTable4}; """
+    qt_sql """ select country, name,first_value(greeting) over (partition by country order by name, greeting) as greeting from ${windowFunctionTable4} order by country, name; """
     // last_value
-    qt_sql """ select country, name,last_value(greeting)  over (partition by country order by name, greeting) as greeting from ${windowFunctionTable4} ; """
+    qt_sql """ select country, name,last_value(greeting)  over (partition by country order by name, greeting) as greeting from ${windowFunctionTable4} order by country, name; """
 
     sql """ drop table   ${windowFunctionTable4}  """
 }

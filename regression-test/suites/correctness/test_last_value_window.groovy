@@ -46,6 +46,6 @@ suite("test_last_value_window") {
     // not_vectorized
     sql """ set enable_vectorized_engine = false; """
 
-    qt_select_default """ select *,last_value(state) over(partition by myday order by time_col) from ${tableName}; """
+    qt_select_default """ select *,last_value(state) over(partition by myday order by time_col) from ${tableName} order by myday, time_col, state; """
 
 }
