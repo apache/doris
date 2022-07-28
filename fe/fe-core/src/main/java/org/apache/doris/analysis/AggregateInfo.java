@@ -496,6 +496,8 @@ public final class AggregateInfo extends AggregateInfoBase {
             FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
                     inputExpr, Lists.newArrayList(aggExprParam), inputExpr.getFnParams().exprs());
             aggExpr.analyzeNoThrow(analyzer);
+            // do not need analyze in merge stage, just do mark for BE get right function
+            aggExpr.setOrderByElements(inputExpr.getOrderByElements());
             aggExprs.add(aggExpr);
         }
 
@@ -621,7 +623,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
         Preconditions.checkState(
                 secondPhaseAggExprs.size() == aggregateExprs.size() + distinctAggExprs.size());
-
         for (FunctionCallExpr aggExpr : secondPhaseAggExprs) {
             aggExpr.analyzeNoThrow(analyzer);
             Preconditions.checkState(aggExpr.isAggregateFunction());
@@ -649,18 +650,16 @@ public final class AggregateInfo extends AggregateInfoBase {
         int numDistinctParams = 0;
         if (!isMultiDistinct) {
             numDistinctParams = distinctAggExprs.get(0).getChildren().size();
-            // If we are counting distinct params of group_concat, we cannot include the custom
-            // separator since it is not a distinct param.
-            if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")
-                    && numDistinctParams == 2) {
-                --numDistinctParams;
-            }
         } else {
             for (int i = 0; i < distinctAggExprs.size(); i++) {
                 numDistinctParams += distinctAggExprs.get(i).getChildren().size();
             }
         }
-
+        // If we are counting distinct params of group_concat, we cannot include the custom
+        // separator since it is not a distinct param.
+        if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
+            numDistinctParams = 1;
+        }
         int numOrigGroupingExprs = inputAggInfo.getGroupingExprs().size() - numDistinctParams;
         Preconditions.checkState(
                 slotDescs.size() == numOrigGroupingExprs + distinctAggExprs.size()
