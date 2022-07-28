@@ -50,6 +50,8 @@ singleStatement
 
 statement
     : query                                                            #statementDefault
+    | (EXPLAIN | DESC | DESCRIBE) level=(VERBOSE | GRAPH)?
+        query                                                          #explain
     ;
 
 //  -----------------Query-----------------
@@ -626,6 +628,7 @@ nonReserved
     | FUNCTIONS
     | GLOBAL
     | GRANT
+    | GRAPH
     | GROUP
     | GROUPING
     | HAVING
@@ -779,6 +782,7 @@ nonReserved
     | USE
     | USER
     | VALUES
+    | VERBOSE
     | VERSION
     | VIEW
     | VIEWS
