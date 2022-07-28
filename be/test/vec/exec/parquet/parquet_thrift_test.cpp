@@ -34,23 +34,17 @@ namespace vectorized {
 
 class ParquetThriftReaderTest : public testing::Test {
 public:
-    ParquetThriftReaderTest() { init(); }
-    void init();
-
-private:
-    FileReader* reader;
+    ParquetThriftReaderTest() {}
 };
 
-void ParquetThriftReaderTest::init() {
-    reader = new LocalFileReader("./be/test/exec/test_data/parquet_scanner/localfile.parquet", 0);
-}
-
 TEST_F(ParquetThriftReaderTest, normal) {
-    auto st = reader->open();
+    LocalFileReader reader("./be/test/exec/test_data/parquet_scanner/localfile.parquet", 0);
+
+    auto st = reader.open();
     EXPECT_TRUE(st.ok());
 
     std::shared_ptr<FileMetaData> metaData;
-    parse_thrift_footer(reader, metaData);
+    parse_thrift_footer(&reader, metaData);
     tparquet::FileMetaData t_metadata = metaData->to_thrift_metadata();
     LOG(WARNING) << "num row groups: " << metaData->num_row_groups();
     LOG(WARNING) << "num columns: " << metaData->num_columns();
@@ -65,7 +59,6 @@ TEST_F(ParquetThriftReaderTest, normal) {
         LOG(WARNING) << "schema column repetition_type: " << value.repetition_type;
         LOG(WARNING) << "schema column num children: " << value.num_children;
     }
-    reader->close();
 }
 
 } // namespace vectorized
