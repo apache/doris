@@ -31,11 +31,11 @@ d_doris=$2
 
 #check args
 if [ ! -n "$1" ];then
-        echo "请输入源数据库名称"
+        echo "please check source database"
         exit
 fi
 if [ ! -n "$2" ];then
-        echo "请输入目标数据库名称"
+        echo "please check sink database"
         exit
 fi
 
@@ -55,11 +55,11 @@ for table in $(awk -F '\n' '{print $1}' ./files/tables)
         do
         sed -i "/${table}view/d" ./files/tables
         echo "use $d_mysql; show create table ${table};" |mysql -h$mysql -uroot -p$mysql_password 2>/dev/null >> ./files/tables.sql
-        echo "输出${table}建表语句到当前file目录的tables.sql文件中"
+        echo "print ${table} sql to tables.sql in the file dir"
 
 done
 
-echo '==============================开始将mysql表结构转换成doris表结构==========================='
+echo '==============================start to transform mysql table for doris extral table==========================='
 #adjust sql
 awk -F '\t' '{print $2}' ./files/tables.sql |awk '!(NR%2)' |awk '{print $0 ";"}' > ./files/tables1.sql
 sed -i 's/\\n/\n/g' ./files/tables1.sql
@@ -137,6 +137,6 @@ sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_bin//g' ./files/tables.sql
 
 #######################################
 #import doris
-echo '==========================================开始入库========================================='
+echo '==========================================start to write database========================================'
 echo " create database if not exists $d_doris ;use $d_doris ; source ./files/tables.sql;" |mysql -h$master_host -P$master_port -uroot -p$doris_password 2>/dev/null
-echo '==========================================入库成功========================================='
+echo '==========================================write database success========================================='
