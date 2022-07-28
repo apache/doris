@@ -48,12 +48,16 @@ github:
       # if strict is true, means "Require branches to be up to date before merging".
         strict: false
         contexts:
-          - Clang Formatter
-          - License Check
+          - BE Code Formatter / Clang Formatter
+          - BE UT (Clang) / BE UT (Clang)
+          - Build Extensions / Detect changes
+          - FE Code Style Checker / CheckStyle
+          - License Check / License Check
+          - Build Extensions / Build Broker
+          - Build Extensions / Build Documents
           - P0 regression (Doris P0 Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
-          - CheckStyle
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
