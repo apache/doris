@@ -70,6 +70,7 @@ public enum PrimitiveType {
     private static final int DECIMAL_INDEX_LEN = 12;
 
     private static ImmutableSetMultimap<PrimitiveType, PrimitiveType> implicitCastMap;
+
     static {
         ImmutableSetMultimap.Builder<PrimitiveType, PrimitiveType> builder = ImmutableSetMultimap.builder();
         // Nulltype
@@ -746,7 +747,7 @@ public enum PrimitiveType {
             case DATETIME: {
                 if (isTimeType) {
                     return MysqlColType.MYSQL_TYPE_TIME;
-                }  else {
+                } else {
                     return MysqlColType.MYSQL_TYPE_DATETIME;
                 }
             }
