@@ -76,6 +76,22 @@ public class ColumnStats {
     private LiteralExpr minValue;
     private LiteralExpr maxValue;
 
+    public ColumnStats(ColumnStats other) {
+        this.ndv = other.ndv;
+        this.avgSize = other.avgSize;
+        this.maxSize = other.maxSize;
+        this.numNulls = other.numNulls;
+        if (other.minValue != null) {
+            this.minValue = (LiteralExpr) other.minValue.clone();
+        }
+        if (other.maxValue != null) {
+            this.maxValue = (LiteralExpr) other.maxValue.clone();
+        }
+    }
+
+    public ColumnStats() {
+    }
+
     public long getNdv() {
         return ndv;
     }
@@ -223,5 +239,15 @@ public class ColumnStats {
             default:
                 throw new AnalysisException("Unsupported setting this type: " + type + " of min max value");
         }
+    }
+
+    public ColumnStats copy() {
+        return new ColumnStats(this);
+    }
+
+    public ColumnStats multiplyDouble(double selectivity) {
+        ndv *= selectivity;
+        numNulls *= selectivity;
+        return this;
     }
 }
