@@ -23,6 +23,7 @@
 #include <string>
 
 #include "runtime/large_int_value.h"
+#include "runtime/mem_pool.h"
 #include "testutil/function_utils.h"
 #include "udf/udf_internal.h"
 
@@ -217,7 +218,9 @@ TEST_F(MathFunctionsTest, hex_string) {
 }
 
 TEST_F(MathFunctionsTest, unhex) {
-    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    MemPool mem_pool;
+    doris_udf::FunctionContext* context =
+            doris_udf::FunctionContext::create_test_context(&mem_pool);
 
     EXPECT_EQ(StringVal::null(), MathFunctions::unhex(context, StringVal::null()));
 
