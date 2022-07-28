@@ -265,6 +265,7 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
 }
 
 Status RuntimeState::init_instance_mem_tracker() {
+    _query_mem_tracker = nullptr;
     _instance_mem_tracker = std::make_unique<MemTrackerLimiter>(-1, "RuntimeState:instance");
     return Status::OK();
 }
