@@ -22,7 +22,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -169,9 +169,10 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
-        // if the plan is LogicalOlapScan, this == that should be true,
-        // because equals() can not divide UnboundRelation and the plan above.
-        if (plan instanceof LogicalOlapScan) {
+        // if the plan is LogicalRelation, this == that should be true,
+        // when if one relation appear in plan more than once,
+        // we cannot distinguish them throw equals function, since equals function cannot use output info.
+        if (plan instanceof LogicalRelation) {
             return false;
         }
         return children.equals(that.children) && plan.equals(that.plan);
