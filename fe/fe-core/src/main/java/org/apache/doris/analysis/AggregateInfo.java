@@ -327,6 +327,13 @@ public final class AggregateInfo extends AggregateInfoBase {
             // TODO: Deal with constant exprs more generally, instead of special-casing
             // group_concat().
             expr0Children.add(distinctAggExprs.get(0).getChild(0).ignoreImplicitCast());
+            FunctionCallExpr distinctExpr = distinctAggExprs.get(0);
+            if (!distinctExpr.getOrderByElements().isEmpty()) {
+                for (int i = distinctExpr.getChildren().size() - distinctExpr.getOrderByElements().size();
+                        i < distinctExpr.getChildren().size(); i++) {
+                    expr0Children.add(distinctAggExprs.get(0).getChild(i));
+                }
+            }
         } else {
             for (Expr expr : distinctAggExprs.get(0).getChildren()) {
                 expr0Children.add(expr.ignoreImplicitCast());
@@ -592,10 +599,17 @@ public final class AggregateInfo extends AggregateInfoBase {
                     // tuple reference is correct.
                     exprList.add(new SlotRef(inputDesc.getSlots().get(origGroupingExprs.size())));
                     // Check if user provided a custom separator
-                    if (inputExpr.getChildren().size() == 2) {
+                    if (inputExpr.getChildren().size() - inputExpr.getOrderByElements().size() == 2) {
                         exprList.add(inputExpr.getChild(1));
                     }
-                    aggExpr = new FunctionCallExpr(inputExpr.getFnName(), exprList);
+
+                    if (!inputExpr.getOrderByElements().isEmpty()) {
+                        for (int i = 0; i < inputExpr.getOrderByElements().size(); i++) {
+                            inputExpr.getOrderByElements().get(i).setExpr(
+                                new SlotRef(inputDesc.getSlots().get(origGroupingExprs.size() + i + 1)));
+                        }
+                    }
+                    aggExpr = new FunctionCallExpr(inputExpr.getFnName(), exprList, inputExpr.getOrderByElements());
                 } else {
                     // SUM(DISTINCT <expr>) -> SUM(<last grouping slot>);
                     // (MIN(DISTINCT ...) and MAX(DISTINCT ...) have their DISTINCT turned
@@ -658,7 +672,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         // If we are counting distinct params of group_concat, we cannot include the custom
         // separator since it is not a distinct param.
         if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
-            numDistinctParams = 1;
+            numDistinctParams = 1 + distinctAggExprs.get(0).getOrderByElements().size();
         }
         int numOrigGroupingExprs = inputAggInfo.getGroupingExprs().size() - numDistinctParams;
         Preconditions.checkState(
