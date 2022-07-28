@@ -34,7 +34,7 @@ MemTrackerLimiter* MemTrackerTaskPool::register_task_mem_tracker_impl(const std:
     bool new_emplace = _task_mem_trackers.lazy_emplace_l(
             task_id, [&](std::shared_ptr<MemTrackerLimiter>) {},
             [&](const auto& ctor) {
-                ctor(task_id, std::make_unique<MemTrackerLimiter>(mem_limit, label, parent));
+                ctor(task_id, std::make_shared<MemTrackerLimiter>(mem_limit, label, parent));
             });
     if (new_emplace) {
         LOG(INFO) << "Register query/load memory tracker, query/load id: " << task_id
