@@ -21,6 +21,8 @@ import org.apache.doris.common.TreeNode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
 
 import java.util.List;
 
@@ -153,6 +155,40 @@ public class ProfileTreeNode extends TreeNode<ProfileTreeNode> {
             sb.append(counterNode.toTree(indent + 1));
         }
         return sb.toString();
+    }
+
+    public JSONObject debugStringInJson(ProfileTreePrinter.PrintLevel level, String nodeLevel) {
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("id", nodeLevel);
+        JSONObject title = new JSONObject();
+        if (!id.equals(ProfileTreeBuilder.UNKNOWN_ID)) {
+            title.put("id", id);
+        }
+        title.put("name", name);
+        jsonObject.put("title", title);
+        if (level == ProfileTreePrinter.PrintLevel.FRAGMENT) {
+            jsonObject.put("fragment", fragmentId);
+            JSONArray labels = new JSONArray();
+            if (!Strings.isNullOrEmpty(maxInstanceActiveTime)) {
+                JSONObject label = new JSONObject();
+                label.put("name", "MaxActiveTime");
+                label.put("value", maxInstanceActiveTime);
+                labels.add(label);
+            }
+            jsonObject.put("labels", labels);
+        }
+        if (level == ProfileTreePrinter.PrintLevel.INSTANCE) {
+            jsonObject.put("active", activeTime);
+            jsonObject.put("non-child", nonChild);
+            JSONArray counters = new JSONArray();
+            for (CounterNode node : counterNode.getChildren()) {
+                JSONObject counter = new JSONObject();
+                counter.put(node.getCounter().first, node.getCounter().second);
+                counters.add(counter);
+            }
+            jsonObject.put("counters", counters);
+        }
+        return jsonObject;
     }
 
     private String printIndent(int indent) {

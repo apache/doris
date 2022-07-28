@@ -227,7 +227,7 @@ public class MetaInfoAction extends RestBaseController {
         Table tbl;
         try {
             db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
-            tbl = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
+            tbl = db.getTableOrMetaException(tblName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
