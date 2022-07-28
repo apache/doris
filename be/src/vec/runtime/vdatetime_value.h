@@ -1006,10 +1006,10 @@ public:
     DateV2Value<T>& operator++() {
         if constexpr (is_datetime) {
             TimeInterval interval(SECOND, 1, false);
-            date_add_interval<SECOND>(interval, *this);
+            date_add_interval<SECOND>(interval);
         } else {
             TimeInterval interval(DAY, 1, false);
-            date_add_interval<DAY>(interval, *this);
+            date_add_interval<DAY>(interval);
         }
         return *this;
     }
