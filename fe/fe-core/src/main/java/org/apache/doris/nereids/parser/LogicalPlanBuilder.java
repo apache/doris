@@ -194,7 +194,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create an aliased table reference. This is typically used in FROM clauses.
      */
-    private LogicalPlan applyAlias(TableAliasContext ctx, LogicalPlan plan) {
+    private LogicalPlan withTableAlias(LogicalPlan plan, TableAliasContext ctx) {
         if (null != ctx.strictIdentifier()) {
             String alias = ctx.strictIdentifier().getText();
             if (null != ctx.identifierList()) {
