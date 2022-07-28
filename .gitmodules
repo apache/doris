@@ -10,3 +10,6 @@
 [submodule ".github/actions/setup-maven"]
 	path = .github/actions/setup-maven
 	url = https://github.com/stCarolas/setup-maven.git
+[submodule ".github/actions/paths-filter"]
+	path = .github/actions/paths-filter
+	url = https://github.com/dorny/paths-filter

@@ -21,6 +21,7 @@ name: BE Code Formatter
 on:
   pull_request:
   push:
+
 jobs:
   clang-format:
     name: "Clang Formatter"
@@ -31,10 +32,25 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+      - name: Paths filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            be_changes:
+              - 'be/src/**'
+              - 'be/test/**'
+
       - name: "Format it!"
+        if: ${{ steps.filter.outputs.be_changes == 'true' }}
         uses: ./.github/actions/clang-format-lint-action
         id: be_clang_format
         with:
           source: 'be/src be/test'
           clangFormatVersion: 13
           inplace: False
+
+      - name: Ignore it!
+        if: ${{ steps.filter.outputs.be_changes == 'false' }}
+        run: echo 'No need to check.'

@@ -17,45 +17,80 @@
 #
 ---
 name: Build Extensions
+
 on:
   pull_request:
-  push:
+
+concurrency:
+  group: ${{ github.head_ref || github.ref_name }} (Build Extensions)
+  cancel-in-progress: true
 
 jobs:
-  build-extension:
-    name: "Build Extensions"
+  changes:
+    name: Detect changes
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
+    outputs:
+      broker_changes: ${{ steps.filter.outputs.broker_changes }}
+      docs_changes: ${{ steps.filter.outputs.docs_changes }}
     steps:
-    - name: Checkout
-      uses: actions/checkout@master
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          submodules: recursive
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v1
-      with:
-        node-version: 16.14.0
+      - name: Paths filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            broker_changes:
+              - 'fs_brokers/**'
+            docs_changes:
+              - 'docs/**'
 
-    - name: Setup java
-      uses: actions/setup-java@v2
-      with:
-        distribution: adopt
-        java-version: '8'
+  build-broker:
+    name: Build Broker
+    needs: changes
+    if: ${{ needs.changes.outputs.broker_changes == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
 
-    - name: Setup thrift
-      run: |
-        sudo apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y thrift-compiler=0.13.0-2build2
-        thrift --version
-        mkdir -p thirdparty/installed/bin/
-        cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
+      - name: Setup java
+        uses: actions/setup-java@v2
+        with:
+          distribution: adopt
+          java-version: '8'
 
-    - name: Build broker
-      run: |
-        cd fs_brokers/apache_hdfs_broker/ && /bin/bash build.sh
+      - name: Setup thrift
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y thrift-compiler=0.13.0-2build2
+          thrift --version
+          mkdir -p thirdparty/installed/bin/
+          cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
 
-    - name: Build docs
-      run: |
-        cd docs &&  /bin/bash build_help_zip.sh && export NODE_OPTIONS="--max-old-space-size=8192" && npm install && npm run build
+      - name: Build broker
+        run: |
+          cd fs_brokers/apache_hdfs_broker/ && /bin/bash build.sh
+
+  build-docs:
+    name: Build Documents
+    needs: changes
+    if: ${{ needs.changes.outputs.docs_changes == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: 16.14.0
+
+      - name: Build docs
+        run: |
+          cd docs &&  /bin/bash build_help_zip.sh && export NODE_OPTIONS="--max-old-space-size=8192" && npm install && npm run build
 
