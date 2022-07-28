@@ -148,8 +148,7 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
             parse_result = StringParser::PARSE_FAILURE;
         }
 
-        *reinterpret_cast<PackedInt128*>(slot) =
-                binary_cast<DecimalV2Value, PackedInt128>(decimal_slot);
+        *reinterpret_cast<PackedInt128*>(slot) = decimal_slot.value();
         break;
     }
 
@@ -301,9 +300,8 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
             parse_result = StringParser::PARSE_FAILURE;
             break;
         }
-        PackedInt128 num = binary_cast<DecimalV2Value, PackedInt128>(decimal_slot);
-        reinterpret_cast<vectorized::ColumnVector<doris::PackedInt128>*>(col_ptr)->insert_value(
-                num.value);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(
+                decimal_slot.value());
         break;
     }
 
