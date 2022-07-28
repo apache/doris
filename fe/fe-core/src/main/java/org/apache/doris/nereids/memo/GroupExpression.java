@@ -22,7 +22,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -136,19 +136,19 @@ public class GroupExpression {
     }
 
     /**
-     * Add a (outputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
+     * Add a (parentOutputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
      */
     public boolean updateLowestCostTable(
-            PhysicalProperties outputProperties,
+            PhysicalProperties parentOutputProperties,
             List<PhysicalProperties> childrenInputProperties,
             double cost) {
-        if (lowestCostTable.containsKey(outputProperties)) {
-            if (lowestCostTable.get(outputProperties).first > cost) {
-                lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+        if (lowestCostTable.containsKey(parentOutputProperties)) {
+            if (lowestCostTable.get(parentOutputProperties).first > cost) {
+                lowestCostTable.put(parentOutputProperties, new Pair<>(cost, childrenInputProperties));
                 return true;
             }
         } else {
-            lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+            lowestCostTable.put(parentOutputProperties, new Pair<>(cost, childrenInputProperties));
             return true;
         }
         return false;
@@ -168,6 +168,11 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
+        // if the plan is LogicalOlapScan, this == that should be true,
+        // because equals() can not divide UnboundRelation and the plan above.
+        if (plan instanceof LogicalOlapScan) {
+            return false;
+        }
         return children.equals(that.children) && plan.equals(that.plan);
     }
 

@@ -25,15 +25,14 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Eliminate the logical sub query and alias node after analyze and before rewrite
  * If we match the alias node and return its child node, in the execute() of the job
- *
+ * <p>
  * TODO: refactor group merge strategy to support the feature above
  */
 public class EliminateAliasNode implements AnalysisRuleFactory {
@@ -41,30 +40,43 @@ public class EliminateAliasNode implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 RuleType.PROJECT_ELIMINATE_ALIAS_NODE.build(
-                        logicalProject().then(project -> eliminateSubQueryAliasNode(project, project.children()))
+                        logicalProject(logicalSubQueryAlias())
+                                .then(project -> eliminateSubQueryAliasNode(project, project.children()))
                 ),
                 RuleType.FILTER_ELIMINATE_ALIAS_NODE.build(
-                        logicalFilter().then(filter -> eliminateSubQueryAliasNode(filter, filter.children()))
-                ),
-                RuleType.JOIN_ELIMINATE_ALIAS_NODE.build(
-                        logicalJoin().then(join -> eliminateSubQueryAliasNode(join, join.children()))
+                        logicalFilter(logicalSubQueryAlias())
+                                .then(filter -> eliminateSubQueryAliasNode(filter, filter.children()))
                 ),
                 RuleType.AGGREGATE_ELIMINATE_ALIAS_NODE.build(
-                        logicalAggregate().then(agg -> eliminateSubQueryAliasNode(agg, agg.children()))
+                        logicalAggregate(logicalSubQueryAlias())
+                                .then(agg -> eliminateSubQueryAliasNode(agg, agg.children()))
+                ),
+                RuleType.JOIN_ELIMINATE_ALIAS_NODE.build(
+                        logicalJoin().then(join -> joinEliminateSubQueryAliasNode(join, join.children()))
                 )
         );
     }
 
     private LogicalPlan eliminateSubQueryAliasNode(LogicalPlan node, List<Plan> aliasNodes) {
-        ArrayList<Plan> nodes = Lists.newArrayList();
-        aliasNodes.forEach(child -> {
+        List<Plan> nodes = aliasNodes.stream()
+                .map(this::getPlan)
+                .collect(Collectors.toList());
+        return (LogicalPlan) node.withChildren(nodes);
+    }
+
+    private LogicalPlan joinEliminateSubQueryAliasNode(LogicalPlan node, List<Plan> aliasNode) {
+        List<Plan> nodes = aliasNode.stream()
+                .map(child -> {
                     if (checkIsSubQueryAliasNode(child)) {
-                        nodes.add(getPlan(child));
-                    } else {
-                        nodes.add(child);
+                        return ((GroupPlan) child).getGroup()
+                                .getLogicalExpression()
+                                .child(0)
+                                .getLogicalExpression()
+                                .getPlan();
                     }
-                }
-        );
+                    return child;
+                })
+                .collect(Collectors.toList());
         return (LogicalPlan) node.withChildren(nodes);
     }
 
@@ -74,6 +86,6 @@ public class EliminateAliasNode implements AnalysisRuleFactory {
     }
 
     private Plan getPlan(Plan node) {
-        return ((GroupPlan) node).getGroup().getLogicalExpression().child(0).getLogicalExpression().getPlan();
+        return ((GroupPlan) node.child(0)).getGroup().getLogicalExpression().getPlan();
     }
 }
