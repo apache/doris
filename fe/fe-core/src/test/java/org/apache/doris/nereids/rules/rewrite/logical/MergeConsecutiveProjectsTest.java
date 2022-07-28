@@ -21,7 +21,11 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -59,4 +63,54 @@ public class MergeConsecutiveProjectsTest {
         Assert.assertTrue(((LogicalProject<?>) plan).getProjects().equals(Lists.newArrayList(colA)));
         Assert.assertTrue(plan.child(0) instanceof UnboundRelation);
     }
+
+    /**
+     *       project2(X + 2)
+     *             |
+     *       project1(B, C, A+1 as X)
+     *             |
+     *       relation
+     * transform to :
+     *       project2((A + 1) + 2)
+     *             |
+     *       relation
+     */
+    @Test
+    public void testMergeConsecutiveProjectsWithAlias() {
+        UnboundRelation relation = new UnboundRelation(Lists.newArrayList("db", "table"));
+        NamedExpression colA = new SlotReference("a", IntegerType.INSTANCE, true, Lists.newArrayList("a"));
+        NamedExpression colB = new SlotReference("b", IntegerType.INSTANCE, true, Lists.newArrayList("b"));
+        NamedExpression colC = new SlotReference("c", IntegerType.INSTANCE, true, Lists.newArrayList("c"));
+        Alias alias = new Alias(new Add(colA, new IntegerLiteral(1)), "X");
+        Slot aliasRef = alias.toSlot();
+
+        LogicalProject project1 = new LogicalProject(
+                Lists.newArrayList(
+                        colB,
+                        colC,
+                        alias),
+                relation);
+        LogicalProject project2 = new LogicalProject(
+                Lists.newArrayList(
+                        new Alias(new Add(aliasRef, new IntegerLiteral(2)), "Y")
+                ),
+                project1);
+
+        PlannerContext plannerContext = new Memo(project2)
+                .newPlannerContext(new ConnectContext())
+                .setDefaultJobContext();
+        List<Rule> rules = Lists.newArrayList(new MergeConsecutiveProjects().build());
+        plannerContext.bottomUpRewrite(rules);
+        Plan plan = plannerContext.getMemo().copyOut();
+        System.out.println(plan.treeString());
+        Assert.assertTrue(plan instanceof LogicalProject);
+        LogicalProject finalProject = (LogicalProject) plan;
+        Add finalExpression = new Add(
+                new Add(colA, new IntegerLiteral(1)),
+                new IntegerLiteral(2)
+        );
+        Assert.assertEquals(1, finalProject.getProjects().size());
+        Assert.assertTrue(((Alias) finalProject.getProjects().get(0)).child().equals(finalExpression));
+    }
+
 }
