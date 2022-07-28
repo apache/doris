@@ -145,11 +145,7 @@ TEST(VGenericIteratorsTest, MergeAgg) {
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-<<<<<<< HEAD
-    auto iter = vectorized::new_merge_iterator(inputs, -1, false, nullptr);
-=======
-    auto iter = vectorized::new_merge_iterator(inputs, -1, false, false);
->>>>>>> f21d98b32 (fix ut)
+    auto iter = vectorized::new_merge_iterator(inputs, -1, false, false, nullptr);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -198,11 +194,7 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-<<<<<<< HEAD
-    auto iter = vectorized::new_merge_iterator(inputs, -1, true, nullptr);
-=======
-    auto iter = vectorized::new_merge_iterator(inputs, -1, true, false);
->>>>>>> f21d98b32 (fix ut)
+    auto iter = vectorized::new_merge_iterator(inputs, -1, true, false, nullptr);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
