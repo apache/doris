@@ -787,6 +787,7 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
     vectorized::Int128 int128;
     char* data_ptr = (char *) &int128;
     size_t data_len = sizeof(int128);
+    dst = dst->convert_to_predicate_column_if_dictionary();
 
     auto insert_column_data = [&]() {
         for (size_t i = 0; i < n; ++i) {
