@@ -156,17 +156,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     }
 
     private LogicalPlan analyze(String sql) {
-        try {
-            LogicalPlan parsed = parser.parseSingle(sql);
-            System.out.println(parsed.treeString());
-            return analyze(parsed, connectContext);
-        } catch (Throwable t) {
-            throw new IllegalStateException("Analyze failed", t);
-        }
-    }
-
-    private LogicalPlan analyze(LogicalPlan inputPlan, ConnectContext connectContext) {
-        return new NereidsAnalyzer(connectContext).analyze(inputPlan);
+        return new NereidsAnalyzer(connectContext).analyze(sql);
     }
 
     /**
