@@ -32,6 +32,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -47,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -276,6 +278,14 @@ public class CreateTableStmt extends DdlStmt {
         if (engineName.equals("hive") && !Config.enable_spark_load) {
             throw new AnalysisException("Spark Load from hive table is coming soon");
         }
+
+        // `analyzeUniqueKeyMergeOnWrite` would modify `properties`, which will be used later,
+        // so we just clone a properties map here.
+        boolean enableUniqueKeyMergeOnWrite = false;
+        if (properties != null) {
+            enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(new HashMap<>(properties));
+        }
+
         // analyze key desc
         if (engineName.equalsIgnoreCase("olap")) {
             // olap table
@@ -339,6 +349,9 @@ public class CreateTableStmt extends DdlStmt {
                 if (keysDesc.getKeysType() == KeysType.DUP_KEYS) {
                     type = AggregateType.NONE;
                 }
+                if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
+                    type = AggregateType.NONE;
+                }
                 for (int i = keysDesc.keysColumnSize(); i < columnDefs.size(); ++i) {
                     columnDefs.get(i).setAggregateType(type);
                 }
@@ -363,7 +376,11 @@ public class CreateTableStmt extends DdlStmt {
         if (Config.enable_batch_delete_by_default
                 && keysDesc != null
                 && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
-            columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
+            // TODO(zhangchen): Disable the delete sign column for primary key temporary, will replace
+            // with a better solution later.
+            if (!enableUniqueKeyMergeOnWrite) {
+                columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
+            }
         }
         boolean hasObjectStored = false;
         String objectStoredColumn = "";

@@ -278,9 +278,8 @@ Status DeltaWriter::wait_flush() {
 }
 
 void DeltaWriter::_reset_mem_table() {
-    _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema.get(),
-                                  _req.slots, _req.tuple_desc, _tablet->keys_type(),
-                                  _rowset_writer.get(), _is_vec));
+    _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
+                                  _req.tuple_desc, _rowset_writer.get(), _is_vec));
 }
 
 Status DeltaWriter::close() {
