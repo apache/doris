@@ -67,6 +67,7 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -122,8 +123,6 @@ import org.antlr.v4.runtime.RuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
-import org.apache.spark.sql.catalyst.parser.SqlBaseParser.SearchedCaseContext;
-import org.apache.spark.sql.catalyst.parser.SqlBaseParser.SimpleCaseContext;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -209,11 +208,33 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create an aliased table reference. This is typically used in FROM clauses.
      */
+    private LogicalPlan withTableAlias(LogicalPlan plan, TableAliasContext ctx) {
+        String alias = ctx.strictIdentifier().getText();
+        if (null != ctx.identifierList()) {
+            throw new ParseException("Do not implemented", ctx);
+            // List<String> colName = visitIdentifierSeq(ctx.identifierList().identifierSeq());
+            // TODO: multi-colName
+        }
+        return new LogicalSubQueryAlias<>(alias, plan);
+    }
+
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
-        // TODO: sample and time travel, alias, sub query
-        return new UnboundRelation(tableId);
+        if (null == ctx.tableAlias().strictIdentifier()) {
+            return new UnboundRelation(tableId);
+        }
+        return withTableAlias(new UnboundRelation(tableId), ctx.tableAlias());
+    }
+
+    @Override
+    public LogicalPlan visitAliasedQuery(AliasedQueryContext ctx) {
+        return withTableAlias(visitQuery(ctx.query()), ctx.tableAlias());
+    }
+
+    @Override
+    public LogicalPlan visitAliasedRelation(AliasedRelationContext ctx) {
+        return withTableAlias((LogicalPlan) super.visitRelation(ctx.relation()), ctx.tableAlias());
     }
 
     /**
