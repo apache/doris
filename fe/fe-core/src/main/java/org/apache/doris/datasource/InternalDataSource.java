@@ -1731,6 +1731,23 @@ public class InternalDataSource implements DataSourceIf<Database> {
         // this should be done before create partition.
         Map<String, String> properties = stmt.getProperties();
 
+        // get use light schema change
+        Boolean useLightSchemaChange = false;
+        try {
+            useLightSchemaChange = PropertyAnalyzer.analyzeUseLightSchemaChange(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        // use light schema change optimization
+        olapTable.setUseLightSchemaChange(useLightSchemaChange);
+        if (useLightSchemaChange) {
+            for (Column column : baseSchema) {
+                column.setUniqueId(olapTable.incAndGetMaxColUniqueId());
+                LOG.debug("table: {}, newColumn: {}, uniqueId: {}", olapTable.getName(), column.getName(),
+                    column.getUniqueId());
+            }
+        }
+
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
         try {

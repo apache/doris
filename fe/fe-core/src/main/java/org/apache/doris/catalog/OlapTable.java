@@ -1561,6 +1561,22 @@ public class OlapTable extends Table {
         tableProperty.buildInMemory();
     }
 
+    public Boolean getUseLightSchemaChange() {
+        if (tableProperty != null) {
+            return tableProperty.getUseSchemaLightChange();
+        }
+        return false;
+    }
+
+    public void setUseLightSchemaChange(boolean useLightSchemaChange) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE,
+            Boolean.valueOf(useLightSchemaChange).toString());
+        tableProperty.buildUseLightSchemaChange();
+    }
+
     public void setStoragePolicy(String storagePolicy) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
