@@ -89,6 +89,7 @@ public final class QeProcessorImpl implements QeProcessor {
         }
     }
 
+    @Override
     public void registerInstances(TUniqueId queryId, Integer instancesNum) throws UserException {
         if (!coordinatorMap.containsKey(queryId)) {
             throw new UserException("query not exists in coordinatorMap:" + DebugUtil.printId(queryId));
@@ -143,7 +144,9 @@ public final class QeProcessorImpl implements QeProcessor {
                 }
             }
         } else {
-            LOG.warn("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
+            }
         }
     }
 
