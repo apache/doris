@@ -190,18 +190,19 @@ public:
         return _storage_policy;
     }
 
-    void set_storage_policy(std::string policy) {
+    void set_storage_policy(const std::string& policy) {
         std::unique_lock<std::shared_mutex> wlock(_meta_lock);
         VLOG_NOTICE << "set tablet_id : " << _table_id << " storage policy from " << _storage_policy
                     << " to " << policy;
-        _storage_policy = std::move(policy);
+        _storage_policy = policy;
     }
+
     static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                          ColumnPB* column);
 
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
-    bool enable_unique_key_merge_on_write() { return _enable_unique_key_merge_on_write; }
+    bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
 
 private:
     Status _save_meta(DataDir* data_dir);

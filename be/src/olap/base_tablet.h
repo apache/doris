@@ -61,9 +61,7 @@ public:
 
     const std::string& storage_policy() const { return _tablet_meta->storage_policy(); }
 
-    void set_storage_policy(std::string policy) {
-        _tablet_meta->set_storage_policy(std::move(policy));
-    }
+    void set_storage_policy(const std::string& policy) { _tablet_meta->set_storage_policy(policy); }
 
     // properties encapsulated in TabletSchema
     virtual const TabletSchema& tablet_schema() const;
