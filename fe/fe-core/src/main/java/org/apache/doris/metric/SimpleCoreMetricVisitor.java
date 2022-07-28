@@ -114,7 +114,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
                     String.format("%.2f", Double.valueOf(metric.getValue().toString())))).append("\n");
         } else {
             sb.append(Joiner.on(" ")
-                            .join(prefix + metric.getName(), CORE_METRICS.get(metric.getName()), metric.getValue().toString()))
+                    .join(prefix + metric.getName(), CORE_METRICS.get(metric.getName()), metric.getValue().toString()))
                     .append("\n");
         }
         return;

@@ -80,7 +80,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -263,7 +262,6 @@ public class Load {
         writeLock();
         try {
             unprotectAddLoadJob(job, false /* not replay */);
-            MetricRepo.COUNTER_LOAD_ADD.increase(1L);
             Env.getCurrentEnv().getEditLog().logLoadStart(job);
         } finally {
             writeUnlock();
