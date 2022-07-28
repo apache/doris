@@ -29,28 +29,28 @@ RUN yum clean all
 
 # install maven 3.6.3
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
-    wget -q -O /tmp/apache-maven.tar.gz https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.6.3-bin.tar.gz && \
+    wget -q -O /tmp/apache-maven.tar.gz https://dlcdn.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz && \
     tar -xzf /tmp/apache-maven.tar.gz -C /usr/share/maven --strip-components=1 && \
     rm -f /tmp/apache-maven.tar.gz && \
     ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
 
 # install nodejs
-RUN wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v12.13.0-linux-x64.tar.gz \
-    -q -O /tmp/node-v12.13.0-linux-x64.tar.gz \
-    && cd /tmp/ && tar -xf node-v12.13.0-linux-x64.tar.gz \
-    && cp -r node-v12.13.0-linux-x64/* /usr/local/ \
-    && rm /tmp/node-v12.13.0-linux-x64.tar.gz && rm -rf node-v12.13.0-linux-x64
+RUN wget https://nodejs.org/dist/v16.3.0/node-v16.3.0-linux-arm64.tar.xz \
+    -q -O /tmp/node-v16.3.0-linux-arm64.tar.xz \
+    && cd /tmp/ && tar -xf node-v16.3.0-linux-arm64.tar.xz \
+    && cp -r node-v16.3.0-linux-arm64/* /usr/local/ \
+    && rm /tmp/node-v16.3.0-linux-arm64.tar.xz && rm -rf node-v16.3.0-linux-arm64
 
 # install ldb-toolchain
-RUN wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/ldb_toolchain_gen-v0.9.1.sh \
-    -q -O /tmp/ldb_toolchain_gen.sh \
-    && sh /tmp/ldb_toolchain_gen.sh /var/local/ldb-toolchain/ \
-    && rm /tmp/ldb_toolchain_gen.sh
+RUN wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh \
+    -q -O /tmp/ldb_toolchain_gen.aarch64.sh \
+    && sh /tmp/ldb_toolchain_gen.aarch64.sh /var/local/ldb-toolchain/ \
+    && rm /tmp/ldb_toolchain_gen.aarch64.sh
 
 # there is a repo which is included all of thirdparty
 ENV REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/" \
     DEFAULT_DIR="/var/local" \
-    JAVA_HOME="/usr/lib/jvm/java-1.8.0" \
+    JAVA_HOME="/usr/lib/jvm/java-11" \
     PATH="/var/local/ldb-toolchain/bin/:$PATH"
 
 # disable auto enable ccache
@@ -66,15 +66,15 @@ RUN cd ${DEFAULT_DIR}/doris && /bin/bash thirdparty/build-thirdparty.sh \
     && mv ${DEFAULT_DIR}/doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
     && rm -rf ${DEFAULT_DIR}/doris
 
-RUN alternatives --set java java-1.8.0-openjdk.x86_64 && alternatives --set javac java-1.8.0-openjdk.x86_64
+RUN alternatives --set java java-11-openjdk.aarch64 && alternatives --set javac java-11-openjdk.aarch64
 
 
 # squash all layers to reduce the image size
 FROM scratch
 COPY --from=builder / /
-ENV JAVA_HOME="/usr/lib/jvm/java-1.8.0" \
+ENV JAVA_HOME="/usr/lib/jvm/java-11" \
     MAVEN_HOME="/usr/share/maven" \
-    REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty" \
+    REPOSITORY_URL="" \
     DEFAULT_DIR="/var/local" \
     PATH="/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:$PATH" \
     DORIS_THIRDPARTY="/var/local/thirdparty"

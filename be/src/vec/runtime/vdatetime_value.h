@@ -166,7 +166,7 @@ static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::
 static constexpr uint8_t TIME_PART_LENGTH = 37;
 
 static constexpr uint32_t MAX_DATE_V2 = 31 | (12 << 5) | (9999 << 9);
-static constexpr uint32_t MIN_DATE_V2 = 1 | (1 << 5) | (1000 << 9);
+static constexpr uint32_t MIN_DATE_V2 = 1 | (1 << 5);
 
 static constexpr uint64_t MAX_DATETIME_V2 = ((uint64_t)MAX_DATE_V2 << TIME_PART_LENGTH) |
                                             ((uint64_t)23 << 32) | ((uint64_t)59 << 26) |
@@ -174,7 +174,7 @@ static constexpr uint64_t MAX_DATETIME_V2 = ((uint64_t)MAX_DATE_V2 << TIME_PART_
 static constexpr uint64_t MIN_DATETIME_V2 = (uint64_t)MIN_DATE_V2 << TIME_PART_LENGTH;
 
 static constexpr uint32_t MAX_YEAR = 9999;
-static constexpr uint32_t MIN_YEAR = 1000;
+static constexpr uint32_t MIN_YEAR = 0;
 
 static constexpr uint32_t DATEV2_YEAR_WIDTH = 23;
 static constexpr uint32_t DATETIMEV2_YEAR_WIDTH = 18;

@@ -152,7 +152,7 @@ public:
     int64_t size() const { return _num_nodes; }
 
     // Returns the number of buckets
-    int64_t num_buckets() { return _buckets.size(); }
+    int64_t num_buckets() const { return _buckets.size(); }
 
     // Returns the number of filled buckets
     int64_t num_filled_buckets() const { return _num_filled_buckets; }
@@ -286,11 +286,11 @@ public:
             return _node->matched;
         }
 
-        bool operator==(const Iterator& rhs) {
+        bool operator==(const Iterator& rhs) const {
             return _bucket_idx == rhs._bucket_idx && _node == rhs._node;
         }
 
-        bool operator!=(const Iterator& rhs) {
+        bool operator!=(const Iterator& rhs) const {
             return _bucket_idx != rhs._bucket_idx || _node != rhs._node;
         }
 

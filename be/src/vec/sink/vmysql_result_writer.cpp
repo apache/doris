@@ -214,7 +214,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             if constexpr (type == TYPE_DOUBLE) {
                 buf_ret = _buffer.push_double(data[i]);
             }
-            if constexpr (type == TYPE_TIME) {
+            if constexpr (type == TYPE_TIME || type == TYPE_TIMEV2) {
                 buf_ret = _buffer.push_time(data[i]);
             }
             if constexpr (type == TYPE_DATETIME) {
@@ -499,6 +499,14 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 status = _add_one_column<PrimitiveType::TYPE_TIME, true>(column_ptr, result);
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_TIME, false>(column_ptr, result);
+            }
+            break;
+        }
+        case TYPE_TIMEV2: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_TIMEV2, true>(column_ptr, result);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_TIMEV2, false>(column_ptr, result);
             }
             break;
         }
