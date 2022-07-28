@@ -1440,7 +1440,7 @@ TEST(VTimestampFunctionsTest, to_days_v2_test) {
         DataSet data_set = {{{std::string("2021-01-01")}, 738156},
                             {{std::string("")}, Null()},
                             {{std::string("2021-01-32")}, Null()},
-                            {{std::string("0000-01-01")}, Null()}};
+                            {{std::string("0000-01-01")}, 1}};
 
         check_function<DataTypeInt32, true>(func_name, input_types, data_set);
     }
@@ -1450,7 +1450,7 @@ TEST(VTimestampFunctionsTest, to_days_v2_test) {
         DataSet data_set = {{{std::string("2021-01-01 00:00:11.123")}, 738156},
                             {{std::string("")}, Null()},
                             {{std::string("2021-01-32 00:00:11.123")}, Null()},
-                            {{std::string("0000-01-01 00:00:11.123")}, Null()}};
+                            {{std::string("0000-01-01 00:00:11.123")}, 1}};
 
         check_function<DataTypeInt32, true>(func_name, input_types, data_set);
     }
@@ -1462,10 +1462,11 @@ TEST(VTimestampFunctionsTest, date_v2_test) {
     {
         InputTypeSet input_types = {TypeIndex::DateV2};
 
-        DataSet data_set = {{{std::string("2021-01-01")}, str_to_date_v2("2021-01-01", "%Y-%m-%d")},
-                            {{std::string("")}, Null()},
-                            {{Null()}, Null()},
-                            {{std::string("0000-01-01")}, Null()}};
+        DataSet data_set = {
+                {{std::string("2021-01-01")}, str_to_date_v2("2021-01-01", "%Y-%m-%d")},
+                {{std::string("")}, Null()},
+                {{Null()}, Null()},
+                {{std::string("0000-01-01")}, str_to_date_v2("0000-01-01", "%Y-%m-%d")}};
 
         check_function<DataTypeDateV2, true>(func_name, input_types, data_set);
     }
@@ -1476,7 +1477,8 @@ TEST(VTimestampFunctionsTest, date_v2_test) {
                              str_to_date_v2("2021-01-01", "%Y-%m-%d")},
                             {{std::string("")}, Null()},
                             {{Null()}, Null()},
-                            {{std::string("0000-01-01 00:00:11.123")}, Null()}};
+                            {{std::string("0000-01-01 00:00:11.123")},
+                             str_to_date_v2("0000-01-01", "%Y-%m-%d")}};
 
         check_function<DataTypeDateV2, true>(func_name, input_types, data_set);
     }
