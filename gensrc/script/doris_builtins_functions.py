@@ -367,9 +367,6 @@ visible_functions = [
     [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIME', [],
         '_ZN5doris18TimestampFunctions3nowEPN9doris_udf15FunctionContextE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
-    [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIMEV2', [],
-     '_ZN5doris18TimestampFunctions3nowEPN9doris_udf15FunctionContextE',
-     '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['curtime', 'current_time'], 'TIME', [],
         '_ZN5doris18TimestampFunctions7curtimeEPN9doris_udf15FunctionContextE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
@@ -436,7 +433,7 @@ visible_functions = [
         '_ZN5doris18TimestampFunctions6secondEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
 
-    [['makedate'], 'DATETIME', ['INT', 'INT'],
+    [['makedate'], 'DATE', ['INT', 'INT'],
         '_ZN5doris18TimestampFunctions9make_dateEPN9doris_udf15FunctionContextERKNS1_6IntValES6_',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['years_add'], 'DATETIME', ['DATETIME', 'INT'],
@@ -739,19 +736,10 @@ visible_functions = [
             '_ZN5doris18TimestampFunctions11second_ceilEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValES6_',
             '', '', 'vec', 'ALWAYS_NULLABLE'],
 
-    [['curdate', 'current_date'], 'DATEV2', [],
-     '_ZN5doris18TimestampFunctions7curdateEPN9doris_udf15FunctionContextE',
-     '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
-    [['utc_timestamp'], 'DATETIMEV2', [],
-     '_ZN5doris18TimestampFunctions13utc_timestampEPN9doris_udf15FunctionContextE',
-     '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['timestamp'], 'DATETIMEV2', ['DATETIMEV2'],
      '_ZN5doris18TimestampFunctions9timestampEPN9doris_udf15FunctionContextERKNS1_11DateTimeV2ValE',
      '', '', 'vec', 'ALWAYS_NULLABLE'],
 
-    [['from_days'], 'DATEV2', ['INT'],
-     '_ZN5doris18TimestampFunctions9from_daysEPN9doris_udf15FunctionContextERKNS1_6IntValE',
-     '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['to_days'], 'INT', ['DATEV2'],
      '_ZN5doris18TimestampFunctions7to_daysEPN9doris_udf15FunctionContextERKNS1_11DateTimeV2ValE',
      '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -848,9 +836,6 @@ visible_functions = [
      '_ZN5doris18TimestampFunctions6secondEPN9doris_udf15FunctionContextERKNS1_11DateV2ValE',
      '', '', 'vec', 'ALWAYS_NULLABLE'],
 
-    [['makedate'], 'DATETIMEV2', ['INT', 'INT'],
-     '_ZN5doris18TimestampFunctions9make_dateEPN9doris_udf15FunctionContextERKNS1_6IntValES6_',
-     '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['years_add'], 'DATETIMEV2', ['DATETIMEV2', 'INT'],
      '_ZN5doris18TimestampFunctions9years_addEPN9doris_udf'
      '15FunctionContextERKNS1_11DateTimeV2ValERKNS1_6IntValE',
@@ -916,9 +901,6 @@ visible_functions = [
      '15FunctionContextERKNS1_11DateTimeV2ValERKNS1_6IntValE',
      '', '', '', ''],
 
-    [['makedate'], 'DATEV2', ['INT', 'INT'],
-     '_ZN5doris18TimestampFunctions9make_dateEPN9doris_udf15FunctionContextERKNS1_6IntValES6_',
-     '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['years_add'], 'DATEV2', ['DATEV2', 'INT'],
      '_ZN5doris18TimestampFunctions9years_addEPN9doris_udf'
      '15FunctionContextERKNS1_11DateTimeV2ValERKNS1_6IntValE',
@@ -1026,12 +1008,6 @@ visible_functions = [
      '_ZN5doris18TimestampFunctions9time_diffEPN9doris_udf'
      '15FunctionContextERKNS1_11DateTimeV2ValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
 
-    [['str_to_date'], 'DATETIMEV2', ['VARCHAR', 'VARCHAR'],
-     '_ZN5doris18TimestampFunctions11str_to_dateEPN9doris_udf'
-     '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
-    [['str_to_date'], 'DATETIMEV2', ['STRING', 'STRING'],
-     '_ZN5doris18TimestampFunctions11str_to_dateEPN9doris_udf'
-     '15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['date_format'], 'VARCHAR', ['DATETIMEV2', 'VARCHAR'],
      '_ZN5doris18TimestampFunctions11date_formatEPN9doris_udf'
      '15FunctionContextERKNS1_11DateTimeV2ValERKNS1_9StringValE',

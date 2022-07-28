@@ -603,13 +603,29 @@ struct CurrentDateTimeImpl {
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, size_t result,
                           size_t input_rows_count) {
-        auto col_to = ColumnVector<Int64>::create();
-        VecDateTimeValue dtv;
+        WhichDataType which(block.get_by_position(result).type);
+        if (which.is_date_time_v2()) {
+            return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(context, block, result,
+                                                                         input_rows_count);
+        } else if (which.is_date_v2()) {
+            return executeImpl<DateV2Value<DateV2ValueType>, UInt32>(context, block, result,
+                                                                     input_rows_count);
+        } else {
+            return executeImpl<VecDateTimeValue, Int64>(context, block, result, input_rows_count);
+        }
+    }
+
+    template <typename DateValueType, typename NativeType>
+    static Status executeImpl(FunctionContext* context, Block& block, size_t result,
+                              size_t input_rows_count) {
+        auto col_to = ColumnVector<NativeType>::create();
+        DateValueType dtv;
         if (dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
                               context->impl()->state()->timezone_obj())) {
-            reinterpret_cast<VecDateTimeValue*>(&dtv)->set_type(TIME_DATETIME);
-            auto date_packed_int = binary_cast<doris::vectorized::VecDateTimeValue, int64_t>(
-                    *reinterpret_cast<VecDateTimeValue*>(&dtv));
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
+            }
+            auto date_packed_int = binary_cast<DateValueType, NativeType>(dtv);
             for (int i = 0; i < input_rows_count; i++) {
                 col_to->insert_data(
                         const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
@@ -705,12 +721,30 @@ struct UtcTimestampImpl {
     static constexpr auto name = "utc_timestamp";
     static Status execute(FunctionContext* context, Block& block, size_t result,
                           size_t input_rows_count) {
+        WhichDataType which(block.get_by_position(result).type);
+        if (which.is_date_time_v2()) {
+            return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(context, block, result,
+                                                                         input_rows_count);
+        } else if (which.is_date_v2()) {
+            return executeImpl<DateV2Value<DateV2ValueType>, UInt32>(context, block, result,
+                                                                     input_rows_count);
+        } else {
+            return executeImpl<VecDateTimeValue, Int64>(context, block, result, input_rows_count);
+        }
+    }
+
+    template <typename DateValueType, typename NativeType>
+    static Status executeImpl(FunctionContext* context, Block& block, size_t result,
+                              size_t input_rows_count) {
         auto col_to = ColumnVector<Int64>::create();
-        VecDateTimeValue dtv;
+        DateValueType dtv;
         if (dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000, "+00:00")) {
-            reinterpret_cast<VecDateTimeValue*>(&dtv)->set_type(TIME_DATETIME);
-            auto date_packed_int = binary_cast<doris::vectorized::VecDateTimeValue, int64_t>(
-                    *reinterpret_cast<VecDateTimeValue*>(&dtv));
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
+            }
+
+            auto date_packed_int =
+                    binary_cast<DateValueType, NativeType>(*reinterpret_cast<DateValueType*>(&dtv));
             for (int i = 0; i < input_rows_count; i++) {
                 col_to->insert_data(
                         const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
