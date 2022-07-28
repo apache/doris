@@ -447,8 +447,9 @@ void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {
 
 DataStreamRecvr::DataStreamRecvr(
         DataStreamMgr* stream_mgr, const RowDescriptor& row_desc,
-        const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
-        bool is_merging, int total_buffer_limit, RuntimeProfile* profile,
+        MemTrackerLimiter* query_mem_tracker, const TUniqueId& fragment_instance_id,
+        PlanNodeId dest_node_id, int num_senders, bool is_merging, int total_buffer_limit,
+        RuntimeProfile* profile,
         std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
         : _mgr(stream_mgr),
           _fragment_instance_id(fragment_instance_id),
@@ -459,7 +460,8 @@ DataStreamRecvr::DataStreamRecvr(
           _num_buffered_bytes(0),
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    _mem_tracker = std::make_unique<MemTracker>("DataStreamRecvr", nullptr, _profile);
+    _mem_tracker = std::make_unique<MemTracker>(
+            "DataStreamRecvr:" + print_id(_fragment_instance_id), query_mem_tracker, _profile);
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;

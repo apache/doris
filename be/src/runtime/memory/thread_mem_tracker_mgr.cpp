@@ -37,14 +37,8 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(const std::string& cancel_msg,
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker() {
-#ifndef BE_TEST
-    // Unexpectedly, the runtime state is destructed before the end of the query sub-thread,
-    // (_hash_table_build_thread has appeared) which is not a graceful exit.
-    // consider replacing CHECK with a conditional statement and checking for runtime state survival.
-    CHECK(_task_id == "" ||
-          ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->get_task_mem_tracker(_task_id));
-#endif
-    flush_untracked_mem<false>();
+    // Do not flush untracked mem, instance executor thread may exit after instance fragment executor thread,
+    // `instance_mem_tracker` will be null pointer, which is not a graceful exit.
     _task_id = "";
     _fragment_instance_id = TUniqueId();
     _exceed_cb.cancel_msg = "";
