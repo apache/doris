@@ -22,6 +22,7 @@
 #include "common/object_pool.h"
 #include "olap/olap_define.h"
 #include "olap/skiplist.h"
+#include "olap/tablet.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/tuple_row_zorder_compare.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -40,12 +41,13 @@ class TupleDescriptor;
 
 class MemTable {
 public:
-    MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
+    MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             KeysType keys_type, RowsetWriter* rowset_writer, bool support_vec = false);
+             RowsetWriter* rowset_writer, bool support_vec = false);
     ~MemTable();
 
-    int64_t tablet_id() const { return _tablet_id; }
+    int64_t tablet_id() const { return _tablet->tablet_id(); }
+    KeysType keys_type() const { return _tablet->keys_type(); }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
 
     inline void insert(const Tuple* tuple) { (this->*_insert_fn)(tuple); }
@@ -132,19 +134,19 @@ public:
 private:
     void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
     void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
-    void _aggregate_two_row_with_sequence(const ContiguousRow& new_row, TableKey row_in_skiplist);
+    void _replace_row(const ContiguousRow& src_row, TableKey row_in_skiplist);
     void _insert_dup(const Tuple* tuple);
     void _insert_agg(const Tuple* tuple);
     // for vectorized
     void _insert_one_row_from_block(RowInBlock* row_in_block);
     void _aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist);
 
-    int64_t _tablet_id;
+private:
+    TabletSharedPtr _tablet;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
     // the slot in _slot_descs are in order of tablet's schema
     const std::vector<SlotDescriptor*>* _slot_descs;
-    KeysType _keys_type;
 
     // TODO: change to unique_ptr of comparator
     std::shared_ptr<RowComparator> _row_comparator;
