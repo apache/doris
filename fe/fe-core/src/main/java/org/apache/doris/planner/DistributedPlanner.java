@@ -274,6 +274,10 @@ public class DistributedPlanner {
         if (node instanceof MysqlScanNode || node instanceof OdbcScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else if (node instanceof SchemaScanNode) {
+            SchemaScanNode schemaScanNode = (SchemaScanNode) node;
+            if (schemaScanNode.getNumInstances() > 1) {
+                return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
+            }
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else if (node instanceof TableValuedFunctionScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);

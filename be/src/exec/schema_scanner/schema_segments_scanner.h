@@ -28,10 +28,10 @@
 namespace doris {
 class SchemaSegmentsScanner : public SchemaScanner {
 public:
+    using SegmentFooterPBPtr = std::shared_ptr<segment_v2::SegmentFooterPB>;
     SchemaSegmentsScanner();
     ~SchemaSegmentsScanner() override = default;
 
-    using SegmentFooterPBPtr = std::shared_ptr<segment_v2::SegmentFooterPB>;
     Status start(RuntimeState* state) override;
     Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos) override;
 

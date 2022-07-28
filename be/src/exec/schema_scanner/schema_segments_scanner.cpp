@@ -142,7 +142,7 @@ Status SchemaSegmentsScanner::get_new_segments() {
 Status SchemaSegmentsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // set all bit to not null
     memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
-    RowsetSharedPtr rowset = rowsets_[rowsets_idx_];
+    RowsetSharedPtr rowset = rowsets_[rowsets_idx_ - 1];
     SegmentSharedPtr segment = segments_[segments_idx_];
     const SegmentFooterPB& segment_footer = segment->footer();
     // ROWSET_ID
