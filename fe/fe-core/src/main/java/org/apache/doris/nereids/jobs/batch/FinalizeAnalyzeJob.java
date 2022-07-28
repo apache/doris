@@ -34,10 +34,7 @@ public class FinalizeAnalyzeJob extends BatchRulesJob {
     public FinalizeAnalyzeJob(PlannerContext plannerContext) {
         super(plannerContext);
         rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(
-                                new EliminateAliasNode()
-                        )
-                )
+                bottomUpBatch(ImmutableList.of(new EliminateAliasNode()))
         ));
     }
 }
