@@ -19,84 +19,21 @@
 
 #include "vec/aggregate_functions/aggregate_function_combinator.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/helpers.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
 
-class AggregateFunctionCombinatorSort final : public IAggregateFunctionCombinator {
-private:
-    int _sort_column_number;
-
-public:
-    AggregateFunctionCombinatorSort(int sort_column_number)
-            : _sort_column_number(sort_column_number) {}
-
-    String get_name() const override { return "Sort"; }
-
-    DataTypes transform_arguments(const DataTypes& arguments) const override {
-        if (arguments.size() < _sort_column_number + 2) {
-            LOG(FATAL) << "Incorrect number of arguments for aggregate function with Sort, "
-                       << arguments.size() << " less than " << _sort_column_number + 2;
-        }
-
-        DataTypes nested_types;
-        nested_types.assign(arguments.begin(), arguments.end() - 1 - _sort_column_number);
-        return nested_types;
+AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& nested_function,
+                                                    const DataTypes& arguments,
+                                                    const SortDescription& sort_desc) {
+    DCHECK(nested_function != nullptr);
+    if (nested_function == nullptr) {
+        return nullptr;
     }
 
-    template <int sort_column_number>
-    struct Reducer {
-        static void run(AggregateFunctionPtr& function, const AggregateFunctionPtr& nested_function,
-                        const DataTypes& arguments) {
-            function = std::make_shared<
-                    AggregateFunctionSort<sort_column_number, AggregateFunctionSortData>>(
-                    nested_function, arguments);
-        }
-    };
-
-    AggregateFunctionPtr transform_aggregate_function(
-            const AggregateFunctionPtr& nested_function, const DataTypes& arguments,
-            const Array& params, const bool result_is_nullable) const override {
-        DCHECK(nested_function != nullptr);
-        if (nested_function == nullptr) {
-            return nullptr;
-        }
-
-        AggregateFunctionPtr function = nullptr;
-        constexpr_int_match<1, 3, Reducer>::run(_sort_column_number, function, nested_function,
-                                                arguments);
-
-        return function;
-    }
+    return std::make_shared<AggregateFunctionSort<AggregateFunctionSortData>>(nested_function,
+                                                                              arguments, sort_desc);
 };
 
-const std::string SORT_FUNCTION_PREFIX = "sort_";
-
-void register_aggregate_function_combinator_sort(AggregateFunctionSimpleFactory& factory) {
-    AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
-                                           const Array& params, const bool result_is_nullable) {
-        int sort_column_number = std::stoi(name.substr(SORT_FUNCTION_PREFIX.size(), 2));
-        auto nested_function_name = name.substr(SORT_FUNCTION_PREFIX.size() + 2);
-
-        auto function_combinator =
-                std::make_shared<AggregateFunctionCombinatorSort>(sort_column_number);
-
-        auto transform_arguments = function_combinator->transform_arguments(types);
-
-        auto nested_function =
-                factory.get(nested_function_name, transform_arguments, params, result_is_nullable);
-        return function_combinator->transform_aggregate_function(nested_function, types, params,
-                                                                 result_is_nullable);
-    };
-
-    for (char c = '1'; c <= '3'; c++) {
-        factory.register_distinct_function_combinator(creator, SORT_FUNCTION_PREFIX + c + "_",
-                                                      false);
-        factory.register_distinct_function_combinator(creator, SORT_FUNCTION_PREFIX + c + "_",
-                                                      true);
-    }
-}
 } // namespace doris::vectorized

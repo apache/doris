@@ -84,8 +84,6 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_window_lead_lag(instance);
         register_aggregate_function_HLL_union_agg(instance);
         register_aggregate_function_percentile_approx(instance);
-
-        register_aggregate_function_combinator_sort(instance);
     });
     return instance;
 }

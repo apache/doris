@@ -37,6 +37,7 @@ public class SelectList {
 
     private boolean isDistinct;
     private Map<String, String> optHints;
+    private List<OrderByElement> orderByElements;
 
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
@@ -87,6 +88,12 @@ public class SelectList {
     public void setOptHints(Map<String, Map<String, String>> optHints) {
         if (optHints != null) {
             this.optHints = optHints.get(SET_VAR_KEY);
+        }
+    }
+
+    public void setOrderByElements(List<OrderByElement> orderByElements) {
+        if (orderByElements != null) {
+            this.orderByElements = orderByElements;
         }
     }
 
