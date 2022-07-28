@@ -67,7 +67,7 @@ public class EliminateAliasNode implements AnalysisRuleFactory {
     private LogicalPlan joinEliminateSubQueryAliasNode(LogicalPlan node, List<Plan> aliasNode) {
         List<Plan> nodes = aliasNode.stream()
                 .map(child -> {
-                    if (checkIsSubQueryAliasNode(child)) {
+                    if (checkIsSubQueryAliasNode((GroupPlan) child)) {
                         return ((GroupPlan) child).getGroup()
                                 .getLogicalExpression()
                                 .child(0)
@@ -80,8 +80,8 @@ public class EliminateAliasNode implements AnalysisRuleFactory {
         return (LogicalPlan) node.withChildren(nodes);
     }
 
-    private boolean checkIsSubQueryAliasNode(Plan node) {
-        return ((GroupPlan) node).getGroup().getLogicalExpression().getPlan().getType()
+    private boolean checkIsSubQueryAliasNode(GroupPlan node) {
+        return node.getGroup().getLogicalExpression().getPlan().getType()
                 == PlanType.LOGICAL_SUBQUERY_ALIAS;
     }
 
