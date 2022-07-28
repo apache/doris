@@ -329,7 +329,7 @@ void EngineStorageMigrationTask::_generate_new_header(
         rs_metas.push_back(rs->rowset_meta());
     }
     new_tablet_meta->revise_rs_metas(std::move(rs_metas));
-    if (_tablet->keys_type() == UNIQUE_KEYS && _tablet->speed_up_unique_key_with_aux_index()) {
+    if (_tablet->keys_type() == UNIQUE_KEYS && _tablet->enable_unique_key_merge_on_write()) {
         DeleteBitmap bm = _tablet->tablet_meta()->delete_bitmap().snapshot(end_version);
         new_tablet_meta->revise_delete_bitmap_unlocked(bm);
     }

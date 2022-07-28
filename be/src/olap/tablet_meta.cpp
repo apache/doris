@@ -650,15 +650,15 @@ void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
 // Delete bitmap is protected by Tablet::_meta_lock, we don't need to acquire the
 // TabletMeta's _meta_lock
 void TabletMeta::revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap) {
-    _delete_bitmap = std::make_unique<DeleteBitmap>();
+    _delete_bitmap = std::make_unique<DeleteBitmap>(tablet_id());
     for (auto rs : _rs_metas) {
-        DeleteBitmap rs_bm;
+        DeleteBitmap rs_bm(tablet_id());
         delete_bitmap.subset({rs->rowset_id(), 0, 0}, {rs->rowset_id(), UINT32_MAX, INT64_MAX},
                              &rs_bm);
         _delete_bitmap->merge(rs_bm);
     }
     for (auto rs : _stale_rs_metas) {
-        DeleteBitmap rs_bm;
+        DeleteBitmap rs_bm(tablet_id());
         delete_bitmap.subset({rs->rowset_id(), 0, 0}, {rs->rowset_id(), UINT32_MAX, INT64_MAX},
                              &rs_bm);
         _delete_bitmap->merge(rs_bm);
@@ -813,7 +813,7 @@ DeleteBitmap DeleteBitmap::snapshot() const {
     return DeleteBitmap(*this);
 }
 
-DeleteBitmap DeleteBitmap::snapshot(VersionId version) const {
+DeleteBitmap DeleteBitmap::snapshot(Version version) const {
     // Take snapshot first, then remove keys greater than given version.
     DeleteBitmap snapshot = this->snapshot();
     auto it = snapshot.delete_bitmap.begin();
