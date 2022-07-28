@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.statistics.PlanStats;
 
 import java.util.List;
 import java.util.Optional;

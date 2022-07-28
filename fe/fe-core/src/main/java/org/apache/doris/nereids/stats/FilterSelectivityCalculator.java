@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//  http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -49,6 +49,9 @@ public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double
         this.slotRefToStats = slotRefToStats;
     }
 
+    /**
+     * Do estimate.
+     */
     public double estimate(Expression expression) {
         // For a comparison predicate, only when it's left side is a slot and right side is a literal, we would
         // consider is a valid predicate.

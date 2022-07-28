@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//  http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.stats;
 
-
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -45,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
@@ -67,6 +66,9 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         this.groupExpression = groupExpression;
     }
 
+    /**
+     * Do estimate.
+     */
     public void estimate() {
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
         groupExpression.getOwnerGroup().setStatistics(stats);
@@ -165,7 +167,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     private StatsDeriveResult computeScan(Scan scan) {
         Table table = scan.getTable();
         TableStats tableStats = Utils.execWithReturnVal(() ->
-                Env.getCurrentEnv().getStatisticsManager().getStatistics().getTableStats(table.getId())
+                ConnectContext.get().getEnv().getStatisticsManager().getStatistics().getTableStats(table.getId())
         );
         Map<Slot, ColumnStats> slotToColumnStats = new HashMap<>();
         Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
@@ -179,7 +181,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             slotToColumnStats.put(slotReference, columnStats);
         }
         long rowCount = tableStats.getRowCount();
-        StatsDeriveResult stats = new StatsDeriveResult((long)(rowCount),
+        StatsDeriveResult stats = new StatsDeriveResult(rowCount,
                 new HashMap<>(), new HashMap<>());
         stats.setSlotToColumnStats(slotToColumnStats);
         return stats;
@@ -192,7 +194,9 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         long resultSetCount = 1;
         for (Expression expression : groupByExprList) {
             List<SlotReference> slotRefList = expression.collect(SlotReference.class::isInstance);
-            // TODO: Need to discuss this.
+            // TODO: Support more complex group expr.
+            //       For example:
+            //              select max(col1+col3) from t1 group by col1+col3;
             if (slotRefList.size() != 1) {
                 continue;
             }
@@ -202,8 +206,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         }
         Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
         List<NamedExpression> namedExpressionList = aggregate.getOutputExpressions();
-        // TODO: 1. Should estimate the output unit size by the type of corresponding AggregateFunction
-        //       2. Should handle alias, literal of the output expression
+        // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
+        //       2. Handle alias, literal in the output expression list
         for (NamedExpression namedExpression : namedExpressionList) {
             if (namedExpression instanceof SlotReference) {
                 slotColumnStatsMap.put((SlotReference) namedExpression, new ColumnStats());
@@ -211,7 +215,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         }
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, slotColumnStatsMap);
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
-        return new StatsDeriveResult(resultSetCount, new HashMap<>(), new HashMap<>());
+        return statsDeriveResult;
     }
 
     // TODO: Update data size and min/max value.
