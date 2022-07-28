@@ -377,7 +377,8 @@ StringVal MathFunctions::unhex(FunctionContext* ctx, const StringVal& s) {
     }
 
     int result_len = s.len / 2;
-    char result[result_len];
+    StringVal result_string_val(ctx, result_len);
+    char* result = reinterpret_cast<char*>(result_string_val.ptr);
     int res_index = 0;
     int s_index = 0;
     while (s_index < s.len) {
@@ -422,7 +423,7 @@ StringVal MathFunctions::unhex(FunctionContext* ctx, const StringVal& s) {
         result[res_index] = c;
         ++res_index;
     }
-    return AnyValUtil::from_buffer_temp(ctx, result, result_len);
+    return result_string_val;
 }
 
 StringVal MathFunctions::conv_int(FunctionContext* ctx, const BigIntVal& num,
