@@ -79,7 +79,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_TIMEOUT = "timeout";
     public static final String PROPERTIES_COMPRESSION = "compression";
 
-    public static final String PROPERTIES_USE_LIGHT_SCHEMA_CHANGE = "use_light_shcema_change";
+    public static final String PROPERTIES_USE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
     public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
@@ -459,15 +459,15 @@ public class PropertyAnalyzer {
             useSchemaChange = properties.get(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE);
             properties.remove(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE);
         } else {
-            useSchemaChange = "off";
+            useSchemaChange = "true";
         }
         boolean ret;
-        if (useSchemaChange.equalsIgnoreCase("on")) {
+        if (useSchemaChange.equalsIgnoreCase("true")) {
             ret = true;
-        } else if (useSchemaChange.equalsIgnoreCase("off")){
+        } else if (useSchemaChange.equalsIgnoreCase("false")) {
             ret = false;
         } else {
-            throw new AnalysisException("unknown use light schema change option: " + useSchemaChange);
+            throw new AnalysisException("unknown light schema change option: " + useSchemaChange);
         }
         return ret;
     }
