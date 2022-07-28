@@ -47,9 +47,24 @@ suite("test_explain_tpch_sf_1_q{}", "tpch_sf1") {{
     sql "use ${{realDb}}"
 """
 
-paths = sys.argv
+params = sys.argv
 
-tasks = open(paths[1]).readlines()
+sql_dir = params[1]
+
+output_dir = params[2]
+
+if not os.path.exists(output_dir):
+    os.mkdir(output_dir)
+
+sql_files = [f for f in os.listdir(sql_dir) if os.path.isfile(os.path.join(sql_dir, f))]
+
+sql_numbers = [re.findall(r'\d+', f)[0] for f in sql_files]
+
+output_files = [os.path.join(output_dir, 'test_'+x[1] + '.groovy') for x in zip(sql_files, sql_numbers)]
+
+sql_files_path = [os.path.join(sql_dir, p) for p in sql_files]
+
+tasks = zip(sql_files_path, output_files, sql_numbers)
 
 patterns = [
     'order by.*$',
@@ -71,7 +86,8 @@ patterns = [
 
 for task in tasks:
 
-    f1, f2, num = task.rstrip('\n').split(' ')
+    print(task)
+    f1, f2, num = task
 
     f = open(f1, 'r')
     oldsql = f.read()
