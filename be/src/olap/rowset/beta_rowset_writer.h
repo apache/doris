@@ -65,7 +65,7 @@ public:
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
-    Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const {
+    Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {
         *segment_num_rows = _segment_num_rows;
         return Status::OK();
     }
