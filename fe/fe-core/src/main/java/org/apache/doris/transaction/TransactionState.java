@@ -207,7 +207,7 @@ public class TransactionState implements Writable {
     // 2. callback object has been removed from CallbackFactory
     // 3. in afterStateTransform(), callback object can not be found, so the write lock can not be released.
     private TxnStateChangeCallback callback = null;
-    private long timeoutMs = Config.stream_load_default_timeout_second;
+    private long timeoutMs = Config.stream_load_default_timeout_second * 1000;
     private long preCommittedTimeoutMs = Config.stream_load_default_precommit_timeout_second * 1000;
     private String authCode = "";
 
