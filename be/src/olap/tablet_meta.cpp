@@ -736,12 +736,10 @@ Status TabletMeta::set_partition_id(int64_t partition_id) {
     return Status::OK();
 }
 
-// update dst rowset delete bitmap for unique key merge on write table.
-// we take a delete bitmap's snapshot of origin rowset at the beginning
-// of compaction, but the detele bitmap of origin rowset may update when
-// compaction. some key might be deleted during compaction, which would
-// exist in dst rowset. so after compaction, need to update the bitmap
-// of dst rowset.
+// We take a delete bitmap's snapshot of origin rowset at the beginning of
+// compaction, some keys of origin rowsets might be deleted during compaction,
+// but exist in dest rowset. so we need to update the bitmap of dest rowset
+// after compaction.
 // ANNT: should take a tablet lock before calling the function
 void TabletMeta::update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_rowsets,
                                       const Version& version,
