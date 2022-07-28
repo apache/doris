@@ -22,7 +22,7 @@ on:
   pull_request:
 
 concurrency:
-  group: ${{ github.head_ref || github.ref_name }} (Build Extensions)
+  group: ${{ github.ref }} (Build Extensions)
   cancel-in-progress: true
 
 jobs:
@@ -33,7 +33,7 @@ jobs:
       broker_changes: ${{ steps.filter.outputs.broker_changes }}
       docs_changes: ${{ steps.filter.outputs.docs_changes }}
     steps:
-      - name: Checkout
+      - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v3
         with:
           persist-credentials: false
@@ -55,7 +55,7 @@ jobs:
     if: ${{ needs.changes.outputs.broker_changes == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v3
 
       - name: Setup java
@@ -82,7 +82,7 @@ jobs:
     if: ${{ needs.changes.outputs.docs_changes == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v3
 
       - name: Build docs
