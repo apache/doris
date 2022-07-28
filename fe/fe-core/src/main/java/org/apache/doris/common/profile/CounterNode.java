@@ -27,7 +27,7 @@ public class CounterNode extends TreeNode<CounterNode> {
         counter = Pair.create(key, value);
     }
 
-    public Pair<String, String> getCounter(){
+    public Pair<String, String> getCounter() {
         return counter;
     }
 

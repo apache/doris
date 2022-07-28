@@ -21,10 +21,10 @@ import org.apache.doris.common.TreeNode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
-import java.util.List;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
+
+import java.util.List;
 
 public class ProfileTreeNode extends TreeNode<ProfileTreeNode> {
 
@@ -161,7 +161,7 @@ public class ProfileTreeNode extends TreeNode<ProfileTreeNode> {
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("id", nodeLevel);
         JSONObject title = new JSONObject();
-        if ( ! id.equals(ProfileTreeBuilder.UNKNOWN_ID)) {
+        if (!id.equals(ProfileTreeBuilder.UNKNOWN_ID)) {
             title.put("id", id);
         }
         title.put("name", name);

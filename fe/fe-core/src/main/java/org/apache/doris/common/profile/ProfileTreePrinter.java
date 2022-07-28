@@ -65,7 +65,8 @@ public class ProfileTreePrinter {
         return object;
     }
 
-    private static void buildNodeInJson(ProfileTreeNode profileNode, PrintLevel level, String sourceNodeId, String targetNodeId, JSONArray jsonNodes, JSONArray edges) {
+    private static void buildNodeInJson(ProfileTreeNode profileNode, PrintLevel level, String sourceNodeId,
+            String targetNodeId, JSONArray jsonNodes, JSONArray edges) {
         boolean isFrist = false;
         if (StringUtils.isBlank(sourceNodeId)) {
             isFrist = true;
@@ -74,11 +75,11 @@ public class ProfileTreePrinter {
         jsonNodes.add(profileNode.debugStringInJson(level, targetNodeId));
         int i = 0;
         for (ProfileTreeNode child : profileNode.getChildren()) {
-            buildNodeInJson(child, level, targetNodeId, targetNodeId+i++, jsonNodes, edges);
+            buildNodeInJson(child, level, targetNodeId, targetNodeId + i++, jsonNodes, edges);
         }
         if (!isFrist) {
             JSONObject edge = new JSONObject();
-            edge.put("id", "e"+targetNodeId);
+            edge.put("id", "e" + targetNodeId);
             edge.put("source", sourceNodeId);
             edge.put("target", targetNodeId);
             edges.add(edge);

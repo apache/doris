@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.base.Strings;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -25,6 +24,7 @@ import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -1271,7 +1271,7 @@ public class SessionVariable implements Serializable, Writable {
      * Return empty string is not found.
      *
      * @return
-    */
+     */
     public String getTraceId() {
         if (Strings.isNullOrEmpty(sessionContext)) {
             return "";
