@@ -19,7 +19,6 @@ package org.apache.doris.metric;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.monitor.jvm.JvmStats;
-import org.apache.doris.monitor.jvm.JvmStats.BufferPool;
 import org.apache.doris.monitor.jvm.JvmStats.GarbageCollector;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
@@ -46,7 +45,6 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     private static final String JVM_NON_HEAP_SIZE_BYTES = "jvm_non_heap_size_bytes";
     private static final String JVM_YOUNG_SIZE_BYTES = "jvm_young_size_bytes";
     private static final String JVM_OLD_SIZE_BYTES = "jvm_old_size_bytes";
-    private static final String JVM_DIRECT_BUFFER_POOL_SIZE_BYTES = "jvm_direct_buffer_pool_size_bytes";
     private static final String JVM_YOUNG_GC = "jvm_young_gc";
     private static final String JVM_OLD_GC = "jvm_old_gc";
     private static final String JVM_THREAD = "jvm_thread";
@@ -105,23 +103,6 @@ public class PrometheusMetricVisitor extends MetricVisitor {
                         .append(memPool.getPeakUsed().getBytes()).append("\n");
                 sb.append(JVM_OLD_SIZE_BYTES).append("{type=\"max\"} "
                 ).append(memPool.getMax().getBytes()).append("\n");
-            }
-        }
-
-        // direct buffer pool
-        Iterator<BufferPool> poolIter = jvmStats.getBufferPools().iterator();
-        while (poolIter.hasNext()) {
-            BufferPool pool = poolIter.next();
-            if (pool.getName().equalsIgnoreCase("direct")) {
-                sb.append(Joiner.on(" ").join(HELP, JVM_DIRECT_BUFFER_POOL_SIZE_BYTES,
-                                              "jvm direct buffer pool stat\n"));
-                sb.append(Joiner.on(" ").join(TYPE, JVM_DIRECT_BUFFER_POOL_SIZE_BYTES, "gauge\n"));
-                sb.append(JVM_DIRECT_BUFFER_POOL_SIZE_BYTES).append("{type=\"count\"} ")
-                        .append(pool.getCount()).append("\n");
-                sb.append(JVM_DIRECT_BUFFER_POOL_SIZE_BYTES).append("{type=\"used\"} ")
-                        .append(pool.getUsed().getBytes()).append("\n");
-                sb.append(JVM_DIRECT_BUFFER_POOL_SIZE_BYTES).append("{type=\"capacity\"} ")
-                        .append(pool.getTotalCapacity().getBytes()).append("\n");
             }
         }
 

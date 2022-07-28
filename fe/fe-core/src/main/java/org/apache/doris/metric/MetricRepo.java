@@ -67,7 +67,6 @@ public final class MetricRepo {
     public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
-    public static LongCounterMetric COUNTER_QUERY_BEGIN;
     public static LongCounterMetric COUNTER_QUERY_ALL;
     public static LongCounterMetric COUNTER_QUERY_ERR;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
@@ -109,8 +108,8 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_COMPACTION_SCORE;
 
-    private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager
-            .newDaemonScheduledThreadPool(1, "Metric-Timer-Pool", true);
+    private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+            "metric-timer-pool", true);
     private static MetricCalculator metricCalculator = new MetricCalculator();
 
     // init() should only be called after catalog is contructed.
@@ -280,8 +279,6 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_REQUEST_ALL);
         COUNTER_QUERY_ALL = new LongCounterMetric("query_total", MetricUnit.REQUESTS, "total query");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_ALL);
-        COUNTER_QUERY_BEGIN = new LongCounterMetric("query_begin", MetricUnit.REQUESTS, "query begin");
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_BEGIN);
         COUNTER_QUERY_ERR = new LongCounterMetric("query_err", MetricUnit.REQUESTS, "total error query");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_ERR);
 
@@ -524,8 +521,7 @@ public final class MetricRepo {
             }
 
             // tablet number of each backends
-            GaugeMetric<Long> tabletNum = (GaugeMetric<Long>) new GaugeMetric<Long>(TABLET_NUM,
-                    MetricUnit.NOUNIT, "tablet number") {
+            GaugeMetric<Long> tabletNum = new GaugeMetric<Long>(TABLET_NUM, MetricUnit.NOUNIT, "tablet number") {
                 @Override
                 public Long getValue() {
                     if (!Env.getCurrentEnv().isMaster()) {
@@ -538,9 +534,8 @@ public final class MetricRepo {
             DORIS_METRIC_REGISTER.addMetrics(tabletNum);
 
             // max compaction score of tablets on each backends
-            GaugeMetric<Long> tabletMaxCompactionScore = (GaugeMetric<Long>) new GaugeMetric<Long>(
-                    TABLET_MAX_COMPACTION_SCORE, MetricUnit.NOUNIT,
-                    "tablet max compaction score") {
+            GaugeMetric<Long> tabletMaxCompactionScore = new GaugeMetric<Long>(TABLET_MAX_COMPACTION_SCORE,
+                    MetricUnit.NOUNIT, "tablet max compaction score") {
                 @Override
                 public Long getValue() {
                     if (!Env.getCurrentEnv().isMaster()) {
