@@ -1880,7 +1880,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, RowLocation* row_locatio
         }
         loc.rowset_id = rs.first->rowset_id();
         if (version >= 0 && _tablet_meta->delete_bitmap().contains_agg(
-                {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
+                                    {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
             // The key is deleted, we don't need to search for it any more.
             break;
         }
