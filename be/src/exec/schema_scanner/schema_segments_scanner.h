@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "runtime/mem_pool.h"
 #include "runtime/runtime_state.h"
 namespace doris {
@@ -35,16 +36,19 @@ public:
     Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos) override;
 
 private:
-    Status transverSegments();
+    Status get_all_rowsets();
+    Status get_new_segments();
     Status fill_one_row(Tuple* tuple, MemPool* pool);
 
 private:
     static SchemaScanner::ColumnDesc _s_tbls_columns[];
     std::vector<RowsetSharedPtr> rowsets_;
-    std::vector<std::vector<SegmentFooterPBPtr>> segment_footer_PBs_;
+    // std::vector<std::vector<SegmentFooterPBPtr>> segment_footer_PBs_;
+    std::vector<segment_v2::SegmentSharedPtr> segments_;
     // used for traversing rowsets_
     int rowsets_idx_ = 0;
     // used for traversing segment_footer_PBs_
-    int segment_footer_PB_idx_ = 0;
+    // int segment_footer_PB_idx_ = 0;
+    int segments_idx_ = 0;
 };
 } // namespace doris
