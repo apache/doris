@@ -24,7 +24,7 @@
 #include "util/runtime_profile.h"
 #include "io/local_file_reader.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
-#include "vec/exec/format/parquet/parquet_file_metadata.h"
+#include "vec/exec/format/parquet/vparquet_file_metadata.h"
 #include <glog/logging.h>
 
 namespace doris {
@@ -44,8 +44,6 @@ void ParquetThriftReaderTest::init() {
     RuntimeProfile profile("test");
     path = "./be/test/exec/test_data/parquet_scanner/localfile.parquet";
     reader = new LocalFileReader(path, 0);
-//    reader = new BufferedReader(&profile, file_reader, 1024);
-//    reader->open();
 }
 
 TEST_F(ParquetThriftReaderTest, normal) {
@@ -53,16 +51,19 @@ TEST_F(ParquetThriftReaderTest, normal) {
     reader->open();
     parse_thrift_footer(reader, metaData);
     tparquet::FileMetaData t_metadata =  metaData->to_thrift_metadata();
-    LOG(WARNING) << "num_rows: " << t_metadata.num_rows;
-    LOG(WARNING) << "row_groups.size(): " << t_metadata.row_groups.size();
+    LOG(WARNING) << "num row groups: " << metaData->num_row_groups();
+    LOG(WARNING) << "num columns: " << metaData->num_columns();
     LOG(WARNING) << "=====================================";
     for (auto value: t_metadata.row_groups) {
-    LOG(WARNING) << "row_groups num_rows: " << value.num_rows;
+    LOG(WARNING) << "row group num_rows: " << value.num_rows;
 }
     LOG(WARNING) << "=====================================";
-    for (auto value: t_metadata.row_groups[0].columns) {
-    LOG(WARNING) << "path_in_schema: " << value.meta_data.path_in_schema.data()[0];
-}
+    for (auto value: t_metadata.schema) {
+        LOG(WARNING) << "schema column name: " << value.name;
+        LOG(WARNING) << "schema column type: " << value.type;
+        LOG(WARNING) << "schema column repetition_type: " << value.repetition_type;
+        LOG(WARNING) << "schema column num children: " << value.num_children;
+    }
 }
 
 } // namespace vectorized

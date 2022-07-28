@@ -15,10 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 #include "file_hdfs_scanner.h"
 
-namespace doris::vectorized {
-
-
-} // namespace doris::vectorized
+namespace doris::vectorized {} // namespace doris::vectorized

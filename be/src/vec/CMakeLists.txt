@@ -223,13 +223,13 @@ set(VEC_FILES
   exec/file_scan_node.cpp
   exec/file_text_scanner.cpp
   exec/file_hdfs_scanner.cpp
-  exec/format/parquet/parquet_file_metadata.cpp
   exec/format/parquet/vparquet_column_chunk_reader.cpp
   exec/format/parquet/vparquet_group_reader.cpp
   exec/format/parquet/vparquet_page_index.cpp
   exec/format/parquet/vparquet_reader.cpp
-  exec/format/parquet/parquet_file_metadata.cpp
-  exec/format/parquet/page_reader.cpp)
+  exec/format/parquet/vparquet_file_metadata.cpp
+  exec/format/parquet/vparquet_page_reader.cpp
+  exec/format/parquet/schema_desc.cpp)
 
 add_library(Vec STATIC
     ${VEC_FILES}

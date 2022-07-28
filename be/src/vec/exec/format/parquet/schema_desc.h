@@ -15,17 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "parquet_file_metadata.h"
+#pragma once
+
+#include "common/status.h"
 
 namespace doris::vectorized {
+class FieldSchema {
+public:
+    int16_t max_def_level() const { return _max_def_level; }
+    int16_t max_rep_level() const { return _max_rep_level; }
+    std::string debug_string() const;
 
-    Status FileMetaData::init(tparquet::FileMetaData& metadata) {
-        _metadata = metadata;
-        return Status::OK();
-    }
+private:
+    int16_t _max_def_level;
+    int16_t _max_rep_level;
+    std::vector<FieldSchema> children;
+};
 
-    tparquet::FileMetaData FileMetaData::to_thrift_metadata() {
-        return _metadata;
-    }
+class SchemaDescriptor {
+public:
+    SchemaDescriptor() = default;
+    ~SchemaDescriptor();
 
-}
+    std::string debug_string() const;
+
+private:
+    std::vector<FieldSchema> fields;
+};
+
+} // namespace doris::vectorized

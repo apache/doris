@@ -15,6 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vparquet_group_reader.h"
+#include "vparquet_page_reader.h"
 
-namespace doris::vectorized {} // namespace doris::vectorized
+namespace doris::vectorized {
+
+Status PageReader::read_page_header() {
+    return Status();
+}
+
+Status PageReader::read_page_data() {
+    return Status();
+}
+
+Status PageReader::init() {
+    return Status();
+}
+} // namespace doris::vectorized

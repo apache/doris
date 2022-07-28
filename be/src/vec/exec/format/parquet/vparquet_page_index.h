@@ -16,21 +16,20 @@
 // under the License.
 
 #pragma once
-#include <gen_cpp/parquet_types.h>
 #include <common/status.h>
+#include <gen_cpp/parquet_types.h>
 
 namespace doris::vectorized {
 
-    class PageIndex {
+class PageIndex {
+public:
+    Status get_row_range_for_page();
+    Status collect_skipped_page_range();
 
-    public:
-        Status get_row_range_for_page();
-        Status collect_skipped_page_range();
-
-    private:
-        // row range define
-        tparquet::ColumnIndex _column_index;
-        tparquet::OffsetIndex _offset_index;
-    };
+private:
+    // row range define
+    tparquet::ColumnIndex _column_index;
+    tparquet::OffsetIndex _offset_index;
+};
 
 } // namespace doris::vectorized

@@ -20,14 +20,14 @@
 
 namespace doris::vectorized {
 
-    class ColumnChunkReader {
-    public:
-        Status init();
-        Status read_min_max_stat();
-        Status decode_dict_page();
-        Status decode_nested_page();
-    private:
+class ColumnChunkReader {
+public:
+    Status init();
+    Status read_min_max_stat();
+    Status decode_dict_page();
+    Status decode_nested_page();
 
-    };
+private:
+};
 
 } // namespace doris::vectorized

@@ -18,20 +18,19 @@
 
 namespace doris::vectorized {
 
+Status ColumnChunkReader::init() {
+    return Status();
+}
 
-    Status ColumnChunkReader::init() {
-        return Status();
-    }
+Status ColumnChunkReader::read_min_max_stat() {
+    return Status();
+}
 
-    Status ColumnChunkReader::read_min_max_stat() {
-        return Status();
-    }
+Status ColumnChunkReader::decode_dict_page() {
+    return Status();
+}
 
-    Status ColumnChunkReader::decode_dict_page() {
-        return Status();
-    }
-
-    Status ColumnChunkReader::decode_nested_page() {
-        return Status();
-    }
+Status ColumnChunkReader::decode_nested_page() {
+    return Status();
+}
 } // namespace doris::vectorized

@@ -19,15 +19,8 @@
 
 namespace doris::vectorized {
 
-class HdfsFileScanner {
+class HdfsFileScanner {};
 
-
-};
-
-class ParquetFileHdfsScanner:public HdfsFileScanner {
-
-
-
-};
+class ParquetFileHdfsScanner : public HdfsFileScanner {};
 
 } // namespace doris::vectorized

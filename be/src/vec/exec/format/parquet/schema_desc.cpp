@@ -15,20 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include "common/status.h"
-#include "gen_cpp/parquet_types.h"
+#include "schema_desc.h"
 
 namespace doris::vectorized {
 
-    class FileMetaData {
-    public:
-        Status init(tparquet::FileMetaData& metadata);
-        tparquet::FileMetaData to_thrift_metadata();
-    private:
-        tparquet::FileMetaData _metadata;
+SchemaDescriptor::~SchemaDescriptor() {
+    fields.clear();
+}
 
-    };
+std::string SchemaDescriptor::debug_string() const {
+    return std::string();
+}
 
+std::string FieldSchema::debug_string() const {
+    return std::string();
+}
 } // namespace doris::vectorized

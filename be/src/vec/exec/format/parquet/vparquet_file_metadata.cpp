@@ -15,20 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "page_reader.h"
+#include "vparquet_file_metadata.h"
 
+#include <sstream>
 
 namespace doris::vectorized {
 
-    Status PageReader::read_page_header() {
-        return Status();
+FileMetaData::FileMetaData(tparquet::FileMetaData& metadata) : _metadata(metadata) {
+    _num_rows = metadata.num_rows;
+    _num_groups = metadata.row_groups.size();
+    if (_num_groups != 0) {
+        _num_columns = metadata.row_groups[0].columns.size();
     }
-
-    Status PageReader::read_page_data() {
-        return Status();
-    }
-
-    Status PageReader::init() {
-        return Status();
+    if (metadata.schema[0].num_children <= 0) {
     }
 }
+
+Status FileMetaData::init_schema() {
+    return Status();
+}
+
+const tparquet::FileMetaData& FileMetaData::to_thrift_metadata() {
+    return _metadata;
+}
+
+std::string FileMetaData::debug_string() const {
+    std::stringstream out;
+    out << "Parquet Metadata(";
+    out << "; version=" << _metadata.version;
+    out << "; num row groups=" << _num_groups;
+    out << "; num rows=" << _num_rows;
+    out << ")";
+    return out.str();
+}
+
+} // namespace doris::vectorized

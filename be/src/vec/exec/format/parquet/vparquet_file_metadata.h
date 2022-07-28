@@ -15,6 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vparquet_group_reader.h"
+#pragma once
+#include "common/status.h"
+#include "gen_cpp/parquet_types.h"
+#include "schema_desc.h"
 
-namespace doris::vectorized {} // namespace doris::vectorized
+namespace doris::vectorized {
+
+class FileMetaData {
+public:
+    FileMetaData(tparquet::FileMetaData& metadata);
+    ~FileMetaData() = default;
+    Status init_schema();
+    const tparquet::FileMetaData& to_thrift_metadata();
+    int32_t num_row_groups() const { return _num_groups; }
+    int32_t num_columns() const { return _num_columns; };
+    int32_t num_rows() const { return _num_rows; };
+    std::string debug_string() const;
+
+private:
+    tparquet::FileMetaData _metadata;
+    int32_t _num_groups = 0;
+    int32_t _num_columns = 0;
+    int64_t _num_rows = 0;
+    SchemaDescriptor _schema;
+};
+
+} // namespace doris::vectorized

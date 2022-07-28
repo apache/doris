@@ -19,8 +19,6 @@
 
 namespace doris::vectorized {
 
-    class RowGroupReader {
-
-    };
+class RowGroupReader {};
 
 } // namespace doris::vectorized

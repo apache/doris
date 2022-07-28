@@ -19,11 +19,11 @@
 
 namespace doris::vectorized {
 
-    Status PageIndex::get_row_range_for_page() {
-        return Status();
-    }
+Status PageIndex::get_row_range_for_page() {
+    return Status();
+}
 
-    Status PageIndex::collect_skipped_page_range() {
-        return Status();
-    }
+Status PageIndex::collect_skipped_page_range() {
+    return Status();
+}
 } // namespace doris::vectorized
