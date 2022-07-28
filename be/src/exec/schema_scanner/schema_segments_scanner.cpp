@@ -89,32 +89,41 @@ Status SchemaSegmentsScanner::transverSegments() {
         // all rowset Meta
         // std::vector<RowsetMetaSharedPtr> RowsetMetas = tabletMetas->all_rs_metas();
 
-        RowsetSharedPtr rowset = nullptr;
-        // max version rowset
+        // all rowset
+        std::vector<std::pair<Version, RowsetSharedPtr>> all_rowsets;
         {
             std::shared_lock rowset_ldlock(tablet->get_header_lock());
-            rowset = tablet->get_rowset_by_version(tabletMetas->max_version());
+            tablet->acquire_version_and_rowsets(&all_rowsets);
+        }
+        for (const auto& version_and_rowset : all_rowsets) {
+            RowsetSharedPtr rowset = version_and_rowset.second;
+
+            // get segments of rowset
+            SegmentCacheHandle cache_handle;
+            Status st = SegmentLoader::instance()->load_segments(
+                    std::dynamic_pointer_cast<BetaRowset>(rowset), &cache_handle);
+            if (!st.ok()) {
+                return st;
+            }
+
+            rowsets_.emplace_back(rowset);
+
+            std::vector<SegmentFooterPBPtr> segments;
+            for (auto& seg_ptr : cache_handle.get_segments()) {
+                // must handle all segments
+                SegmentFooterPBPtr segment_footer =
+                        std::make_shared<SegmentFooterPB>(seg_ptr->footer());
+                segments.emplace_back(segment_footer);
+            }
+            segment_footer_PBs_.emplace_back(segments);
         }
 
-        // get segments of rowset
-        SegmentCacheHandle cache_handle;
-        Status st = SegmentLoader::instance()->load_segments(
-                std::dynamic_pointer_cast<BetaRowset>(rowset), &cache_handle);
-        if (!st.ok()) {
-            return st;
-        }
-
-        rowsets_.emplace_back(rowset);
-
-        std::vector<SegmentFooterPBPtr> segments;
-        for (auto& seg_ptr : cache_handle.get_segments()) {
-            // must handle all segments
-            SegmentFooterPBPtr segment_footer =
-                    std::make_shared<SegmentFooterPB>(seg_ptr->footer());
-            segments.emplace_back(segment_footer);
-        }
-        segment_footer_PBs_.emplace_back(segments);
-        LOG(INFO) << "--ftw: segments.size = " << segments.size();
+        // max version rowset
+        // RowsetSharedPtr rowset = nullptr;
+        // {
+        //     std::shared_lock rowset_ldlock(tablet->get_header_lock());
+        //     rowset = tablet->get_rowset_by_version(tabletMetas->max_version());
+        // }
     }
     return Status::OK();
 }
