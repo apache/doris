@@ -2593,7 +2593,6 @@ public class Load {
                                 job.setProgress(100);
                                 job.setLoadFinishTimeMs(System.currentTimeMillis());
                             }
-                            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
                             // job will transfer from LOADING to FINISHED, skip QUORUM_FINISHED
                             idToLoadingLoadJob.remove(jobId);
                             idToQuorumFinishedLoadJob.remove(jobId);

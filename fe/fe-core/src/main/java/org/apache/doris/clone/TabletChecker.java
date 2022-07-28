@@ -146,7 +146,7 @@ public class TabletChecker extends MasterDaemon {
                 }
             };
             gauge.addLabel(new MetricLabel("type", status));
-            MetricRepo.DORIS_METRIC_REGISTER.addPaloMetrics(gauge);
+            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
         }
     }
 
