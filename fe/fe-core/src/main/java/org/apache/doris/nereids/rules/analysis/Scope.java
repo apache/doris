@@ -15,36 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.rules.analysis;
+
+import org.apache.doris.nereids.trees.expressions.Slot;
+
+import java.util.List;
+import java.util.Optional;
 
 /**
- * Types for all Plan in Nereids.
+ * The slot range required for expression analyze.
  */
-public enum PlanType {
-    UNKNOWN,
+public class Scope {
+    private final Optional<Scope> outerScope;
+    private final List<Slot> slots;
 
-    // logical plan
-    LOGICAL_UNBOUND_RELATION,
-    LOGICAL_BOUND_RELATION,
-    LOGICAL_PROJECT,
-    LOGICAL_FILTER,
-    LOGICAL_JOIN,
-    LOGICAL_AGGREGATE,
-    LOGICAL_SORT,
-    LOGICAL_OLAP_SCAN,
-    LOGICAL_APPLY,
-    LOGICAL_CORRELATED_JOIN,
-    LOGICAL_ENFORCE_SINGLE_ROW,
-    GROUP_PLAN,
+    public Scope(Optional<Scope> outerScope, List<Slot> slots) {
+        this.outerScope = outerScope;
+        this.slots = slots;
+    }
 
-    // physical plan
-    PHYSICAL_OLAP_SCAN,
-    PHYSICAL_PROJECT,
-    PHYSICAL_FILTER,
-    PHYSICAL_BROADCAST_HASH_JOIN,
-    PHYSICAL_AGGREGATE,
-    PHYSICAL_SORT,
-    PHYSICAL_HASH_JOIN,
-    PHYSICAL_EXCHANGE,
-    PHYSICAL_DISTRIBUTION;
+    public Scope(List<Slot> slots) {
+        this.outerScope = Optional.empty();
+        this.slots = slots;
+    }
+
+    public List<Slot> getSlots() {
+        return slots;
+    }
+
+    public Optional<Scope> getOuterScope() {
+        return outerScope;
+    }
 }
