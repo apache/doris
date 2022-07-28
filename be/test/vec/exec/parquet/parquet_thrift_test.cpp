@@ -38,19 +38,18 @@ public:
     void init();
 
 private:
-    std::string path;
     FileReader* reader;
 };
 
 void ParquetThriftReaderTest::init() {
-    RuntimeProfile profile("test");
-    path = "./be/test/exec/test_data/parquet_scanner/localfile.parquet";
-    reader = new LocalFileReader(path, 0);
+    reader = new LocalFileReader("./be/test/exec/test_data/parquet_scanner/localfile.parquet", 0);
 }
 
 TEST_F(ParquetThriftReaderTest, normal) {
+    auto st = reader->open();
+    EXPECT_TRUE(st.ok());
+
     std::shared_ptr<FileMetaData> metaData;
-    reader->open();
     parse_thrift_footer(reader, metaData);
     tparquet::FileMetaData t_metadata = metaData->to_thrift_metadata();
     LOG(WARNING) << "num row groups: " << metaData->num_row_groups();
@@ -66,6 +65,7 @@ TEST_F(ParquetThriftReaderTest, normal) {
         LOG(WARNING) << "schema column repetition_type: " << value.repetition_type;
         LOG(WARNING) << "schema column num children: " << value.num_children;
     }
+    reader->close();
 }
 
 } // namespace vectorized
