@@ -21,10 +21,69 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
+template <typename DateValueType, typename ArgType>
+struct ConvertTZImpl {
+    using ColumnType = std::conditional_t<
+            std::is_same_v<DateV2Value<DateV2ValueType>, DateValueType>, ColumnDateV2,
+            std::conditional_t<std::is_same_v<DateV2Value<DateTimeV2ValueType>, DateValueType>,
+                               ColumnDateTimeV2, ColumnDateTime>>;
+    using NativeType = std::conditional_t<
+            std::is_same_v<DateV2Value<DateV2ValueType>, DateValueType>, UInt32,
+            std::conditional_t<std::is_same_v<DateV2Value<DateTimeV2ValueType>, DateValueType>,
+                               UInt64, Int64>>;
+    using ReturnDateType = std::conditional_t<std::is_same_v<VecDateTimeValue, DateValueType>,
+                                              VecDateTimeValue, DateV2Value<DateTimeV2ValueType>>;
+    using ReturnNativeType =
+            std::conditional_t<std::is_same_v<VecDateTimeValue, DateValueType>, Int64, UInt64>;
+    using ReturnColumnType = std::conditional_t<std::is_same_v<VecDateTimeValue, DateValueType>,
+                                                ColumnDateTime, ColumnDateTimeV2>;
+
+    static void execute(FunctionContext* context, const ColumnType* date_column,
+                        const ColumnString* from_tz_column, const ColumnString* to_tz_column,
+                        ReturnColumnType* result_column, NullMap& result_null_map,
+                        size_t input_rows_count) {
+        for (size_t i = 0; i < input_rows_count; i++) {
+            if (result_null_map[i]) {
+                result_column->insert_default();
+                continue;
+            }
+
+            StringRef from_tz = from_tz_column->get_data_at(i);
+            StringRef to_tz = to_tz_column->get_data_at(i);
+
+            DateValueType ts_value =
+                    binary_cast<NativeType, DateValueType>(date_column->get_element(i));
+            int64_t timestamp;
+
+            if (!ts_value.unix_timestamp(&timestamp, from_tz.to_string())) {
+                result_null_map[i] = true;
+                result_column->insert_default();
+                continue;
+            }
+
+            ReturnDateType ts_value2;
+            if (!ts_value2.from_unixtime(timestamp, to_tz.to_string())) {
+                result_null_map[i] = true;
+                result_column->insert_default();
+                continue;
+            }
+
+            result_column->insert(binary_cast<ReturnDateType, ReturnNativeType>(ts_value2));
+        }
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<ArgType>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>()};
+    }
+};
+
+template <typename Transform, typename DateType>
 class FunctionConvertTZ : public IFunction {
 public:
     static constexpr auto name = "convert_tz";
@@ -36,7 +95,18 @@ public:
     size_t get_number_of_arguments() const override { return 3; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeDateTime>());
+        if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
+                      std::is_same_v<DateType, DataTypeDate>) {
+            return make_nullable(std::make_shared<DataTypeDateTime>());
+        } else {
+            return make_nullable(std::make_shared<DataTypeDateTimeV2>());
+        }
+    }
+
+    bool is_variadic() const override { return true; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Transform::get_variadic_argument_types();
     }
 
     bool use_default_implementation_for_constants() const override { return true; }
@@ -44,7 +114,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto result_column = ColumnDateTime::create();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 
         ColumnPtr argument_columns[3];
@@ -62,51 +131,42 @@ public:
             }
         }
 
-        execute_straight(context, assert_cast<const ColumnDateTime*>(argument_columns[0].get()),
-                         assert_cast<const ColumnString*>(argument_columns[1].get()),
-                         assert_cast<const ColumnString*>(argument_columns[2].get()),
-                         assert_cast<ColumnDateTime*>(result_column.get()),
-                         assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                         input_rows_count);
-
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(result_column), std::move(result_null_map_column));
-        return Status::OK();
-    }
-
-private:
-    void execute_straight(FunctionContext* context, const ColumnDateTime* date_column,
-                          const ColumnString* from_tz_column, const ColumnString* to_tz_column,
-                          ColumnDateTime* result_column, NullMap& result_null_map,
-                          size_t input_rows_count) {
-        for (size_t i = 0; i < input_rows_count; i++) {
-            if (result_null_map[i]) {
-                result_column->insert_default();
-                continue;
-            }
-
-            StringRef from_tz = from_tz_column->get_data_at(i);
-            StringRef to_tz = to_tz_column->get_data_at(i);
-
-            VecDateTimeValue ts_value =
-                    binary_cast<Int64, VecDateTimeValue>(date_column->get_element(i));
-            int64_t timestamp;
-
-            if (!ts_value.unix_timestamp(&timestamp, from_tz.to_string())) {
-                result_null_map[i] = true;
-                result_column->insert_default();
-                continue;
-            }
-
-            VecDateTimeValue ts_value2;
-            if (!ts_value2.from_unixtime(timestamp, to_tz.to_string())) {
-                result_null_map[i] = true;
-                result_column->insert_default();
-                continue;
-            }
-
-            result_column->insert(binary_cast<VecDateTimeValue, Int64>(ts_value2));
+        if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
+                      std::is_same_v<DateType, DataTypeDate>) {
+            auto result_column = ColumnDateTime::create();
+            Transform::execute(context,
+                               assert_cast<const ColumnDateTime*>(argument_columns[0].get()),
+                               assert_cast<const ColumnString*>(argument_columns[1].get()),
+                               assert_cast<const ColumnString*>(argument_columns[2].get()),
+                               assert_cast<ColumnDateTime*>(result_column.get()),
+                               assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                               input_rows_count);
+            block.get_by_position(result).column = ColumnNullable::create(
+                    std::move(result_column), std::move(result_null_map_column));
+        } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+            auto result_column = ColumnDateTimeV2::create();
+            Transform::execute(context, assert_cast<const ColumnDateV2*>(argument_columns[0].get()),
+                               assert_cast<const ColumnString*>(argument_columns[1].get()),
+                               assert_cast<const ColumnString*>(argument_columns[2].get()),
+                               assert_cast<ColumnDateTimeV2*>(result_column.get()),
+                               assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                               input_rows_count);
+            block.get_by_position(result).column = ColumnNullable::create(
+                    std::move(result_column), std::move(result_null_map_column));
+        } else {
+            auto result_column = ColumnDateTimeV2::create();
+            Transform::execute(context,
+                               assert_cast<const ColumnDateTimeV2*>(argument_columns[0].get()),
+                               assert_cast<const ColumnString*>(argument_columns[1].get()),
+                               assert_cast<const ColumnString*>(argument_columns[2].get()),
+                               assert_cast<ColumnDateTimeV2*>(result_column.get()),
+                               assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                               input_rows_count);
+            block.get_by_position(result).column = ColumnNullable::create(
+                    std::move(result_column), std::move(result_null_map_column));
         }
+
+        return Status::OK();
     }
 };
 

@@ -65,6 +65,7 @@ TExprNodeType::type get_expr_node_type(PrimitiveType type) {
     case TYPE_FLOAT:
     case TYPE_DOUBLE:
     case TYPE_TIME:
+    case TYPE_TIMEV2:
         return TExprNodeType::FLOAT_LITERAL;
         break;
 

@@ -91,9 +91,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
-        WhichDataType which(from_type);
-
         return DateTimeTransformImpl<typename Transform::ARG_TYPE, typename ToDataType::FieldType,
                                      Transform>::execute(block, arguments, result,
                                                          input_rows_count);

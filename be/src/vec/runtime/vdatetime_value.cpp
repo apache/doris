@@ -2333,7 +2333,8 @@ template <typename T>
 uint32_t DateV2Value<T>::year_week(uint8_t mode) const {
     uint16_t year = 0;
     // The range of the week in the year_week is 1-53, so the mode WEEK_YEAR is always true.
-    uint8_t week = calc_week(this->daynr(), this->year(), this->month(), this->day(), mode, &year);
+    uint8_t week =
+            calc_week(this->daynr(), this->year(), this->month(), this->day(), mode | 2, &year);
     // When the mode WEEK_FIRST_WEEKDAY is not set,
     // the week in which the last three days of the year fall may belong to the following year.
     if (week == 53 && day() >= 29 && !(mode & 4)) {

@@ -32,6 +32,7 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.VectorizedUtil;
@@ -1026,10 +1027,12 @@ public class FunctionCallExpr extends Expr {
                 for (int i = 0; i < argTypes.length; ++i) {
                     // For varargs, we must compare with the last type in callArgs.argTypes.
                     int ix = Math.min(args.length - 1, i);
-                    if (!argTypes[i].matchesType(args[ix]) && !(
+                    if (!argTypes[i].matchesType(args[ix]) && Config.use_date_v2_by_default
+                            && !argTypes[i].isDateType() && (args[ix].isDate() || args[ix].isDatetime())) {
+                        uncheckedCastChild(DateLiteral.getDefaultDateType(args[ix]), i);
+                    } else if (!argTypes[i].matchesType(args[ix]) && !(
                             argTypes[i].isDateType() && args[ix].isDateType())) {
                         uncheckedCastChild(args[ix], i);
-                        //if (argTypes[i] != args[ix]) castChild(args[ix], i);
                     }
                 }
             }
@@ -1073,6 +1076,22 @@ public class FunctionCallExpr extends Expr {
             }
         } else {
             this.type = fn.getReturnType();
+        }
+
+        Type[] childTypes = collectChildReturnTypes();
+        if ((this.type.isDate() || this.type.isDatetime()) && Config.use_date_v2_by_default
+                && fn.getArgs().length == childTypes.length) {
+            boolean implicitCastToDate = false;
+            for (int i = 0; i < fn.getArgs().length; i++) {
+                implicitCastToDate = Type.canCastTo(childTypes[i], fn.getArgs()[i]);
+                if (implicitCastToDate) {
+                    break;
+                }
+            }
+            if (implicitCastToDate) {
+                this.type = DateLiteral.getDefaultDateType(fn.getReturnType());
+                fn.setReturnType(DateLiteral.getDefaultDateType(fn.getReturnType()));
+            }
         }
 
         if (this.type.isDecimalV3()) {

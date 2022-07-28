@@ -75,6 +75,7 @@ Literal::Literal(const TExprNode& node) : Expr(node) {
         break;
     case TYPE_DOUBLE:
     case TYPE_TIME:
+    case TYPE_TIMEV2:
         DCHECK_EQ(node.node_type, TExprNodeType::FLOAT_LITERAL);
         DCHECK(node.__isset.float_literal);
         _value.double_val = node.float_literal.value;
@@ -199,7 +200,8 @@ FloatVal Literal::get_float_val(ExprContext* context, TupleRow* row) {
 }
 
 DoubleVal Literal::get_double_val(ExprContext* context, TupleRow* row) {
-    DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME) << _type;
+    DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME || _type.type == TYPE_TIMEV2)
+            << _type;
     return DoubleVal(_value.double_val);
 }
 
