@@ -767,9 +767,9 @@ public class HiveMetaStoreClientHelper {
             case "bigint":
                 return Type.BIGINT;
             case "date":
-                return DateLiteral.getDefaultDateType(Type.DATE);
+                return ScalarType.getDefaultDateType(Type.DATE);
             case "timestamp":
-                return DateLiteral.getDefaultDateType(Type.DATETIME);
+                return ScalarType.getDefaultDateType(Type.DATETIME);
             case "float":
                 return Type.FLOAT;
             case "double":
