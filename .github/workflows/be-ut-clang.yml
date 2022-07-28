@@ -21,7 +21,7 @@ on:
   pull_request:
 
 concurrency:
-  group: ${{ github.head_ref || github.ref_name }} (BE UT Clang)
+  group: ${{ github.ref }} (BE UT Clang)
   cancel-in-progress: true
 
 jobs:
@@ -45,7 +45,7 @@ jobs:
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
 
-      - name: Run UT
+      - name: Run UT ${{ github.ref }}
         if: ${{ steps.filter.outputs.be_changes == 'true' }}
         run: |
           export DEFAULT_DIR='/opt/doris'
@@ -72,6 +72,6 @@ jobs:
 
           DORIS_TOOLCHAIN=clang ./run-be-ut.sh -j "$(nproc)" --run --clean
 
-      - name: Skip UT
+      - name: Skip UT ${{ github.ref }}
         if: ${{ steps.filter.outputs.be_changes == 'false' }}
         run: echo 'No need to run.'
