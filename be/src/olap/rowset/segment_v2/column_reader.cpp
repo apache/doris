@@ -938,6 +938,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     vectorized::Int128 int128;
     char* data_ptr = (char*)&int128;
     size_t data_len = sizeof(int128);
+    dst = dst->convert_to_predicate_column_if_dictionary();
 
     switch (type_info->type()) {
     case OLAP_FIELD_TYPE_OBJECT:
