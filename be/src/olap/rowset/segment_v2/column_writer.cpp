@@ -338,19 +338,7 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     return Status::OK();
 }
 
-template <typename>
-constexpr bool always_false_v = false;
-
-template <typename DataPtr>
-Status ScalarColumnWriter::append_data_in_current_page(DataPtr ptr, size_t* num_written) {
-    const uint8_t* data = nullptr;
-    if constexpr (std::is_same<DataPtr, const uint8_t**>::value) {
-        data = *ptr;
-    } else if constexpr (std::is_same<DataPtr, uint8_t*>::value) {
-        data = ptr;
-    } else {
-        static_assert(always_false_v<DataPtr>, "not support type");
-    }
+Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* data, size_t* num_written) {
     RETURN_IF_ERROR(_page_builder->add(data, num_written));
     if (_opts.need_zone_map) {
         _zone_map_index_builder->add_values(data, *num_written);
@@ -363,9 +351,7 @@ Status ScalarColumnWriter::append_data_in_current_page(DataPtr ptr, size_t* num_
     }
 
     _next_rowid += *num_written;
-    if constexpr (std::is_same_v<DataPtr, uint8_t**>) {
-        ptr += get_field()->size() * (*num_written);
-    }
+
     // we must write null bits after write data, because we don't
     // know how many rows can be written into current page
     if (is_nullable()) {
@@ -374,9 +360,11 @@ Status ScalarColumnWriter::append_data_in_current_page(DataPtr ptr, size_t* num_
     return Status::OK();
 }
 
-template Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** ptr,
-                                                                size_t* num_written);
-template Status ScalarColumnWriter::append_data_in_current_page(uint8_t* ptr, size_t* num_written);
+Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** data, size_t* num_written) {
+    RETURN_IF_ERROR(append_data_in_current_page(*data, num_written));
+    data += get_field()->size() * (*num_written);
+    return Status::OK();
+}
 
 uint64_t ScalarColumnWriter::estimate_buffer_size() {
     uint64_t size = _data_size;
