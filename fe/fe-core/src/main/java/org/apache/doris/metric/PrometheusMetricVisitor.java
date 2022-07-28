@@ -54,17 +54,14 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     private static final String HELP = "# HELP ";
     private static final String TYPE = "# TYPE ";
 
-    private int ordinal = 0;
-    private int metricNumber = 0;
     private Set<String> metricNames = new HashSet();
 
-    public PrometheusMetricVisitor(String prefix) {
-        super(prefix);
+    public PrometheusMetricVisitor() {
+        super();
     }
 
     @Override
     public void setMetricNumber(int metricNumber) {
-        this.metricNumber = metricNumber;
     }
 
     @Override
@@ -72,12 +69,12 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         // heap
         sb.append(Joiner.on(" ").join(HELP, JVM_HEAP_SIZE_BYTES, "jvm heap stat\n"));
         sb.append(Joiner.on(" ").join(TYPE, JVM_HEAP_SIZE_BYTES, "gauge\n"));
-        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"max\"} ")
-                .append(jvmStats.getMem().getHeapMax().getBytes()).append("\n");
+        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"max\"} ").append(jvmStats.getMem().getHeapMax().getBytes())
+                .append("\n");
         sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"committed\"} ")
                 .append(jvmStats.getMem().getHeapCommitted().getBytes()).append("\n");
-        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"used\"} ")
-                .append(jvmStats.getMem().getHeapUsed().getBytes()).append("\n");
+        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"used\"} ").append(jvmStats.getMem().getHeapUsed().getBytes())
+                .append("\n");
         // non heap
         sb.append(Joiner.on(" ").join(HELP, JVM_NON_HEAP_SIZE_BYTES, "jvm non heap stat\n"));
         sb.append(Joiner.on(" ").join(TYPE, JVM_NON_HEAP_SIZE_BYTES, "gauge\n"));
@@ -171,9 +168,9 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visit(StringBuilder sb, @SuppressWarnings("rawtypes") Metric metric) {
+    public void visit(StringBuilder sb, String prefix, @SuppressWarnings("rawtypes") Metric metric) {
         // title
-        final String fullName = prefix + "_" + metric.getName();
+        final String fullName = prefix + metric.getName();
         if (!metricNames.contains(fullName)) {
             sb.append(HELP).append(fullName).append(" ").append(metric.getDescription()).append("\n");
             sb.append(TYPE).append(fullName).append(" ").append(metric.getType().name().toLowerCase()).append("\n");
@@ -198,8 +195,8 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visitHistogram(StringBuilder sb, String name, Histogram histogram) {
-        final String fullName = prefix + "_" + name.replaceAll("\\.", "_");
+    public void visitHistogram(StringBuilder sb, String prefix, String name, Histogram histogram) {
+        final String fullName = prefix + name.replaceAll("\\.", "_");
         sb.append(HELP).append(fullName).append(" ").append("\n");
         sb.append(TYPE).append(fullName).append(" ").append("summary\n");
 

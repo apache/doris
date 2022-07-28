@@ -37,6 +37,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
@@ -93,6 +94,7 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_TXN_BEGIN;
     public static LongCounterMetric COUNTER_TXN_FAILED;
     public static LongCounterMetric COUNTER_TXN_SUCCESS;
+
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ROWS;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_RECEIVED_BYTES;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ERROR_ROWS;
@@ -143,8 +145,7 @@ public final class MetricRepo {
         //  routine load jobs
         RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
         for (RoutineLoadJob.JobState jobState : RoutineLoadJob.JobState.values()) {
-            GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
-                    MetricUnit.NOUNIT, "routine load job statistics") {
+            GaugeMetric<Long> gauge = new GaugeMetric<Long>("job", MetricUnit.NOUNIT, "routine load job statistics") {
                 @Override
                 public Long getValue() {
                     if (!Env.getCurrentEnv().isMaster()) {
@@ -168,16 +169,15 @@ public final class MetricRepo {
                 continue;
             }
 
-            GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
-                    MetricUnit.NOUNIT, "job statistics") {
+            GaugeMetric<Long> gauge = new GaugeMetric<Long>("job", MetricUnit.NOUNIT, "job statistics") {
                 @Override
                 public Long getValue() {
                     if (!Env.getCurrentEnv().isMaster()) {
                         return 0L;
                     }
                     if (jobType == JobType.SCHEMA_CHANGE) {
-                        return alter.getSchemaChangeHandler().getAlterJobV2Num(
-                                org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
+                        return alter.getSchemaChangeHandler()
+                                .getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
                     } else {
                         return alter.getMaterializedViewHandler().getAlterJobV2Num(
                                 org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
@@ -193,8 +193,8 @@ public final class MetricRepo {
         generateBackendsTabletMetrics();
 
         // connections
-        GaugeMetric<Integer> connections = (GaugeMetric<Integer>) new GaugeMetric<Integer>(
-                "connection_total", MetricUnit.CONNECTIONS, "total connections") {
+        GaugeMetric<Integer> connections = new GaugeMetric<Integer>("connection_total", MetricUnit.CONNECTIONS,
+                "total connections") {
             @Override
             public Integer getValue() {
                 return ExecuteEnv.getInstance().getScheduler().getConnectionNum();
@@ -203,8 +203,8 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addMetrics(connections);
 
         // journal id
-        GaugeMetric<Long> maxJournalId = (GaugeMetric<Long>) new GaugeMetric<Long>(
-                "max_journal_id", MetricUnit.NOUNIT, "max journal id of this frontends") {
+        GaugeMetric<Long> maxJournalId = new GaugeMetric<Long>("max_journal_id", MetricUnit.NOUNIT,
+                "max journal id of this frontends") {
             @Override
             public Long getValue() {
                 EditLog editLog = Env.getCurrentEnv().getEditLog();
@@ -217,8 +217,8 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addMetrics(maxJournalId);
 
         // scheduled tablet num
-        GaugeMetric<Long> scheduledTabletNum = (GaugeMetric<Long>) new GaugeMetric<Long>(
-                "scheduled_tablet_num", MetricUnit.NOUNIT, "number of tablets being scheduled") {
+        GaugeMetric<Long> scheduledTabletNum = new GaugeMetric<Long>("scheduled_tablet_num", MetricUnit.NOUNIT,
+                "number of tablets being scheduled") {
             @Override
             public Long getValue() {
                 if (!Env.getCurrentEnv().isMaster()) {
@@ -235,14 +235,29 @@ public final class MetricRepo {
                 public Long getValue() {
                     try {
                         return ((QeProcessorImpl) QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
-                            .reduce(-1, BinaryOperator.maxBy(Integer::compareTo)).longValue();
+                                .reduce(-1, BinaryOperator.maxBy(Integer::compareTo)).longValue();
                     } catch (Throwable ex) {
                         LOG.warn("Get max_instances_num_per_user error", ex);
                         return -2L;
                     }
                 }
         };
-        PALO_METRIC_REGISTER.addPaloMetrics(maxInstanceNum);
+        DORIS_METRIC_REGISTER.addMetrics(maxInstanceNum);
+
+        // txn status
+        for (TransactionStatus status : TransactionStatus.values()) {
+            GaugeMetric<Long> gauge = new GaugeMetric<Long>("txn_status", MetricUnit.NOUNIT, "txn statistics") {
+                @Override
+                public Long getValue() {
+                    if (!Env.getCurrentEnv().isMaster()) {
+                        return 0L;
+                    }
+                    return Env.getCurrentGlobalTransactionMgr().getTxnNumByStatus(status);
+                }
+            };
+            gauge.addLabel(new MetricLabel("type", status.name().toLowerCase()));
+            DORIS_METRIC_REGISTER.addMetrics(gauge);
+        }
 
         // qps, rps and error rate
         // these metrics should be set an init value, in case that metric calculator is not running
@@ -343,16 +358,21 @@ public final class MetricRepo {
         COUNTER_EDIT_LOG_CLEAN_FAILED.addLabel(new MetricLabel("type", "failed"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_CLEAN_FAILED);
 
-        COUNTER_TXN_REJECT = new LongCounterMetric("txn_reject", MetricUnit.REQUESTS,
+        COUNTER_TXN_REJECT = new LongCounterMetric("txn_counter", MetricUnit.REQUESTS,
                 "counter of rejected transactions");
+        COUNTER_TXN_REJECT.addLabel(new MetricLabel("type", "reject"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_TXN_REJECT);
-        COUNTER_TXN_BEGIN = new LongCounterMetric("txn_begin", MetricUnit.REQUESTS,
+        COUNTER_TXN_BEGIN = new LongCounterMetric("txn_counter", MetricUnit.REQUESTS,
                 "counter of beginning transactions");
+        COUNTER_TXN_BEGIN.addLabel(new MetricLabel("type", "begin"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_TXN_BEGIN);
-        COUNTER_TXN_SUCCESS = new LongCounterMetric("txn_success", MetricUnit.REQUESTS,
+        COUNTER_TXN_SUCCESS = new LongCounterMetric("txn_counter", MetricUnit.REQUESTS,
                 "counter of success transactions");
+        COUNTER_TXN_SUCCESS.addLabel(new MetricLabel("type", "success"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_TXN_SUCCESS);
-        COUNTER_TXN_FAILED = new LongCounterMetric("txn_failed", MetricUnit.REQUESTS, "counter of failed transactions");
+        COUNTER_TXN_FAILED = new LongCounterMetric("txn_counter", MetricUnit.REQUESTS,
+                "counter of failed transactions");
+        COUNTER_TXN_FAILED.addLabel(new MetricLabel("type", "failed"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_TXN_FAILED);
 
         COUNTER_ROUTINE_LOAD_ROWS = new LongCounterMetric("routine_load_rows", MetricUnit.ROWS,
@@ -549,16 +569,21 @@ public final class MetricRepo {
         JvmStats jvmStats = jvmService.stats();
         visitor.visitJvm(sb, jvmStats);
 
-        visitor.setMetricNumber(DORIS_METRIC_REGISTER.getMetrics().size());
+        visitor.setMetricNumber(
+                DORIS_METRIC_REGISTER.getMetrics().size() + DORIS_METRIC_REGISTER.getSystemMetrics().size());
         // doris metrics
         for (Metric metric : DORIS_METRIC_REGISTER.getMetrics()) {
-            visitor.visit(sb, metric);
+            visitor.visit(sb, MetricVisitor.FE_PREFIX, metric);
+        }
+        // system metric
+        for (Metric metric : DORIS_METRIC_REGISTER.getMetrics()) {
+            visitor.visit(sb, MetricVisitor.SYS_PREFIX, metric);
         }
 
         // histogram
         SortedMap<String, Histogram> histograms = METRIC_REGISTER.getHistograms();
         for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(sb, entry.getKey(), entry.getValue());
+            visitor.visitHistogram(sb, MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
         }
 
         // node info

@@ -47,7 +47,7 @@ public class MetricsAction {
         } else if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("json")) {
             visitor = new JsonMetricVisitor("doris_fe");
         } else {
-            visitor = new PrometheusMetricVisitor("doris_fe");
+            visitor = new PrometheusMetricVisitor();
         }
         response.setContentType("text/plain");
         try {
