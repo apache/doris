@@ -15,26 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 /**
- * Job to eliminate the logical node of sub query and alias
+ * explain command.
  */
-public class FinalizeAnalyzeJob extends BatchRulesJob {
+public class ExplainCommand implements Command {
 
     /**
-     * constructor
-     * @param plannerContext ctx
+     * explain level.
      */
-    public FinalizeAnalyzeJob(PlannerContext plannerContext) {
-        super(plannerContext);
-        rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(new EliminateAliasNode()))
-        ));
+    public enum ExplainLevel {
+        NORMAL,
+        VERBOSE,
+        GRAPH,
+        ;
+    }
+
+    private final ExplainLevel level;
+    private final LogicalPlan logicalPlan;
+
+    public ExplainCommand(ExplainLevel level, LogicalPlan logicalPlan) {
+        this.level = level;
+        this.logicalPlan = logicalPlan;
+    }
+
+    public ExplainLevel getLevel() {
+        return level;
+    }
+
+    public LogicalPlan getLogicalPlan() {
+        return logicalPlan;
     }
 }

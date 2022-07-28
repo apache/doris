@@ -183,4 +183,9 @@ public class NereidsPlanner extends Planner {
     public DescriptorTable getDescTable() {
         return descTable;
     }
+
+    @Override
+    public void appendTupleInfo(StringBuilder str) {
+        str.append(descTable.getExplainString());
+    }
 }

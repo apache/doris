@@ -117,7 +117,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (physicalPlan.getType() == PlanType.PHYSICAL_PROJECT) {
             PhysicalProject<Plan> physicalProject = (PhysicalProject<Plan>) physicalPlan;
             List<Expr> outputExprs = physicalProject.getProjects().stream()
-                    .map(e -> ExpressionTranslator.translate((Expression) e, context))
+                    .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toList());
             rootFragment.setOutputExprs(outputExprs);
         } else {
@@ -329,7 +329,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             childSortNode.setLimit(limit + offset);
         }
         childSortNode.setOffset(0);
-        context.addPlanFragment(mergeFragment);
         return mergeFragment;
     }
 
