@@ -17,27 +17,23 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
-import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.DistinctPredicatesRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.ExtractCommonFactorRule;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
- * normalize expression of plan rule set.
+ * optimize expression of plan rule set.
  */
-public class NormalizeExpressions extends ExpressionRewrite {
+public class ExpressionOptimization extends ExpressionRewrite {
+    public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
+            ExtractCommonFactorRule.INSTANCE,
+            DistinctPredicatesRule.INSTANCE);
+    private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);
 
-    public static final List<ExpressionRewriteRule> NORMALIZE_REWRITE_RULES = ImmutableList.of(
-            NormalizeBinaryPredicatesRule.INSTANCE,
-            BetweenToCompoundRule.INSTANCE,
-            SimplifyNotExprRule.INSTANCE
-    );
-    private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES);
-
-    public NormalizeExpressions() {
+    public ExpressionOptimization() {
         super(EXECUTOR);
     }
 }
