@@ -61,7 +61,11 @@ public class DorisMetricRegistry {
 
     // the metrics by metric name
     public synchronized List<Metric> getMetricsByName(String name) {
-        return metrics.stream().filter(m -> m.getName().equals(name)).collect(Collectors.toList());
+        List<Metric> list = metrics.stream().filter(m -> m.getName().equals(name)).collect(Collectors.toList());
+        if (list.isEmpty()) {
+            list = systemMetrics.stream().filter(m -> m.getName().equals(name)).collect(Collectors.toList());
+        }
+        return list;
     }
 
     public synchronized void removeMetrics(String name) {
