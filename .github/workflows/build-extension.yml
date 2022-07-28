@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   changes:
-    name: Detect changes
+    name: Detect Changes
     runs-on: ubuntu-latest
     outputs:
       broker_changes: ${{ steps.filter.outputs.broker_changes }}
