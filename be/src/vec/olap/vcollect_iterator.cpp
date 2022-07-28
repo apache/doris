@@ -108,16 +108,18 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
                 }
                 ++i;
             }
-            Level1Iterator* cumu_iter = new Level1Iterator(cumu_children, _reader,
-                                                           cumu_children.size() > 1, _is_reverse, _skip_same);
+            Level1Iterator* cumu_iter = new Level1Iterator(
+                    cumu_children, _reader, cumu_children.size() > 1, _is_reverse, _skip_same);
             RETURN_IF_NOT_EOF_AND_OK(cumu_iter->init());
             std::list<LevelIterator*> children;
             children.push_back(*base_reader_child);
             children.push_back(cumu_iter);
-            _inner_iter.reset(new Level1Iterator(children, _reader, _merge, _is_reverse, _skip_same));
+            _inner_iter.reset(
+                    new Level1Iterator(children, _reader, _merge, _is_reverse, _skip_same));
         } else {
             // _children.size() == 1
-            _inner_iter.reset(new Level1Iterator(_children, _reader, _merge, _is_reverse, _skip_same));
+            _inner_iter.reset(
+                    new Level1Iterator(_children, _reader, _merge, _is_reverse, _skip_same));
         }
     } else {
         _inner_iter.reset(new Level1Iterator(_children, _reader, _merge, _is_reverse, _skip_same));
@@ -136,7 +138,7 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
             lhs_ref.block->compare_at(lhs_ref.row_pos, rhs_ref.row_pos,
                                       lhs->tablet_schema().num_key_columns(), *rhs_ref.block, -1);
     if (cmp_res != 0) {
-        return UNLIKELY(_is_reverse) ? cmp_res < 0 :  cmp_res > 0;
+        return UNLIKELY(_is_reverse) ? cmp_res < 0 : cmp_res > 0;
     }
 
     if (_sequence != -1) {

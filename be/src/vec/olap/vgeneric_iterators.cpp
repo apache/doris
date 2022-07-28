@@ -119,7 +119,8 @@ Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
 //      }
 class VMergeIteratorContext {
 public:
-    VMergeIteratorContext(RowwiseIterator* iter, int sequence_id_idx, bool is_unique, bool is_reverse)
+    VMergeIteratorContext(RowwiseIterator* iter, int sequence_id_idx, bool is_unique,
+                          bool is_reverse)
             : _iter(iter),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
@@ -353,7 +354,8 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     _record_rowids = opts.record_rowids;
 
     for (auto iter : _origin_iters) {
-        auto ctx = std::make_unique<VMergeIteratorContext>(iter, _sequence_id_idx, _is_unique, _is_reverse);
+        auto ctx = std::make_unique<VMergeIteratorContext>(iter, _sequence_id_idx, _is_unique,
+                                                           _is_reverse);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;

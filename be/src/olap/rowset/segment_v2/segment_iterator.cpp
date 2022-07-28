@@ -134,8 +134,8 @@ public:
             *from = _riter.current_value;
             range_size++;
             roaring_previous_uint32_iterator(&_riter);
-        } while (range_size < max_range_size &&
-                 _riter.has_value && _riter.current_value + 1 == *from);
+        } while (range_size < max_range_size && _riter.has_value &&
+                 _riter.current_value + 1 == *from);
 
         return true;
     }
@@ -1183,17 +1183,17 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
         _update_max_row(block);
     }
-    
+
     // reverse block row order
     if (_opts.read_orderby_key_reverse) {
         size_t num_rows = block->rows();
         size_t num_columns = block->columns();
         vectorized::IColumn::Permutation permutation;
-        for (size_t i = 0; i < num_rows; ++i)
-            permutation.emplace_back(num_rows - 1 - i);
+        for (size_t i = 0; i < num_rows; ++i) permutation.emplace_back(num_rows - 1 - i);
 
         for (size_t i = 0; i < num_columns; ++i)
-            block->get_by_position(i).column = block->get_by_position(i).column->permute(permutation, num_rows);
+            block->get_by_position(i).column =
+                    block->get_by_position(i).column->permute(permutation, num_rows);
     }
 
     return Status::OK();

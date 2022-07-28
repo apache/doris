@@ -113,8 +113,8 @@ private:
     // if row cursors equal, compare data version.
     class LevelIteratorComparator {
     public:
-        LevelIteratorComparator(int sequence, bool is_reverse) :
-            _sequence(sequence), _is_reverse(is_reverse) {}
+        LevelIteratorComparator(int sequence, bool is_reverse)
+                : _sequence(sequence), _is_reverse(is_reverse) {}
 
         bool operator()(LevelIterator* lhs, LevelIterator* rhs);
 
