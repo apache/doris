@@ -45,6 +45,13 @@ MemTracker::MemTracker(const std::string& label, MemTrackerLimiter* parent, Runt
     STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     _parent = parent ? parent : thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker();
     DCHECK(_parent || label == "Process");
+    if (_parent && _parent->label().find("queryId=") != _parent->label().npos) {
+        // Add the queryId suffix to the tracker below the query.
+        _label = fmt::format("{}#{}", label,
+                             _parent->label().substr(_parent->label().find("queryId="), -1));
+    } else {
+        _label = label;
+    }
     if (profile == nullptr) {
         _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
     } else {
