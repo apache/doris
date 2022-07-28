@@ -35,6 +35,7 @@ class BitmapValue;
 class DecimalV2Value;
 class DateTimeValue;
 struct CollectionValue;
+class MemPool;
 } // namespace doris
 
 namespace doris_udf {
@@ -238,7 +239,8 @@ public:
 
     // Create a test FunctionContext object. The caller is responsible for calling delete
     // on it. This context has additional debugging validation enabled.
-    static FunctionContext* create_test_context();
+    // And the default value of mem_pool is nullprt.
+    static FunctionContext* create_test_context(doris::MemPool* mem_pool);
 
     ~FunctionContext();
 
