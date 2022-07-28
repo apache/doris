@@ -116,8 +116,9 @@ private:
     class SenderQueue;
 
     DataStreamRecvr(DataStreamMgr* stream_mgr, const RowDescriptor& row_desc,
-                    const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
-                    bool is_merging, int total_buffer_limit, RuntimeProfile* profile,
+                    MemTrackerLimiter* query_mem_tracker, const TUniqueId& fragment_instance_id,
+                    PlanNodeId dest_node_id, int num_senders, bool is_merging,
+                    int total_buffer_limit, RuntimeProfile* profile,
                     std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr);
 
     // If receive queue is full, done is enqueue pending, and return with *done is nullptr
