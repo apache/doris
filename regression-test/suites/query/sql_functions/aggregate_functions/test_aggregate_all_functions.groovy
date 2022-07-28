@@ -460,4 +460,6 @@ suite("test_aggregate_all_functions", "query") {
     qt_select43 "select MIN_BY(id,level) from ${tableName_12}"
        
     sql "DROP TABLE IF EXISTS ${tableName_10}"
+
+    qt_select44 """ select sum(distinct k1), sum(distinct k2), sum(distinct k3), sum(distinct cast(k4 as largeint)), sum(distinct k5), sum(distinct k8), sum(distinct k9) from test_query_db.test  """
 }
