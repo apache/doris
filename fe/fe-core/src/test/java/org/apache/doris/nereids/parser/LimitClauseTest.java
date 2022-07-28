@@ -68,7 +68,6 @@ public class LimitClauseTest {
         Assert.assertEquals(0, limit.getOffset());
         Assert.assertEquals(1, limit.children().size());
         Assert.assertTrue(limit.child(0) instanceof LogicalSort);
-
     }
 
     @Test

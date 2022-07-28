@@ -72,7 +72,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
 
     @Override
     public String toString() {
-        return "LogicalLimit (" + offset + "," + limit + ")";
+        return "LogicalLimit ( offset=" + offset + ", limit=" + limit + ")";
     }
 
     @Override

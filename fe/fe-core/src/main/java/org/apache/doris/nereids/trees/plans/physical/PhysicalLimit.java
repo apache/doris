@@ -113,4 +113,9 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitPhysicalLimit((PhysicalLimit<Plan>) this, context);
     }
+
+    public String toString() {
+        return "PhysicalLimit ( offset=" + offset + ", limit=" + limit + ")";
+    }
+
 }

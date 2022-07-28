@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.properties;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Represents order keys and limit and offset
@@ -26,19 +25,21 @@ import java.util.Optional;
 public class QueryOrganization {
 
     private List<OrderKey> orderKeys;
-    private Optional<LimitAndOffset> limitAndOffset;
+    private long limit;
+    private long offset;
 
-    public QueryOrganization(List<OrderKey> orderKeys, Optional<LimitAndOffset> limitAndOffset) {
+    public QueryOrganization(List<OrderKey> orderKeys, long limit, long offset) {
         this.orderKeys = orderKeys;
-        this.limitAndOffset = limitAndOffset;
+        this.limit = limit;
+        this.offset = offset;
     }
 
-    public Optional<LimitAndOffset> getLimitAndOffset() {
-        return limitAndOffset;
+    public long getLimit() {
+        return limit;
     }
 
-    public void setLimitAndOffset(Optional<LimitAndOffset> limitAndOffset) {
-        this.limitAndOffset = limitAndOffset;
+    public long getOffset() {
+        return offset;
     }
 
     public void setOrderKeys(List<OrderKey> orderKeys) {
@@ -49,6 +50,8 @@ public class QueryOrganization {
         return orderKeys;
     }
 
-
+    public boolean hasLimitClause() {
+        return limit != Long.MAX_VALUE;
+    }
 
 }
