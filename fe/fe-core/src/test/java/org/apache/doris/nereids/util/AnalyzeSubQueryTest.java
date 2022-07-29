@@ -51,8 +51,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
             "SELECT * FROM (SELECT * FROM T1 T) T2",
             "SELECT T1.ID ID FROM T1",
             "SELECT T.ID FROM T1 T",
-            "SELECT A.ID FROM T1 A, T2 B WHERE A.ID = B.ID GROUP BY A.ID ORDER BY A.ID",
-            "SELECT * FROM T1 JOIN T2 ON T1.ID = T2.ID JOIN T2 T ON T1.ID = T.ID"
+            "SELECT A.ID FROM T1 A, T2 B WHERE A.ID = B.ID GROUP BY A.ID ORDER BY A.ID"
     );
 
     @Override
