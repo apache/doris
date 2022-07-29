@@ -75,19 +75,23 @@ Literal::Literal(const TExprNode& node) : Expr(node) {
         break;
     case TYPE_DOUBLE:
     case TYPE_TIME:
+    case TYPE_TIMEV2:
         DCHECK_EQ(node.node_type, TExprNodeType::FLOAT_LITERAL);
         DCHECK(node.__isset.float_literal);
         _value.double_val = node.float_literal.value;
         break;
     case TYPE_DATE:
     case TYPE_DATETIME:
-    case TYPE_DATETIMEV2:
         _value.datetime_val.from_date_str(node.date_literal.value.c_str(),
                                           node.date_literal.value.size());
         break;
     case TYPE_DATEV2:
         _value.datev2_val.from_date_str(node.date_literal.value.c_str(),
                                         node.date_literal.value.size());
+        break;
+    case TYPE_DATETIMEV2:
+        _value.datetimev2_val.from_date_str(node.date_literal.value.c_str(),
+                                            node.date_literal.value.size());
         break;
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -117,8 +121,8 @@ Literal::Literal(const TExprNode& node) : Expr(node) {
         break;
     }
     default:
+        DCHECK(false) << "Invalid type: " << _type.debug_string();
         break;
-        // DCHECK(false) << "Invalid type: " << TypeToString(_type.type);
     }
 }
 
@@ -196,7 +200,8 @@ FloatVal Literal::get_float_val(ExprContext* context, TupleRow* row) {
 }
 
 DoubleVal Literal::get_double_val(ExprContext* context, TupleRow* row) {
-    DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME) << _type;
+    DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME || _type.type == TYPE_TIMEV2)
+            << _type;
     return DoubleVal(_value.double_val);
 }
 
@@ -216,6 +221,12 @@ DateTimeVal Literal::get_datetime_val(ExprContext* context, TupleRow* row) {
 DateV2Val Literal::get_datev2_val(ExprContext* context, TupleRow* row) {
     DateV2Val dt_val;
     _value.datev2_val.to_datev2_val(&dt_val);
+    return dt_val;
+}
+
+DateTimeV2Val Literal::get_datetimev2_val(ExprContext* context, TupleRow* row) {
+    DateTimeV2Val dt_val;
+    _value.datetimev2_val.to_datetimev2_val(&dt_val);
     return dt_val;
 }
 

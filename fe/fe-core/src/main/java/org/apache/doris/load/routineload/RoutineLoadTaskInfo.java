@@ -18,7 +18,7 @@
 package org.apache.doris.load.routineload;
 
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -52,7 +52,7 @@ import java.util.UUID;
 public abstract class RoutineLoadTaskInfo {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskInfo.class);
 
-    private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+    private RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
 
     protected UUID id;
     protected long txnId = -1L;
@@ -168,7 +168,7 @@ public abstract class RoutineLoadTaskInfo {
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         try {
             MetricRepo.COUNTER_LOAD_ADD.increase(1L);
-            txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(routineLoadJob.getDbId(),
+            txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(routineLoadJob.getDbId(),
                     Lists.newArrayList(routineLoadJob.getTableId()), DebugUtil.printId(id), null,
                     new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                     TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId(),

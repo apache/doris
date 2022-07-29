@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
@@ -32,21 +32,21 @@ import org.junit.Test;
 
 public class ShowLoadStmtTest {
     private Analyzer analyzer;
-    private Catalog catalog;
+    private Env env;
 
     private SystemInfoService systemInfoService;
 
-    FakeCatalog fakeCatalog;
+    FakeEnv fakeEnv;
 
     @Before
     public void setUp() {
-        fakeCatalog = new FakeCatalog();
+        fakeEnv = new FakeEnv();
 
         systemInfoService = AccessTestUtil.fetchSystemInfoService();
-        FakeCatalog.setSystemInfo(systemInfoService);
+        FakeEnv.setSystemInfo(systemInfoService);
 
-        catalog = AccessTestUtil.fetchAdminCatalog();
-        FakeCatalog.setCatalog(catalog);
+        env = AccessTestUtil.fetchAdminCatalog();
+        FakeEnv.setEnv(env);
 
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         new Expectations(analyzer) {
@@ -63,9 +63,9 @@ public class ShowLoadStmtTest {
                 minTimes = 0;
                 result = "testCluster";
 
-                analyzer.getCatalog();
+                analyzer.getEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
     }

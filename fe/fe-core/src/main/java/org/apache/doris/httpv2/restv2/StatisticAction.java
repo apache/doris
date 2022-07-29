@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.restv2;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -45,25 +45,25 @@ public class StatisticAction extends RestBaseController {
 
     @RequestMapping(path = "/api/cluster_overview", method = RequestMethod.GET)
     public Object clusterOverview(HttpServletRequest request, HttpServletResponse response) {
-        if (!Catalog.getCurrentCatalog().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster()) {
             return redirectToMaster(request, response);
         }
         Map<String, Object> resultMap = Maps.newHashMap();
-        Catalog catalog = Catalog.getCurrentCatalog();
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Env env = Env.getCurrentEnv();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
 
-        resultMap.put("dbCount", catalog.getInternalDataSource().getDbIds().size());
-        resultMap.put("tblCount", getTblCount(catalog));
+        resultMap.put("dbCount", env.getInternalDataSource().getDbIds().size());
+        resultMap.put("tblCount", getTblCount(env));
         resultMap.put("diskOccupancy", getDiskOccupancy(infoService));
         resultMap.put("beCount", infoService.getClusterBackendIds(SystemInfoService.DEFAULT_CLUSTER).size());
-        resultMap.put("feCount", catalog.getFrontends(null).size());
+        resultMap.put("feCount", env.getFrontends(null).size());
         resultMap.put("remainDisk", getRemainDisk(infoService));
 
         return ResponseEntityBuilder.ok(resultMap);
     }
 
-    private int getTblCount(Catalog catalog) {
-        InternalDataSource ds = catalog.getInternalDataSource();
+    private int getTblCount(Env env) {
+        InternalDataSource ds = env.getInternalDataSource();
         return ds.getDbIds().stream().map(ds::getDbNullable).filter(Objects::nonNull).map(db -> db.getTables().size())
                 .reduce(Integer::sum).orElse(0);
     }

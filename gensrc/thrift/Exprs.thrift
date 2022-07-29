@@ -121,8 +121,14 @@ struct TLiteralPredicate {
   2: required bool is_null
 }
 
+enum TNullSide {
+   LEFT,
+   RIGHT
+}
+
 struct TTupleIsNullPredicate {
   1: required list<Types.TTupleId> tuple_ids
+  2: optional TNullSide null_side
 }
 
 struct TSlotRef {

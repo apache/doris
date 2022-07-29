@@ -52,6 +52,12 @@ public abstract class DataType {
                     return VarcharType.createVarcharType(scalarType.getLength());
                 case STRING:
                     return StringType.INSTANCE;
+                case DATE:
+                    return DateType.INSTANCE;
+                case DATETIME:
+                    return DateTimeType.INSTANCE;
+                case DECIMALV2:
+                    return DecimalType.createDecimalType(scalarType.decimalPrecision(), scalarType.decimalScale());
                 case NULL_TYPE:
                     return NullType.INSTANCE;
                 default:
@@ -70,6 +76,67 @@ public abstract class DataType {
         }
     }
 
+    /**
+     * Convert to data type in Nereids.
+     * throw exception when cannot convert to Nereids type
+     *
+     * @param type data type in string representation
+     * @return data type in Nereids
+     */
+    public static DataType convertFromString(String type) {
+        // TODO: use a better way to resolve types
+        switch (type.toLowerCase()) {
+            case "bool":
+            case "boolean":
+                return BooleanType.INSTANCE;
+            case "int":
+                return IntegerType.INSTANCE;
+            case "bigint":
+                return BigIntType.INSTANCE;
+            case "double":
+                return DoubleType.INSTANCE;
+            case "string":
+                return StringType.INSTANCE;
+            case "null":
+                return NullType.INSTANCE;
+            case "datetime":
+                return DateTimeType.INSTANCE;
+            default:
+                throw new AnalysisException("Nereids do not support type: " + type);
+        }
+    }
+
     public abstract Type toCatalogDataType();
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return 0;
+    }
+
+    public boolean isDate() {
+        return this instanceof DateType;
+    }
+
+    public boolean isIntType() {
+        return this instanceof IntegerType;
+    }
+
+    public boolean isDateTime() {
+        return this instanceof DateTimeType;
+    }
+
+    public boolean isDateType() {
+        return isDate() || isDateTime();
+    }
 }

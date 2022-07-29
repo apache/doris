@@ -30,12 +30,14 @@
 
 namespace doris {
 
-Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, bool is_vec) {
-    *writer = new DeltaWriter(req, StorageEngine::instance(), is_vec);
+Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, MemTrackerLimiter* parent_tracker,
+                         bool is_vec) {
+    *writer = new DeltaWriter(req, StorageEngine::instance(), parent_tracker, is_vec);
     return Status::OK();
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, bool is_vec)
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine,
+                         MemTrackerLimiter* parent_tracker, bool is_vec)
         : _req(*req),
           _tablet(nullptr),
           _cur_rowset(nullptr),
@@ -43,6 +45,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, bool 
           _tablet_schema(new TabletSchema),
           _delta_written_success(false),
           _storage_engine(storage_engine),
+          _parent_tracker(parent_tracker),
           _is_vec(is_vec) {}
 
 DeltaWriter::~DeltaWriter() {
@@ -95,11 +98,9 @@ Status DeltaWriter::init() {
                      << ", schema_hash=" << _req.schema_hash;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
-
-    // Only consume mem tracker manually in mem table. Using the virtual tracker can avoid
-    // frequent recursive consumption of the parent tracker, thereby improving performance.
-    _mem_tracker = MemTracker::create_virtual_tracker(
-            -1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()));
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(
+            -1, fmt::format("DeltaWriter:tabletId={}", _tablet->tablet_id()), _parent_tracker);
+    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         //trigger quick compaction
@@ -149,7 +150,10 @@ Status DeltaWriter::write(Tuple* tuple) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
+    int64_t prev_memtable_usage = _mem_table->memory_usage();
     _mem_table->insert(tuple);
+    THREAD_MEM_TRACKER_TRANSFER_TO(_mem_table->memory_usage() - prev_memtable_usage,
+                                   _mem_tracker.get());
 
     // if memtable is full, push it to the flush executor,
     // and create a new memtable for incoming data
@@ -173,9 +177,15 @@ Status DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row
     if (_is_cancelled) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
+
+    // Hook automatically records that the memory is lower than the real value, so manual tracking is used.
+    // Because multiple places freed memory that doesn't belong to DeltaWriter
+    int64_t prev_memtable_usage = _mem_table->memory_usage();
     for (const auto& row_idx : row_idxs) {
         _mem_table->insert(row_batch->get_row(row_idx)->get_tuple(0));
     }
+    THREAD_MEM_TRACKER_TRANSFER_TO(_mem_table->memory_usage() - prev_memtable_usage,
+                                   _mem_tracker.get());
 
     if (_mem_table->memory_usage() >= config::write_buffer_size) {
         RETURN_NOT_OK(_flush_memtable_async());
@@ -198,6 +208,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
+    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
     _mem_table->insert(block, row_idxs);
 
     if (_mem_table->need_to_agg()) {
@@ -215,7 +226,7 @@ Status DeltaWriter::_flush_memtable_async() {
     if (++_segment_counter > config::max_segment_num_per_rowset) {
         return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_SEGMENTS);
     }
-    return _flush_token->submit(_mem_table);
+    return _flush_token->submit(std::move(_mem_table), _mem_tracker.get());
 }
 
 Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
@@ -232,6 +243,7 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
+    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
     if (mem_consumption() == _mem_table->memory_usage()) {
         // equal means there is no memtable in flush queue, just flush this memtable
         VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
@@ -266,9 +278,8 @@ Status DeltaWriter::wait_flush() {
 }
 
 void DeltaWriter::_reset_mem_table() {
-    _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema.get(),
-                                  _req.slots, _req.tuple_desc, _tablet->keys_type(),
-                                  _rowset_writer.get(), _mem_tracker, _is_vec));
+    _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
+                                  _req.tuple_desc, _rowset_writer.get(), _is_vec));
 }
 
 Status DeltaWriter::close() {
@@ -286,6 +297,7 @@ Status DeltaWriter::close() {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
+    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
     RETURN_NOT_OK(_flush_memtable_async());
     _mem_table.reset();
     return Status::OK();
@@ -300,13 +312,11 @@ Status DeltaWriter::close_wait() {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
+    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
 
     _mem_table.reset();
-    // In allocate/free of mem_pool, the consume_cache of _mem_tracker will be called,
-    // and _untracked_mem must be flushed first.
-    MemTracker::memory_leak_check(_mem_tracker.get());
 
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
@@ -340,7 +350,6 @@ Status DeltaWriter::cancel() {
         // cancel and wait all memtables in flush queue to be finished
         _flush_token->cancel();
     }
-    MemTracker::memory_leak_check(_mem_tracker.get());
     _is_cancelled = true;
     return Status::OK();
 }

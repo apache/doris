@@ -194,8 +194,7 @@ BufferPool::BufferAllocator::BufferAllocator(BufferPool* pool, int64_t min_buffe
           clean_page_bytes_remaining_(clean_page_bytes_limit),
           per_core_arenas_(CpuInfo::get_max_num_cores()),
           max_scavenge_attempts_(MAX_SCAVENGE_ATTEMPTS),
-          _mem_tracker(MemTracker::create_virtual_tracker(-1, "BufferAllocator", nullptr,
-                                                          MemTrackerLevel::OVERVIEW)) {
+          _mem_tracker(std::make_unique<MemTracker>("BufferAllocator")) {
     DCHECK(BitUtil::IsPowerOf2(min_buffer_len_)) << min_buffer_len_;
     DCHECK(BitUtil::IsPowerOf2(max_buffer_len_)) << max_buffer_len_;
     DCHECK_LE(0, min_buffer_len_);
@@ -305,7 +304,7 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
         system_bytes_remaining_.fetch_add(len, std::memory_order_release);
         return status;
     }
-    _mem_tracker->consume_cache(len);
+    _mem_tracker->consume(len);
     return Status::OK();
 }
 
@@ -380,7 +379,7 @@ void BufferPool::BufferAllocator::Free(BufferHandle&& handle) {
     FreeBufferArena* arena = per_core_arenas_[handle.home_core_].get();
     handle.Poison();
     if (!arena->AddFreeBuffer(std::move(handle))) {
-        _mem_tracker->release_cache(handle.len());
+        _mem_tracker->release(handle.len());
     }
 }
 
@@ -432,7 +431,7 @@ int64_t BufferPool::BufferAllocator::FreeToSystem(std::vector<BufferHandle>&& bu
         buffer.Unpoison();
         system_allocator_->Free(std::move(buffer));
     }
-    _mem_tracker->release_cache(bytes_freed);
+    _mem_tracker->release(bytes_freed);
     return bytes_freed;
 }
 

@@ -33,6 +33,7 @@ package-lock.json
 # ignore project file
 .cproject
 .project
+.cache
 .settings/
 **/.idea/
 **/.vscode/
@@ -68,6 +69,8 @@ samples/doris-demo/remote-udf-cpp-demo/function_server_demo
 fe/mocked/
 fe/fe-core/gen/
 fe/fe-core/src/main/resources/static/
+fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.tokens
+fe/fe-core/src/main/antlr4/org/apache/doris/nereids/gen/
 
 # BE
 be/build*/

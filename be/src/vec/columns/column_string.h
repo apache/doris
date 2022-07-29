@@ -180,6 +180,26 @@ public:
         }
     };
 
+    void insert_many_strings(const StringRef* strings, size_t num) override {
+        size_t new_size = 0;
+        for (size_t i = 0; i < num; i++) {
+            new_size += strings[i].size + 1;
+        }
+
+        const size_t old_size = chars.size();
+        chars.resize(old_size + new_size);
+
+        Char* data = chars.data();
+        size_t offset = old_size;
+        for (size_t i = 0; i < num; i++) {
+            uint32_t len = strings[i].size;
+            if (len) memcpy(data + offset, strings[i].data, len);
+            data[offset + len] = 0;
+            offset += len + 1;
+            offsets.push_back(offset);
+        }
+    }
+
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t num, uint32_t /*dict_num*/) override {
         for (size_t end_index = start_index + num; start_index < end_index; ++start_index) {
@@ -208,6 +228,8 @@ public:
 
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
+    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+
     size_t get_max_row_byte_size() const override;
 
     void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
@@ -216,6 +238,9 @@ public:
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                      const uint8_t* null_map,
                                      size_t max_row_byte_size) const override;
+
+    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+                                       const uint8_t* null_map) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         size_t string_size = size_at(n);

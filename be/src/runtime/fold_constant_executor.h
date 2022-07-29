@@ -53,7 +53,7 @@ private:
     std::string _get_result(void* src, size_t size, PrimitiveType slot_type);
 
     std::unique_ptr<RuntimeState> _runtime_state;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
     RuntimeProfile* _runtime_profile = nullptr;
     std::unique_ptr<MemPool> _mem_pool;
     ObjectPool _pool;

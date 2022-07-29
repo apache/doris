@@ -25,7 +25,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/proto_util.h"
@@ -396,10 +396,9 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
                                     _dest_node_id, instances);
     _profile = _pool->add(new RuntimeProfile(std::move(title)));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = MemTracker::create_tracker(
-            -1, "VDataStreamSender:" + print_id(state->fragment_instance_id()),
-            state->instance_mem_tracker(), MemTrackerLevel::VERBOSE, _profile);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    _mem_tracker = std::make_unique<MemTracker>(
+            "VDataStreamSender:" + print_id(state->fragment_instance_id()), nullptr, _profile);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         std::random_device rd;
@@ -407,11 +406,11 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
         shuffle(_channels.begin(), _channels.end(), g);
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));
+        RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc));
     } else {
-        RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));
+        RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc));
         for (auto iter : _partition_infos) {
-            RETURN_IF_ERROR(iter->prepare(state, _row_desc, _expr_mem_tracker));
+            RETURN_IF_ERROR(iter->prepare(state, _row_desc));
         }
     }
 
@@ -434,7 +433,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
 Status VDataStreamSender::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VDataStreamSender::open");
     DCHECK(state != nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
     for (auto iter : _partition_infos) {
         RETURN_IF_ERROR(iter->open(state));
@@ -449,7 +448,7 @@ Status VDataStreamSender::send(RuntimeState* state, RowBatch* batch) {
 Status VDataStreamSender::send(RuntimeState* state, Block* block) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VDataStreamSender::send")
     SCOPED_TIMER(_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
         // 2. send block

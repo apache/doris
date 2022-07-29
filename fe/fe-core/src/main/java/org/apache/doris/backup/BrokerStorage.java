@@ -18,7 +18,7 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
@@ -613,7 +613,7 @@ public class BrokerStorage extends BlobStorage {
         FsBroker broker;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
-            broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(getName(), localIP);
+            broker = Env.getCurrentEnv().getBrokerMgr().getBroker(getName(), localIP);
         } catch (AnalysisException e) {
             LOG.warn("failed to get a broker address: " + e.getMessage());
             return null;

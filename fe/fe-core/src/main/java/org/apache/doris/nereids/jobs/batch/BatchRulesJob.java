@@ -26,7 +26,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -48,7 +47,6 @@ public abstract class BatchRulesJob {
         for (RuleFactory ruleFactory : ruleFactories) {
             rules.addAll(ruleFactory.buildRules());
         }
-        Collections.reverse(rules);
         return new RewriteBottomUpJob(
                 plannerContext.getMemo().getRoot(),
                 rules,
@@ -60,7 +58,6 @@ public abstract class BatchRulesJob {
         for (RuleFactory ruleFactory : ruleFactories) {
             rules.addAll(ruleFactory.buildRules());
         }
-        Collections.reverse(rules);
         return new RewriteTopDownJob(
                 plannerContext.getMemo().getRoot(),
                 rules,

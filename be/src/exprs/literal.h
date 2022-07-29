@@ -45,6 +45,7 @@ public:
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow*) override;
     virtual DateV2Val get_datev2_val(ExprContext* context, TupleRow*) override;
+    virtual DateTimeV2Val get_datetimev2_val(ExprContext* context, TupleRow*) override;
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row) override;
     virtual CollectionVal get_array_val(ExprContext* context, TupleRow*) override;
     virtual Decimal32Val get_decimal32_val(ExprContext* context, TupleRow*) override;

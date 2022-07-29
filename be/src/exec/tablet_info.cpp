@@ -168,7 +168,7 @@ std::string OlapTablePartition::debug_string(TupleDescriptor* tuple_desc) const 
 
 OlapTablePartitionParam::OlapTablePartitionParam(std::shared_ptr<OlapTableSchemaParam> schema,
                                                  const TOlapTablePartitionParam& t_param)
-        : _schema(schema), _t_param(t_param), _mem_pool(new MemPool("OlapTablePartitionParam")) {}
+        : _schema(schema), _t_param(t_param), _mem_pool(new MemPool()) {}
 
 OlapTablePartitionParam::~OlapTablePartitionParam() {}
 
@@ -419,7 +419,7 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
         : _schema(schema),
           _t_param(t_param),
           _slots(_schema->tuple_desc()->slots()),
-          _mem_tracker(MemTracker::create_virtual_tracker(-1, "OlapTablePartitionParam")) {
+          _mem_tracker(std::make_unique<MemTracker>("OlapTablePartitionParam")) {
     for (auto slot : _slots) {
         _partition_block.insert(
                 {slot->get_empty_mutable_column(), slot->get_data_type_ptr(), slot->col_name()});
@@ -584,7 +584,16 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
         if (TypeDescriptor::from_thrift(t_expr.type).is_date_v2_type()) {
-            vectorized::DateV2Value dt;
+            vectorized::DateV2Value<doris::vectorized::DateV2ValueType> dt;
+            if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
+                                  t_expr.date_literal.value.size())) {
+                std::stringstream ss;
+                ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
+                return Status::InternalError(ss.str());
+            }
+            column->insert_data(reinterpret_cast<const char*>(&dt), 0);
+        } else if (TypeDescriptor::from_thrift(t_expr.type).is_datetime_v2_type()) {
+            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> dt;
             if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
                                   t_expr.date_literal.value.size())) {
                 std::stringstream ss;

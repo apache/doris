@@ -26,6 +26,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_count.cpp
   aggregate_functions/aggregate_function_distinct.cpp
   aggregate_functions/aggregate_function_sum.cpp
+  aggregate_functions/aggregate_function_sort.cpp
   aggregate_functions/aggregate_function_min_max.cpp
   aggregate_functions/aggregate_function_min_max_by.cpp
   aggregate_functions/aggregate_function_null.cpp
@@ -139,6 +140,10 @@ set(VEC_FILES
   functions/array/function_arrays_overlap.cpp
   functions/array/function_array_distinct.cpp
   functions/array/function_array_remove.cpp
+  functions/array/function_array_union.cpp
+  functions/array/function_array_except.cpp
+  functions/array/function_array_intersect.cpp
+  functions/array/function_array_slice.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -216,7 +221,15 @@ set(VEC_FILES
   exec/file_arrow_scanner.cpp
   exec/file_scanner.cpp
   exec/file_scan_node.cpp
-  exec/file_text_scanner.cpp)
+  exec/file_text_scanner.cpp
+  exec/file_hdfs_scanner.cpp
+  exec/format/parquet/vparquet_column_chunk_reader.cpp
+  exec/format/parquet/vparquet_group_reader.cpp
+  exec/format/parquet/vparquet_page_index.cpp
+  exec/format/parquet/vparquet_reader.cpp
+  exec/format/parquet/vparquet_file_metadata.cpp
+  exec/format/parquet/vparquet_page_reader.cpp
+  exec/format/parquet/schema_desc.cpp)
 
 add_library(Vec STATIC
     ${VEC_FILES}

@@ -68,6 +68,7 @@ public enum SchemaTableType {
     SCH_INVALID("NULL", "NULL", TSchemaTableType.SCH_INVALID);
     private static final String dbName = "INFORMATION_SCHEMA";
     private static SelectList fullSelectLists;
+
     static {
         fullSelectLists = new SelectList();
         fullSelectLists.addItem(SelectListItem.createStarItem(null));

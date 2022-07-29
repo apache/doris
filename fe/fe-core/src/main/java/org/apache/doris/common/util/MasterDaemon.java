@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,8 +42,8 @@ public class MasterDaemon extends Daemon {
 
     @Override
     protected final void runOneCycle() {
-        while (!Catalog.getServingCatalog().isReady()) {
-            // here we use getServingCatalog(), not getCurrentCatalog() because we truly want the Catalog instance,
+        while (!Env.getServingEnv().isReady()) {
+            // here we use getServingEnv(), not getCurrentEnv() because we truly want the Catalog instance,
             // not the Checkpoint catalog instance.
             // and if catalog is not ready, do not run
             try {

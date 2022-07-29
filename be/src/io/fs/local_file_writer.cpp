@@ -37,12 +37,10 @@ Status sync_dir(const io::Path& dirname) {
     int fd;
     RETRY_ON_EINTR(fd, ::open(dirname.c_str(), O_DIRECTORY | O_RDONLY));
     if (-1 == fd) {
-        return Status::IOError(
-                fmt::format("cannot open {}: {}", dirname.native(), std::strerror(errno)));
+        return Status::IOError("cannot open {}: {}", dirname.native(), std::strerror(errno));
     }
     if (0 != ::fdatasync(fd)) {
-        return Status::IOError(
-                fmt::format("cannot fdatasync {}: {}", dirname.native(), std::strerror(errno)));
+        return Status::IOError("cannot fdatasync {}: {}", dirname.native(), std::strerror(errno));
     }
     ::close(fd);
     return Status::OK();
@@ -102,8 +100,7 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
         ssize_t res;
         RETRY_ON_EINTR(res, ::writev(_fd, iov + completed_iov, iov_count));
         if (UNLIKELY(res < 0)) {
-            return Status::IOError(
-                    fmt::format("cannot write to {}: {}", _path.native(), std::strerror(errno)));
+            return Status::IOError("cannot write to {}: {}", _path.native(), std::strerror(errno));
         }
 
         if (LIKELY(res == n_left)) {
@@ -139,8 +136,7 @@ Status LocalFileWriter::finalize() {
 #if defined(__linux__)
         int flags = SYNC_FILE_RANGE_WRITE;
         if (sync_file_range(_fd, 0, 0, flags) < 0) {
-            return Status::IOError(
-                    fmt::format("cannot sync {}: {}", _path.native(), std::strerror(errno)));
+            return Status::IOError("cannot sync {}: {}", _path.native(), std::strerror(errno));
         }
 #endif
     }
@@ -153,8 +149,7 @@ Status LocalFileWriter::_close(bool sync) {
     }
     if (sync && _dirty) {
         if (0 != ::fdatasync(_fd)) {
-            return Status::IOError(
-                    fmt::format("cannot fdatasync {}: {}", _path.native(), std::strerror(errno)));
+            return Status::IOError("cannot fdatasync {}: {}", _path.native(), std::strerror(errno));
         }
         RETURN_IF_ERROR(detail::sync_dir(_path.parent_path()));
         _dirty = false;
@@ -166,8 +161,7 @@ Status LocalFileWriter::_close(bool sync) {
     DorisMetrics::instance()->local_bytes_written_total->increment(_bytes_appended);
 
     if (0 != ::close(_fd)) {
-        return Status::IOError(
-                fmt::format("cannot close {}: {}", _path.native(), std::strerror(errno)));
+        return Status::IOError("cannot close {}: {}", _path.native(), std::strerror(errno));
     }
     return Status::OK();
 }
@@ -182,8 +176,7 @@ Status LocalFileWriter::write_at(size_t offset, const Slice& data) {
     while (bytes_req != 0) {
         auto res = ::pwrite(_fd, from, bytes_req, offset);
         if (-1 == res && errno != EINTR) {
-            return Status::IOError(
-                    fmt::format("cannot write to {}: {}", _path.native(), std::strerror(errno)));
+            return Status::IOError("cannot write to {}: {}", _path.native(), std::strerror(errno));
         }
         if (res > 0) {
             from += res;

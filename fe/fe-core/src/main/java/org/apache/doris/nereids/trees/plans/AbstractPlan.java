@@ -20,14 +20,11 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.statistics.ExprStats;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -38,9 +35,10 @@ import java.util.Optional;
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
 
     protected StatsDeriveResult statsDeriveResult;
-    protected long limit;
+    protected long limit = -1;
 
     protected final PlanType type;
+    protected final Optional<GroupExpression> groupExpression;
     protected final LogicalProperties logicalProperties;
 
     public AbstractPlan(PlanType type, Plan... children) {
@@ -56,6 +54,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
                         Optional<LogicalProperties> optLogicalProperties, Plan... children) {
         super(groupExpression, children);
         this.type = Objects.requireNonNull(type, "type can not be null");
+        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
         LogicalProperties logicalProperties = optLogicalProperties.orElseGet(() -> computeLogicalProperties(children));
         this.logicalProperties = Objects.requireNonNull(logicalProperties, "logicalProperties can not be null");
     }
@@ -63,6 +62,10 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public PlanType getType() {
         return type;
+    }
+
+    public Optional<GroupExpression> getGroupExpression() {
+        return groupExpression;
     }
 
     /**
@@ -102,36 +105,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
-    public List<StatsDeriveResult> getChildrenStats() {
-        return Collections.emptyList();
-    }
-
-    @Override
-    public StatsDeriveResult getStatsDeriveResult() {
-        return statsDeriveResult;
-    }
-
-    @Override
-    public StatisticalType getStatisticalType() {
-        return null;
-    }
-
-    @Override
-    public void setStatsDeriveResult(StatsDeriveResult result) {
-        this.statsDeriveResult = result;
-    }
-
-    @Override
-    public long getLimit() {
-        return limit;
-    }
-
-    @Override
-    public List<? extends ExprStats> getConjuncts() {
-        return Collections.emptyList();
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -148,5 +121,9 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public int hashCode() {
         return Objects.hash(statsDeriveResult, limit, logicalProperties);
+    }
+
+    public long getLimit() {
+        return limit;
     }
 }

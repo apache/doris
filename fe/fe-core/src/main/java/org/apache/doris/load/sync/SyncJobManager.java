@@ -21,8 +21,8 @@ import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.analysis.PauseSyncJobStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
@@ -63,13 +63,13 @@ public class SyncJobManager implements Writable {
     }
 
     public void addDataSyncJob(CreateDataSyncJobStmt stmt) throws DdlException {
-        long jobId = Catalog.getCurrentCatalog().getNextId();
+        long jobId = Env.getCurrentEnv().getNextId();
         SyncJob syncJob = SyncJob.fromStmt(jobId, stmt);
         writeLock();
         try {
             checkDuplicateRemote(syncJob);
             unprotectedAddSyncJob(syncJob);
-            Catalog.getCurrentCatalog().getEditLog().logCreateSyncJob(syncJob);
+            Env.getCurrentEnv().getEditLog().logCreateSyncJob(syncJob);
         } finally {
             writeUnlock();
         }
@@ -111,7 +111,7 @@ public class SyncJobManager implements Writable {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         List<SyncJob> syncJobs = Lists.newArrayList();
         readLock();
@@ -142,7 +142,7 @@ public class SyncJobManager implements Writable {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         List<SyncJob> syncJobs = Lists.newArrayList();
         readLock();
@@ -173,7 +173,7 @@ public class SyncJobManager implements Writable {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         // List of sync jobs waiting to be cancelled
         List<SyncJob> syncJobs = Lists.newArrayList();
@@ -251,7 +251,7 @@ public class SyncJobManager implements Writable {
     }
 
     public boolean isJobNameExist(String dbName, String jobName) throws DdlException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         boolean result = false;
         readLock();
         try {

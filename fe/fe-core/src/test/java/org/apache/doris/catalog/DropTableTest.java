@@ -65,32 +65,32 @@ public class DropTableTest {
 
     private static void createDb(String sql) throws Exception {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
     }
 
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
     }
 
     private static void dropTable(String sql) throws Exception {
         DropTableStmt dropTableStmt = (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().dropTable(dropTableStmt);
+        Env.getCurrentEnv().dropTable(dropTableStmt);
     }
 
     @Test
     public void testNormalDropTable() throws Exception {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
         Partition partition = table.getAllPartitions().iterator().next();
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         String dropTableSql = "drop table test.tbl1";
         dropTable(dropTableSql);
-        List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertEquals(1, replicaList.size());
         String recoverDbSql = "recover table test.tbl1";
         RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
-        Catalog.getCurrentCatalog().recoverTable(recoverTableStmt);
+        Env.getCurrentEnv().recoverTable(recoverTableStmt);
         table = (OlapTable) db.getTableOrMetaException("tbl1");
         Assert.assertNotNull(table);
         Assert.assertEquals("tbl1", table.getName());
@@ -98,18 +98,18 @@ public class DropTableTest {
 
     @Test
     public void testForceDropTable() throws Exception {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable table = (OlapTable) db.getTableOrMetaException("tbl2");
         Partition partition = table.getAllPartitions().iterator().next();
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         String dropTableSql = "drop table test.tbl2 force";
         dropTable(dropTableSql);
-        List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertTrue(replicaList.isEmpty());
         String recoverDbSql = "recover table test.tbl2";
         RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Unknown table 'tbl2'",
-                () -> Catalog.getCurrentCatalog().recoverTable(recoverTableStmt));
+                () -> Env.getCurrentEnv().recoverTable(recoverTableStmt));
     }
 }
