@@ -27,8 +27,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.Lists;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -38,8 +38,8 @@ public class LogicalProjectToPhysicalProjectTest {
         Plan plan = new LogicalProject(Lists.newArrayList(), new GroupPlan(group));
         Rule rule = new LogicalProjectToPhysicalProject().build();
         List<Plan> transform = rule.transform(plan, plannerContext);
-        Assert.assertEquals(1, transform.size());
+        Assertions.assertEquals(1, transform.size());
         Plan implPlan = transform.get(0);
-        Assert.assertEquals(PlanType.PHYSICAL_PROJECT, implPlan.getType());
+        Assertions.assertEquals(PlanType.PHYSICAL_PROJECT, implPlan.getType());
     }
 }
