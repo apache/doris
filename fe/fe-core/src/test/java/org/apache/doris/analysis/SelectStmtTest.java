@@ -805,8 +805,8 @@ public class SelectStmtTest {
         String sql1 = "select l.citycode, group_concat(distinct r.username) from db1.table1 l "
                 + "left join db1.table2 r on l.citycode=r.citycode group by l.citycode";
         SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
-        Assert.assertTrue(stmt1.getAnalyzer().getSlotDesc(new SlotId(2)).getIsNullable());
-        Assert.assertTrue(stmt1.getAnalyzer().getSlotDescriptor("r.username").getIsNullable());
+        Assert.assertFalse(stmt1.getAnalyzer().getSlotDesc(new SlotId(2)).getIsNullable());
+        Assert.assertFalse(stmt1.getAnalyzer().getSlotDescriptor("r.username").getIsNullable());
         FunctionCallExpr expr = (FunctionCallExpr) stmt1.getSelectList().getItems().get(1).getExpr();
         Assert.assertTrue(expr.getFnParams().isDistinct());
     }
