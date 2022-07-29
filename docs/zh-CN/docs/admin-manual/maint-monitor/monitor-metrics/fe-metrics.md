@@ -152,5 +152,186 @@ curl http://be_host:webserver_port/metrics?type=json
 
 ## BE 监控指标
 
-TODO
+### 进程监控
+
+|名称| 标签 |单位 | 含义 | 说明 |
+|---|---|---|---|---|
+|`doris_be_active_scan_context_count`| | Num | 展示当前由外部直接打开的scanner的个数 | |
+|`doris_be_add_batch_task_queue_size`| | Num | 记录导入时，接收batch的线程池的队列大小 |如果大于0，则表示导入任务的接收端出现积压 |
+|`agent_task_queue_size`| | Num | 展示各个 Agent Task 处理队列的长度，如 `{type="CREATE_TABLE"}` 表示 CREATE_TABLE 任务队列的长度 | |
+|`doris_be_brpc_endpoint_stub_count`| | Num | 已创建的 brpc stub 的数量，这些 stub 用于 BE 之间的交互 | |
+|`doris_be_brpc_function_endpoint_stub_count`| | Num | 已创建的 brpc stub 的数量，这些 stub 用于和 Remote RPC 之间交互 | |
+|`doris_be_cache_capacity`| |  | 记录指定 LRU Cache 的容量 | |
+|`doris_be_cache_usage`| |  | 记录指定 LRU Cache 的使用量 | |
+|`doris_be_cache_usage_ratio`| |  | 记录指定 LRU Cache 的使用率 | |
+|`doris_be_cache_lookup_count`| |  | 记录指定 LRU Cache 被查找的次数 | |
+|`doris_be_cache_hit_count`| |  | 记录指定 LRU Cache 的命中次数 | |
+|`doris_be_cache_hit_ratio`| |  | 记录指定 LRU Cache 的命中率 | |
+|| {name="DataPageCache"} | 字节 | DataPageCache 用于缓存数据的 Data Page | |
+|| {name="FileHandlerCache"} |Num | | |
+|| {name="IndexPageCache"} | Num| IndexPageCache 用于缓存数据的 Index Page | |
+|| {name="LastestSuccessChannelCache"} | Num| LastestSuccessChannelCache 用于缓存导入接收端的 LoadChannel | |
+|| {name="SegmentCache"} | Num | SegmentCache 用于缓存已打开的 Segment，如索引信息 | |
+|`doris_be_chunk_pool_local_core_alloc_count`| | Num | ChunkAllocator中，从绑定的 core 的内存队列中分配内存的次数 | |
+|`doris_be_chunk_pool_other_core_alloc_count`| | Num | ChunkAllocator中，从其他的 core 的内存队列中分配内存的次数 | |
+|`doris_be_chunk_pool_reserved_bytes`| | 字节 | ChunkAllocator 中预留的内存大小 | |
+|`doris_be_chunk_pool_system_alloc_cost_ns`| | 纳秒 | SystemAllocator 申请内存的耗时累计值 | |
+|`doris_be_chunk_pool_system_alloc_count`| | Num | SystemAllocator 申请内存的次数 | |
+|`doris_be_chunk_pool_system_free_cost_ns`| | 纳秒 |SystemAllocator 释放内存的耗时累计值 | |
+|`doris_be_chunk_pool_system_free_count`| | Num | SystemAllocator 释放内存的次数 | |
+|`doris_be_compaction_bytes_total`| |字节| compaction处理的数据量的累计值 | 记录的是 compaction 任务中，input rowset 的 disk size |
+| |{type="base"} |字节 | Base Compaction 的数据量累计 | |
+| |{type="cumulative"} |字节 | Cumulative Compaction 的数据量累计 | |
+|`doris_be_compaction_deltas_total`| |Num| compaction处理的 rowset 个数的累计值 | 记录的是 compaction 任务中，input rowset 的 个数 |
+| |{type="base"} |Num | Base Compaction 处理的 rowset 个数累计 | |
+| |{type="cumulative"} |Num | Cumulative Compaction 处理的 rowset 个数累计 | |
+|`doris_be_disks_compaction_num`| | Num| 指定数据目录上正在执行的 compaction 任务数。如 `{path="/path1/"}` 表示`/path1` 目录上正在执行的任务数 | |
+|`doris_be_disks_compaction_score`| | Num| 指定数据目录上正在执行的 compaction 令牌数。如 `{path="/path1/"}` 表示`/path1` 目录上正在执行的令牌数 | |
+|`doris_be_compaction_used_permits`| | Num | Compaction 任务已使用的令牌数量 | 用于反映Compaction的资源消耗量 |
+|`doris_be_compaction_waitting_permits`| | Num | 正在等待Compaction令牌的数量 | |
+|`doris_be_data_stream_receiver_count`|  | Num | 数据接收端 Receiver 的数量 | FIXME：向量化引擎此指标缺失 |
+|`doris_be_disks_avail_capacity`| | 字节 | 指定数据目录所在磁盘的剩余空间。如 `{path="/path1/"}` 表示 `/path1` 目录所在磁盘的剩余空间 | |
+|`doris_be_disks_local_used_capacity`| |字节|指定数据目录所在磁盘的本地已使用空间 | |
+|`doris_be_disks_remote_used_capacity`| | 字节| 指定数据目录所在磁盘的对应的远端目录的已使用空间| |
+|`doris_be_disks_state`| | 布尔 | 指定数据目录的磁盘状态。1 表示正常。0 表示异常 | |
+|`doris_be_disks_total_capacity`| | 字节 | 定数据目录所在磁盘的总容量| |
+|`doris_be_engine_requests_total`| | Num | BE 上各类任务执行状态的累计值。| |
+|| {status="failed",type="xxx"}  | Num | xxx 类型的任务的失败次数的累计值。| |
+|| {status="failed",type="xxx"} | Num | xxx 类型的任务的总次数的累计值。 | |
+|| {status="skip",type="report_all_tablets"} | Num | xxx 类型任务被跳过执行的次数的累计值 | |
+|`doris_be_fragment_endpoint_count`| | Num| 同 | FIXME: 同 `doris_be_data_stream_receiver_count` 数目。并且向量化引擎缺失 |
+|`doris_be_fragment_request_duration_us`| | 微秒| 所有 fragment intance 的执行时间累计 | |
+|`doris_be_fragment_requests_total`| | Num | 执行过的 fragment instance 的数量累计 | |
+|`doris_be_load_channel_count`| | Num | 当前打开的 load channel 个数  | 数值越大，说明当前正在执行的导入任务越多。 |
+|`doris_be_local_bytes_read_total`| | 字节 | 由 `LocalFileReader` 读取的字节数。 | |
+|`doris_be_local_bytes_written_total`| | 字节 | 由 `LocalFileWriter` 写入的字节数。 | |
+|`doris_be_local_file_reader_total`| | Num| 打开的 `LocalFileReader` 的累计计数。 | |
+|`doris_be_local_file_open_reading`| | Num | 当前打开的 `LocalFileReader` 个数。 | |
+|`doris_be_local_file_writer_total`| | Num | 打开的 `LocalFileWriter` 的累计计数。 | |
+|`doris_be_mem_consumption`| | 字节 | 指定模块的当前内存开销。如 {type="compaction"} 表示 compaction 模块的当前总内存开销 | FIXME: 需要重新梳理。|
+|`doris_be_memory_allocated_bytes`| | 字节 | 采集自 TcMalloc 的 `generic.total_physical_bytes` 属性。表示 TcMalloc 占用的虚拟内存的大小，并不代表实际的物理内存占用。 | 可能会比实际物理内存大 |
+|`doris_be_memory_pool_bytes_total`| | 字节| 所有 MemPool 当前占用的内存大小。统计值，不代表真实内存使用。 | |
+|`doris_be_memtable_flush_duration_us`| | 微秒 | memtable写入磁盘的耗时累计值。 | |
+|`doris_be_memtable_flush_total`| | Num | memtable写入磁盘的个数累计值。| |
+|`doris_be_meta_request_duration`| | 微秒| 访问 RocksDB 中的 meta 的耗时累计 | |
+||{type="read"} | 微秒| 读取耗时 | |
+||{type="write"} | 微秒| 写入耗时 | |
+|`doris_be_meta_request_total`| |Num | 访问 RocksDB 中的 meta 的次数累计 | |
+||{type="read"} | Num| 读取次数 | |
+||{type="write"} | Num| 写入次数 | |
+|`doris_be_plan_fragment_count`| | Num | 当前已接收的 fragment instance 的数量。 | |
+|`doris_be_process_fd_num_limit_hard`| |Num| BE 进程的文件句柄数硬限。通过 `/proc/pid/limits` 采集 | |
+|`doris_be_process_fd_num_limit_soft`| |Num| BE 进程的文件句柄数软限。通过 `/proc/pid/limits` 采集 | |
+|`doris_be_process_fd_num_used`| |Num| BE 进程已使用的文件句柄数。通过 `/proc/pid/limits` 采集 | |
+|`doris_be_process_thread_num`| | Num | BE 进程线程数。通过 `/proc/pid/task` 采集 | |
+|`doris_be_query_cache_memory_total_byte`| | 字节 | Query Cache 占用字节数 | |
+|`doris_be_query_cache_partition_total_count`| | Num | 当前 Partition Cache 缓存个数 | |
+|`doris_be_query_cache_sql_total_count`| | Num | 当前 SQL Cache 缓存个数 | |
+|`doris_be_query_scan_bytes`| | 字节 | 读取数据量的累计值。这里只统计读取 Olap 表的数据量。 | |
+|`doris_be_query_scan_bytes_per_second`| | 字节/秒 | 根据 `doris_be_query_scan_bytes` 计算得出的读取速率。 | |
+|`doris_be_query_scan_rows`| | Num | 读取行数的累计值。这里只统计读取 Olap 表的数据量。并且是 RawRowsRead（部分数据行可能被索引跳过，并没有真正读取，但仍会记录到这个值中。） | |
+|`doris_be_result_block_queue_count`| | Num | 当前查询结果缓存中的 fragment instance 个数。 | 该队列仅用于被外部系统直接读取时使用。如 Spark on Doris 通过 external scan 查询数据 |
+|`doris_be_result_buffer_block_count`| | Num | 当前查询结果缓存中的 query 个数。 | 该数值反映当前 BE 中有多少查询的结果正在等待 FE 消费。|
+|`doris_be_routine_load_task_count`| | Num | 当前正在执行的 routine load task 个数。| |
+|`doris_be_rowset_count_generated_and_in_use`| | Num | 自上次启动后，新增的并且正在使用的 rowset id 个数。 | |
+|`doris_be_s3_bytes_read_total`| | Num | `S3FileReader` 的打开累计次数。 | |
+|`doris_be_s3_file_open_reading`| | Num | 当前打开的 `S3FileReader` 个数。 | |
+|`doris_be_s3_bytes_read_total`| | 字节 | `S3FileReader` 读取字节数累计值。  | |
+|`doris_be_scanner_thread_pool_queue_size`| | Num | 用于 OlapScanner 的线程池的当前排队数量 | 大于零则表示 Scanner 开始堆积。 |
+|`doris_be_segment_read`| `{type="segment_read_total"}` | Num | 读取的segment的个数累计值。 | |
+|`doris_be_segment_read`| `{type="segment_row_total"}` | Num | 读取的segment的函数累计值。 | 该数值也包含了被索引过滤的行数。相当于读取的segment个数 * 每个segment的总行数。 |
+|`doris_be_send_batch_thread_pool_queue_size`| | Num | 导入时用于发送数据包的线程池的排队个数。 | 大于0则表示有堆积。 |
+|`doris_be_send_batch_thread_pool_thread_num`| | Num| 导入时用于发送数据包的线程池的线程数 | |
+|`doris_be_small_file_cache_count`| |Num| 当前BE缓存的小文件数量 | |
+|`doris_be_streaming_load_current_processing`| | Num | 当前正在运行的 stream load 任务数| 仅包含 curl 命令发送的任务。 |
+|`doris_be_streaming_load_duration_ms`| | 毫秒 | 所有stream load 任务执行时间的耗时累计值 | |
+|`doris_be_streaming_load_requests_total`| | Num | stream load 任务数的累计值。 | |
+|`doris_be_stream_load_pipe_count`| | Num | 当前 stream load 数据管道的个数。| 包括 stream load 和 routine load 任务。 |
+|`doris_be_stream_load`| {type="load_rows"} | Num | stream load 最终导入的行数累计值。| 包括 stream load 和 routine load 任务。 |
+|`doris_be_stream_load`| {type="receive_bytes"}|字节 | stream load 接收的字节数累计值。| 包括 stream load 从 http 接收的数据，以及 routine load 从kafka 读取的数据。|
+|`doris_be_tablet_base_max_compaction_score`| | Num | 当前最大的 Base Compaction Score | 该数值实时变化，有可能丢失峰值数据。数值越高，表示 compaction 堆积约严重。 |
+|`doris_be_tablet_base_max_compaction_score`| | Num | 同上。当前最大的 Cumulative Compaction Score | |
+|`doris_be_tablet_version_num_distribution`| | Num | tablet version 数量的直方图。| 用于反映 tablet version 数量的分布。 |
+|`doris_be_thrift_connections_total`| | Num | 创建过的 thrift 连接数的累计值。如 `{name="heartbeat"}` 表示心跳服务的连接数累计。| 此数值为 BE 作为服务端的 thrift server 的连接。 |
+|`doris_be_thrift_current_connections`| | Num | 当前 thrift 连接数。如 `{name="heartbeat"}` 表示心跳服务的当前连接数。| 同上。 |
+|`doris_be_thrift_opened_clients`| |Num| 当前已打开的 thrift 客户端的数量。如 `{name="frontend"}` 表示访问 FE 服务的客户端数量。 | |
+|`doris_be_thrift_used_clients`| | Num | 当前正在使用的 thrift 客户端的数量。如 `{name="frontend"}` 表示正在用于访问 FE 服务的客户端数量。 | |
+|`doris_be_timeout_canceled_fragment_count`| | Num | 因超时而被取消的 fragment instance 数量累计值。 | 这个值可能会被重复记录。比如部分 fragment instance 被多次取消。|
+|`doris_be_stream_load_txn_request`| {type="begin"}| Num | stream load 开始事务数的累计值。 | 包括 stream load 和 routine load 任务。 |
+|`doris_be_stream_load_txn_request `| {type="commit"}| Num|  stream load 执行成功的事务数的累计值。 | 同上。|
+|`doris_be_stream_load_txn_request `| {type="rollback"}| | stream load 执行失败的事务数的累计值。 |同上。 |
+|`doris_be_unused_rowsets_count`| | Num | 当前已废弃的rowset的个数。| 这些rowset正常情况下会被定期删除。 |
+|`doris_be_upload_fail_count`| | Num | 冷热分离功能，上传到远端存储失败的rowset的次数累计值。| |
+|`doris_be_upload_rowset_count`| | Num | 冷热分离功能，上传到远端存储成功的rowset的次数累计值。| |
+|`doris_be_upload_total_byte`| | | 字节 | 冷热分离功能，上传到远端存储成功的rowset数据量累计值。| |
+
+### 机器监控
+
+|名称| 标签 |单位 | 含义 | 说明 |
+|---|---|---|---|---|
+|`doris_be_cpu`| | Num | CPU 相关监控指标，从 `/proc/stat` 采集。会分别采集每个逻辑核的各项数值。如 `{device="cpu0",mode="nice"}` 表示 cpu0 的 nice 值 | |
+|`doris_be_disk_bytes_read`| |字节| 磁盘读取量累计值。从 `/proc/diskstats` 采集。会分别采集每块磁盘的数值。如 `{device="vdd"}` 表示 vvd 盘的数值 | | |
+|`doris_be_disk_bytes_written`| | 字节 | 磁盘写入量累计值。采集方式同上。 | |
+|`doris_be_disk_io_time_ms`| |字节 | 采集方式同上。| |
+|`doris_be_disk_io_time_weigthed`| | 字节|采集方式同上。| |
+|`doris_be_disk_reads_completed`| |字节 |采集方式同上。 | |
+|`doris_be_disk_read_time_ms`| | 字节|采集方式同上。 | |
+|`doris_be_disk_writes_completed`| | 字节|采集方式同上。 | |
+|`doris_be_disk_write_time_ms`| | 字节|采集方式同上。 | |
+|`doris_be_fd_num_limit`| | Num | 系统文件句柄限制上限。从 `/proc/sys/fs/file-nr` 采集| |
+|`doris_be_fd_num_used`| | Num | 系统已使用文件句柄数。 从 `/proc/sys/fs/file-nr` 采集 | |
+|`doris_be_file_created_total`| | Num | 本地文件创建次数累计 | 所有调用 `local_file_writer` 并最终 close 的文件计数。 |
+|`doris_be_load_average`| | Num | 机器 Load Avg 指标监控。如 {mode="15_minutes"} 为 15 分钟 Load Avg| |
+|`doris_be_load_bytes`| | 字节|通过 tablet sink 发送的数量累计。 | |
+|`doris_be_load_rows`| | Num | 通过 tablet sink 发送的行数累计。| |
+|`doris_be_max_disk_io_util_percent`| | 百分比 | 计算得出的所有磁盘中，最大的 IO UTIL 的磁盘的数值 | |
+|`doris_be_max_network_receive_bytes_rate`| | 字节/秒 | 计算得出的所有网卡中，最大的接收速率。| |
+|`doris_be_max_network_send_bytes_rate`| | 字节/秒 | 计算得出的所有网卡中，最大的发送速率。| |
+|`doris_be_memory_pgpgin`| | 字节 | 系统从磁盘写到内存页的数据量 | |
+|`doris_be_memory_pgpgout`| | 字节 | 系统内存页写入磁盘的数据量 | |
+|`doris_be_memory_pswpin`| | 字节 | 系统从磁盘换入到内存的数量| 通常情况下，swap应该关闭，因此这个数值应该是0。|
+|`doris_be_memory_pswpout`| | 字节 | 系统从内存换入到磁盘的数量| 通常情况下，swap应该关闭，因此这个数值应该是0。|
+|`doris_be_network_receive_bytes`| | 字节| 各个网卡的接收字节累计。采集自 `/proc/net/dev` | |
+|`doris_be_network_receive_packets`| | Num| 各个网卡的接收包个数累计。采集自 `/proc/net/dev` | |
+|`doris_be_network_send_bytes`| | 字节| 各个网卡的发送字节累计。采集自 `/proc/net/dev` | |
+|`doris_be_network_send_packets`| | Num| 各个网卡的发送包个数累计。采集自 `/proc/net/dev` | |
+|`doris_be_proc`| `{mode="ctxt_switch"}` | Num | CPU 上下文切换的累计值。采集自 `/proc/stat` | |
+|`doris_be_proc `| `{mode="interrupt"}` | Num |CPU 中断次数的累计值。采集自 `/proc/stat` | |
+|`doris_be_proc`| `{mode="procs_blocked"}` | Num | 系统当前被阻塞的进程数（如等待IO）。采集自 `/proc/stat` | |
+|`doris_be_proc`| `{mode="procs_running"}` | Num | 系统当前正在执行的进程数。采集自 `/proc/stat` | |
+|`doris_be_snmp_tcp_in_errs`| | Num| tcp包接收错误的次数。采集自 `/proc/net/snmp`。| |
+|`doris_be_snmp_tcp_in_segs`| | Num | tcp包发送的个数。 采集自 `/proc/net/snmp`。| |
+|`doris_be_snmp_tcp_out_segs`| | Num | tcp包发送的个数。采集自 `/proc/net/snmp`。| |
+|`doris_be_snmp_tcp_retrans_segs`| | Num | tcp包重传的个数。采集自 `/proc/net/snmp`。| |
+
+|``| | | | |
+|``| | | | |
+|``| | | | |
+|``| | | | |
+|``| | | | |
+|``| | | | |
+|``| | | | |
+|``| | | | |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

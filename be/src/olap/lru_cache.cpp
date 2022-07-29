@@ -452,12 +452,12 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
     _entity = DorisMetrics::instance()->metric_registry()->register_entity(
             std::string("lru_cache:") + name, {{"name", name}});
     _entity->register_hook(name, std::bind(&ShardedLRUCache::update_cache_metrics, this));
-    INT_GAUGE_METRIC_REGISTER(_entity, capacity);
-    INT_GAUGE_METRIC_REGISTER(_entity, usage);
-    INT_DOUBLE_METRIC_REGISTER(_entity, usage_ratio);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, lookup_count);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, hit_count);
-    INT_DOUBLE_METRIC_REGISTER(_entity, hit_ratio);
+    INT_GAUGE_METRIC_REGISTER(_entity, cache_capacity);
+    INT_GAUGE_METRIC_REGISTER(_entity, cache_usage);
+    INT_DOUBLE_METRIC_REGISTER(_entity, cache_usage_ratio);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_lookup_count);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_hit_count);
+    INT_DOUBLE_METRIC_REGISTER(_entity, cache_hit_ratio);
 }
 
 ShardedLRUCache::~ShardedLRUCache() {
