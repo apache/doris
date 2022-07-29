@@ -31,7 +31,7 @@ doris::vectorized::ParquetReader::ParquetReader(doris::FileReader* file_reader, 
 }
 
 doris::vectorized::ParquetReader::~ParquetReader() {
-    _batch.clear();
+    //    _batch.clear();
 }
 
 Status ParquetReader::init_reader(const TupleDescriptor* tuple_desc,

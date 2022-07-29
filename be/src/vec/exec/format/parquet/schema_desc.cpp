@@ -20,7 +20,7 @@
 namespace doris::vectorized {
 
 SchemaDescriptor::~SchemaDescriptor() {
-    fields.clear();
+    //    fields.clear();
 }
 
 std::string SchemaDescriptor::debug_string() const {
