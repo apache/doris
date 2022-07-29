@@ -862,10 +862,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, _intermediate_row_desc));
     }
-    RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _intermediate_row_desc));
 
-    // TODO(zc):
-    // AddExprCtxsToFree(_conjunct_ctxs);
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state));
     }
