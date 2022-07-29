@@ -25,11 +25,11 @@ import org.apache.doris.nereids.types.DataType;
 import java.util.Objects;
 
 /**
- * Exists subquery expression.
+ * Encapsulate LogicalPlan as Expression.
+ * just for subquery.
  */
-public class Exists extends SubqueryExpr implements LeafExpression {
-
-    public Exists(LogicalPlan subquery) {
+public class ListQuery extends SubqueryExpr implements LeafExpression {
+    public ListQuery(LogicalPlan subquery) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"));
     }
 
@@ -43,15 +43,15 @@ public class Exists extends SubqueryExpr implements LeafExpression {
 
     @Override
     public String toSql() {
-        return "EXISTS (SUBQUERY) " + super.toSql();
+        return " (LISTQUERY) " + super.toSql();
     }
 
     @Override
     public String toString() {
-        return "EXISTS (SUBQUERY) " + super.toString();
+        return " (LISTQUERY) " + super.toString();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitExistsSubquery(this, context);
+        return visitor.visitListQuery(this, context);
     }
 }

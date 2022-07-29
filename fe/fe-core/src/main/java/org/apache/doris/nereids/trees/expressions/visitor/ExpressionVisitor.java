@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
@@ -243,6 +244,10 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitScalarSubquery(ScalarSubquery scalar, C context) {
         return visitSubqueryExpr(scalar, context);
+    }
+
+    public R visitListQuery(ListQuery listQuery, C context) {
+        return visitSubqueryExpr(listQuery, context);
     }
 
     /* ********************************************************************************************
