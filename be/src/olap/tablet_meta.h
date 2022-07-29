@@ -26,7 +26,6 @@
 
 #include "common/logging.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "io/fs/file_system.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -186,23 +185,24 @@ public:
 
     bool all_beta() const;
 
-    const io::ResourceId& cooldown_resource() const {
+    const std::string& storage_policy() const {
         std::shared_lock<std::shared_mutex> rlock(_meta_lock);
-        return _cooldown_resource;
+        return _storage_policy;
     }
 
-    void set_cooldown_resource(io::ResourceId resource) {
+    void set_storage_policy(const std::string& policy) {
         std::unique_lock<std::shared_mutex> wlock(_meta_lock);
-        VLOG_NOTICE << "set tablet_id : " << _table_id << " cooldown resource from "
-                    << _cooldown_resource << " to " << resource;
-        _cooldown_resource = std::move(resource);
+        VLOG_NOTICE << "set tablet_id : " << _table_id << " storage policy from " << _storage_policy
+                    << " to " << policy;
+        _storage_policy = policy;
     }
+
     static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                          ColumnPB* column);
 
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
-    bool enable_unique_key_merge_on_write() { return _enable_unique_key_merge_on_write; }
+    bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -238,8 +238,7 @@ private:
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
-    // FIXME(cyx): Currently `cooldown_resource` is equivalent to `storage_policy`.
-    io::ResourceId _cooldown_resource;
+    std::string _storage_policy;
 
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,

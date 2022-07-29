@@ -1685,7 +1685,7 @@ public class Config extends ConfigBase {
      * It's used to test the reliability in single replica case when tablet scheduling are frequent.
      * Default is false.
      */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean be_rebalancer_fuzzy_test = false;
 
     /**
