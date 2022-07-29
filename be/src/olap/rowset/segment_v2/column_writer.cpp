@@ -360,7 +360,7 @@ Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* data, size
 
 Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** data, size_t* num_written) {
     RETURN_IF_ERROR(append_data_in_current_page(*data, num_written));
-    data += get_field()->size() * (*num_written);
+    *data += get_field()->size() * (*num_written);
     return Status::OK();
 }
 
