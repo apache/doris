@@ -57,7 +57,7 @@ public:
 
     ~RuntimeFilterMgr();
 
-    Status init(MemTrackerLimiter* parent_tracker);
+    Status init();
 
     // get a consumer filter by filter-id
     Status get_consume_filter(const int filter_id, IRuntimeFilter** consumer_filter);

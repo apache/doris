@@ -124,7 +124,8 @@ public:
     std::string print_debug_string() {
         fmt::memory_buffer consumer_tracker_buf;
         for (const auto& v : _consumer_tracker_stack) {
-            fmt::format_to(consumer_tracker_buf, "{}, ", v->log_usage());
+            fmt::format_to(consumer_tracker_buf, "{}, ",
+                           MemTracker::log_usage(v->make_snapshot(0)));
         }
         return fmt::format(
                 "ThreadMemTrackerMgr debug, _untracked_mem:{}, _task_id:{}, "
