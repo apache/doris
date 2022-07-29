@@ -127,6 +127,23 @@ Status OlapScanner::prepare(
     return Status::OK();
 }
 
+TabletStorageType OlapScanner::get_storage_type() {
+    int local_reader = 0;
+    for (const auto& reader : _tablet_reader_params.rs_readers) {
+        if (reader->rowset()->rowset_meta()->resource_id().empty()) {
+            local_reader++;
+        }
+    }
+    int total_reader = _tablet_reader_params.rs_readers.size();
+
+    if (local_reader == total_reader) {
+        return TabletStorageType::STORAGE_TYPE_LOCAL;
+    } else if (local_reader == 0) {
+        return TabletStorageType::STORAGE_TYPE_REMOTE;
+    }
+    return TabletStorageType::STORAGE_TYPE_REMOTE_AND_LOCAL;
+}
+
 Status OlapScanner::open() {
     auto span = _runtime_state->get_tracer()->StartSpan("OlapScanner::open");
     auto scope = opentelemetry::trace::Scope {span};
