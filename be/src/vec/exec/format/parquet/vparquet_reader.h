@@ -46,42 +46,51 @@ namespace doris::vectorized {
 //        int64_t total_bytes = 0;
 //    };
 
-class ParquetReader {
-public:
-    ParquetReader(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file,
-                  int64_t range_start_offset, int64_t range_size);
-    ~ParquetReader();
-    virtual Status init_reader(const TupleDescriptor* tuple_desc,
-                               const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                               const std::vector<ExprContext*>& conjunct_ctxs,
-                               const std::string& timezone) = 0;
-    virtual Status next_batch(bool* eof) = 0;
-    //        std::shared_ptr<Statistics>& statistics() { return _statistics; }
-    void close() {};
-    int64_t size(int64_t* size) { return _file_reader->size(); }
+    class ParquetReader {
+    public:
+        ParquetReader(FileReader *file_reader, int32_t num_of_columns_from_file,
+                      int64_t range_start_offset, int64_t range_size);
 
-private:
-    int64_t _get_row_group_start_offset(const tparquet::RowGroup& row_group);
+        ~ParquetReader();
 
-private:
-    FileReader* _file_reader;
-    std::shared_ptr<FileMetaData> _file_metadata;
-    //    const int64_t _batch_size;
-    //    const int32_t _num_of_columns_from_file;
-    int _total_groups; // num of groups(stripes) of a parquet(orc) file
-    //    int _current_group;                     // current group(stripe)
-    //    std::map<std::string, int> _map_column; // column-name <---> column-index
-    //    std::vector<int> _include_column_ids;   // columns that need to get from file
-    //        std::shared_ptr<Statistics> _statistics;
+        Status init_reader(const TupleDescriptor *tuple_desc,
+                           const std::vector<SlotDescriptor *> &tuple_slot_descs,
+                           const std::vector<ExprContext *> &conjunct_ctxs,
+                           const std::string &timezone);
 
-    // parquet file reader object
-    //    std::vector<Block*> _batch;
-    //    std::string _timezone;
-    //    int64_t _range_start_offset;
-    //    int64_t _range_size;
+        Status read_next_batch(Block *block);
 
-private:
-    std::atomic<bool> _closed = false;
-};
+        bool has_next() const { return !_batch_eof; };
+
+        //        std::shared_ptr<Statistics>& statistics() { return _statistics; }
+        void close();
+
+        int64_t size() const { return _file_reader->size(); }
+
+    private:
+        int64_t _get_row_group_start_offset(const tparquet::RowGroup &row_group);
+
+        Status _column_indices(const std::vector<SlotDescriptor *> &tuple_slot_descs);
+
+        void _init_row_group_reader();
+
+        void _fill_block_data();
+
+    private:
+        FileReader *_file_reader;
+        std::shared_ptr <FileMetaData> _file_metadata;
+        int _total_groups; // num of groups(stripes) of a parquet(orc) file
+        //    int _current_group;                     // current group(stripe)
+        //        std::shared_ptr<Statistics> _statistics;
+        const int32_t _num_of_columns_from_file;
+        std::map<std::string, int> _map_column; // column-name <---> column-index
+        std::vector<int> _include_column_ids;   // columns that need to get from file
+        // parquet file reader object
+        Block *_batch;
+        bool *_batch_eof;
+        //    int64_t _range_start_offset;
+        //    int64_t _range_size;
+
+    };
 
 } // namespace doris::vectorized

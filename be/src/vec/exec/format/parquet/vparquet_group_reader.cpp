@@ -17,4 +17,38 @@
 
 #include "vparquet_group_reader.h"
 
-namespace doris::vectorized {} // namespace doris::vectorized
+namespace doris::vectorized {
+
+
+    Status RowGroupReader::read_next_row_group() {
+        return Status();
+    }
+
+    void RowGroupReader::init_chunk_dicts() {
+
+    }
+
+    Status RowGroupReader::process_dict_filter() {
+        return Status();
+    }
+
+    void RowGroupReader::init_bloom_filter() {
+
+    }
+
+    Status RowGroupReader::process_bloom_filter() {
+        return Status();
+    }
+
+    void RowGroupReader::init_page_index() {
+
+    }
+
+    Status RowGroupReader::process_page_index() {
+        return Status();
+    }
+
+    void RowGroupReader::_init_column_chunk_readers() {
+
+    }
+} // namespace doris::vectorized
