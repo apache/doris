@@ -365,7 +365,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
         TStatus task_status;
 
         std::vector<TTabletInfo> finish_tablet_infos;
-        LOG(INFO) << "create tablet: " << create_tablet_req;
+        VLOG_NOTICE << "create tablet: " << create_tablet_req;
         Status create_status = _env->storage_engine()->create_tablet(create_tablet_req);
         if (!create_status.ok()) {
             LOG(WARNING) << "create table failed. status: " << create_status
@@ -437,15 +437,16 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
                 LOG(WARNING) << "drop table failed! signature: " << agent_task_req.signature;
                 error_msgs.push_back("drop table failed!");
                 status_code = TStatusCode::RUNTIME_ERROR;
-            }
-            // if tablet is dropped by fe, then the related txn should also be removed
-            StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
-                    dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
-                    drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
-            // We remove remote rowset directly.
-            // TODO(cyx): do remove in background
-            if (drop_tablet_req.is_drop_table_or_partition) {
-                dropped_tablet->remove_all_remote_rowsets();
+            } else {
+                // if tablet is dropped by fe, then the related txn should also be removed
+                StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
+                        dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
+                        drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
+                // We remove remote rowset directly.
+                // TODO(cyx): do remove in background
+                if (drop_tablet_req.is_drop_table_or_partition) {
+                    dropped_tablet->remove_all_remote_rowsets();
+                }
             }
         } else {
             status_code = TStatusCode::NOT_FOUND;
@@ -710,6 +711,13 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
             res = _env->storage_engine()->execute_task(&engine_task);
             if (res.ok()) {
                 break;
+            } else if (res.precise_code() == OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS) {
+                // version not continuous, put to queue and wait pre version publish
+                // task execute
+                std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+                _tasks.push_back(agent_task_req);
+                _worker_thread_condition_variable.notify_one();
+                break;
             } else {
                 LOG(WARNING) << "publish version error, retry. [transaction_id="
                              << publish_version_req.transaction_id
@@ -717,6 +725,9 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                 ++retry_time;
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
+        }
+        if (res.precise_code() == OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS) {
+            continue;
         }
 
         TFinishTaskRequest finish_task_request;
@@ -1656,8 +1667,6 @@ void TaskWorkerPool::_random_sleep(int second) {
 }
 
 void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
-    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::COMPACTION,
-                              StorageEngine::instance()->compaction_mem_tracker());
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
         TCompactionReq compaction_req;
@@ -1754,7 +1763,7 @@ void TaskWorkerPool::_storage_refresh_storage_policy_worker_thread_callback() {
                 policy_ptr->md5_sum = iter.md5_checksum;
 
                 LOG_EVERY_N(INFO, 12) << "refresh storage policy task, policy " << *policy_ptr;
-                spm->periodic_put(iter.policy_name, std::move(policy_ptr));
+                spm->periodic_put(iter.policy_name, policy_ptr);
             }
         }
     }
@@ -1797,7 +1806,7 @@ void TaskWorkerPool::_storage_update_storage_policy_worker_thread_callback() {
 
         LOG(INFO) << "get storage update policy task, update policy " << *policy_ptr;
 
-        spm->update(get_storage_policy_req.policy_name, std::move(policy_ptr));
+        spm->update(get_storage_policy_req.policy_name, policy_ptr);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
 }

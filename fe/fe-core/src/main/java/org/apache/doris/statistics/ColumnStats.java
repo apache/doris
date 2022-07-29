@@ -76,8 +76,72 @@ public class ColumnStats {
     private LiteralExpr minValue;
     private LiteralExpr maxValue;
 
-    public void updateStats(Type columnType, Map<StatsType, String> statsNameToValue) throws AnalysisException {
-        for (Map.Entry<StatsType, String> entry : statsNameToValue.entrySet()) {
+    public ColumnStats(ColumnStats other) {
+        this.ndv = other.ndv;
+        this.avgSize = other.avgSize;
+        this.maxSize = other.maxSize;
+        this.numNulls = other.numNulls;
+        if (other.minValue != null) {
+            this.minValue = (LiteralExpr) other.minValue.clone();
+        }
+        if (other.maxValue != null) {
+            this.maxValue = (LiteralExpr) other.maxValue.clone();
+        }
+    }
+
+    public ColumnStats() {
+    }
+
+    public long getNdv() {
+        return ndv;
+    }
+
+    public float getAvgSize() {
+        return avgSize;
+    }
+
+    public long getMaxSize() {
+        return maxSize;
+    }
+
+    public long getNumNulls() {
+        return numNulls;
+    }
+
+    public LiteralExpr getMinValue() {
+        return minValue;
+    }
+
+    public LiteralExpr getMaxValue() {
+        return maxValue;
+    }
+
+    public void setNdv(long ndv) {
+        this.ndv = ndv;
+    }
+
+    public void setAvgSize(float avgSize) {
+        this.avgSize = avgSize;
+    }
+
+    public void setMaxSize(long maxSize) {
+        this.maxSize = maxSize;
+    }
+
+    public void setNumNulls(long numNulls) {
+        this.numNulls = numNulls;
+    }
+
+    public void setMinValue(LiteralExpr minValue) {
+        this.minValue = minValue;
+    }
+
+    public void setMaxValue(LiteralExpr maxValue) {
+        this.maxValue = maxValue;
+    }
+
+    public void updateStats(Type columnType, Map<StatsType, String> statsTypeToValue) throws AnalysisException {
+        for (Map.Entry<StatsType, String> entry : statsTypeToValue.entrySet()) {
             StatsType statsType = entry.getKey();
             switch (statsType) {
                 case NDV:
@@ -175,5 +239,15 @@ public class ColumnStats {
             default:
                 throw new AnalysisException("Unsupported setting this type: " + type + " of min max value");
         }
+    }
+
+    public ColumnStats copy() {
+        return new ColumnStats(this);
+    }
+
+    public ColumnStats multiplyDouble(double selectivity) {
+        ndv *= selectivity;
+        numNulls *= selectivity;
+        return this;
     }
 }

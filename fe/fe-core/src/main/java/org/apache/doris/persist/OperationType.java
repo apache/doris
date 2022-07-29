@@ -21,7 +21,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
 public class OperationType {
-    public static final short OP_INVALID = -1;
+    // OP_LOCAL_EOF is only for local edit log, to indicate the end of a edit log run.
+    public static final short OP_LOCAL_EOF = -1;
     public static final short OP_SAVE_NEXTID = 0;
     public static final short OP_CREATE_DB = 1;
     public static final short OP_DROP_DB = 2;

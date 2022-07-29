@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -330,7 +330,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("Table name should not be null");
         }
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         Table table = db.getTableOrAnalysisException(tableName);
         if (mergeType != LoadTask.MergeType.APPEND
                 && (table.getType() != Table.TableType.OLAP

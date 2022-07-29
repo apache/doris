@@ -66,7 +66,14 @@ public class Group {
             this.physicalExpressions.add(groupExpression);
         }
         this.logicalProperties = logicalProperties;
-        groupExpression.setParent(this);
+        groupExpression.setOwnerGroup(this);
+    }
+
+    /**
+     * For unit test only.
+     */
+    public Group() {
+        groupId = null;
     }
 
     public GroupId getGroupId() {
@@ -93,7 +100,7 @@ public class Group {
         } else {
             physicalExpressions.add(groupExpression);
         }
-        groupExpression.setParent(this);
+        groupExpression.setOwnerGroup(this);
         return groupExpression;
     }
 
@@ -109,7 +116,7 @@ public class Group {
         } else {
             physicalExpressions.remove(groupExpression);
         }
-        groupExpression.setParent(null);
+        groupExpression.setOwnerGroup(null);
         return groupExpression;
     }
 
@@ -121,7 +128,7 @@ public class Group {
      */
     public GroupExpression rewriteLogicalExpression(GroupExpression newExpression,
             LogicalProperties logicalProperties) {
-        newExpression.setParent(this);
+        newExpression.setOwnerGroup(this);
         this.logicalProperties = logicalProperties;
         GroupExpression oldExpression = getLogicalExpression();
         logicalExpressions.clear();
@@ -265,4 +272,35 @@ public class Group {
     public String toString() {
         return "Group[" + groupId + "]";
     }
+
+    /**
+     * move the ownerGroup of all logical expressions to target group
+     * if this.equals(target), do nothing.
+     * @param target the new owner group of expressions
+     */
+    public void moveLogicalExpressionOwnership(Group target) {
+        if (equals(target)) {
+            return;
+        }
+        for (GroupExpression expression : logicalExpressions) {
+            target.addGroupExpression(expression);
+        }
+        logicalExpressions.clear();
+    }
+
+    /**
+     * move the ownerGroup of all physical expressions to target group
+     * if this.equals(target), do nothing.
+     * @param target the new owner group of expressions
+     */
+    public void movePhysicalExpressionOwnership(Group target) {
+        if (equals(target)) {
+            return;
+        }
+        for (GroupExpression expression : physicalExpressions) {
+            target.addGroupExpression(expression);
+        }
+        physicalExpressions.clear();
+    }
+
 }

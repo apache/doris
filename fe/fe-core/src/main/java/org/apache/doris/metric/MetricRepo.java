@@ -20,7 +20,7 @@ package org.apache.doris.metric;
 
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2.JobType;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
@@ -38,7 +38,6 @@ import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
 import com.google.common.collect.Sets;
@@ -121,14 +120,14 @@ public final class MetricRepo {
 
         // 1. gauge
         // load jobs
-        LoadManager loadManger = Catalog.getCurrentCatalog().getLoadManager();
+        LoadManager loadManger = Env.getCurrentEnv().getLoadManager();
         for (EtlJobType jobType : EtlJobType.values()) {
             for (JobState state : JobState.values()) {
                 GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
                         MetricUnit.NOUNIT, "job statistics") {
                     @Override
                     public Long getValue() {
-                        if (!Catalog.getCurrentCatalog().isMaster()) {
+                        if (!Env.getCurrentEnv().isMaster()) {
                             return 0L;
                         }
                         return loadManger.getLoadJobNum(state, jobType);
@@ -142,13 +141,13 @@ public final class MetricRepo {
         }
 
         //  routine load jobs
-        RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+        RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
         for (RoutineLoadJob.JobState jobState : RoutineLoadJob.JobState.values()) {
             GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
                     MetricUnit.NOUNIT, "routine load job statistics") {
                 @Override
                 public Long getValue() {
-                    if (!Catalog.getCurrentCatalog().isMaster()) {
+                    if (!Env.getCurrentEnv().isMaster()) {
                         return 0L;
                     }
                     Set<RoutineLoadJob.JobState> states = Sets.newHashSet();
@@ -164,7 +163,7 @@ public final class MetricRepo {
         }
 
         // running alter job
-        Alter alter = Catalog.getCurrentCatalog().getAlterInstance();
+        Alter alter = Env.getCurrentEnv().getAlterInstance();
         for (JobType jobType : JobType.values()) {
             if (jobType != JobType.SCHEMA_CHANGE && jobType != JobType.ROLLUP) {
                 continue;
@@ -174,7 +173,7 @@ public final class MetricRepo {
                     MetricUnit.NOUNIT, "job statistics") {
                 @Override
                 public Long getValue() {
-                    if (!Catalog.getCurrentCatalog().isMaster()) {
+                    if (!Env.getCurrentEnv().isMaster()) {
                         return 0L;
                     }
                     if (jobType == JobType.SCHEMA_CHANGE) {
@@ -210,7 +209,7 @@ public final class MetricRepo {
                 "max_journal_id", MetricUnit.NOUNIT, "max journal id of this frontends") {
             @Override
             public Long getValue() {
-                EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
+                EditLog editLog = Env.getCurrentEnv().getEditLog();
                 if (editLog == null) {
                     return -1L;
                 }
@@ -224,13 +223,28 @@ public final class MetricRepo {
                 "scheduled_tablet_num", MetricUnit.NOUNIT, "number of tablets being scheduled") {
             @Override
             public Long getValue() {
-                if (!Catalog.getCurrentCatalog().isMaster()) {
+                if (!Env.getCurrentEnv().isMaster()) {
                     return 0L;
                 }
-                return (long) Catalog.getCurrentCatalog().getTabletScheduler().getTotalNum();
+                return (long) Env.getCurrentEnv().getTabletScheduler().getTotalNum();
             }
         };
         PALO_METRIC_REGISTER.addPaloMetrics(scheduledTabletNum);
+
+        GaugeMetric<Long> maxInstanceNum = new GaugeMetric<Long>("max_instances_num_per_user",
+                MetricUnit.NOUNIT, "max instances num of all current users") {
+                @Override
+                public Long getValue() {
+                    try {
+                        return ((QeProcessorImpl) QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
+                            .reduce(-1, BinaryOperator.maxBy(Integer::compareTo)).longValue();
+                    } catch (Throwable ex) {
+                        LOG.warn("Get max_instances_num_per_user error", ex);
+                        return -2L;
+                    }
+                }
+        };
+        PALO_METRIC_REGISTER.addPaloMetrics(maxInstanceNum);
 
         // qps, rps and error rate
         // these metrics should be set an init value, in case that metric calculator is not running
@@ -377,18 +391,6 @@ public final class MetricRepo {
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("editlog", "write", "latency", "ms"));
 
-        METRIC_REGISTER.register(MetricRegistry.name("palo", "fe", "query", "max_instances_num_per_user"),
-                (Gauge<Integer>) () -> {
-                    try {
-                        return ((QeProcessorImpl) QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
-                                .reduce(-1, BinaryOperator.maxBy(Integer::compareTo));
-                    } catch (Throwable ex) {
-                        LOG.warn("Get max_instances_num_per_user error", ex);
-                        return -2;
-                    }
-            }
-        );
-
         // init system metrics
         initSystemMetrics();
 
@@ -509,8 +511,8 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.removeMetrics(TABLET_NUM);
         PALO_METRIC_REGISTER.removeMetrics(TABLET_MAX_COMPACTION_SCORE);
 
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
 
         for (Long beId : infoService.getBackendIds(false)) {
             Backend be = infoService.getBackend(beId);
@@ -523,7 +525,7 @@ public final class MetricRepo {
                     MetricUnit.NOUNIT, "tablet number") {
                 @Override
                 public Long getValue() {
-                    if (!Catalog.getCurrentCatalog().isMaster()) {
+                    if (!Env.getCurrentEnv().isMaster()) {
                         return 0L;
                     }
                     return (long) invertedIndex.getTabletNumByBackendId(beId);
@@ -538,7 +540,7 @@ public final class MetricRepo {
                     "tablet max compaction score") {
                 @Override
                 public Long getValue() {
-                    if (!Catalog.getCurrentCatalog().isMaster()) {
+                    if (!Env.getCurrentEnv().isMaster()) {
                         return 0L;
                     }
                     return be.getTabletMaxCompactionScore();

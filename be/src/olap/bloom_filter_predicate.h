@@ -99,7 +99,8 @@ private:
             };
 
             auto get_cell_value = [&tmp_uint24_value](auto& data) {
-                if constexpr (std::is_same_v<std::decay_t<decltype(data)>, uint32_t>) {
+                if constexpr (std::is_same_v<std::decay_t<decltype(data)>, uint32_t> &&
+                              T == PrimitiveType::TYPE_DATE) {
                     memcpy((char*)(&tmp_uint24_value), (char*)(&data), sizeof(uint24_t));
                     return (const char*)&tmp_uint24_value;
                 } else {

@@ -18,8 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 
@@ -28,8 +27,8 @@ import java.util.List;
  */
 public abstract class NamedExpression extends Expression {
 
-    public NamedExpression(ExpressionType type, Expression... children) {
-        super(type, children);
+    public NamedExpression(Expression... children) {
+        super(children);
     }
 
     public Slot toSlot() throws UnboundException {
@@ -48,11 +47,6 @@ public abstract class NamedExpression extends Expression {
         throw new UnboundException("qualifier");
     }
 
-    @Override
-    public boolean isConstant() {
-        return false;
-    }
-
     /**
      * Get qualified name of NamedExpression.
      *
@@ -60,10 +54,6 @@ public abstract class NamedExpression extends Expression {
      * @throws UnboundException throw this exception if this expression is unbound
      */
     public String getQualifiedName() throws UnboundException {
-        String qualifiedName = "";
-        if (CollectionUtils.isNotEmpty(getQualifier())) {
-            qualifiedName = String.join(".", getQualifier()) + ".";
-        }
-        return qualifiedName + getName();
+        return Utils.qualifiedName(getQualifier(), getName());
     }
 }

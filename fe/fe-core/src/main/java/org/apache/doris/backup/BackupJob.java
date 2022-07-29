@@ -21,8 +21,8 @@ import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.BackupStmt.BackupContent;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -120,8 +120,8 @@ public class BackupJob extends AbstractJob {
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-                     BackupContent content, Catalog catalog, long repoId) {
-        super(JobType.BACKUP, label, dbId, dbName, timeoutMs, catalog, repoId);
+                     BackupContent content, Env env, long repoId) {
+        super(JobType.BACKUP, label, dbId, dbName, timeoutMs, env, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
         properties.put(BackupStmt.PROP_CONTENT, content.name());
@@ -284,7 +284,7 @@ public class BackupJob extends AbstractJob {
 
         // get repo if not set
         if (repo == null) {
-            repo = catalog.getBackupHandler().getRepoMgr().getRepo(repoId);
+            repo = env.getBackupHandler().getRepoMgr().getRepo(repoId);
             if (repo == null) {
                 status = new Status(ErrCode.COMMON_ERROR, "failed to get repository: " + repoId);
                 cancelInternal();
@@ -345,14 +345,14 @@ public class BackupJob extends AbstractJob {
     }
 
     private void prepareAndSendSnapshotTask() {
-        Database db = catalog.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalDataSource().getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
             return;
         }
 
         // generate job id
-        jobId = catalog.getNextId();
+        jobId = env.getNextId();
         unfinishedTaskIds.clear();
         taskProgress.clear();
         taskErrMsg.clear();
@@ -377,7 +377,7 @@ public class BackupJob extends AbstractJob {
                     OdbcTable odbcTable = (OdbcTable) tbl;
                     if (odbcTable.getOdbcCatalogResourceName() != null) {
                         String odbcResourceName = odbcTable.getOdbcCatalogResourceName();
-                        Resource resource = Catalog.getCurrentCatalog().getResourceMgr()
+                        Resource resource = Env.getCurrentEnv().getResourceMgr()
                                 .getResource(odbcResourceName);
                         if (resource == null) {
                             status = new Status(ErrCode.NOT_FOUND, "resource " + odbcResourceName
@@ -527,7 +527,7 @@ public class BackupJob extends AbstractJob {
                     }
                     copiedTables.add(copiedOdbcTable);
                     if (copiedOdbcTable.getOdbcCatalogResourceName() != null) {
-                        Resource resource = Catalog.getCurrentCatalog().getResourceMgr()
+                        Resource resource = Env.getCurrentEnv().getResourceMgr()
                                 .getResource(copiedOdbcTable.getOdbcCatalogResourceName());
                         Resource copiedResource = resource.clone();
                         if (copiedResource == null) {
@@ -557,7 +557,7 @@ public class BackupJob extends AbstractJob {
             state = BackupJobState.UPLOAD_SNAPSHOT;
 
             // log
-            catalog.getEditLog().logBackupJob(this);
+            env.getEditLog().logBackupJob(this);
             LOG.info("finished to make snapshots. {}", this);
             return;
         }
@@ -588,7 +588,7 @@ public class BackupJob extends AbstractJob {
             LOG.info("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);
 
             List<FsBroker> brokers = Lists.newArrayList();
-            Status st = repo.getBrokerAddress(beId, catalog, brokers);
+            Status st = repo.getBrokerAddress(beId, env, brokers);
             if (!st.ok()) {
                 status = st;
                 return;
@@ -610,7 +610,7 @@ public class BackupJob extends AbstractJob {
                     }
                     srcToDest.put(src, dest);
                 }
-                long signature = catalog.getNextId();
+                long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0), repo.getStorage().getProperties(), repo.getStorage().getStorageType());
                 batchTask.addTask(task);
@@ -636,7 +636,7 @@ public class BackupJob extends AbstractJob {
             state = BackupJobState.SAVE_META;
 
             // log
-            catalog.getEditLog().logBackupJob(this);
+            env.getEditLog().logBackupJob(this);
             LOG.info("finished uploading snapshots. {}", this);
             return;
         }
@@ -702,7 +702,7 @@ public class BackupJob extends AbstractJob {
         snapshotInfos.clear();
 
         // log
-        catalog.getEditLog().logBackupJob(this);
+        env.getEditLog().logBackupJob(this);
         LOG.info("finished to save meta the backup job info file to local.[{}], [{}] {}",
                  localMetaInfoFilePath, localJobInfoFilePath, this);
     }
@@ -738,7 +738,7 @@ public class BackupJob extends AbstractJob {
         state = BackupJobState.FINISHED;
 
         // log
-        catalog.getEditLog().logBackupJob(this);
+        env.getEditLog().logBackupJob(this);
         LOG.info("job is finished. {}", this);
     }
 
@@ -823,7 +823,7 @@ public class BackupJob extends AbstractJob {
         state = BackupJobState.CANCELLED;
 
         // log
-        catalog.getEditLog().logBackupJob(this);
+        env.getEditLog().logBackupJob(this);
         LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
     }
 

@@ -24,10 +24,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.Scan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -36,7 +37,7 @@ import java.util.Optional;
 /**
  * Logical relation plan.
  */
-public abstract class LogicalRelation extends LogicalLeaf {
+public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
     protected final Table table;
     protected final List<String> qualifier;
@@ -67,11 +68,6 @@ public abstract class LogicalRelation extends LogicalLeaf {
     }
 
     @Override
-    public String toString() {
-        return "LogicalRelation (" + StringUtils.join(qualifier, ".") + ")";
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -92,7 +88,7 @@ public abstract class LogicalRelation extends LogicalLeaf {
     public List<Slot> computeOutput() {
         return table.getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(col, qualifier))
+                .map(col -> SlotReference.fromColumn(col, qualified()))
                 .collect(ImmutableList.toImmutableList());
     }
 
@@ -104,5 +100,19 @@ public abstract class LogicalRelation extends LogicalLeaf {
     @Override
     public List<Expression> getExpressions() {
         return ImmutableList.of();
+    }
+
+    /**
+     * Full qualified name parts, i.e., concat qualifier and name into a list.
+     */
+    public List<String> qualified() {
+        return Utils.qualifiedNameParts(qualifier, table.getName());
+    }
+
+    /**
+     * Full qualified table name, concat qualifier and name with `.` as separator.
+     */
+    public String qualifiedName() {
+        return Utils.qualifiedName(qualifier, table.getName());
     }
 }

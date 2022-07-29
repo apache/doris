@@ -19,7 +19,6 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Joiner;
@@ -37,7 +36,7 @@ public class UnboundFunction extends Expression implements Unbound {
     private final boolean isDistinct;
 
     public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
-        super(ExpressionType.UNBOUND_FUNCTION, arguments.toArray(new Expression[0]));
+        super(arguments.toArray(new Expression[0]));
         this.name = Objects.requireNonNull(name, "name can not be null");
         this.isDistinct = isDistinct;
     }
@@ -76,5 +75,25 @@ public class UnboundFunction extends Expression implements Unbound {
     @Override
     public Expression withChildren(List<Expression> children) {
         return new UnboundFunction(name, isDistinct, children);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        UnboundFunction that = (UnboundFunction) o;
+        return isDistinct == that.isDistinct && name.equals(that.name);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(name, isDistinct);
     }
 }

@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.util;
 
+import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.List;
+
 /**
  * Utils for Nereids.
  */
@@ -31,5 +36,63 @@ public class Utils {
         // We quote strings except the ones which consist of digits only.
         return part.matches("\\w*[\\w&&[^\\d]]+\\w*")
                 ? part : part.replace("`", "``");
+    }
+
+    /**
+     * Helper function to eliminate unnecessary checked exception caught requirement from the main logic of translator.
+     *
+     * @param f function which would invoke the logic of
+     *        stale code from old optimizer that could throw
+     *        a checked exception
+     */
+    public static void execWithUncheckedException(FuncWrapper f) {
+        try {
+            f.exec();
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Helper function to eliminate unnecessary checked exception caught requirement from the main logic of translator.
+     *
+     */
+    @SuppressWarnings("unchecked")
+    public static <R> R execWithReturnVal(Supplier<R> f) {
+        final Object[] ans = new Object[]{null};
+        try {
+            ans[0] = f.get();
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+        return (R) ans[0];
+    }
+
+    /**
+     * Wrapper to a function without return value.
+     */
+    public interface FuncWrapper {
+        void exec() throws Exception;
+    }
+
+    /**
+     * Wrapper to a funciton with return value.
+     */
+    public interface Supplier<R> {
+        R get() throws Exception;
+    }
+
+    /**
+     * Fully qualified identifier name parts, i.e., concat qualifier and name into a list.
+     */
+    public static List<String> qualifiedNameParts(List<String> qualifier, String name) {
+        return new ImmutableList.Builder<String>().addAll(qualifier).add(name).build();
+    }
+
+    /**
+     * Fully qualified identifier name, concat qualifier and name with `.` as separator.
+     */
+    public static String qualifiedName(List<String> qualifier, String name) {
+        return StringUtils.join(qualifiedNameParts(qualifier, name), ".");
     }
 }

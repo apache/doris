@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
@@ -108,7 +108,7 @@ public class CacheCoordinator {
         }
         try {
             belock.lock();
-            ImmutableMap<Long, Backend> idToBackend = Catalog.getCurrentSystemInfo().getIdToBackend();
+            ImmutableMap<Long, Backend> idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
             if (idToBackend != null) {
                 if (!debugModel) {
                     clearBackend(idToBackend);

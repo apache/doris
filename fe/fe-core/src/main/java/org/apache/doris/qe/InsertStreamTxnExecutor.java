@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.StreamLoadPlanner;
@@ -67,7 +67,7 @@ public class InsertStreamTxnExecutor {
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(txnEntry.getDb().getClusterName())
                 .needLoadAvailable().needQueryAvailable().build();
-        List<Long> beIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        List<Long> beIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
         if (beIds.isEmpty()) {
             throw new UserException("No available backend to match the policy: " + policy);
         }
@@ -82,7 +82,7 @@ public class InsertStreamTxnExecutor {
         }
         txnConf.setFragmentInstanceId(tRequest.params.fragment_instance_id);
 
-        Backend backend = Catalog.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
+        Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
         txnConf.setUserIp(backend.getHost());
         txnEntry.setBackend(backend);
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());

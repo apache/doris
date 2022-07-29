@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -67,7 +67,7 @@ public class MigrateDbStmt extends DdlStmt {
         src.analyze(analyzer);
         dest.analyze(analyzer);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                                                 "ADMIN");
         }

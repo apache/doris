@@ -20,30 +20,29 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
-import java.util.List;
 import java.util.Objects;
 
 /**
  * Compound predicate expression.
  * Such as &&,||,AND,OR.
  */
-public class CompoundPredicate extends Expression implements BinaryExpression {
+public abstract class CompoundPredicate extends Expression implements BinaryExpression {
+    protected final String symbol;
 
     /**
      * Desc: Constructor for CompoundPredicate.
      *
-     * @param type  type of expression
      * @param left  left child of comparison predicate
      * @param right right child of comparison predicate
      */
-    public CompoundPredicate(ExpressionType type, Expression left, Expression right) {
-        super(type, left, right);
+    public CompoundPredicate(Expression left, Expression right, String symbol) {
+        super(left, right);
+        this.symbol = symbol;
     }
 
     @Override
     public String toSql() {
-        String nodeType = getType().toString();
-        return "(" + left().toSql() + " " + nodeType + " " + right().toSql() + ")";
+        return "(" + left().toSql() + " " + symbol + " " + right().toSql() + ")";
     }
 
     @Override
@@ -57,11 +56,6 @@ public class CompoundPredicate extends Expression implements BinaryExpression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
-        return new CompoundPredicate(getType(), children.get(0), children.get(1));
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -70,21 +64,30 @@ public class CompoundPredicate extends Expression implements BinaryExpression {
             return false;
         }
         CompoundPredicate other = (CompoundPredicate) o;
-        return (type == other.getType()) && Objects.equals(left(), other.left())
+        return Objects.equals(left(), other.left())
                 && Objects.equals(right(), other.right());
     }
 
     @Override
-    public String toString() {
-        String nodeType = getType().toString();
-        return nodeType + "(" + left() + ", " + right() + ")";
+    public int hashCode() {
+        return Objects.hash(symbol, left(), right());
     }
 
-    public ExpressionType flip() {
-        if (getType() == ExpressionType.AND) {
-            return ExpressionType.OR;
-        }
-        return ExpressionType.AND;
+    @Override
+    public String toString() {
+        return "(" + left().toString() + " " + symbol + " " + right().toString() + ")";
     }
+
+    /**
+     * Flip logical `and` and `or` operator with original children.
+     */
+    public abstract CompoundPredicate flip();
+
+    /**
+     * Flip logical `and` and `or` operator with new children.
+     */
+    public abstract CompoundPredicate flip(Expression left, Expression right);
+
+    public abstract Class<? extends CompoundPredicate> flipType();
 }
 

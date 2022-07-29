@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -36,7 +37,7 @@ import java.util.Objects;
  * Representation for group expression in cascades optimizer.
  */
 public class GroupExpression {
-    private Group parent;
+    private Group ownerGroup;
     private List<Group> children;
     private final Plan plan;
     private final BitSet ruleMasks;
@@ -81,12 +82,12 @@ public class GroupExpression {
         children.add(child);
     }
 
-    public Group getParent() {
-        return parent;
+    public Group getOwnerGroup() {
+        return ownerGroup;
     }
 
-    public void setParent(Group parent) {
-        this.parent = parent;
+    public void setOwnerGroup(Group ownerGroup) {
+        this.ownerGroup = ownerGroup;
     }
 
     public Plan getPlan() {
@@ -173,5 +174,9 @@ public class GroupExpression {
     @Override
     public int hashCode() {
         return Objects.hash(children, plan);
+    }
+
+    public StatsDeriveResult getCopyOfChildStats(int idx) {
+        return child(idx).getStatistics().copy();
     }
 }

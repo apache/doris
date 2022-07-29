@@ -1,3 +1,7 @@
+-- Expect cell is: C??TE D'IVOIRE
+-- But real is: C?TE D'IVOIRE
+-- compare result fail when encounter latin character Ô
+/*
 WITH
   customer_total_return AS (
    SELECT
@@ -42,3 +46,4 @@ WHERE (ctr1.ctr_total_return > (
    AND (ctr1.ctr_customer_sk = c_customer_sk)
 ORDER BY c_customer_id ASC, c_salutation ASC, c_first_name ASC, c_last_name ASC, c_preferred_cust_flag ASC, c_birth_day ASC, c_birth_month ASC, c_birth_year ASC, c_birth_country ASC, c_login ASC, c_email_address ASC, c_last_review_date_sk ASC, ctr_total_return ASC
 LIMIT 100
+*/

@@ -188,10 +188,10 @@ public class Config extends ConfigBase {
     /**
      * Edit log type.
      * BDB: write log to bdbje
-     * LOCAL: deprecated.
+     * LOCAL: use local file to save edit log, only used for unit test
      */
     @ConfField
-    public static String edit_log_type = "BDB";
+    public static String edit_log_type = "bdb";
 
     /**
      * bdbje port
@@ -1688,11 +1688,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static boolean be_rebalancer_fuzzy_test = false;
 
+    /**
+     * If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically.
+     */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean use_date_v2_by_default = false;
-
-    @ConfField
-    public static String default_storage_policy = "default_storage_policy";
+    public static boolean enable_date_conversion = false;
 
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_tags = false;

@@ -44,7 +44,7 @@ class OrcScannerTest : public testing::Test {
 public:
     OrcScannerTest() : _runtime_state(TQueryGlobals()) {
         _profile = _runtime_state.runtime_profile();
-        _runtime_state._instance_mem_tracker.reset(new MemTracker());
+        _runtime_state.init_instance_mem_tracker();
     }
 
     static void SetUpTestCase() {
@@ -411,8 +411,7 @@ TEST_F(OrcScannerTest, normal) {
                        &_counter);
     EXPECT_TRUE(scanner.open().ok());
 
-    auto tracker = std::make_shared<MemTracker>();
-    MemPool tuple_pool(tracker.get());
+    MemPool tuple_pool;
 
     Tuple* tuple = (Tuple*)tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
     bool eof = false;
@@ -535,8 +534,7 @@ TEST_F(OrcScannerTest, normal2) {
                        &_counter);
     EXPECT_TRUE(scanner.open().ok());
 
-    auto tracker = std::make_shared<MemTracker>();
-    MemPool tuple_pool(tracker.get());
+    MemPool tuple_pool;
 
     Tuple* tuple = (Tuple*)tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
     bool eof = false;
@@ -885,8 +883,7 @@ TEST_F(OrcScannerTest, normal3) {
                        &_counter);
     EXPECT_TRUE(scanner.open().ok());
 
-    auto tracker = std::make_shared<MemTracker>();
-    MemPool tuple_pool(tracker.get());
+    MemPool tuple_pool;
 
     Tuple* tuple = (Tuple*)tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
     bool eof = false;

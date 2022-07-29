@@ -21,17 +21,17 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
+import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.batch.PredicatePushDownRulesJob;
+import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -99,35 +99,42 @@ public class NereidsPlanner extends Planner {
     // TODO: refactor, just demo code here
     public PhysicalPlan plan(LogicalPlan plan, PhysicalProperties outputProperties, ConnectContext connectContext)
             throws AnalysisException {
-        Memo memo = new Memo();
-        memo.initialize(plan);
+        plannerContext = new NereidsAnalyzer(connectContext)
+                .analyzeWithPlannerContext(plan)
+                // TODO: revisit this. What is the appropriate time to set physical properties? Maybe before enter
+                // cascades style optimize phase.
+                .setJobContext(outputProperties);
 
-        plannerContext = new PlannerContext(memo, connectContext);
-        JobContext jobContext = new JobContext(plannerContext, outputProperties, Double.MAX_VALUE);
-        plannerContext.setCurrentJobContext(jobContext);
+        rewrite();
+        // TODO: remove this condition, when stats collector is fully developed.
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsCBO()) {
+            deriveStats();
+        }
+        optimize();
 
         // Get plan directly. Just for SSB.
-        return doPlan();
+        return getRoot().extractPlan();
     }
 
     /**
-     * The actual execution of the plan, including the generation and execution of the job.
-     * @return PhysicalPlan.
+     * Logical plan rewrite based on a series of heuristic rules.
      */
-    private PhysicalPlan doPlan() {
-        AnalyzeRulesJob analyzeRulesJob = new AnalyzeRulesJob(plannerContext);
-        analyzeRulesJob.execute();
+    private void rewrite() {
+        new JoinReorderRulesJob(plannerContext).execute();
+        new PredicatePushDownRulesJob(plannerContext).execute();
+        new DisassembleRulesJob(plannerContext).execute();
+    }
 
-        PredicatePushDownRulesJob predicatePushDownRulesJob = new PredicatePushDownRulesJob(plannerContext);
-        predicatePushDownRulesJob.execute();
+    private void deriveStats() {
+        new DeriveStatsJob(getRoot().getLogicalExpression(), plannerContext.getCurrentJobContext()).execute();
+    }
 
-        DisassembleRulesJob disassembleRulesJob = new DisassembleRulesJob(plannerContext);
-        disassembleRulesJob.execute();
-
-        OptimizeRulesJob optimizeRulesJob = new OptimizeRulesJob(plannerContext);
-        optimizeRulesJob.execute();
-
-        return getRoot().extractPlan();
+    /**
+     * Cascades style optimize: perform equivalent logical plan exploration and physical implementation enumeration,
+     * try to find best plan under the guidance of statistic information and cost model.
+     */
+    private void optimize() {
+        new OptimizeRulesJob(plannerContext).execute();
     }
 
     @Override
@@ -169,5 +176,10 @@ public class NereidsPlanner extends Planner {
     @Override
     public DescriptorTable getDescTable() {
         return descTable;
+    }
+
+    @Override
+    public void appendTupleInfo(StringBuilder str) {
+        str.append(descTable.getExplainString());
     }
 }

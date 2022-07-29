@@ -129,7 +129,7 @@ public:
         *done = false;
         _pull_task_thread =
                 std::thread(&SortedRunMerger::ParallelBatchedRowSupplier::process_sorted_run_task,
-                            this, tls_ctx()->_thread_mem_tracker_mgr->mem_tracker());
+                            this, thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker());
 
         RETURN_IF_ERROR(next(nullptr, done));
         return Status::OK();
@@ -182,8 +182,8 @@ private:
     // signal of new batch or the eos/cancelled condition
     std::condition_variable _batch_prepared_cv;
 
-    void process_sorted_run_task(const std::shared_ptr<MemTracker>& mem_tracker) {
-        SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::QUERY, mem_tracker);
+    void process_sorted_run_task(MemTrackerLimiter* mem_tracker) {
+        SCOPED_ATTACH_TASK(mem_tracker, ThreadContext::TaskType::QUERY);
         std::unique_lock<std::mutex> lock(_mutex);
         while (true) {
             _batch_prepared_cv.wait(lock, [this]() { return !_backup_ready.load(); });

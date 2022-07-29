@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -29,8 +29,10 @@ import org.apache.doris.statistics.StatsType;
 import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -64,7 +66,7 @@ public class AlterTableStatsStmt extends DdlStmt {
             throw new AnalysisException(optional.get() + " is invalid statistic");
         }
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(
                 ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE STATS",
                     ConnectContext.get().getQualifiedUser(),
@@ -84,5 +86,10 @@ public class AlterTableStatsStmt extends DdlStmt {
 
     public Map<StatsType, String> getStatsTypeToValue() {
         return statsTypeToValue;
+    }
+
+    public List<String> getPartitionNames() {
+        // TODO(WZT): partition statistics
+        return Lists.newArrayList();
     }
 }

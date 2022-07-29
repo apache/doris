@@ -22,7 +22,7 @@
 
 #include "exec/exec_node.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tmp_file_mgr.h"
 #include "util/bit_util.h"
@@ -54,17 +54,13 @@ SpinLock BufferedBlockMgr2::_s_block_mgrs_lock;
 
 class BufferedBlockMgr2::Client {
 public:
-    Client(BufferedBlockMgr2* mgr, int num_reserved_buffers,
-           const std::shared_ptr<MemTracker>& tracker, RuntimeState* state)
+    Client(BufferedBlockMgr2* mgr, int num_reserved_buffers, RuntimeState* state)
             : _mgr(mgr),
               _state(state),
-              _tracker(
-                      MemTracker::create_virtual_tracker(-1, "BufferedBlockMgr2::Client", tracker)),
+              _tracker(std::make_unique<MemTracker>("BufferedBlockMgr2::Client")),
               _num_reserved_buffers(num_reserved_buffers),
               _num_tmp_reserved_buffers(0),
-              _num_pinned_buffers(0) {
-        DCHECK(tracker != nullptr);
-    }
+              _num_pinned_buffers(0) {}
 
     // A null dtor to pass codestyle check
     ~Client() {}
@@ -82,7 +78,7 @@ public:
     // enforced. Even when we give a buffer to a client, the buffer is still owned and
     // counts against the block mgr tracker (i.e. there is a fixed pool of buffers
     // regardless of if they are in the block mgr or the clients).
-    std::shared_ptr<MemTracker> _tracker;
+    std::unique_ptr<MemTracker> _tracker;
 
     // Number of buffers reserved by this client.
     int _num_reserved_buffers;
@@ -217,7 +213,7 @@ BufferedBlockMgr2::BufferedBlockMgr2(RuntimeState* state, TmpFileMgr* tmp_file_m
           _state(state) {}
 
 Status BufferedBlockMgr2::create(RuntimeState* state, RuntimeProfile* profile,
-                                 TmpFileMgr* tmp_file_mgr, int64_t mem_limit, int64_t block_size,
+                                 TmpFileMgr* tmp_file_mgr, int64_t block_size,
                                  std::shared_ptr<BufferedBlockMgr2>* block_mgr) {
     block_mgr->reset();
     {
@@ -240,7 +236,7 @@ Status BufferedBlockMgr2::create(RuntimeState* state, RuntimeProfile* profile,
             // _s_query_to_block_mgrs[state->query_id()] = *block_mgr;
         }
     }
-    (*block_mgr)->init(state->exec_env()->disk_io_mgr(), profile, mem_limit);
+    (*block_mgr)->init(state->exec_env()->disk_io_mgr(), profile);
     return Status::OK();
 }
 
@@ -254,16 +250,17 @@ int64_t BufferedBlockMgr2::available_buffers(Client* client) const {
 int64_t BufferedBlockMgr2::remaining_unreserved_buffers() const {
     int64_t num_buffers =
             _free_io_buffers.size() + _unpinned_blocks.size() + _non_local_outstanding_writes;
-    num_buffers += _mem_tracker->spare_capacity() / max_block_size();
+    num_buffers +=
+            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->spare_capacity() /
+            max_block_size();
     num_buffers -= _unfullfilled_reserved_buffers;
     return num_buffers;
 }
 
-Status BufferedBlockMgr2::register_client(int num_reserved_buffers,
-                                          const std::shared_ptr<MemTracker>& tracker,
-                                          RuntimeState* state, Client** client) {
+Status BufferedBlockMgr2::register_client(int num_reserved_buffers, RuntimeState* state,
+                                          Client** client) {
     DCHECK_GE(num_reserved_buffers, 0);
-    Client* a_client = new Client(this, num_reserved_buffers, tracker, state);
+    Client* a_client = new Client(this, num_reserved_buffers, state);
     lock_guard<mutex> lock(_lock);
     *client = _obj_pool.add(a_client);
     _unfullfilled_reserved_buffers += num_reserved_buffers;
@@ -301,102 +298,6 @@ bool BufferedBlockMgr2::try_acquire_tmp_reservation(Client* client, int num_buff
     client->_num_tmp_reserved_buffers = num_buffers;
     _unfullfilled_reserved_buffers += num_buffers;
     return true;
-}
-
-bool BufferedBlockMgr2::consume_memory(Client* client, int64_t size) {
-    // Later, we use this interface to manage the consumption of memory of hashtable instead of ReservationTracker.
-    // So it is possible to allocate 0, which has no additional impact on the behavior of BufferedBlockMgr.
-    // The process of memory allocation still by BufferPool, Because bufferpool has done a lot of optimization in memory allocation
-    // which is better than using the new operator directly.
-    if (size == 0) return true;
-    // Workaround IMPALA-1619. Return immediately if the allocation size will cause
-    // an arithmetic overflow.
-    if (UNLIKELY(size >= (1LL << 31))) {
-        LOG(WARNING) << "Trying to allocate memory >=2GB (" << size << ")B." << get_stack_trace();
-        return false;
-    }
-    int buffers_needed = BitUtil::ceil(size, max_block_size());
-    unique_lock<mutex> lock(_lock);
-    if (size < max_block_size() && _mem_tracker->try_consume(size)) {
-        // For small allocations (less than a block size), just let the allocation through.
-        client->_tracker->consume(size);
-        return true;
-    }
-
-    if (available_buffers(client) + client->_num_tmp_reserved_buffers < buffers_needed) {
-        return false;
-    }
-    Status st = _mem_tracker->try_consume(size);
-    WARN_IF_ERROR(st, "consume failed");
-    if (st) {
-        // There was still unallocated memory, don't need to recycle allocated blocks.
-        client->_tracker->consume(size);
-        return true;
-    }
-
-    // Bump up client->_num_tmp_reserved_buffers to satisfy this request. We don't want
-    // another client to grab the buffer.
-    int additional_tmp_reservations = 0;
-    if (client->_num_tmp_reserved_buffers < buffers_needed) {
-        additional_tmp_reservations = buffers_needed - client->_num_tmp_reserved_buffers;
-        client->_num_tmp_reserved_buffers += additional_tmp_reservations;
-        _unfullfilled_reserved_buffers += additional_tmp_reservations;
-    }
-
-    // Loop until we have freed enough memory.
-    // We free all the memory at the end. We don't want another component to steal the
-    // memory.
-    int buffers_acquired = 0;
-    do {
-        BufferDescriptor* buffer_desc = nullptr;
-        Status s = find_buffer(lock, &buffer_desc); // This waits on the lock.
-        if (buffer_desc == nullptr) {
-            break;
-        }
-        DCHECK(s.ok());
-        _all_io_buffers.erase(buffer_desc->all_buffers_it);
-        if (buffer_desc->block != nullptr) {
-            buffer_desc->block->_buffer_desc = nullptr;
-        }
-        delete[] buffer_desc->buffer;
-        ++buffers_acquired;
-    } while (buffers_acquired != buffers_needed);
-
-    Status status = Status::OK();
-    if (buffers_acquired == buffers_needed) {
-        status = write_unpinned_blocks();
-    }
-    // If we either couldn't acquire enough buffers or write_unpinned_blocks() failed, undo
-    // the reservation.
-    if (buffers_acquired != buffers_needed || !status.ok()) {
-        if (!status.ok()) {
-            VLOG_QUERY << "Query: " << _query_id << " write unpinned buffers failed.";
-            client->_state->log_error(status);
-        }
-        client->_num_tmp_reserved_buffers -= additional_tmp_reservations;
-        _unfullfilled_reserved_buffers -= additional_tmp_reservations;
-        _mem_tracker->release(buffers_acquired * max_block_size());
-        return false;
-    }
-
-    client->_num_tmp_reserved_buffers -= buffers_acquired;
-    _unfullfilled_reserved_buffers -= buffers_acquired;
-
-    DCHECK_GE(buffers_acquired * max_block_size(), size);
-    _mem_tracker->release(buffers_acquired * max_block_size());
-    st = _mem_tracker->try_consume(size);
-    WARN_IF_ERROR(st, "consume failed");
-    if (!st) {
-        return false;
-    }
-    client->_tracker->consume(size);
-    DCHECK(validate()) << endl << debug_internal();
-    return true;
-}
-
-void BufferedBlockMgr2::release_memory(Client* client, int64_t size) {
-    _mem_tracker->release(size);
-    client->_tracker->release(size);
 }
 
 void BufferedBlockMgr2::cancel() {
@@ -457,9 +358,12 @@ Status BufferedBlockMgr2::get_new_block(Client* client, Block* unpin_block, Bloc
 
         if (len > 0 && len < _max_block_size) {
             DCHECK(unpin_block == nullptr);
-            Status st = client->_tracker->try_consume(len);
+            Status st =
+                    thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
+                            len);
             WARN_IF_ERROR(st, "get_new_block failed");
             if (st) {
+                client->_tracker->consume(len);
                 // TODO: Have a cache of unused blocks of size 'len' (0, _max_block_size)
                 uint8_t* buffer = new uint8_t[len];
                 // Descriptors for non-I/O sized buffers are deleted when the block is deleted.
@@ -591,7 +495,6 @@ BufferedBlockMgr2::~BufferedBlockMgr2() {
         _mem_tracker->release(buffer->len);
         delete[] buffer->buffer;
     }
-    _mem_tracker.reset();
 }
 
 int64_t BufferedBlockMgr2::bytes_allocated() const {
@@ -606,8 +509,8 @@ int BufferedBlockMgr2::num_reserved_buffers_remaining(Client* client) const {
     return std::max(client->_num_reserved_buffers - client->_num_pinned_buffers, 0);
 }
 
-std::shared_ptr<MemTracker> BufferedBlockMgr2::get_tracker(Client* client) const {
-    return client->_tracker;
+MemTracker* BufferedBlockMgr2::get_tracker(Client* client) const {
+    return client->_tracker.get();
 }
 
 // TODO: It would be good if we had a sync primitive that supports is_mine() calls, see
@@ -1083,7 +986,9 @@ Status BufferedBlockMgr2::find_buffer(unique_lock<mutex>& lock, BufferDescriptor
 
     // First, try to allocate a new buffer.
     if (_free_io_buffers.size() < _block_write_threshold &&
-        _mem_tracker->try_consume(_max_block_size)) {
+        thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
+                _max_block_size)) {
+        _mem_tracker->consume(_max_block_size);
         uint8_t* new_buffer = new uint8_t[_max_block_size];
         *buffer_desc = _obj_pool.add(new BufferDescriptor(new_buffer, _max_block_size));
         (*buffer_desc)->all_buffers_it =
@@ -1248,13 +1153,18 @@ string BufferedBlockMgr2::debug_internal() const {
        << "  Num available buffers: " << remaining_unreserved_buffers() << endl
        << "  Total pinned buffers: " << _total_pinned_buffers << endl
        << "  Unfullfilled reserved buffers: " << _unfullfilled_reserved_buffers << endl
-       << "  Remaining memory: " << _mem_tracker->spare_capacity()
-       << " (#blocks=" << (_mem_tracker->spare_capacity() / _max_block_size) << ")" << endl
+       << "  BUffer Block Mgr Used memory: " << _mem_tracker->consumption()
+       << "  Instance remaining memory: "
+       << thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->spare_capacity()
+       << " (#blocks="
+       << (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->spare_capacity() /
+           _max_block_size)
+       << ")" << endl
        << "  Block write threshold: " << _block_write_threshold;
     return ss.str();
 }
 
-void BufferedBlockMgr2::init(DiskIoMgr* io_mgr, RuntimeProfile* parent_profile, int64_t mem_limit) {
+void BufferedBlockMgr2::init(DiskIoMgr* io_mgr, RuntimeProfile* parent_profile) {
     unique_lock<mutex> l(_lock);
     if (_initialized) {
         return;
@@ -1279,7 +1189,7 @@ void BufferedBlockMgr2::init(DiskIoMgr* io_mgr, RuntimeProfile* parent_profile, 
     _integrity_check_timer = ADD_TIMER(_profile.get(), "TotalIntegrityCheckTime");
 
     // Create a new mem_tracker and allocate buffers.
-    _mem_tracker = MemTracker::create_virtual_tracker(mem_limit, "BufferedBlockMgr2");
+    _mem_tracker = std::make_unique<MemTracker>("BufferedBlockMgr2");
 
     _initialized = true;
 }

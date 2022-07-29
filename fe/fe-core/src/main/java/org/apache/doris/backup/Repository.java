@@ -19,7 +19,7 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -562,9 +562,9 @@ public class Repository implements Writable {
         return Status.OK;
     }
 
-    public Status getBrokerAddress(Long beId, Catalog catalog, List<FsBroker> brokerAddrs) {
+    public Status getBrokerAddress(Long beId, Env env, List<FsBroker> brokerAddrs) {
         // get backend
-        Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+        Backend be = Env.getCurrentSystemInfo().getBackend(beId);
         if (be == null) {
             return new Status(ErrCode.COMMON_ERROR, "backend " + beId + " is missing. "
                     + "failed to send upload snapshot task");
@@ -578,7 +578,7 @@ public class Repository implements Writable {
         // get proper broker for this backend
         FsBroker brokerAddr = null;
         try {
-            brokerAddr = catalog.getBrokerMgr().getBroker(((BrokerStorage) storage).getBrokerName(), be.getHost());
+            brokerAddr = env.getBrokerMgr().getBroker(((BrokerStorage) storage).getBrokerName(), be.getHost());
         } catch (AnalysisException e) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
                     + ((BrokerStorage) storage).getBrokerName() + " when try to send upload snapshot task: "

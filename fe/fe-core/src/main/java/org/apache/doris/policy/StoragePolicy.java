@@ -17,13 +17,12 @@
 
 package org.apache.doris.policy;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -57,16 +56,18 @@ import java.util.Optional;
  **/
 @Data
 public class StoragePolicy extends Policy {
-    public static boolean checkDefaultStoragePolicyValid(final String storagePolicyName,
-                                                         Optional<Policy> defaultPolicy) throws DdlException {
+    public static final String DEFAULT_STORAGE_POLICY_NAME = "default_storage_policy";
+
+    public static boolean checkDefaultStoragePolicyValid(final String storagePolicyName, Optional<Policy> defaultPolicy)
+            throws DdlException {
         if (!defaultPolicy.isPresent()) {
             return false;
         }
 
-        if (storagePolicyName.equalsIgnoreCase(Config.default_storage_policy)
-                && (((StoragePolicy) defaultPolicy.get()).getStorageResource() == null)) {
+        if (storagePolicyName.equalsIgnoreCase(DEFAULT_STORAGE_POLICY_NAME) && (
+                ((StoragePolicy) defaultPolicy.get()).getStorageResource() == null)) {
             throw new DdlException("Use default storage policy, but not give s3 info,"
-                + " please use alter resource to add default storage policy S3 info.");
+                    + " please use alter resource to add default storage policy S3 info.");
         }
         return true;
     }
@@ -116,21 +117,23 @@ public class StoragePolicy extends Policy {
 
     private Map<String, String> props;
 
-    public StoragePolicy() {}
+    public StoragePolicy() {
+        super(PolicyTypeEnum.STORAGE);
+    }
 
     /**
      * Policy for Storage Migration.
      *
-     * @param type PolicyType
+     * @param policyId policy id
      * @param policyName policy name
      * @param storageResource resource name for storage
      * @param cooldownDatetime cool down time
      * @param cooldownTtl cool down time cost after partition is created
      * @param cooldownTtlMs seconds for cooldownTtl
      */
-    public StoragePolicy(final PolicyTypeEnum type, final String policyName, final String storageResource,
-                         final Date cooldownDatetime, final String cooldownTtl, long cooldownTtlMs) {
-        super(type, policyName);
+    public StoragePolicy(long policyId, final String policyName, final String storageResource,
+            final Date cooldownDatetime, final String cooldownTtl, long cooldownTtlMs) {
+        super(policyId, PolicyTypeEnum.STORAGE, policyName);
         this.storageResource = storageResource;
         this.cooldownDatetime = cooldownDatetime;
         this.cooldownTtl = cooldownTtl;
@@ -140,11 +143,17 @@ public class StoragePolicy extends Policy {
     /**
      * Policy for Storage Migration.
      *
-     * @param type PolicyType
+     * @param policyId policy id
      * @param policyName policy name
      */
-    public StoragePolicy(final PolicyTypeEnum type, final String policyName) {
-        super(type, policyName);
+    public StoragePolicy(long policyId, final String policyName) {
+        super(policyId, PolicyTypeEnum.STORAGE, policyName);
+    }
+
+    public static StoragePolicy ofCheck(String policyName) {
+        StoragePolicy storagePolicy = new StoragePolicy();
+        storagePolicy.policyName = policyName;
+        return storagePolicy;
     }
 
     /**
@@ -200,7 +209,7 @@ public class StoragePolicy extends Policy {
     private static Resource checkIsS3ResourceAndExist(final String storageResource) throws AnalysisException {
         // check storage_resource type is S3, current just support S3
         Resource resource =
-                Optional.ofNullable(Catalog.getCurrentCatalog().getResourceMgr().getResource(storageResource))
+                Optional.ofNullable(Env.getCurrentEnv().getResourceMgr().getResource(storageResource))
                     .orElseThrow(() -> new AnalysisException("storage resource doesn't exist: " + storageResource));
 
         if (resource.getType() != Resource.ResourceType.S3) {
@@ -214,8 +223,8 @@ public class StoragePolicy extends Policy {
      **/
     public List<String> getShowInfo() throws AnalysisException {
         final String[] props = {""};
-        if (Catalog.getCurrentCatalog().getResourceMgr().containsResource(this.storageResource)) {
-            props[0] = Catalog.getCurrentCatalog().getResourceMgr().getResource(this.storageResource).toString();
+        if (Env.getCurrentEnv().getResourceMgr().containsResource(this.storageResource)) {
+            props[0] = Env.getCurrentEnv().getResourceMgr().getResource(this.storageResource).toString();
         }
         if (!props[0].equals("")) {
             // s3_secret_key => ******
@@ -240,8 +249,8 @@ public class StoragePolicy extends Policy {
 
     @Override
     public StoragePolicy clone() {
-        return new StoragePolicy(this.type, this.policyName, this.storageResource,
-                                 this.cooldownDatetime, this.cooldownTtl, this.cooldownTtlMs);
+        return new StoragePolicy(this.policyId, this.policyName, this.storageResource, this.cooldownDatetime,
+                this.cooldownTtl, this.cooldownTtlMs);
     }
 
     @Override
@@ -313,15 +322,14 @@ public class StoragePolicy extends Policy {
     // if md5Sum not eq previous value, be change its storage policy.
     private String calcPropertiesMd5() {
         List<String> calcKey = Arrays.asList(COOLDOWN_DATETIME, COOLDOWN_TTL, S3Resource.S3_MAX_CONNECTIONS,
-                S3Resource.S3_REQUEST_TIMEOUT_MS, S3Resource.S3_CONNECTION_TIMEOUT_MS,
-                S3Resource.S3_ACCESS_KEY, S3Resource.S3_SECRET_KEY);
-        Map<String, String> copiedStoragePolicyProperties = Catalog.getCurrentCatalog().getResourceMgr()
+                S3Resource.S3_REQUEST_TIMEOUT_MS, S3Resource.S3_CONNECTION_TIMEOUT_MS, S3Resource.S3_ACCESS_KEY,
+                S3Resource.S3_SECRET_KEY);
+        Map<String, String> copiedStoragePolicyProperties = Env.getCurrentEnv().getResourceMgr()
                 .getResource(this.storageResource).getCopiedProperties();
 
         final String[] dateTimeToSecondTimestamp = {"-1"};
         Optional.ofNullable(this.cooldownDatetime).ifPresent(
-                date -> dateTimeToSecondTimestamp[0] = String.valueOf(this.cooldownDatetime.getTime() / 1000)
-        );
+                date -> dateTimeToSecondTimestamp[0] = String.valueOf(this.cooldownDatetime.getTime() / 1000));
         copiedStoragePolicyProperties.put(COOLDOWN_DATETIME, dateTimeToSecondTimestamp[0]);
         copiedStoragePolicyProperties.put(COOLDOWN_TTL, this.cooldownTtl);
 
@@ -356,11 +364,10 @@ public class StoragePolicy extends Policy {
             }
         });
 
-        if (policyName.equalsIgnoreCase(Config.default_storage_policy) && storageResource == null) {
+        if (policyName.equalsIgnoreCase(DEFAULT_STORAGE_POLICY_NAME) && storageResource == null) {
             // here first time set S3 resource to default storage policy.
-            String alterStorageResource = Optional.ofNullable(properties.get(STORAGE_RESOURCE))
-                    .orElseThrow(() ->
-                        new DdlException("first time set default storage policy, but not give storageResource"));
+            String alterStorageResource = Optional.ofNullable(properties.get(STORAGE_RESOURCE)).orElseThrow(
+                    () -> new DdlException("first time set default storage policy, but not give storageResource"));
             // check alterStorageResource resource exist.
             checkIsS3ResourceAndExist(alterStorageResource);
             storageResource = alterStorageResource;
@@ -372,12 +379,12 @@ public class StoragePolicy extends Policy {
     }
 
     private void notifyUpdate() {
-        SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         AgentBatchTask batchTask = new AgentBatchTask();
 
         for (Long beId : systemInfoService.getBackendIds(true)) {
-            Map<String, String> copiedProperties = Catalog.getCurrentCatalog().getResourceMgr()
-                    .getResource(storageResource).getCopiedProperties();
+            Map<String, String> copiedProperties = Env.getCurrentEnv().getResourceMgr().getResource(storageResource)
+                    .getCopiedProperties();
 
             Map<String, String> tmpMap = Maps.newHashMap(copiedProperties);
 
@@ -391,9 +398,9 @@ public class StoragePolicy extends Policy {
                 tmpMap.put(COOLDOWN_TTL, this.getCooldownTtl());
             });
             tmpMap.put(MD5_CHECKSUM, this.getMd5Checksum());
-            NotifyUpdateStoragePolicyTask createReplicaTask
+            NotifyUpdateStoragePolicyTask notifyUpdateStoragePolicyTask
                     = new NotifyUpdateStoragePolicyTask(beId, getPolicyName(), tmpMap);
-            batchTask.addTask(createReplicaTask);
+            batchTask.addTask(notifyUpdateStoragePolicyTask);
             LOG.info("update policy info to be: {}, policy name: {}, "
                         + "properties: {} to modify S3 resource batch task.",
                     beId, getPolicyName(), tmpMap);

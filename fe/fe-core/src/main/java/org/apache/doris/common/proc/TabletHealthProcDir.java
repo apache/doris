@@ -17,9 +17,9 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -63,11 +63,11 @@ public class TabletHealthProcDir implements ProcDirInterface {
             .add("InconsistentNum").add("OversizeNum").add("CloningNum")
             .build();
 
-    private Catalog catalog;
+    private Env env;
 
-    public TabletHealthProcDir(Catalog catalog) {
-        Preconditions.checkNotNull(catalog);
-        this.catalog = catalog;
+    public TabletHealthProcDir(Env env) {
+        Preconditions.checkNotNull(env);
+        this.env = env;
     }
 
     @Override
@@ -79,7 +79,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
     public ProcNodeInterface lookup(String dbIdStr) throws AnalysisException {
         try {
             long dbId = Long.parseLong(dbIdStr);
-            return catalog.getInternalDataSource().getDb(dbId).map(IncompleteTabletsProcNode::new).orElse(null);
+            return env.getInternalDataSource().getDb(dbId).map(IncompleteTabletsProcNode::new).orElse(null);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
@@ -87,9 +87,9 @@ public class TabletHealthProcDir implements ProcDirInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        List<DBTabletStatistic> statistics = catalog.getInternalDataSource().getDbIds().parallelStream()
+        List<DBTabletStatistic> statistics = env.getInternalDataSource().getDbIds().parallelStream()
                 // skip information_schema database
-                .flatMap(id -> Stream.of(id == 0 ? null : catalog.getInternalDataSource().getDbNullable(id)))
+                .flatMap(id -> Stream.of(id == 0 ? null : env.getInternalDataSource().getDbNullable(id)))
                 .filter(Objects::nonNull).map(DBTabletStatistic::new)
                 // sort by dbName
                 .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList());
@@ -165,8 +165,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
             this.oversizeTabletIds = new HashSet<>();
             this.cloningTabletIds = new HashSet<>();
 
-            SystemInfoService infoService = Catalog.getCurrentSystemInfo();
-            ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
+            SystemInfoService infoService = Env.getCurrentSystemInfo();
+            ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
             List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(SystemInfoService.DEFAULT_CLUSTER, true);
             this.cloningTabletIds = AgentTaskQueue.getTask(db.getId(), TTaskType.CLONE)
                     .stream().map(AgentTask::getTabletId).collect(Collectors.toSet());

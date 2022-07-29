@@ -19,9 +19,9 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
@@ -31,7 +31,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.policy.Policy;
-import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TCompressionType;
@@ -118,6 +117,12 @@ public class PropertyAnalyzer {
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
 
+    // For unique key data model, the feature Merge-on-Write will leverage a primary
+    // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
+    // which can avoid the merging cost in read stage, and accelerate the aggregation
+    // query performance significantly.
+    // For the detail design, see the [DISP-018](https://cwiki.apache.org/confluence/
+    // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
 
     /**
@@ -153,12 +158,12 @@ public class PropertyAnalyzer {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, DateLiteral.getDefaultDateType(Type.DATETIME));
+                DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
                 cooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
             } else if (key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_POLICY)) {
                 remoteStoragePolicy = value;
             } else if (key.equalsIgnoreCase(PROPERTIES_DATA_BASE_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
+                DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
                 dataBaseTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
             } else if (!hasStoragePolicy && key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
                 if (!Strings.isNullOrEmpty(value)) {
@@ -196,8 +201,8 @@ public class PropertyAnalyzer {
 
         if (hasRemoteStoragePolicy) {
             // check remote storage policy
-            StoragePolicy checkedPolicy = new StoragePolicy(PolicyTypeEnum.STORAGE, remoteStoragePolicy);
-            Policy policy = Catalog.getCurrentCatalog().getPolicyMgr().getPolicy(checkedPolicy);
+            StoragePolicy checkedPolicy = StoragePolicy.ofCheck(remoteStoragePolicy);
+            Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedPolicy);
             if (!(policy instanceof StoragePolicy)) {
                 throw new AnalysisException("No PolicyStorage: " + remoteStoragePolicy);
             }
@@ -521,8 +526,8 @@ public class PropertyAnalyzer {
         if (properties != null && properties.containsKey(PROPERTIES_REMOTE_STORAGE_POLICY)) {
             remoteStoragePolicy = properties.get(PROPERTIES_REMOTE_STORAGE_POLICY);
             // check remote storage policy existence
-            StoragePolicy checkedStoragePolicy = new StoragePolicy(PolicyTypeEnum.STORAGE, remoteStoragePolicy);
-            Policy policy = Catalog.getCurrentCatalog().getPolicyMgr().getPolicy(checkedStoragePolicy);
+            StoragePolicy checkedStoragePolicy = StoragePolicy.ofCheck(remoteStoragePolicy);
+            Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedStoragePolicy);
             if (!(policy instanceof StoragePolicy)) {
                 throw new AnalysisException("StoragePolicy: " + remoteStoragePolicy + " does not exist.");
             }

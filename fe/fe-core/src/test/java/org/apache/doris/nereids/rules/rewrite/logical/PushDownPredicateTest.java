@@ -21,13 +21,8 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
@@ -45,6 +40,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanRewriter;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -53,7 +50,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
-import java.util.List;
 import java.util.Optional;
 
 /**
@@ -119,26 +115,18 @@ public class PushDownPredicateTest {
                 filter
         );
 
-        Memo memo = new Memo();
-        memo.initialize(root);
-        System.out.println(memo.copyOut().treeString());
+        System.out.println(root.treeString());
 
-        PlannerContext plannerContext = new PlannerContext(memo, null);
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
-        plannerContext.setCurrentJobContext(jobContext);
-
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                ImmutableList.of(new PushPredicateThroughJoin().build()), jobContext);
-        plannerContext.pushJob(rewriteTopDownJob);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
+        Memo memo = rewrite(root);
 
         Group rootGroup = memo.getRoot();
         System.out.println(memo.copyOut().treeString());
-        System.out.println(11);
 
         Plan op1 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getPlan();
-        Plan op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().getPlan();
-        Plan op3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(1).getLogicalExpression().getPlan();
+        Plan op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression()
+                .getPlan();
+        Plan op3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(1).getLogicalExpression()
+                .getPlan();
 
         Assertions.assertTrue(op1 instanceof LogicalJoin);
         Assertions.assertTrue(op2 instanceof LogicalFilter);
@@ -147,9 +135,9 @@ public class PushDownPredicateTest {
         LogicalFilter filter1 = (LogicalFilter) op2;
         LogicalFilter filter2 = (LogicalFilter) op3;
 
-        Assertions.assertEquals(join1.getCondition().get(), onCondition1);
-        Assertions.assertEquals(filter1.getPredicates(), ExpressionUtils.and(onCondition2, whereCondition1));
-        Assertions.assertEquals(filter2.getPredicates(), ExpressionUtils.and(onCondition3, whereCondition2));
+        Assertions.assertEquals(onCondition1, join1.getCondition().get());
+        Assertions.assertEquals(ExpressionUtils.and(onCondition2, whereCondition1), filter1.getPredicates());
+        Assertions.assertEquals(ExpressionUtils.and(onCondition3, whereCondition2), filter2.getPredicates());
     }
 
     @Test
@@ -170,25 +158,17 @@ public class PushDownPredicateTest {
                 filter
         );
 
-        Memo memo = new Memo();
-        memo.initialize(root);
-        System.out.println(memo.copyOut().treeString());
+        System.out.println(root.treeString());
 
-        PlannerContext plannerContext = new PlannerContext(memo, null);
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
-        plannerContext.setCurrentJobContext(jobContext);
-
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(),
-                ImmutableList.of(new PushPredicateThroughJoin().build()), jobContext);
-        plannerContext.pushJob(rewriteTopDownJob);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
-
+        Memo memo = rewrite(root);
         Group rootGroup = memo.getRoot();
         System.out.println(memo.copyOut().treeString());
 
         Plan op1 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getPlan();
-        Plan op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().getPlan();
-        Plan op3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(1).getLogicalExpression().getPlan();
+        Plan op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression()
+                .getPlan();
+        Plan op3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(1).getLogicalExpression()
+                .getPlan();
 
         Assertions.assertTrue(op1 instanceof LogicalJoin);
         Assertions.assertTrue(op2 instanceof LogicalFilter);
@@ -196,9 +176,9 @@ public class PushDownPredicateTest {
         LogicalJoin join1 = (LogicalJoin) op1;
         LogicalFilter filter1 = (LogicalFilter) op2;
         LogicalFilter filter2 = (LogicalFilter) op3;
-        Assertions.assertEquals(join1.getCondition().get(), whereCondition1);
-        Assertions.assertEquals(filter1.getPredicates(), whereCondition2);
-        Assertions.assertEquals(filter2.getPredicates(), whereCondition3);
+        Assertions.assertEquals(whereCondition1, join1.getCondition().get());
+        Assertions.assertEquals(whereCondition2, filter1.getPredicates());
+        Assertions.assertEquals(whereCondition3, filter2.getPredicates());
     }
 
     @Test
@@ -226,7 +206,8 @@ public class PushDownPredicateTest {
         // score.grade > 60
         Expression whereCondition4 = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
 
-        Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3, whereCondition4);
+        Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2, whereCondition3,
+                whereCondition4);
 
         Plan join = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), rStudent, rScore);
         Plan join1 = new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), join, rCourse);
@@ -236,36 +217,31 @@ public class PushDownPredicateTest {
                 Lists.newArrayList(rStudent.getOutput().get(1), rCourse.getOutput().get(1), rScore.getOutput().get(2)),
                 filter
         );
+        System.out.println(root.treeString());
 
-
-        Memo memo = new Memo();
-        memo.initialize(root);
-        System.out.println(memo.copyOut().treeString());
-
-        PlannerContext plannerContext = new PlannerContext(memo, null);
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
-        plannerContext.setCurrentJobContext(jobContext);
-
-        List<Rule> fakeRules = Lists.newArrayList(new PushPredicateThroughJoin().build());
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), fakeRules, jobContext);
-        plannerContext.pushJob(rewriteTopDownJob);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
-
+        Memo memo = rewrite(root);
         Group rootGroup = memo.getRoot();
         System.out.println(memo.copyOut().treeString());
         Plan join2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getPlan();
-        Plan join3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().getPlan();
-        Plan op1 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().getPlan();
-        Plan op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression().child(1).getLogicalExpression().getPlan();
+        Plan join3 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression()
+                .getPlan();
+        Plan op1 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression()
+                .child(0).getLogicalExpression().getPlan();
+        Plan op2 = rootGroup.getLogicalExpression().child(0).getLogicalExpression().child(0).getLogicalExpression()
+                .child(1).getLogicalExpression().getPlan();
 
         Assertions.assertTrue(join2 instanceof LogicalJoin);
         Assertions.assertTrue(join3 instanceof LogicalJoin);
         Assertions.assertTrue(op1 instanceof LogicalFilter);
         Assertions.assertTrue(op2 instanceof LogicalFilter);
 
-        Assertions.assertEquals(((LogicalJoin) join2).getCondition().get(), whereCondition2);
-        Assertions.assertEquals(((LogicalJoin) join3).getCondition().get(), whereCondition1);
-        Assertions.assertEquals(((LogicalFilter) op1).getPredicates().toSql(), whereCondition3result.toSql());
-        Assertions.assertEquals(((LogicalFilter) op2).getPredicates(), whereCondition4);
+        Assertions.assertEquals(whereCondition2, ((LogicalJoin) join2).getCondition().get());
+        Assertions.assertEquals(whereCondition1, ((LogicalJoin) join3).getCondition().get());
+        Assertions.assertEquals(whereCondition3result.toSql(), ((LogicalFilter) op1).getPredicates().toSql());
+        Assertions.assertEquals(whereCondition4, ((LogicalFilter) op2).getPredicates());
+    }
+
+    private Memo rewrite(Plan plan) {
+        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushPredicateThroughJoin());
     }
 }

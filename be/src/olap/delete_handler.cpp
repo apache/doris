@@ -153,6 +153,7 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
     case OLAP_FIELD_TYPE_DATE:
     case OLAP_FIELD_TYPE_DATETIME:
     case OLAP_FIELD_TYPE_DATEV2:
+    case OLAP_FIELD_TYPE_DATETIMEV2:
         return valid_datetime(value_str);
     case OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);

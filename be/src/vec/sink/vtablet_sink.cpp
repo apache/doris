@@ -141,6 +141,7 @@ Status VNodeChannel::open_wait() {
 }
 
 Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
@@ -159,7 +160,9 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
     while (!_cancelled &&
            (_pending_batches_bytes > _max_pending_batches_bytes ||
-            _parent->_mem_tracker->any_limit_exceeded()) &&
+            thread_context()
+                    ->_thread_mem_tracker_mgr->limiter_mem_tracker()
+                    ->any_limit_exceeded()) &&
            _pending_batches_num > 0) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -215,7 +218,7 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
 }
 
 void VNodeChannel::try_send_block(RuntimeState* state) {
-    SCOPED_ATTACH_TASK_THREAD(state, _node_channel_tracker);
+    SCOPED_ATTACH_TASK(state);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
     AddBlockReq send_block;
     {
@@ -363,8 +366,7 @@ Status VOlapTableSink::init(const TDataSink& sink) {
 Status VOlapTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(OlapTableSink::prepare(state));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _input_row_desc,
-                                               _expr_mem_tracker));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _input_row_desc));
     return Status::OK();
 }
 
@@ -384,7 +386,7 @@ size_t VOlapTableSink::get_pending_bytes() const {
 }
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
     auto rows = input_block->rows();
@@ -571,8 +573,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
 
                     if (dec_val.greater_than_scale(desc->type().scale)) {
                         auto code = dec_val.round(&dec_val, desc->type().scale, HALF_UP);
-                        column_decimal->get_data()[j] =
-                                binary_cast<DecimalV2Value, vectorized::Int128>(dec_val);
+                        column_decimal->get_data()[j] = dec_val.value();
 
                         if (code != E_DEC_OK) {
                             fmt::format_to(error_msg, "round one decimal failed.value={}; ",

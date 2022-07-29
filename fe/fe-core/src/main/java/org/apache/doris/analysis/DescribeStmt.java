@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
@@ -102,14 +102,14 @@ public class DescribeStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         dbTableName.analyze(analyzer);
 
-        if (!Catalog.getCurrentCatalog().getAuth()
+        if (!Env.getCurrentEnv().getAuth()
                 .checkTblPriv(ConnectContext.get(), dbTableName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     dbTableName.toString());
         }
 
-        DataSourceIf ds = Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(dbTableName.getCtl());
+        DataSourceIf ds = Env.getCurrentEnv().getDataSourceMgr().getCatalog(dbTableName.getCtl());
         DatabaseIf db = ds.getDbOrAnalysisException(dbTableName.getDb());
         TableIf table = db.getTableOrAnalysisException(dbTableName.getTbl());
 

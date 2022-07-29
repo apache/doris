@@ -122,7 +122,7 @@ class Config {
         config.suitePath = FileUtils.getCanonicalPath(cmd.getOptionValue(pathOpt, config.suitePath))
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
-        config.sf1DataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(sf1DataOpt, config.sf1DataPath))
+        config.sf1DataPath = cmd.getOptionValue(sf1DataOpt, config.sf1DataPath)
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
@@ -371,11 +371,29 @@ class Config {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
     }
 
-    Connection getConnection(String group) {
-        String dbUrl = buildUrl(defaultDb + '_' + group)
-        tryCreateDbIfNotExist(defaultDb + '_' + group)
+    Connection getConnectionByDbName(String dbName) {
+        String dbUrl = buildUrl(dbName)
+        tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
+    }
+
+    String getDbNameByFile(File suiteFile) {
+        String dir = new File(suitePath).relativePath(suiteFile.parentFile)
+        // We put sql files under sql dir, so dbs and tables used by cases
+        // under sql directory should be prepared by load.groovy unbder the
+        // parent.
+        //
+        // e.g.
+        // suites/tpcds_sf1/load.groovy
+        // suites/tpcds_sf1/sql/q01.sql
+        if (dir.indexOf(File.separator + "sql") > 0 && dir.endsWith("sql")) {
+            dir = dir.substring(0, dir.indexOf(File.separator + "sql"))
+        }
+
+        dir = dir.replace('-', '_')
+
+        return defaultDb + '_' + dir.replace(File.separator, '_')
     }
 
     Predicate<String> getDirectoryFilter() {

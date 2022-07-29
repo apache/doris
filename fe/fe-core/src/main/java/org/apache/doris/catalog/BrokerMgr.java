@@ -205,7 +205,7 @@ public class BrokerMgr {
                 }
                 addedBrokerAddress.add(new FsBroker(pair.first, pair.second));
             }
-            Catalog.getCurrentCatalog().getEditLog().logAddBroker(new ModifyBrokerInfo(name, addedBrokerAddress));
+            Env.getCurrentEnv().getEditLog().logAddBroker(new ModifyBrokerInfo(name, addedBrokerAddress));
             for (FsBroker address : addedBrokerAddress) {
                 brokerAddrsMap.put(address.ip, address);
             }
@@ -257,7 +257,7 @@ public class BrokerMgr {
                     throw new DdlException("Broker(" + pair.first + ":" + pair.second + ") has not in brokers.");
                 }
             }
-            Catalog.getCurrentCatalog().getEditLog().logDropBroker(new ModifyBrokerInfo(name, droppedAddressList));
+            Env.getCurrentEnv().getEditLog().logDropBroker(new ModifyBrokerInfo(name, droppedAddressList));
             for (FsBroker address : droppedAddressList) {
                 brokerAddrsMap.remove(address.ip, address);
             }
@@ -288,7 +288,7 @@ public class BrokerMgr {
             if (!brokersMap.containsKey(name)) {
                 throw new DdlException("Unknown broker name(" + name + ")");
             }
-            Catalog.getCurrentCatalog().getEditLog().logDropAllBroker(name);
+            Env.getCurrentEnv().getEditLog().logDropAllBroker(name);
             brokersMap.remove(name);
             brokerListMap.remove(name);
         } finally {

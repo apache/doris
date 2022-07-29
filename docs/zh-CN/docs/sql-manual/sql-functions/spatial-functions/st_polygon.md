@@ -1,6 +1,6 @@
 ---
 {
-    "title": "`ST_Polygon`,`ST_PolyFromText`,`ST_PolygonFromText`",
+    "title": "ST_Polygon,ST_PolyFromText,ST_PolygonFromText",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `ST_Polygon`,`ST_PolyFromText`,`ST_PolygonFromText`
+## ST_Polygon,ST_PolyFromText,ST_PolygonFromText
 ### description
 #### Syntax
 

@@ -17,9 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -53,7 +52,7 @@ public class AlterPolicyStmt extends DdlStmt {
         super.analyze(analyzer);
 
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
@@ -61,26 +60,23 @@ public class AlterPolicyStmt extends DdlStmt {
             throw new AnalysisException("policy properties can't be null");
         }
 
-        if (Catalog.getCurrentCatalog().getPolicyMgr()
-                .findPolicy(this.policyName, PolicyTypeEnum.ROW).isPresent()) {
+        if (Env.getCurrentEnv().getPolicyMgr().findPolicy(this.policyName, PolicyTypeEnum.ROW).isPresent()) {
             throw new AnalysisException("Current not support alter row policy");
         }
 
         // check resource existence
-        List<Policy> policiesByType = Catalog.getCurrentCatalog()
-                .getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
+        List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
         Optional<Policy> hasPolicy = policiesByType.stream()
                 .filter(policy -> policy.getPolicyName().equals(this.policyName)).findAny();
-        if (!hasPolicy.isPresent()) {
-            throw new AnalysisException("Unknown storage policy: " + this.policyName);
-        }
-        StoragePolicy storagePolicy = (StoragePolicy) hasPolicy.get();
+        StoragePolicy storagePolicy = (StoragePolicy) hasPolicy.orElseThrow(
+                () -> new AnalysisException("Unknown storage policy: " + this.policyName)
+        );
 
         // default storage policy use alter storage policy to add s3 resource.
-        if (!policyName.equalsIgnoreCase(Config.default_storage_policy)
-                && properties.containsKey(StoragePolicy.STORAGE_RESOURCE)) {
+        if (!policyName.equalsIgnoreCase(StoragePolicy.DEFAULT_STORAGE_POLICY_NAME) && properties.containsKey(
+                StoragePolicy.STORAGE_RESOURCE)) {
             throw new AnalysisException("not support change storage policy's storage resource"
-                + ", you can change s3 properties by alter resource");
+                    + ", you can change s3 properties by alter resource");
         }
 
         boolean hasCooldownDatetime = false;
@@ -114,7 +110,7 @@ public class AlterPolicyStmt extends DdlStmt {
         }
 
         do {
-            if (policyName.equalsIgnoreCase(Config.default_storage_policy)) {
+            if (policyName.equalsIgnoreCase(StoragePolicy.DEFAULT_STORAGE_POLICY_NAME)) {
                 // default storage policy
                 if (storagePolicy.getStorageResource() != null && hasCooldownDatetime) {
                     // alter cooldown datetime, can do

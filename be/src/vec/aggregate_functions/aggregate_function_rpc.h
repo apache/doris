@@ -252,7 +252,7 @@ public:
                     reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
         }
         WhichDataType which(result_type);
-        if (which.is_float()) {
+        if (which.is_float32()) {
             float ret = response.result(0).float_value(0);
             to.insert_data((char*)&ret, 0);
         }
