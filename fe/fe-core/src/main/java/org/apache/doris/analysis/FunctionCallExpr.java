@@ -148,6 +148,11 @@ public class FunctionCallExpr extends Expr {
         this(fnName, new FunctionParams(false, params));
     }
 
+    public FunctionCallExpr(FunctionName fnName, List<Expr> params, List<OrderByElement> orderByElements)
+            throws AnalysisException {
+        this(fnName, new FunctionParams(false, params), orderByElements);
+    }
+
     public FunctionCallExpr(String fnName, FunctionParams params) {
         this(new FunctionName(fnName), params, false);
     }
@@ -168,10 +173,6 @@ public class FunctionCallExpr extends Expr {
                     fnName.getFunction().toLowerCase())) {
                 throw new AnalysisException(
                     "ORDER BY not support for the function:" + fnName.getFunction().toLowerCase());
-            } else if (params.isDistinct()) {
-                throw new AnalysisException(
-                    "ORDER BY not support for the distinct, support in the furture:"
-                        + fnName.getFunction().toLowerCase());
             }
         }
         setChildren();
