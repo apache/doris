@@ -48,7 +48,6 @@ jobs:
               - 'fs_brokers/**'
             docs_changes:
               - 'docs/**'
-
   build-broker:
     name: Build Broker
     needs: changes
@@ -71,11 +70,9 @@ jobs:
           thrift --version
           mkdir -p thirdparty/installed/bin/
           cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
-
       - name: Build broker
         run: |
           cd fs_brokers/apache_hdfs_broker/ && /bin/bash build.sh
-
   build-docs:
     name: Build Documents
     needs: changes
@@ -88,4 +85,3 @@ jobs:
       - name: Build docs
         run: |
           cd docs && /bin/bash build_help_zip.sh
-
