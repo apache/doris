@@ -15,10 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 #pragma once
+
 #include <common/status.h>
 
 namespace doris::vectorized {
 
-class RowGroupReader {};
+    class RowGroupReader {
+
+    public:
+        Status read_next_row_group();
+
+        void init_chunk_dicts();
+
+        Status process_dict_filter();
+
+        void init_bloom_filter();
+
+        Status process_bloom_filter();
+
+        void init_page_index();
+
+        Status process_page_index();
+
+    private:
+        void _init_column_chunk_readers();
+    };
 
 } // namespace doris::vectorized
