@@ -232,7 +232,7 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(scheduledTabletNum);
 
         GaugeMetric<Long> maxInstanceNum = new GaugeMetric<Long>("max_instances_num_per_user",
-            MetricUnit.NOUNIT, "max instances num of all current users") {
+                MetricUnit.NOUNIT, "max instances num of all current users") {
                 @Override
                 public Long getValue() {
                     try {
