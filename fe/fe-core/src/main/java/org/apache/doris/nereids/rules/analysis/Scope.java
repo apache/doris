@@ -19,6 +19,9 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -45,5 +48,18 @@ public class Scope {
 
     public Optional<Scope> getOuterScope() {
         return outerScope;
+    }
+
+    /**
+     * generate scope link from inner to outer.
+     */
+    public List<Scope> toScopeLink() {
+        Scope scope = this;
+        Builder<Scope> builder = ImmutableList.<Scope>builder().add(scope);
+        while (scope.getOuterScope().isPresent()) {
+            scope = scope.getOuterScope().get();
+            builder.add(scope);
+        }
+        return builder.build();
     }
 }

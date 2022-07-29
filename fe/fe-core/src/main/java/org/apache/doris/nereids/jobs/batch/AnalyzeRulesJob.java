@@ -38,12 +38,12 @@ public class AnalyzeRulesJob extends BatchRulesJob {
      * @param plannerContext planner context for execute job
      * @param scope Parse the symbolic scope of the field
      */
-    public AnalyzeRulesJob(PlannerContext plannerContext, Scope scope) {
+    public AnalyzeRulesJob(PlannerContext plannerContext, Optional<Scope> scope) {
         super(plannerContext);
         rulesJob.addAll(ImmutableList.of(
                 bottomUpBatch(ImmutableList.of(
                         new BindRelation(),
-                        new BindSlotReference(Optional.ofNullable(scope)),
+                        new BindSlotReference(scope),
                         new BindFunction(),
                         new ProjectToGlobalAggregate())
                 )));

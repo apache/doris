@@ -78,6 +78,7 @@ public class SubqueryTest extends AnalyzeCheckTestBase {
         // Other systems also cannot resolve such as presto.
         String sql2 = "select * from t0 where exists (select * from t1 where t0.k1 = t1.k1) "
                 + "and not exists (select * from t2 where t1.id != t2.id);";
+        assert sql2 != null;
     }
 
     @Test

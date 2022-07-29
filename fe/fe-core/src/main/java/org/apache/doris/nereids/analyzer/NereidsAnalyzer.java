@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
+import java.util.Optional;
+
 /**
  * Bind symbols according to metadata in the catalog, perform semantic analysis, etc.
  * TODO: revisit the interface after subquery analysis is supported.
@@ -41,13 +43,13 @@ public class NereidsAnalyzer {
      * Analyze plan.
      */
     public LogicalPlan analyze(Plan plan) {
-        return analyze(plan, null);
+        return analyze(plan, Optional.empty());
     }
 
     /**
      * Analyze plan with scope.
      */
-    public LogicalPlan analyze(Plan plan, Scope scope) {
+    public LogicalPlan analyze(Plan plan, Optional<Scope> scope) {
         return (LogicalPlan) analyzeWithPlannerContext(plan, scope).getMemo().copyOut();
     }
 
@@ -55,7 +57,7 @@ public class NereidsAnalyzer {
      * Convert SQL String to analyzed plan.
      */
     public LogicalPlan analyze(String sql) {
-        return analyze(parse(sql), null);
+        return analyze(parse(sql), Optional.empty());
     }
 
     /**
@@ -64,13 +66,13 @@ public class NereidsAnalyzer {
      * further plan optimization without creating new {@link Memo} and {@link PlannerContext}.
      */
     public PlannerContext analyzeWithPlannerContext(Plan plan) {
-        return analyzeWithPlannerContext(plan, null);
+        return analyzeWithPlannerContext(plan, Optional.empty());
     }
 
     /**
      * Analyze plan with scope.
      */
-    public PlannerContext analyzeWithPlannerContext(Plan plan, Scope scope) {
+    public PlannerContext analyzeWithPlannerContext(Plan plan, Optional<Scope> scope) {
         PlannerContext plannerContext = new Memo(plan)
                 .newPlannerContext(connectContext)
                 .setDefaultJobContext();

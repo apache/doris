@@ -21,7 +21,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -41,73 +40,26 @@ import java.util.Optional;
 public class LogicalCorrelatedJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
         extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    /**
-     * Coorelated Join Type.
-     */
-    public enum Type {
-        INNER(JoinType.INNER_JOIN),
-        LEFT(JoinType.LEFT_OUTER_JOIN),
-        RIGHT(JoinType.RIGHT_OUTER_JOIN),
-        FULL(JoinType.FULL_OUTER_JOIN);
-
-        private final JoinType joinType;
-
-        Type(JoinType joinType) {
-            this.joinType = joinType;
-        }
-
-        public JoinType toLogicalJoinType() {
-            return joinType;
-        }
-
-        /**
-         * Convert the type of ordinary join to the type of correlatedJoin.
-         * @param joinType ordinary type.
-         * @return correlatedJoin type.
-         */
-        public static Type typeConvert(JoinType joinType) {
-            switch (joinType) {
-                case CROSS_JOIN:
-                case INNER_JOIN:
-                    return Type.INNER;
-                case LEFT_OUTER_JOIN:
-                    return Type.LEFT;
-                case RIGHT_OUTER_JOIN:
-                    return Type.RIGHT;
-                case FULL_OUTER_JOIN:
-                    return Type.FULL;
-                default:
-                    throw new UnsupportedOperationException("Unsupported join type: " + joinType);
-            }
-        }
-    }
-
     private final List<Expression> correlation;
-    private final Type type;
     private final Optional<Expression> filter;
 
     public LogicalCorrelatedJoin(LEFT_CHILD_TYPE input, RIGHT_CHILD_TYPE subquery, List<Expression> correlation,
-            Type type, Optional<Expression> filter) {
+            Optional<Expression> filter) {
         this(Optional.empty(), Optional.empty(), input, subquery,
-                correlation, type, filter);
+                correlation, filter);
     }
 
     public LogicalCorrelatedJoin(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, List<Expression> correlation,
-            Type type, Optional<Expression> filter) {
+            Optional<Expression> filter) {
         super(PlanType.LOGICAL_CORRELATED_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.correlation = ImmutableList.copyOf(correlation);
-        this.type = Objects.requireNonNull(type, "type can not be null");
         this.filter = Objects.requireNonNull(filter, "filter can not be null");
     }
 
     public List<Expression> getCorrelation() {
         return correlation;
-    }
-
-    public Type getJoinType() {
-        return type;
     }
 
     public Optional<Expression> getFilter() {
@@ -141,13 +93,12 @@ public class LogicalCorrelatedJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYP
         }
         LogicalCorrelatedJoin that = (LogicalCorrelatedJoin) o;
         return Objects.equals(correlation, that.getCorrelation())
-                && Objects.equals(type, that.getType())
                 && Objects.equals(filter, that.getFilter());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(correlation, type, filter);
+        return Objects.hash(correlation, filter);
     }
 
     @Override
@@ -167,18 +118,18 @@ public class LogicalCorrelatedJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYP
     public LogicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalCorrelatedJoin<>(children.get(0), children.get(1),
-                correlation, type, filter);
+                correlation, filter);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalCorrelatedJoin<>(groupExpression, Optional.of(logicalProperties),
-                left(), right(), correlation, type, filter);
+                left(), right(), correlation, filter);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalCorrelatedJoin<>(Optional.empty(), logicalProperties,
-                left(), right(), correlation, type, filter);
+                left(), right(), correlation, filter);
     }
 }

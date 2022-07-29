@@ -39,7 +39,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang.StringUtils;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -158,20 +157,17 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         @Override
         public Slot visitUnboundSlot(UnboundSlot unboundSlot, Void context) {
-            List<Slot> bounded = new ArrayList<>();
-            List<Slot> tmpSlots = new ArrayList<>();
-            tmpSlots.addAll(getScope().getSlots());
-            bounded.addAll(bindSlot(unboundSlot, tmpSlots));
-            Scope scope = getScope();
-            while (bounded.size() == 0 && scope.getOuterScope().isPresent()) {
-                tmpSlots.clear();
-                tmpSlots.addAll(scope.getOuterScope().get().getSlots());
-                bounded.addAll(bindSlot(unboundSlot, tmpSlots));
-                scope = scope.getOuterScope().get();
+            Optional<List<Slot>> boundedOpt = getScope()
+                    .toScopeLink() // Scope Link from inner scope to outer scope
+                    .stream()
+                    .map(scope -> bindSlot(unboundSlot, scope.getSlots()))
+                    .filter(slots -> !slots.isEmpty())
+                    .findFirst();
+            if (!boundedOpt.isPresent()) {
+                throw new AnalysisException("Cannot resolve " + unboundSlot.toString());
             }
+            List<Slot> bounded = boundedOpt.get();
             switch (bounded.size()) {
-                case 0:
-                    throw new AnalysisException("Cannot resolve " + unboundSlot.toString());
                 case 1:
                     return bounded.get(0);
                 default:

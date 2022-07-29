@@ -33,6 +33,10 @@ import java.util.Optional;
 
 /**
  * Guaranteed to return a result of 1 row.
+ * eg: select * from t1 where t1.a = (select sum(t2.b) from t2 where t1.b = t2.a);
+ * filter()
+ *   +--enforceSingleRow()
+ *     +--apply()
  * @param <CHILD_TYPE> plan
  */
 public class LogicalEnforceSingleRow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {

@@ -19,12 +19,13 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.rules.analysis.Scope;
-import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+
+import java.util.Optional;
 
 /**
  * Use the visitor to iterate sub expression.
@@ -37,18 +38,20 @@ public class DefaultSubExprRewriter<C> extends DefaultExpressionRewriter<C> {
     }
 
     @Override
-    public Expression visit(Expression expr, C context) {
-        if (expr instanceof SubqueryExpr) {
-            NereidsAnalyzer subAnalyzer = new NereidsAnalyzer(ConnectContext.get());
-            LogicalPlan analyzed = subAnalyzer.analyze(((SubqueryExpr) expr).getQueryPlan(), scope);
-            if (expr instanceof InSubquery) {
-                return new InSubquery(((InSubquery) expr).getCompareExpr(), analyzed);
-            } else if (expr instanceof Exists) {
-                return new Exists(analyzed);
-            }
-            return new SubqueryExpr(analyzed);
-        }
-        return super.visit(expr, context);
+    public Expression visitSubqueryExpr(SubqueryExpr expr, C context) {
+        return new SubqueryExpr(analyzeSubquery(expr));
+    }
+
+    @Override
+    public Expression visitInSubquery(InSubquery expr, C context) {
+        return new InSubquery(expr.getCompareExpr(), analyzeSubquery(expr));
+    }
+
+    private LogicalPlan analyzeSubquery(SubqueryExpr expr) {
+        NereidsAnalyzer subAnalyzer = new NereidsAnalyzer(ConnectContext.get());
+        LogicalPlan analyzed = subAnalyzer.analyze(
+                expr.getQueryPlan(), Optional.ofNullable(scope));
+        return analyzed;
     }
 
     public Scope getScope() {
