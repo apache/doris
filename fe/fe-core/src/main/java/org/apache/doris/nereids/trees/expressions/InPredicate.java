@@ -71,6 +71,24 @@ public class InPredicate extends Expression {
             .collect(Collectors.joining(",", "(", ")"));
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        InPredicate that = (InPredicate) o;
+        return Objects.equals(compareExpr, that.getCompareExpr())
+            && Objects.equals(optionsList, that.getOptionsList());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(compareExpr, optionsList);
+    }
+
     public Expression getCompareExpr() {
         return compareExpr;
     }
