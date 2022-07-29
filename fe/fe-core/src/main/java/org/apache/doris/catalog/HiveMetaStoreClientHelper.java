@@ -37,10 +37,12 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Queues;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
@@ -74,6 +76,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -171,6 +174,7 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Get data files of partitions in hive table, filter by partition predicate.
+     *
      * @param hiveTable
      * @param hivePartitionPredicate
      * @param fileStatuses
@@ -179,25 +183,108 @@ public class HiveMetaStoreClientHelper {
      * @throws DdlException
      */
     public static String getHiveDataFiles(HiveTable hiveTable, ExprNodeGenericFuncDesc hivePartitionPredicate,
-                                          List<TBrokerFileStatus> fileStatuses,
-                                          Table remoteHiveTbl, StorageBackend.StorageType type) throws DdlException {
+            List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl, StorageBackend.StorageType type)
+            throws DdlException {
+        boolean onS3 = type.equals(StorageBackend.StorageType.S3);
+        Map<String, String> properties = hiveTable.getHiveProperties();
+        Configuration configuration = getConfiguration(properties, onS3);
+        boolean isSecurityEnabled = isSecurityEnabled(properties);
+
         List<RemoteIterator<LocatedFileStatus>> remoteIterators;
-        Boolean onS3 = type.equals(StorageBackend.StorageType.S3);
         if (remoteHiveTbl.getPartitionKeys().size() > 0) {
             String metaStoreUris = hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS);
             // hive partitioned table, get file iterator from table partition sd info
             List<Partition> hivePartitions = getHivePartitions(metaStoreUris, remoteHiveTbl, hivePartitionPredicate);
-            remoteIterators = getRemoteIterator(hivePartitions, hiveTable.getHiveProperties(), onS3);
+            remoteIterators = getRemoteIterator(hivePartitions, configuration, isSecurityEnabled, properties, onS3);
         } else {
             // hive non-partitioned table, get file iterator from table sd info
-            remoteIterators = getRemoteIterator(remoteHiveTbl, hiveTable.getHiveProperties(), onS3);
+            remoteIterators = getRemoteIterator(remoteHiveTbl, configuration, isSecurityEnabled, properties, onS3);
         }
+        return getAllFileStatus(fileStatuses, remoteIterators, configuration, isSecurityEnabled, properties, onS3);
+    }
 
+    // create Configuration for the given properties
+    private static Configuration getConfiguration(Map<String, String> properties, boolean onS3) {
+        Configuration configuration = new Configuration(false);
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (!entry.getKey().equals(HiveTable.HIVE_METASTORE_URIS)) {
+                configuration.set(entry.getKey(), entry.getValue());
+            }
+        }
+        if (onS3) {
+            setS3Configuration(configuration, properties);
+        }
+        return configuration;
+    }
+
+    // return true if it is kerberos
+    private static boolean isSecurityEnabled(Map<String, String> properties) {
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().equals(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION) && entry.getValue()
+                    .equals(AuthType.KERBEROS.getDesc())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Get remote iterators for given partitions
+    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(List<Partition> partitions,
+            Configuration configuration, boolean isSecurityEnabled, Map<String, String> properties, boolean onS3)
+            throws DdlException {
+        List<RemoteIterator<LocatedFileStatus>> allIterators = new ArrayList<>();
+        for (Partition p : partitions) {
+            String location = p.getSd().getLocation();
+            Path path = new Path(location);
+            allIterators.addAll(getRemoteIterator(path, configuration, properties, isSecurityEnabled));
+        }
+        return allIterators;
+    }
+
+    // Get remote iterators for given table
+    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(Table table, Configuration configuration,
+            boolean isSecurityEnabled, Map<String, String> properties, boolean onS3) throws DdlException {
+        String location = table.getSd().getLocation();
+        Path path = new Path(location);
+        return getRemoteIterator(path, configuration, properties, isSecurityEnabled);
+    }
+
+    // Get remote iterators for given Path
+    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(org.apache.hadoop.fs.Path path,
+            Configuration conf, Map<String, String> properties, boolean isSecurityEnabled) throws DdlException {
+        List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
+        try {
+            if (isSecurityEnabled) {
+                UserGroupInformation.setConfiguration(conf);
+                // login user from keytab
+                UserGroupInformation.loginUserFromKeytab(properties.get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL),
+                        properties.get(BrokerUtil.HADOOP_KERBEROS_KEYTAB));
+            }
+            FileSystem fileSystem = path.getFileSystem(conf);
+            iterators.add(fileSystem.listLocatedStatus(path));
+        } catch (IOException e) {
+            LOG.warn("Get HDFS file remote iterator failed. {}" + e.getMessage());
+            throw new DdlException("Get HDFS file remote iterator failed. Error: " + e.getMessage());
+        }
+        return iterators;
+    }
+
+    private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
+            List<RemoteIterator<LocatedFileStatus>> remoteIterators, Configuration configuration,
+            boolean isSecurityEnabled, Map<String, String> properties, boolean onS3) throws DdlException {
         String hdfsUrl = "";
-        for (RemoteIterator<LocatedFileStatus> iterator : remoteIterators) {
+        Queue<RemoteIterator<LocatedFileStatus>> queue = Queues.newArrayDeque(remoteIterators);
+        while (queue.peek() != null) {
+            RemoteIterator<LocatedFileStatus> iterator = queue.poll();
             try {
                 while (iterator.hasNext()) {
                     LocatedFileStatus fileStatus = iterator.next();
+                    if (fileStatus.isDirectory()) {
+                        // recursive visit the directory to get the file path.
+                        queue.addAll(
+                                getRemoteIterator(fileStatus.getPath(), configuration, properties, isSecurityEnabled));
+                        continue;
+                    }
                     TBrokerFileStatus brokerFileStatus = new TBrokerFileStatus();
                     brokerFileStatus.setIsDir(fileStatus.isDirectory());
                     brokerFileStatus.setIsSplitable(true);
@@ -226,7 +313,6 @@ public class HiveMetaStoreClientHelper {
                 throw new DdlException("List HDFS file failed. Error: " + e.getMessage());
             }
         }
-
         return hdfsUrl;
     }
 
@@ -269,69 +355,6 @@ public class HiveMetaStoreClientHelper {
         configuration.set("fs.s3.impl.disable.cache", "true");
         configuration.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         configuration.set("fs.s3a.attempts.maximum", "2");
-    }
-
-    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(
-            List<Partition> partitions, Map<String, String> properties, boolean onS3)
-            throws DdlException {
-        List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
-        Configuration configuration = new Configuration(false);
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (!entry.getKey().equals(HiveTable.HIVE_METASTORE_URIS)) {
-                configuration.set(entry.getKey(), entry.getValue());
-            }
-        }
-        if (onS3) {
-            setS3Configuration(configuration, properties);
-        }
-        for (Partition p : partitions) {
-            String location = p.getSd().getLocation();
-            org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(location);
-            try {
-                FileSystem fileSystem = path.getFileSystem(configuration);
-                iterators.add(fileSystem.listLocatedStatus(path));
-            } catch (IOException e) {
-                LOG.warn("Get HDFS file remote iterator failed. {}", e.getMessage());
-                throw new DdlException("Get HDFS file remote iterator failed. Error: " + e.getMessage());
-            }
-        }
-        return iterators;
-    }
-
-    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(
-            Table table, Map<String, String> properties, boolean onS3)
-            throws DdlException {
-        List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
-        Configuration configuration = new Configuration(false);
-        boolean isSecurityEnabled = false;
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (!entry.getKey().equals(HiveTable.HIVE_METASTORE_URIS)) {
-                configuration.set(entry.getKey(), entry.getValue());
-            }
-            if (entry.getKey().equals(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION)
-                    && entry.getValue().equals(AuthType.KERBEROS.getDesc())) {
-                isSecurityEnabled = true;
-            }
-        }
-        if (onS3) {
-            setS3Configuration(configuration, properties);
-        }
-        String location = table.getSd().getLocation();
-        org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(location);
-        try {
-            if (isSecurityEnabled) {
-                UserGroupInformation.setConfiguration(configuration);
-                // login user from keytab
-                UserGroupInformation.loginUserFromKeytab(properties.get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL),
-                        properties.get(BrokerUtil.HADOOP_KERBEROS_KEYTAB));
-            }
-            FileSystem fileSystem = path.getFileSystem(configuration);
-            iterators.add(fileSystem.listLocatedStatus(path));
-        } catch (IOException e) {
-            LOG.warn("Get HDFS file remote iterator failed. {}" + e.getMessage());
-            throw new DdlException("Get HDFS file remote iterator failed. Error: " + e.getMessage());
-        }
-        return iterators;
     }
 
     public static List<String> getPartitionNames(HiveTable hiveTable) throws DdlException {
