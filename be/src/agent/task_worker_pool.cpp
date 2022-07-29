@@ -432,7 +432,8 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
                 drop_tablet_req.tablet_id, false, &err);
         if (dropped_tablet != nullptr) {
             Status drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                    drop_tablet_req.tablet_id, drop_tablet_req.replica_id);
+                    drop_tablet_req.tablet_id, drop_tablet_req.replica_id,
+                    drop_tablet_req.is_drop_table_or_partition);
             if (!drop_status.ok()) {
                 LOG(WARNING) << "drop table failed! signature: " << agent_task_req.signature;
                 error_msgs.push_back("drop table failed!");
@@ -442,11 +443,6 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
                 StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
                         dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
                         drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
-                // We remove remote rowset directly.
-                // TODO(cyx): do remove in background
-                if (drop_tablet_req.is_drop_table_or_partition) {
-                    dropped_tablet->remove_all_remote_rowsets();
-                }
             }
         } else {
             status_code = TStatusCode::NOT_FOUND;
@@ -881,8 +877,7 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                     } else {
                         LOG(INFO) << "set tablet cooldown resource "
                                   << tablet_meta_info.storage_policy;
-                        tablet->tablet_meta()->set_cooldown_resource(
-                                tablet_meta_info.storage_policy);
+                        tablet->tablet_meta()->set_storage_policy(tablet_meta_info.storage_policy);
                     }
                     break;
                 }
