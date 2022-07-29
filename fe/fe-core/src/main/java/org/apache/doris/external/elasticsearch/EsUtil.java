@@ -134,11 +134,11 @@ public class EsUtil {
     }
 
     public static List<String> getArrayFields(String indexMapping) {
-        JSONObject jsonObject = (JSONObject) JSONValue.parse(indexMapping);
-        if (!jsonObject.containsKey("_meta")) {
+        JSONObject mappings = getMapping(indexMapping);
+        if (!mappings.containsKey("_meta")) {
             return new ArrayList<>();
         }
-        JSONObject meta = (JSONObject) jsonObject.get("_meta");
+        JSONObject meta = (JSONObject) mappings.get("_meta");
         if (!meta.containsKey("doris")) {
             return new ArrayList<>();
         }
@@ -146,16 +146,20 @@ public class EsUtil {
         return (List<String>) dorisMeta.get("array_field");
     }
 
-    /**
-     * Get mapping properties JSONObject.
-     **/
-    public static JSONObject getMappingProps(String sourceIndex, String indexMapping, String mappingType) {
+    private static JSONObject getMapping(String indexMapping) {
         JSONObject jsonObject = (JSONObject) JSONValue.parse(indexMapping);
         // the indexName use alias takes the first mapping
         Iterator<String> keys = jsonObject.keySet().iterator();
         String docKey = keys.next();
         JSONObject docData = (JSONObject) jsonObject.get(docKey);
-        JSONObject mappings = (JSONObject) docData.get("mappings");
+        return (JSONObject) docData.get("mappings");
+    }
+
+    /**
+     * Get mapping properties JSONObject.
+     **/
+    public static JSONObject getMappingProps(String sourceIndex, String indexMapping, String mappingType) {
+        JSONObject mappings = getMapping(indexMapping);
         JSONObject rootSchema = (JSONObject) mappings.get(mappingType);
         JSONObject properties;
         // Elasticsearch 7.x, type was removed from ES mapping, default type is `_doc`
