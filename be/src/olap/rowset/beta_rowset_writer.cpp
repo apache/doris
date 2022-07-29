@@ -249,6 +249,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     } else {
         _rowset_meta->set_rowset_state(VISIBLE);
     }
+    _rowset_meta->set_segments_key_bounds(_segments_encoded_key_bounds);
 
     if (_rowset_meta->oldest_write_timestamp() == -1) {
         _rowset_meta->set_oldest_write_timestamp(UnixSeconds());
@@ -319,6 +320,13 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     }
     _total_data_size += segment_size;
     _total_index_size += index_size;
+    KeyBoundsPB key_bounds;
+    Slice min_key = (*writer)->min_encoded_key();
+    Slice max_key = (*writer)->max_encoded_key();
+    DCHECK_LE(min_key.compare(max_key), 0);
+    key_bounds.set_min_key(min_key.to_string());
+    key_bounds.set_max_key(max_key.to_string());
+    _segments_encoded_key_bounds.emplace_back(key_bounds);
     writer->reset();
     return Status::OK();
 }

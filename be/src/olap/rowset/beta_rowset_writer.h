@@ -101,6 +101,8 @@ private:
     bool _is_pending = false;
     bool _already_built = false;
 
+    // for unique key table with merge-on-write
+    std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
     // record rows number of every segment
     std::vector<uint32_t> _segment_num_rows;
 };
