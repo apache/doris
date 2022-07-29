@@ -1018,7 +1018,6 @@ public class QueryPlanTest extends TestWithFeService {
     public void testJoinPredicateTransitivityWithSubqueryInWhereClause() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String sql = "SELECT *\n"
-
                 + "FROM test.pushdown_test\n"
                 + "WHERE 0 < (\n"
                 + "    SELECT MAX(k9)\n" + "    FROM test.pushdown_test);";
@@ -1037,7 +1036,7 @@ public class QueryPlanTest extends TestWithFeService {
     }
 
     @Test
-    public void testConstInParitionPrune() throws Exception {
+    public void testConstInPartitionPrune() throws Exception {
         FeConstants.runningUnitTest = true;
         String queryStr = "explain select * from (select 'aa' as kk1, sum(id) from test.join1 where dt = 9"
                 + " group by kk1)tt where kk1 in ('aa');";

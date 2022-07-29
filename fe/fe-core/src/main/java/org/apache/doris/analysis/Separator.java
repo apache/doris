@@ -101,7 +101,7 @@ public class Separator implements ParseNode {
 
     // unescape some invisible string literal to char, such as "/t" to char '/t'
     private static String unescape(String orig) {
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
         boolean hadSlash = false;
         for (int i = 0; i < orig.length(); i++) {
             char ch = orig.charAt(i);
