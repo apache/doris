@@ -195,7 +195,7 @@ public class ShowPartitionsStmt extends ShowStmt {
                         + "\"2019-12-22|2019-12-22 22:22:00\"");
                 }
                 subExpr.setChild(1, (subExpr.getChild(1)).castTo(
-                        Objects.requireNonNull(DateLiteral.getDefaultDateType(Type.DATETIME))));
+                        Objects.requireNonNull(ScalarType.getDefaultDateType(Type.DATETIME))));
             } else if (!leftKey.equalsIgnoreCase(FILTER_PARTITION_ID) && !leftKey.equalsIgnoreCase(FILTER_BUCKETS)
                     && !leftKey.equalsIgnoreCase(FILTER_REPLICATION_NUM)) {
                 throw new AnalysisException("Only the columns of PartitionId/PartitionName/"

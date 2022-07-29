@@ -119,7 +119,7 @@ public class TimestampArithmeticExpr extends Expr {
         if (t1 == PrimitiveType.DATEV2) {
             return Type.DATEV2;
         }
-        if (Config.use_date_v2_by_default
+        if (Config.enable_date_conversion
                 && PrimitiveType.isImplicitCast(t1, PrimitiveType.DATETIMEV2)) {
             return Type.DATETIMEV2;
         }
@@ -141,7 +141,7 @@ public class TimestampArithmeticExpr extends Expr {
             }
             Type dateType = fixType();
             if (dateType.isDate() && timeUnit.isDateTime()) {
-                dateType = DateLiteral.getDefaultDateType(Type.DATETIME);
+                dateType = ScalarType.getDefaultDateType(Type.DATETIME);
             }
             // The first child must return a timestamp or null.
             if (!getChild(0).getType().isDateType() && !getChild(0).getType().isNull()) {
