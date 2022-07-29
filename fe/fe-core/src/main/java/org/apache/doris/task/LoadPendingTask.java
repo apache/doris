@@ -17,8 +17,8 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.EtlSubmitResult;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -50,7 +50,7 @@ public abstract class LoadPendingTask extends MasterTask {
     public LoadPendingTask(LoadJob job) {
         this.job = job;
         this.signature = job.getId();
-        this.load = Catalog.getCurrentCatalog().getLoadInstance();
+        this.load = Env.getCurrentEnv().getLoadInstance();
     }
 
     @Override
@@ -68,7 +68,7 @@ public abstract class LoadPendingTask extends MasterTask {
 
         // get db
         long dbId = job.getDbId();
-        db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+        db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.ETL_SUBMIT_FAIL, "db does not exist. id: " + dbId);
             return;
@@ -78,7 +78,7 @@ public abstract class LoadPendingTask extends MasterTask {
             // yiguolei: get transactionid here, because create etl request will get schema and partition info
             // create etl request and make some guarantee for schema change and rollup
             if (job.getTransactionId() < 0) {
-                long transactionId = Catalog.getCurrentGlobalTransactionMgr()
+                long transactionId = Env.getCurrentGlobalTransactionMgr()
                         .beginTransaction(dbId, job.getAllTableIds(), DebugUtil.printId(UUID.randomUUID()),
                                           new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                                           LoadJobSourceType.FRONTEND,

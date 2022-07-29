@@ -77,34 +77,22 @@ public:
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
 
-    size_t num_short_keys() const { return _tablet_schema.num_short_key_columns(); }
-
-    uint32_t num_rows_per_block() const {
+    const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
-        return _sk_index_decoder->num_rows_per_block();
-    }
-    ShortKeyIndexIterator lower_bound(const Slice& key) const {
-        DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
-        return _sk_index_decoder->lower_bound(key);
-    }
-    ShortKeyIndexIterator upper_bound(const Slice& key) const {
-        DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
-        return _sk_index_decoder->upper_bound(key);
+        return _sk_index_decoder.get();
     }
 
-    // This will return the last row block in this segment.
-    // NOTE: Before call this function , client should assure that
-    // this segment is not empty.
-    uint32_t last_block() const {
+    const PrimaryKeyIndexReader* get_primary_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
-        DCHECK(num_rows() > 0);
-        return _sk_index_decoder->num_items() - 1;
+        return _pk_index_reader.get();
     }
 
     Status lookup_row_key(const Slice& key, RowLocation* row_location);
 
     // only used by UT
     const SegmentFooterPB& footer() const { return _footer; }
+
+    Status load_index();
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
@@ -113,9 +101,6 @@ private:
     Status _open();
     Status _parse_footer();
     Status _create_column_readers();
-    // Load and decode short key index.
-    // May be called multiple times, subsequent calls will no op.
-    Status _load_index();
 
 private:
     friend class SegmentIterator;
@@ -124,9 +109,7 @@ private:
     uint32_t _segment_id;
     TabletSchema _tablet_schema;
 
-    // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
-    // The memory consumed by querying is tracked in segment iterator.
-    std::shared_ptr<MemTracker> _mem_tracker;
+    int64_t _meta_mem_usage;
     SegmentFooterPB _footer;
 
     // Map from column unique id to column ordinal in footer's ColumnMetaPB

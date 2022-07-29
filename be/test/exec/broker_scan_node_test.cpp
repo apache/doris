@@ -40,7 +40,7 @@ class BrokerScanNodeTest : public testing::Test {
 public:
     BrokerScanNodeTest() : _runtime_state(TQueryGlobals()) {
         init();
-        _runtime_state._instance_mem_tracker.reset(new MemTracker());
+        _runtime_state.init_instance_mem_tracker();
     }
     void init();
     static void SetUpTestCase() {

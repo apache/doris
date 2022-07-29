@@ -18,7 +18,7 @@
 package org.apache.doris.task;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
@@ -282,7 +282,7 @@ public class ExportExportingTask extends MasterTask {
         FsBroker broker = null;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
-            broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
+            broker = Env.getCurrentEnv().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
         } catch (AnalysisException e) {
             String failMsg = "get broker failed. export job: " + job.getId() + ". msg: " + e.getMessage();
             LOG.warn(failMsg);

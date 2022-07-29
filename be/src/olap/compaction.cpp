@@ -34,15 +34,20 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
           _input_row_num(0),
           _state(CompactionState::INITED) {
 #ifndef BE_TEST
-    _mem_tracker = MemTracker::create_tracker(-1, label,
-                                              StorageEngine::instance()->compaction_mem_tracker(),
-                                              MemTrackerLevel::INSTANCE);
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(
+            -1, label, StorageEngine::instance()->compaction_mem_tracker());
 #else
-    _mem_tracker = MemTracker::get_process_tracker();
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(-1, label);
 #endif
 }
 
-Compaction::~Compaction() {}
+Compaction::~Compaction() {
+#ifndef BE_TEST
+    // Compaction tracker cannot be completely accurate, offset the global impact.
+    StorageEngine::instance()->compaction_mem_tracker()->consumption_revise(
+            -_mem_tracker->consumption());
+#endif
+}
 
 Status Compaction::compact() {
     RETURN_NOT_OK(prepare_compact());
@@ -155,6 +160,10 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
     Merger::Statistics stats;
     Status res;
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
+        stats.rowid_conversion = &_rowid_conversion;
+    }
 
     if (use_vectorized_compaction) {
         res = Merger::vmerge_rowsets(_tablet, compaction_type(), &cur_tablet_schema,

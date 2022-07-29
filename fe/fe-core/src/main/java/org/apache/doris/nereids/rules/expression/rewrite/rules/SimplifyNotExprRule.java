@@ -19,17 +19,14 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.Or;
 
 /**
  * Rewrite rule of NOT expression.
@@ -50,40 +47,30 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
     public static SimplifyNotExprRule INSTANCE = new SimplifyNotExprRule();
 
     @Override
-    public Expression visitNot(Not expr, ExpressionRewriteContext context) {
-
-        Expression child = expr.child();
-
+    public Expression visitNot(Not not, ExpressionRewriteContext context) {
+        Expression child = not.child();
         if (child instanceof ComparisonPredicate) {
-            ComparisonPredicate cp = (ComparisonPredicate) expr.child();
+            ComparisonPredicate cp = (ComparisonPredicate) not.child();
             Expression left =  rewrite(cp.left(), context);
             Expression right = rewrite(cp.right(), context);
-            ExpressionType type = cp.getType();
-            switch (type) {
-                case GREATER_THAN:
-                    return new LessThanEqual(left, right);
-                case GREATER_THAN_EQUAL:
-                    return new LessThan(left, right);
-                case LESS_THAN:
-                    return new GreaterThanEqual(left, right);
-                case LESS_THAN_EQUAL:
-                    return new GreaterThan(left, right);
-                default:
-                    return expr;
+
+            // TODO: visit concrete class instead of `instanceof`.
+            if (child instanceof GreaterThan) {
+                return new LessThanEqual(left, right);
+            } else if (child instanceof GreaterThanEqual) {
+                return new LessThan(left, right);
+            } else  if (child instanceof LessThan) {
+                return new GreaterThanEqual(left, right);
+            } else if (child instanceof LessThanEqual) {
+                return new GreaterThan(left, right);
+            } else {
+                not.withChildren(child.withChildren(left, right));
             }
         } else if (child instanceof CompoundPredicate) {
-            CompoundPredicate cp = (CompoundPredicate) expr.child();
+            CompoundPredicate cp = (CompoundPredicate) not.child();
             Expression left =  rewrite(new Not(cp.left()), context);
             Expression right = rewrite(new Not(cp.right()), context);
-            ExpressionType type = cp.getType();
-            switch (type) {
-                case AND:
-                    return new Or(left, right);
-                case OR:
-                    return new And(left, right);
-                default:
-                    return expr;
-            }
+            return cp.flip(left, right);
         }
 
         if (child instanceof Not) {
@@ -91,7 +78,6 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
             return rewrite(son.child(), context);
         }
 
-        return expr;
+        return not;
     }
-
 }

@@ -24,20 +24,18 @@
 #include "olap/types.cpp"
 #include "runtime/collection_value.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 
 namespace doris {
 
 class ColumnVectorTest : public testing::Test {
 public:
-    ColumnVectorTest() : _pool(&_tracker) {}
+    ColumnVectorTest() : _pool() {}
 
 protected:
     void SetUp() {}
     void TearDown() {}
 
 private:
-    MemTracker _tracker;
     MemPool _pool;
 };
 

@@ -28,12 +28,14 @@
 #include <map>
 #include <set>
 
+#include "common/status.h"
 #include "env/env.h"
 #include "gen_cpp/Types_constants.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_meta.h"
 #include "runtime/thread_context.h"
 
 using std::filesystem::path;
@@ -62,7 +64,7 @@ SnapshotManager* SnapshotManager::instance() {
 
 Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* snapshot_path,
                                       bool* allow_incremental_clone) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be null";
@@ -90,7 +92,7 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
 Status SnapshotManager::release_snapshot(const string& snapshot_path) {
     // 如果请求的snapshot_path位于root/snapshot文件夹下，则认为是合法的，可以删除
     // 否则认为是非法请求，返回错误结果
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     auto stores = StorageEngine::instance()->get_stores();
     for (auto store : stores) {
         std::string abs_path;
@@ -114,7 +116,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 
 Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id,
                                            int64_t replica_id, const int32_t& schema_hash) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status res = Status::OK();
     // check clone dir existed
     if (!FileUtils::check_exist(clone_dir)) {
@@ -360,6 +362,9 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         /// make the full snapshot of the tablet.
         {
             std::shared_lock rdlock(ref_tablet->get_header_lock());
+            if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
+                return Status::Aborted("tablet has shutdown");
+            }
             if (request.__isset.missing_version) {
                 for (int64_t missed_version : request.missing_version) {
                     Version version = {missed_version, missed_version};
@@ -421,6 +426,13 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             // copy the tablet meta to new_tablet_meta inside header lock
             CHECK(res.ok()) << res;
             ref_tablet->generate_tablet_meta_copy_unlocked(new_tablet_meta);
+        }
+        {
+            std::unique_lock wlock(ref_tablet->get_header_lock());
+            if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
+                return Status::Aborted("tablet has shutdown");
+            }
+            ref_tablet->update_self_owned_remote_rowsets(consistent_rowsets);
         }
 
         std::vector<RowsetMetaSharedPtr> rs_metas;

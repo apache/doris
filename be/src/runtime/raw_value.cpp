@@ -87,7 +87,14 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
         break;
 
     case TYPE_DATEV2:
-        stream->write(chars, sizeof(doris::vectorized::DateV2Value));
+        stream->write(chars,
+                      sizeof(doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>));
+        break;
+
+    case TYPE_DATETIMEV2:
+        stream->write(
+                chars,
+                sizeof(doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>));
         break;
 
     case TYPE_DECIMALV2:
@@ -181,7 +188,14 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         break;
 
     case TYPE_DATEV2:
-        *stream << *reinterpret_cast<const doris::vectorized::DateV2Value*>(value);
+        *stream << *reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(value);
+        break;
+
+    case TYPE_DATETIMEV2:
+        *stream << *reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                value);
         break;
 
     case TYPE_DECIMALV2:
@@ -334,8 +348,18 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
         break;
 
     case TYPE_DATEV2:
-        *reinterpret_cast<doris::vectorized::DateV2Value*>(dst) =
-                *reinterpret_cast<const doris::vectorized::DateV2Value*>(value);
+        *reinterpret_cast<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
+                dst) =
+                *reinterpret_cast<
+                        const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
+                        value);
+        break;
+
+    case TYPE_DATETIMEV2:
+        *reinterpret_cast<doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                dst) =
+                *reinterpret_cast<const doris::vectorized::DateV2Value<
+                        doris::vectorized::DateTimeV2ValueType>*>(value);
         break;
 
     case TYPE_DECIMALV2:
@@ -437,8 +461,17 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
         *reinterpret_cast<DateTimeValue*>(dst) = *reinterpret_cast<const DateTimeValue*>(value);
         break;
     case TYPE_DATEV2:
-        *reinterpret_cast<doris::vectorized::DateV2Value*>(dst) =
-                *reinterpret_cast<const doris::vectorized::DateV2Value*>(value);
+        *reinterpret_cast<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
+                dst) =
+                *reinterpret_cast<
+                        const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
+                        value);
+        break;
+    case TYPE_DATETIMEV2:
+        *reinterpret_cast<doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                dst) =
+                *reinterpret_cast<const doris::vectorized::DateV2Value<
+                        doris::vectorized::DateTimeV2ValueType>*>(value);
         break;
     case TYPE_VARCHAR:
     case TYPE_CHAR:
@@ -557,8 +590,18 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
         return *ts_value1 > *ts_value2 ? 1 : (*ts_value1 < *ts_value2 ? -1 : 0);
 
     case TYPE_DATEV2: {
-        auto date_v2_value1 = reinterpret_cast<const doris::vectorized::DateV2Value*>(v1);
-        auto date_v2_value2 = reinterpret_cast<const doris::vectorized::DateV2Value*>(v2);
+        auto date_v2_value1 = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(v1);
+        auto date_v2_value2 = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(v2);
+        return *date_v2_value1 > *date_v2_value2 ? 1 : (*date_v2_value1 < *date_v2_value2 ? -1 : 0);
+    }
+
+    case TYPE_DATETIMEV2: {
+        auto date_v2_value1 = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(v1);
+        auto date_v2_value2 = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(v2);
         return *date_v2_value1 > *date_v2_value2 ? 1 : (*date_v2_value1 < *date_v2_value2 ? -1 : 0);
     }
 

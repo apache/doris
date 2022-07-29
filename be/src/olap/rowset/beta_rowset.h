@@ -19,6 +19,7 @@
 #define DORIS_SRC_OLAP_ROWSET_BETA_ROWSET_H_
 
 #include <cstdint>
+#include <string>
 
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -47,6 +48,9 @@ public:
                                           int segment_id);
 
     static std::string remote_segment_path(int64_t tablet_id, const RowsetId& rowset_id,
+                                           int segment_id);
+
+    static std::string remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
                                            int segment_id);
 
     Status split_range(const RowCursor& start_key, const RowCursor& end_key,

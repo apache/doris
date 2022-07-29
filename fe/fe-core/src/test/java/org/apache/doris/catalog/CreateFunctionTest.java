@@ -75,18 +75,18 @@ public class CreateFunctionTest {
         // create database db1
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
+        Env.getCurrentEnv().createDb(createDbStmt);
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
         String createTblStmtStr = "create table db1.tbl1(k1 int, k2 bigint, k3 varchar(10), k4 char(5)) duplicate key(k1) "
                 + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
         dorisAssert = new DorisAssert();
         dorisAssert.useDatabase("db1");
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
 
         String createFuncStr = "create function db1.my_add(VARCHAR(1024)) RETURNS BOOLEAN properties\n"
@@ -98,7 +98,7 @@ public class CreateFunctionTest {
                 + ");";
 
         CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
-        Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
+        Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         List<Function> functions = db.getFunctions();
         Assert.assertEquals(1, functions.size());
@@ -122,7 +122,7 @@ public class CreateFunctionTest {
         // create alias function
         createFuncStr = "create alias function db1.id_masking(bigint) with parameter(id) as concat(left(id,3),'****',right(id,4));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
-        Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
+        Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         functions = db.getFunctions();
         Assert.assertEquals(2, functions.size());
@@ -150,7 +150,7 @@ public class CreateFunctionTest {
         createFuncStr = "create alias function db1.decimal(all, int, int) with parameter(col, precision, scale)"
                 + " as cast(col as decimal(precision, scale));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
-        Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
+        Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         functions = db.getFunctions();
         Assert.assertEquals(3, functions.size());
@@ -176,7 +176,7 @@ public class CreateFunctionTest {
         createFuncStr = "create alias function db1.varchar(all, int) with parameter(text, length) as "
                 + "cast(text as varchar(length));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
-        Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
+        Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         functions = db.getFunctions();
         Assert.assertEquals(4, functions.size());
@@ -203,7 +203,7 @@ public class CreateFunctionTest {
         createFuncStr = "create alias function db1.char(all, int) with parameter(text, length) as "
                 + "cast(text as char(length));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
-        Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
+        Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         functions = db.getFunctions();
         Assert.assertEquals(5, functions.size());

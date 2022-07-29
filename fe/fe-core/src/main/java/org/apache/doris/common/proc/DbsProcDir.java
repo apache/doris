@@ -17,9 +17,9 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugUtil;
@@ -45,11 +45,11 @@ public class DbsProcDir implements ProcDirInterface {
             .add("LastConsistencyCheckTime").add("ReplicaCount").add("ReplicaQuota")
             .build();
 
-    private Catalog catalog;
+    private Env env;
     private DataSourceIf ds;
 
-    public DbsProcDir(Catalog catalog, DataSourceIf ds) {
-        this.catalog = catalog;
+    public DbsProcDir(Env env, DataSourceIf ds) {
+        this.env = env;
         this.ds = ds;
     }
 
@@ -60,7 +60,7 @@ public class DbsProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String dbIdStr) throws AnalysisException {
-        if (catalog == null || Strings.isNullOrEmpty(dbIdStr)) {
+        if (env == null || Strings.isNullOrEmpty(dbIdStr)) {
             throw new AnalysisException("Db id is null");
         }
 
@@ -81,7 +81,7 @@ public class DbsProcDir implements ProcDirInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(catalog);
+        Preconditions.checkNotNull(env);
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 

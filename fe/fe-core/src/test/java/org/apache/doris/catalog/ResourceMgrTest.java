@@ -99,16 +99,16 @@ public class ResourceMgrTest {
 
     @Test
     public void testAddAlterDropResource(@Injectable BrokerMgr brokerMgr, @Injectable EditLog editLog,
-                                    @Mocked Catalog catalog, @Injectable PaloAuth auth) throws UserException {
+                                    @Mocked Env env, @Injectable PaloAuth auth) throws UserException {
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                catalog.getEditLog();
+                env.getEditLog();
                 result = editLog;
-                catalog.getAuth();
+                env.getAuth();
                 result = auth;
                 auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
@@ -167,15 +167,15 @@ public class ResourceMgrTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testAddResourceExist(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog, @Injectable PaloAuth auth)
+    public void testAddResourceExist(@Injectable BrokerMgr brokerMgr, @Mocked Env env, @Injectable PaloAuth auth)
             throws UserException {
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                catalog.getAuth();
+                env.getAuth();
                 result = auth;
                 auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;

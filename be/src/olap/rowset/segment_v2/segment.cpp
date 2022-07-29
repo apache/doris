@@ -46,17 +46,10 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segme
 }
 
 Segment::Segment(uint32_t segment_id, const TabletSchema* tablet_schema)
-        : _segment_id(segment_id), _tablet_schema(*tablet_schema) {
-#ifndef BE_TEST
-    _mem_tracker = MemTracker::create_virtual_tracker(
-            -1, "Segment", StorageEngine::instance()->tablet_mem_tracker());
-#else
-    _mem_tracker = MemTracker::create_virtual_tracker(-1, "Segment");
-#endif
-}
+        : _segment_id(segment_id), _tablet_schema(*tablet_schema), _meta_mem_usage(0) {}
 
 Segment::~Segment() {
-    _mem_tracker->release(_mem_tracker->consumption());
+    StorageEngine::instance()->segment_meta_mem_tracker()->release(_meta_mem_usage);
 }
 
 Status Segment::_open() {
@@ -85,7 +78,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
         }
     }
 
-    RETURN_IF_ERROR(_load_index());
+    RETURN_IF_ERROR(load_index());
     iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     iter->get()->init(read_options);
     return Status::OK();
@@ -116,7 +109,8 @@ Status Segment::_parse_footer() {
         return Status::Corruption("Bad segment file {}: file size {} < {}",
                                   _file_reader->path().native(), file_size, 12 + footer_length);
     }
-    _mem_tracker->consume(footer_length);
+    _meta_mem_usage += footer_length;
+    StorageEngine::instance()->segment_meta_mem_tracker()->consume(footer_length);
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
@@ -140,7 +134,7 @@ Status Segment::_parse_footer() {
     return Status::OK();
 }
 
-Status Segment::_load_index() {
+Status Segment::load_index() {
     return _load_index_once.call([this] {
         // read and parse short key index page
         PageReadOptions opts;
@@ -162,7 +156,8 @@ Status Segment::_load_index() {
             DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
             DCHECK(footer.has_short_key_page_footer());
 
-            _mem_tracker->consume(body.get_size());
+            _meta_mem_usage += body.get_size();
+            StorageEngine::instance()->segment_meta_mem_tracker()->consume(body.get_size());
             _sk_index_decoder.reset(new ShortKeyIndexDecoder);
             return _sk_index_decoder->parse(body, footer.short_key_page_footer());
         }
@@ -230,7 +225,7 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
-    RETURN_IF_ERROR(_load_index());
+    RETURN_IF_ERROR(load_index());
     DCHECK(_pk_index_reader != nullptr);
     if (!_pk_index_reader->check_present(key)) {
         return Status::NotFound("Can't find key in the segment");

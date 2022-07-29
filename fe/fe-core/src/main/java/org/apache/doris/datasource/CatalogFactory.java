@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.DdlException;
 
 import java.util.Map;
 
@@ -56,11 +57,12 @@ public class CatalogFactory {
     /**
      * create the datasource instance from data source log.
      */
-    public static DataSourceIf constructorFromLog(CatalogLog log) {
+    public static DataSourceIf constructorFromLog(CatalogLog log) throws DdlException {
         return constructorDataSource(log.getCatalogId(), log.getCatalogName(), log.getProps());
     }
 
-    private static DataSourceIf constructorDataSource(long catalogId, String name, Map<String, String> props) {
+    private static DataSourceIf constructorDataSource(long catalogId, String name, Map<String, String> props)
+            throws DdlException {
         String type = props.get("type");
         DataSourceIf dataSource;
         switch (type) {

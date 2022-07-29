@@ -228,6 +228,27 @@ void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
     }
 }
 
+void ColumnString::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+    for (size_t i = 0; i != num_rows; ++i) {
+        auto original_ptr = keys[i].data;
+        keys[i].data = deserialize_and_insert_from_arena(original_ptr);
+        keys[i].size -= keys[i].data - original_ptr;
+    }
+}
+
+void ColumnString::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
+                                                 const size_t num_rows, const uint8_t* null_map) {
+    for (size_t i = 0; i != num_rows; ++i) {
+        if (null_map[i] == 0) {
+            auto original_ptr = keys[i].data;
+            keys[i].data = deserialize_and_insert_from_arena(original_ptr);
+            keys[i].size -= keys[i].data - original_ptr;
+        } else {
+            insert_default();
+        }
+    }
+}
+
 template <typename Type>
 ColumnPtr ColumnString::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
     if (limit == 0) return ColumnString::create();

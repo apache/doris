@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -53,7 +53,7 @@ public class AlterResourceStmt extends DdlStmt {
         super.analyze(analyzer);
 
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
@@ -67,7 +67,7 @@ public class AlterResourceStmt extends DdlStmt {
         }
 
         // check resource existence
-        Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(resourceName);
+        Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
         if (resource == null) {
             throw new AnalysisException("Unknown resource: " + resourceName);
         }
@@ -77,7 +77,7 @@ public class AlterResourceStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
         sb.append("ALTER RESOURCE '").append(resourceName).append("' ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();

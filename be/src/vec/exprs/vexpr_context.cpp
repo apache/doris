@@ -45,16 +45,9 @@ doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result
 }
 
 doris::Status VExprContext::prepare(doris::RuntimeState* state,
-                                    const doris::RowDescriptor& row_desc,
-                                    const std::shared_ptr<doris::MemTracker>& tracker) {
+                                    const doris::RowDescriptor& row_desc) {
     _prepared = true;
-    if (!tracker) {
-        _mem_tracker = tls_ctx()->_thread_mem_tracker_mgr->mem_tracker();
-    } else {
-        _mem_tracker = tracker;
-    }
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    _pool.reset(new MemPool(_mem_tracker.get()));
+    _pool.reset(new MemPool());
     return _root->prepare(state, row_desc, this);
 }
 
@@ -63,7 +56,6 @@ doris::Status VExprContext::open(doris::RuntimeState* state) {
     if (_opened) {
         return Status::OK();
     }
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     _opened = true;
     // Fragment-local state is only initialized for original contexts. Clones inherit the
     // original's fragment state and only need to have thread-local state initialized.
@@ -92,10 +84,9 @@ doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
     DCHECK(_prepared);
     DCHECK(_opened);
     DCHECK(*new_ctx == nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     *new_ctx = state->obj_pool()->add(new VExprContext(_root));
-    (*new_ctx)->_pool.reset(new MemPool(_pool->mem_tracker()));
+    (*new_ctx)->_pool.reset(new MemPool());
     for (auto& _fn_context : _fn_contexts) {
         (*new_ctx)->_fn_contexts.push_back(_fn_context->impl()->clone((*new_ctx)->_pool.get()));
     }
@@ -103,7 +94,6 @@ doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
     (*new_ctx)->_is_clone = true;
     (*new_ctx)->_prepared = true;
     (*new_ctx)->_opened = true;
-    (*new_ctx)->_mem_tracker = _mem_tracker;
 
     return _root->open(state, *new_ctx, FunctionContext::THREAD_LOCAL);
 }

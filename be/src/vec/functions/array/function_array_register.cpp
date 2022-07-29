@@ -30,6 +30,10 @@ void register_function_array_distinct(SimpleFunctionFactory&);
 void register_function_array_remove(SimpleFunctionFactory&);
 void register_function_array_sort(SimpleFunctionFactory&);
 void register_function_arrays_overlap(SimpleFunctionFactory&);
+void register_function_array_union(SimpleFunctionFactory&);
+void register_function_array_except(SimpleFunctionFactory&);
+void register_function_array_intersect(SimpleFunctionFactory&);
+void register_function_array_slice(SimpleFunctionFactory&);
 
 void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_element(factory);
@@ -40,6 +44,10 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_remove(factory);
     register_function_array_sort(factory);
     register_function_arrays_overlap(factory);
+    register_function_array_union(factory);
+    register_function_array_except(factory);
+    register_function_array_intersect(factory);
+    register_function_array_slice(factory);
 }
 
 } // namespace doris::vectorized

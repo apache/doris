@@ -51,7 +51,18 @@ struct PredicateTypeTraits {
         return (type == PredicateType::LT || type == PredicateType::LE ||
                 type == PredicateType::GT || type == PredicateType::GE);
     }
+
     static constexpr bool is_bloom_filter(PredicateType type) { return type == PredicateType::BF; }
+
+    static constexpr bool is_list(PredicateType type) {
+        return (type == PredicateType::IN_LIST || type == PredicateType::NOT_IN_LIST);
+    }
+
+    static constexpr bool is_comparison(PredicateType type) {
+        return (type == PredicateType::EQ || type == PredicateType::NE ||
+                type == PredicateType::LT || type == PredicateType::LE ||
+                type == PredicateType::GT || type == PredicateType::GE);
+    }
 };
 
 class ColumnPredicate {

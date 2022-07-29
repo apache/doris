@@ -21,6 +21,9 @@ import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CaseExpr;
+import org.apache.doris.analysis.CaseWhenClause;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -28,30 +31,39 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
+import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Used to translate expression of new optimizer to stale expr.
@@ -70,7 +82,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
      * @return stale planner's expr
      */
     public static Expr translate(Expression expression, PlanTranslatorContext context) {
-        Expr staleExpr =  expression.accept(INSTANCE, context);
+        Expr staleExpr = expression.accept(INSTANCE, context);
         try {
             staleExpr.finalizeForNereids();
         } catch (org.apache.doris.common.AnalysisException e) {
@@ -168,49 +180,77 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitDateLiteral(DateLiteral dateLiteral, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.DateLiteral(dateLiteral.getYear(), dateLiteral.getMonth(),
+                dateLiteral.getDay(), 0, 0, 0);
+    }
+
+    @Override
+    public Expr visitDateTimeLiteral(DateTimeLiteral dateTimeLiteral, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.DateLiteral(dateTimeLiteral.getYear(), dateTimeLiteral.getMonth(),
+                dateTimeLiteral.getDay(), dateTimeLiteral.getHour(), dateTimeLiteral.getMinute(),
+                dateTimeLiteral.getSecond());
+    }
+
+    @Override
     public Expr visitBetween(Between between, PlanTranslatorContext context) {
         throw new RuntimeException("Unexpected invocation");
     }
 
     @Override
-    public Expr visitCompoundPredicate(CompoundPredicate compoundPredicate, PlanTranslatorContext context) {
-        ExpressionType nodeType = compoundPredicate.getType();
-        org.apache.doris.analysis.CompoundPredicate.Operator staleOp;
-        switch (nodeType) {
-            case OR:
-                staleOp = org.apache.doris.analysis.CompoundPredicate.Operator.OR;
-                break;
-            case AND:
-                staleOp = org.apache.doris.analysis.CompoundPredicate.Operator.AND;
-                break;
-            case NOT:
-                staleOp = org.apache.doris.analysis.CompoundPredicate.Operator.NOT;
-                break;
-            default:
-                throw new AnalysisException(String.format("Unknown node type: %s", nodeType.name()));
-        }
-        return new org.apache.doris.analysis.CompoundPredicate(staleOp,
-                compoundPredicate.child(0).accept(this, context),
-                compoundPredicate.child(1).accept(this, context));
+    public Expr visitAnd(And and, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.CompoundPredicate(
+                org.apache.doris.analysis.CompoundPredicate.Operator.AND,
+                and.child(0).accept(this, context),
+                and.child(1).accept(this, context));
     }
 
     @Override
-    public Expr visitStringRegexPredicate(StringRegexPredicate stringRegexPredicate, PlanTranslatorContext context) {
-        ExpressionType nodeType = stringRegexPredicate.getType();
-        org.apache.doris.analysis.LikePredicate.Operator staleOp;
-        switch (nodeType) {
-            case LIKE:
-                staleOp = LikePredicate.Operator.LIKE;
-                break;
-            case REGEXP:
-                staleOp = LikePredicate.Operator.REGEXP;
-                break;
-            default:
-                throw new AnalysisException(String.format("Unknown node type: %s", nodeType.name()));
+    public Expr visitOr(Or or, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.CompoundPredicate(
+                org.apache.doris.analysis.CompoundPredicate.Operator.OR,
+                or.child(0).accept(this, context),
+                or.child(1).accept(this, context));
+    }
+
+    @Override
+    public Expr visitLike(Like like, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.LikePredicate(
+                LikePredicate.Operator.LIKE,
+                like.left().accept(this, context),
+                like.right().accept(this, context));
+    }
+
+    @Override
+    public Expr visitRegexp(Regexp regexp, PlanTranslatorContext context) {
+        return new org.apache.doris.analysis.LikePredicate(
+                LikePredicate.Operator.REGEXP,
+                regexp.left().accept(this, context),
+                regexp.right().accept(this, context));
+    }
+
+    @Override
+    public Expr visitCaseWhen(CaseWhen caseWhen, PlanTranslatorContext context) {
+        List<CaseWhenClause> caseWhenClauses = new ArrayList<>();
+        for (WhenClause whenClause : caseWhen.getWhenClauses()) {
+            caseWhenClauses.add(new CaseWhenClause(
+                    whenClause.left().accept(this, context),
+                    whenClause.right().accept(this, context)
+            ));
         }
-        return new org.apache.doris.analysis.LikePredicate(staleOp,
-                stringRegexPredicate.left().accept(this, context),
-                stringRegexPredicate.right().accept(this, context));
+        Expr elseExpr = null;
+        Optional<Expression> defaultValue = caseWhen.getDefaultValue();
+        if (defaultValue.isPresent()) {
+            elseExpr = defaultValue.get().accept(this, context);
+        }
+        return new CaseExpr(null, caseWhenClauses, elseExpr);
+    }
+
+    @Override
+    public Expr visitCast(Cast cast, PlanTranslatorContext context) {
+        // left child of cast is expression, right child of cast is target type
+        return new CastExpr(cast.getDataType().toCatalogDataType(),
+                cast.left().accept(this, context));
     }
 
     // TODO: Supports for `distinct`
@@ -229,5 +269,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return new ArithmeticExpr(arithmeticOperator.getStaleOp(),
                 arithmetic.child(0).accept(this, context),
                 arithmeticOperator.isBinary() ? arithmetic.child(1).accept(this, context) : null);
+    }
+
+    @Override
+    public Expr visitTimestampArithmetic(TimestampArithmetic arithmetic, PlanTranslatorContext context) {
+        return new TimestampArithmeticExpr(arithmetic.getFuncName(), arithmetic.left().accept(this, context),
+                arithmetic.right().accept(this, context), arithmetic.getTimeUnit().toString());
     }
 }
