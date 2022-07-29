@@ -434,9 +434,9 @@ public class ConnectContext {
     public DataSourceIf getDataSource(String catalogName) {
         String realCatalogName = catalogName == null ? defaultCatalog : catalogName;
         if (env == null) {
-            return Env.getCurrentEnv().getDataSourceMgr().getCatalogNullable(realCatalogName);
+            return Env.getCurrentEnv().getDataSourceMgr().getCatalog(realCatalogName);
         }
-        return env.getDataSourceMgr().getCatalogNullable(realCatalogName);
+        return env.getDataSourceMgr().getCatalog(realCatalogName);
     }
 
     public void changeDefaultCatalog(String catalogName) {
