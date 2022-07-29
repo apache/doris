@@ -24,13 +24,12 @@ import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 
-import java.util.List;
 import java.util.Objects;
 
 /**
  * A subquery that will return only one row and one column.
  */
-public class ScalarSubquery extends SubqueryExpr {
+public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
     public ScalarSubquery(LogicalPlan subquery) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"));
     }
@@ -53,12 +52,5 @@ public class ScalarSubquery extends SubqueryExpr {
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitScalarSubquery(this, context);
-    }
-
-    @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        Preconditions.checkArgument(children.get(0) instanceof ScalarSubquery);
-        return new ScalarSubquery(((SubqueryExpr) children.get(0)).getQueryPlan());
     }
 }
