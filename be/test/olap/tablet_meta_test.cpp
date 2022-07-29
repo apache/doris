@@ -16,11 +16,12 @@
 // under the License.
 
 #include "olap/tablet_meta.h"
-#include "testutil/mock_rowset.h"
 
 #include <gtest/gtest.h>
 
 #include <string>
+
+#include "testutil/mock_rowset.h"
 
 namespace doris {
 
