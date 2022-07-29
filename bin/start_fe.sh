@@ -16,11 +16,25 @@
 # specific language governing permissions and limitations
 # under the License.
 
-curdir=$(dirname "$0")
-curdir=$(
-    cd "$curdir"
-    pwd
-)
+# resolve links - $0 may be a softlink
+PRG="$0"
+
+while [ -h "$PRG" ] ; do
+  ls=`ls -ld "$PRG"`
+  link=`expr "$ls" : '.*-> \(.*\)$'`
+  if expr "$link" : '/.*' > /dev/null; then
+    PRG="$link"
+  else
+    PRG=`dirname "$PRG"`/"$link"
+  fi
+done
+
+PRGDIR=`dirname "$PRG"`
+
+export DORIS_HOME=`cd "$PRGDIR/.." >/dev/null; pwd`
+export PID_DIR=`cd "$PRGDIR" >/dev/null; pwd`
+export LOG_DIR="$DORIS_HOME/log"
+export JAVA_OPTS="-Xmx1024m"
 
 OPTS=$(getopt \
     -n $0 \
@@ -61,23 +75,6 @@ while true; do
         ;;
     esac
 done
-
-export DORIS_HOME=$(
-    cd "$curdir/.."
-    pwd
-)
-
-# export env variables from fe.conf
-#
-# JAVA_OPTS
-# LOG_DIR
-# PID_DIR
-export JAVA_OPTS="-Xmx1024m"
-export LOG_DIR="$DORIS_HOME/log"
-export PID_DIR=$(
-    cd "$curdir"
-    pwd
-)
 
 while read line; do
     envline=$(echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")

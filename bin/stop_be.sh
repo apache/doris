@@ -16,23 +16,26 @@
 # specific language governing permissions and limitations
 # under the License.
 
-curdir=$(dirname "$0")
-curdir=$(
-    cd "$curdir"
-    pwd
-)
+# resolve links - $0 may be a softlink
+PRG="$0"
 
-export DORIS_HOME=$(
-    cd "$curdir/.."
-    pwd
-)
-export PID_DIR=$(
-    cd "$curdir"
-    pwd
-)
+while [ -h "$PRG" ] ; do
+  ls=`ls -ld "$PRG"`
+  link=`expr "$ls" : '.*-> \(.*\)$'`
+  if expr "$link" : '/.*' > /dev/null; then
+    PRG="$link"
+  else
+    PRG=`dirname "$PRG"`/"$link"
+  fi
+done
+
+PRGDIR=`dirname "$PRG"`
+
+export DORIS_HOME=`cd "$PRGDIR/.." >/dev/null; pwd`
+export PID_DIR=`cd "$PRGDIR" >/dev/null; pwd`
 
 signum=9
-if [ "x"$1 = "x--grace" ]; then
+if [ x"$1" = x"--grace" ]; then
     signum=15
 fi
 
