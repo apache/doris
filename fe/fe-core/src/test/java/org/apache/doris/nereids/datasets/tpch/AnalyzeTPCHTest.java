@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.tpch;
+package org.apache.doris.nereids.datasets.tpch;
 
 /**
  * There are still many functions that have not been implemented,
