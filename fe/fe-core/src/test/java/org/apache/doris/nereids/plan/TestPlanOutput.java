@@ -35,8 +35,8 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
@@ -92,23 +92,25 @@ public class TestPlanOutput {
         Assertions.assertEquals(output.get(0).getDataType(), IntegerType.INSTANCE);
     }
 
-    @Test(expected = NullPointerException.class)
+    @Test
     public void testPhysicalPlanMustHaveLogicalProperties() {
-        new PhysicalRelation(PlanType.PHYSICAL_OLAP_SCAN, ImmutableList.of("tbl"), Optional.empty(), null) {
-            @Override
-            public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-                return null;
-            }
+        Assertions.assertThrows(NullPointerException.class, () ->
+                new PhysicalRelation(PlanType.PHYSICAL_OLAP_SCAN, ImmutableList.of("tbl"), Optional.empty(), null) {
+                    @Override
+                    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+                        return null;
+                    }
 
-            @Override
-            public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-                return null;
-            }
+                    @Override
+                    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+                        return null;
+                    }
 
-            @Override
-            public Table getTable() {
-                return null;
-            }
-        };
+                    @Override
+                    public Table getTable() {
+                        return null;
+                    }
+                }
+        );
     }
 }

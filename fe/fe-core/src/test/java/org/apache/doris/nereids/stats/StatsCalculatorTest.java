@@ -49,8 +49,8 @@ import org.apache.doris.statistics.TableStats;
 import com.google.common.base.Supplier;
 import mockit.Expectations;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -105,7 +105,7 @@ public class StatsCalculatorTest {
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
         statsCalculator.estimate();
-        Assert.assertEquals(groupExpression.getOwnerGroup().getStatistics().getRowCount(), 10);
+        Assertions.assertEquals(groupExpression.getOwnerGroup().getStatistics().getRowCount(), 10);
     }
 
     @Test
@@ -149,7 +149,7 @@ public class StatsCalculatorTest {
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
         statsCalculator.estimate();
-        Assert.assertEquals((long) (10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals((long) (10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter logicalFilterOr = new LogicalFilter(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr);
@@ -158,7 +158,7 @@ public class StatsCalculatorTest {
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
         StatsCalculator statsCalculator2 = new StatsCalculator(groupExpressionOr);
         statsCalculator2.estimate();
-        Assert.assertEquals((long) (10000 * (0.1 + 0.05 - 0.1 * 0.05)),
+        Assertions.assertEquals((long) (10000 * (0.1 + 0.05 - 0.1 * 0.05)),
                 ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
 
@@ -190,10 +190,10 @@ public class StatsCalculatorTest {
         EqualTo equalTo = new EqualTo(slot1, slot2);
         StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats,
                 rightStats, equalTo, JoinType.LEFT_SEMI_JOIN);
-        Assert.assertEquals(leftRowCount, semiJoinStats.getRowCount());
+        Assertions.assertEquals(leftRowCount, semiJoinStats.getRowCount());
         StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats,
                 rightStats, equalTo, JoinType.INNER_JOIN);
-        Assert.assertEquals(2500000, innerJoinStats.getRowCount());
+        Assertions.assertEquals(2500000, innerJoinStats.getRowCount());
     }
 
     @Test
@@ -237,8 +237,8 @@ public class StatsCalculatorTest {
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
         statsCalculator.estimate();
         StatsDeriveResult stats = ownerGroup.getStatistics();
-        Assert.assertEquals(1, stats.getSlotToColumnStats().size());
-        Assert.assertNotNull(stats.getSlotToColumnStats().get(slot1));
+        Assertions.assertEquals(1, stats.getSlotToColumnStats().size());
+        Assertions.assertNotNull(stats.getSlotToColumnStats().get(slot1));
     }
 
 }

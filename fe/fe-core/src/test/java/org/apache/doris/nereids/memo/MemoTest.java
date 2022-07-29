@@ -26,8 +26,8 @@ import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class MemoTest {
     @Test
@@ -47,13 +47,13 @@ public class MemoTest {
 
         Group rootGroup = memo.getRoot();
 
-        Assert.assertEquals(3, memo.getGroups().size());
-        Assert.assertEquals(3, memo.getGroupExpressions().size());
+        Assertions.assertEquals(3, memo.getGroups().size());
+        Assertions.assertEquals(3, memo.getGroupExpressions().size());
 
-        Assert.assertEquals(PlanType.LOGICAL_PROJECT, rootGroup.logicalExpressionsAt(0).getPlan().getType());
-        Assert.assertEquals(PlanType.LOGICAL_PROJECT,
+        Assertions.assertEquals(PlanType.LOGICAL_PROJECT, rootGroup.logicalExpressionsAt(0).getPlan().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_PROJECT,
                 rootGroup.logicalExpressionsAt(0).child(0).logicalExpressionsAt(0).getPlan().getType());
-        Assert.assertEquals(PlanType.LOGICAL_UNBOUND_RELATION,
+        Assertions.assertEquals(PlanType.LOGICAL_UNBOUND_RELATION,
                 rootGroup.logicalExpressionsAt(0).child(0).logicalExpressionsAt(0).child(0).logicalExpressionsAt(0)
                         .getPlan().getType());
     }
@@ -85,7 +85,7 @@ public class MemoTest {
                 relation2
         );
         memo.copyIn(project2, null, false);
-        Assert.assertEquals(4, memo.getGroups().size());
+        Assertions.assertEquals(4, memo.getGroups().size());
 
         LogicalProject project3 = new LogicalProject(
                 ImmutableList.of(new SlotReference(new ExprId(1), "other", StringType.INSTANCE, true, ImmutableList.of("other"))),
@@ -98,24 +98,22 @@ public class MemoTest {
         memo.copyIn(relation1, memo.getGroups().get(2), true);
 
 
-        Assert.assertEquals(3, memo.getGroups().size());
+        Assertions.assertEquals(3, memo.getGroups().size());
         Group root = memo.getRoot();
-        Assert.assertEquals(1, root.getLogicalExpressions().size());
-        Assert.assertEquals(PlanType.LOGICAL_PROJECT,
-                root.logicalExpressionsAt(0).getPlan().getType());
+        Assertions.assertEquals(1, root.getLogicalExpressions().size());
+        Assertions.assertEquals(PlanType.LOGICAL_PROJECT, root.logicalExpressionsAt(0).getPlan().getType());
         GroupExpression rootExpression = root.logicalExpressionsAt(0);
-        Assert.assertEquals(1, rootExpression.children().size());
+        Assertions.assertEquals(1, rootExpression.children().size());
         //two expressions: relationA and relationB
-        Assert.assertEquals(2, rootExpression.child(0).getLogicalExpressions().size());
+        Assertions.assertEquals(2, rootExpression.child(0).getLogicalExpressions().size());
         GroupExpression childExpression = rootExpression.child(0).logicalExpressionsAt(0);
-        Assert.assertEquals(PlanType.LOGICAL_UNBOUND_RELATION,
-                childExpression.getPlan().getType());
+        Assertions.assertEquals(PlanType.LOGICAL_UNBOUND_RELATION, childExpression.getPlan().getType());
 
         Group groupProjct3 = memo.getGroups().get(2); //group for project3
         Group groupRelation = memo.getGroups().get(0); //group for relation
         //group0 is child of group4
-        Assert.assertEquals(groupRelation, groupProjct3.logicalExpressionsAt(0).child(0));
-        Assert.assertEquals(1, groupProjct3.getLogicalExpressions().size());
-        Assert.assertEquals(1, groupProjct3.logicalExpressionsAt(0).children().size());
+        Assertions.assertEquals(groupRelation, groupProjct3.logicalExpressionsAt(0).child(0));
+        Assertions.assertEquals(1, groupProjct3.getLogicalExpressions().size());
+        Assertions.assertEquals(1, groupProjct3.logicalExpressionsAt(0).children().size());
     }
 }

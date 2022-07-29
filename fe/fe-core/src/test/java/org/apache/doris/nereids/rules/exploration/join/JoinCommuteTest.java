@@ -34,8 +34,8 @@ import org.apache.doris.nereids.types.BigIntType;
 
 import com.google.common.collect.ImmutableList;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
@@ -60,11 +60,11 @@ public class JoinCommuteTest {
         Rule rule = new JoinCommute(true).build();
 
         List<Plan> transform = rule.transform(join, plannerContext);
-        Assert.assertEquals(1, transform.size());
+        Assertions.assertEquals(1, transform.size());
         Plan newJoin = transform.get(0);
 
-        Assert.assertEquals(join.child(0), newJoin.child(1));
-        Assert.assertEquals(join.child(1), newJoin.child(0));
+        Assertions.assertEquals(join.child(0), newJoin.child(1));
+        Assertions.assertEquals(join.child(1), newJoin.child(0));
     }
 
 }
