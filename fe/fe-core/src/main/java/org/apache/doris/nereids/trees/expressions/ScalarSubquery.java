@@ -20,36 +20,37 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+
+import com.google.common.base.Preconditions;
 
 import java.util.Objects;
 
 /**
- * Exists subquery expression.
+ * A subquery that will return only one row and one column.
  */
-public class Exists extends SubqueryExpr implements LeafExpression {
-
-    public Exists(LogicalPlan subquery) {
+public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
+    public ScalarSubquery(LogicalPlan subquery) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"));
     }
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return BooleanType.INSTANCE;
+        Preconditions.checkArgument(queryPlan.getOutput().size() == 1);
+        return queryPlan.getOutput().get(0).getDataType();
     }
 
     @Override
     public String toSql() {
-        return "EXISTS (SUBQUERY) " + super.toSql();
+        return " (SCALARSUBQUERY) " + super.toSql();
     }
 
     @Override
     public String toString() {
-        return "EXISTS (SUBQUERY) " + super.toString();
+        return " (SCALARSUBQUERY) " + super.toString();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitExistsSubquery(this, context);
+        return visitor.visitScalarSubquery(this, context);
     }
 }
