@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_array_functions_by_literal", "all") {
-    sql "set enable_vectorized_engine = true"
     sql "set enable_array_type = true"
 
     // array_contains function

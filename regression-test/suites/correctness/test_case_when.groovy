@@ -50,8 +50,6 @@ suite("test_case_when") {
     sql " INSERT INTO ${tableName} (`dt`, `hour_time`, `merchant_id`, `channel_id`, `station_type`, `station_name`, `source`, `passenger_flow`, `user_id`, `price`, `discount`) VALUES ('2019-01-01', 4, 45010002, '01', '00', 'xxx站', '', 1, to_bitmap(0), 20, 20); "
         
 
-    // not_vectorized
-    sql """ set enable_vectorized_engine = false """
 
     qt_select_default """ 
     select  hour_time as date_hour, station_type,

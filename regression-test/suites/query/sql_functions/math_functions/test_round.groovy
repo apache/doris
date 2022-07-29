@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_round", "query") {
-    // non vectorized
-    sql """ set enable_vectorized_engine = false """
 
     qt_select "SELECT round(10.12345)"
     qt_select "SELECT round(10.12345, 2)"

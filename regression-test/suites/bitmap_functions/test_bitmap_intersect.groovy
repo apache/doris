@@ -18,7 +18,6 @@
 suite("test_bitmap_intersect", "bitmap_function") {
 
     def tbName = "test_bitmap_intersect"
-    sql """ SET enable_vectorized_engine = FALSE; """
     sql """ DROP TABLE IF EXISTS ${tbName} """
     sql """ create table ${tbName} (tag varchar(20),user_ids bitmap bitmap_union) aggregate key (tag) distributed by hash (tag) PROPERTIES("replication_num" = "1"); """
     sql """ insert into ${tbName} values('A', to_bitmap(1)); """
@@ -55,7 +54,6 @@ suite("test_bitmap_intersect", "bitmap_function") {
        ) t
        """
 
-    sql """ SET enable_vectorized_engine = true; """
     qt_sql  """ select
        bitmap_to_string(bitmap_intersect(user_ids))
        from

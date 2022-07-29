@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_cast_function", "query") {
-    sql """ SET enable_vectorized_engine = TRUE; """
 
     qt_sql """ select cast (1 as BIGINT) """
     qt_sql """ select cast(cast ("11.2" as double) as bigint) """

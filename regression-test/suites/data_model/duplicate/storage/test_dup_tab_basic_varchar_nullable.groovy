@@ -38,8 +38,6 @@ suite("test_dup_tab_basic_varchar_nullable") {
     )
     """
 
-    sql "set enable_vectorized_engine = false"
-
     sql """insert into ${table1} values(null,'qie3','yy','lj'),
         (null,'hehe',null,'lala'),
         ('beijing','xuanwu','wugui',null),
@@ -49,8 +47,6 @@ suite("test_dup_tab_basic_varchar_nullable") {
         ('tengxun','qie','gg','lj'),
         ('tengxun2','qie',null,'lj')
 """
-
-    sql "set enable_vectorized_engine = true"
 
     // read single column
     test {

@@ -20,7 +20,6 @@ import java.text.SimpleDateFormat
 suite("test_date_function", "query") {
     def tableName = "test_date_function"
 
-    sql """ SET enable_vectorized_engine = TRUE; """
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (

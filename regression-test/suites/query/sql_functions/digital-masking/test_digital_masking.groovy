@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_digital_masking", "query") {
-    sql """ SET enable_vectorized_engine = TRUE; """
-
     qt_sql """ select digital_masking(13812345678) """
 
 }

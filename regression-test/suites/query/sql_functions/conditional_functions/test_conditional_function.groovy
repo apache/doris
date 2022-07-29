@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_conditional_function", "query") {
-    qt_sql "set enable_vectorized_engine = true;"
     qt_sql "set batch_size = 4096;"
 
     def tbName = "test_conditional_function"

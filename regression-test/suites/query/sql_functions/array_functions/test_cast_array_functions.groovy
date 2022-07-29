@@ -19,7 +19,6 @@ suite("test_cast_array_functions", "query") {
     // open enable_array_type
     sql """ set enable_array_type = true """
     // array functions only supported in vectorized engine
-    sql """ set enable_vectorized_engine = true """
     test {
         // char to int is ok
         sql "select cast(cast('1' as char) as int)"

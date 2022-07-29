@@ -42,8 +42,6 @@ PROPERTIES (
 )
 """
 
-    sql "set enable_vectorized_engine = false"
-
     sql """insert into ${table1} values(1,2,3.1,4.2,5.3,5.4,'a1','a2'),
             (2,3,4.1,5.2,6.3,7.4,'b1','b2'),
             (3,4,5.1,6.2,7.3,8.4,'c1','c2'),
@@ -52,8 +50,6 @@ PROPERTIES (
             (5,6,5.1,8.2,6.3,11.4,'e1','e2'),
             (null,7,null,8,null,9,null,'e3')
         """
-    sql "set enable_vectorized_engine = true"
-
     // read int and string
     test {
         sql "select siteid, cardid, name, addr from ${table1} order by siteid, cardid, name, addr"

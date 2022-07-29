@@ -23,10 +23,6 @@ suite("test_array_load", "load") {
         // multi-line sql
         sql """ set enable_array_type = true """
         
-        if (enable_vectorized_flag) {
-            sql """ set enable_vectorized_engine = true """
-        }
-
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
               `k1` INT(11) NULL COMMENT "",

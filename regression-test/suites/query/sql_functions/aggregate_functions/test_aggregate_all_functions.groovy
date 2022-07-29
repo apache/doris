@@ -17,7 +17,6 @@
 
 suite("test_aggregate_all_functions", "query") {
 
-    sql "set enable_vectorized_engine = true"
     sql "set batch_size = 4096"
     
     // APPROX_COUNT_DISTINCT_ACTION

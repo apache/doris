@@ -64,8 +64,6 @@ suite("test_ntile_function", "query") {
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
     }
-    // Not Vectorized
-    sql """ set enable_vectorized_engine = false """
 
     qt_select "select k1, k2, k3, ntile(3) over (partition by k1 order by k2) as ntile from ${tableName};"
     qt_select "select k1, k2, k3, ntile(5) over (partition by k1 order by k2) as ntile from ${tableName};"

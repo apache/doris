@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_aggregate_collect", "query") {
-    sql "set enable_vectorized_engine = true"
     sql "set enable_array_type = true;"
 
     def tableName = "collect_test"

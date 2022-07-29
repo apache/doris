@@ -17,8 +17,6 @@
 
 suite("test_bitmap_function", "query") {
 
-    sql """ SET enable_vectorized_engine = TRUE; """
-
     // BITMAP_AND
     qt_sql """ select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(2))) cnt """
     qt_sql """ select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(1))) cnt """

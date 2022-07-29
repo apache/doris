@@ -17,7 +17,6 @@
 
 suite("test_timestampdiff", "query") {
     // non vectorized
-    sql """ set enable_vectorized_engine = false """
 
     qt_select """SELECT TIMESTAMPDIFF(YEAR,DATE('1981-09-11'),'2022-04-28') AS `date-str`,
                         TIMESTAMPDIFF(YEAR,'1981-09-11','2022-04-28') AS `str-str`,
@@ -40,8 +39,6 @@ suite("test_timestampdiff", "query") {
                         TIMESTAMPDIFF(MONTH,DATE('2020-04-29'),DATE('2022-04-28')) AS `date-date`,
                         TIMESTAMPDIFF(MONTH,'2020-04-29',DATE('2022-04-28')) AS `str-date`"""
 
-    // vectorized
-    sql """ set enable_vectorized_engine = true """
 
     qt_select """SELECT TIMESTAMPDIFF(YEAR,DATE('1981-09-11'),'2022-04-28') AS `date-str`,
                         TIMESTAMPDIFF(YEAR,'1981-09-11','2022-04-28') AS `str-str`,

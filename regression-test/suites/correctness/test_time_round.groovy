@@ -18,8 +18,7 @@
 
 suite("test_time_round") {
    
-    sql """ set enable_vectorized_engine = true """
-    // fix by issues/9711, expect: '1970-01-01T01:00:30' 
+    // fix by issues/9711, expect: '1970-01-01T01:00:30'
     qt_select "select hour_ceil('1970-01-01 01:00:10', 1, '1970-01-01 00:00:30')"
 
     // fix by issues/9711, expect: '1970-01-01T00:00:30'
@@ -43,8 +42,7 @@ suite("test_time_round") {
     qt_select "select year_floor('2022-05-25 00:00:00')"
 
 
-    sql """ set enable_vectorized_engine = true """
-    // fix by issues/9711, expect: '1970-01-01T01:00:30' 
+    // fix by issues/9711, expect: '1970-01-01T01:00:30'
     qt_select "select hour_ceil('1970-01-01 01:00:10', 1, '1970-01-01 00:00:30')"
 
     // fix by issues/9711, expect: '1970-01-01T00:00:30'

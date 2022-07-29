@@ -31,8 +31,6 @@
          (423,78),
          (3,23); """
 
-     // test_vectorized
-     sql """ set enable_vectorized_engine = true; """
 
      qt_select_default """  select variance(aa) from ${tableName}; """
 

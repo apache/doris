@@ -31,8 +31,6 @@ suite("test_lag_lead_window") {
         ('b','aa','/wyyt-image/2022/04/13/1434607674511761493.jpg'),
         ('c','cc','/wyyt-image/2022/04/13/1434607674511761493.jpg') """
 
-    // not_vectorized
-    sql """ set enable_vectorized_engine = false """
 
     qt_select_default """ select min(t.cc) over(PARTITION by t.cc  order by t.aa) ,
                             lag(t.cc,1,'') over (PARTITION by t.cc  order by t.aa) as l1 from ${tableName} t; """
