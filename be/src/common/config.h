@@ -794,6 +794,17 @@ CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
 CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
 
+#ifdef BE_TEST
+// test s3
+CONF_String(test_s3_resource, "resource");
+CONF_String(test_s3_ak, "ak");
+CONF_String(test_s3_sk, "sk");
+CONF_String(test_s3_endpoint, "endpoint");
+CONF_String(test_s3_region, "region");
+CONF_String(test_s3_bucket, "bucket");
+CONF_String(test_s3_prefix, "prefix");
+#endif
+
 } // namespace config
 
 } // namespace doris

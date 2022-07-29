@@ -50,9 +50,8 @@ Status LocalFileReader::close() {
 Status LocalFileReader::read_at(size_t offset, Slice result, size_t* bytes_read) {
     DCHECK(!closed());
     if (offset > _file_size) {
-        return Status::IOError(
-                fmt::format("offset exceeds file size(offset: {), file size: {}, path: {})", offset,
-                            _file_size, _path.native()));
+        return Status::IOError("offset exceeds file size(offset: {), file size: {}, path: {})",
+                               offset, _file_size, _path.native());
     }
     size_t bytes_req = result.size;
     char* to = result.data;
@@ -62,12 +61,10 @@ Status LocalFileReader::read_at(size_t offset, Slice result, size_t* bytes_read)
     while (bytes_req != 0) {
         auto res = ::pread(_fd, to, bytes_req, offset);
         if (UNLIKELY(-1 == res && errno != EINTR)) {
-            return Status::IOError(
-                    fmt::format("cannot read from {}: {}", _path.native(), std::strerror(errno)));
+            return Status::IOError("cannot read from {}: {}", _path.native(), std::strerror(errno));
         }
         if (UNLIKELY(res == 0)) {
-            return Status::IOError(
-                    fmt::format("cannot read from {}: unexpected EOF", _path.native()));
+            return Status::IOError("cannot read from {}: unexpected EOF", _path.native());
         }
         if (res > 0) {
             to += res;
