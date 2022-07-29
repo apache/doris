@@ -77,7 +77,7 @@ public class AlterResourceStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
         sb.append("ALTER RESOURCE '").append(resourceName).append("' ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();

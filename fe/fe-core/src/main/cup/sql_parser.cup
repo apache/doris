@@ -147,7 +147,7 @@ parser code {:
             return null;
         }
         String[] lines = stmt.split("\n", -1);
-        StringBuffer result = new StringBuffer();
+        StringBuilder result = new StringBuilder();
         result.append(getErrorTypeMessage(errorToken.sym) + " in line ");
         result.append(errorToken.left);
         result.append(":\n");
