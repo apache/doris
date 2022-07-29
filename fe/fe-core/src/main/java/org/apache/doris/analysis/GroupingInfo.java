@@ -236,7 +236,11 @@ public class GroupingInfo {
         if (expr instanceof SlotRef) {
             slotDesc.setColumn(((SlotRef) expr).getColumn());
         }
-        outputTupleSmap.put(expr.clone(), new SlotRef(slotDesc));
+        if (expr instanceof VirtualSlotRef) {
+            outputTupleSmap.put(expr.clone(), new VirtualSlotRef(slotDesc));
+        } else {
+            outputTupleSmap.put(expr.clone(), new SlotRef(slotDesc));
+        }
         return slotDesc;
     }
 

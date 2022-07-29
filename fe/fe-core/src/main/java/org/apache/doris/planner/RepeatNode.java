@@ -117,10 +117,14 @@ public class RepeatNode extends PlanNode {
         ExprSubstitutionMap childSmap = getCombinedChildSmap();
         groupByClause.substituteGroupingExprs(groupingInfo.getVirtualSlotRefs(), childSmap, analyzer);
         groupingInfo.substitutePreRepeatExprs(childSmap, analyzer);
-        // groupingInfo.getOutputTupleSmap().substituteRhs(getCombinedChildSmap(), analyzer);
         outputSmap = groupingInfo.getOutputTupleSmap();
         conjuncts = Expr.substituteList(conjuncts, outputSmap, analyzer, false);
         outputTupleDesc = groupingInfo.getOutputTupleDesc();
+        List<TupleId> inputTupleIds = input.getOutputTupleIds();
+        if (inputTupleIds.size() == 1) {
+            // used for MaterializedViewSelector getTableIdToColumnNames
+            outputTupleDesc.setTable(analyzer.getTupleDesc(inputTupleIds.get(0)).getTable());
+        }
 
         //set aggregate nullable
         for (Expr slot : groupByClause.getGroupingExprs()) {

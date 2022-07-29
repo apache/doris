@@ -29,7 +29,7 @@ VRepeatNode::VRepeatNode(ObjectPool* pool, const TPlanNode& tnode, const Descrip
 Status VRepeatNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     RETURN_IF_ERROR(
-            VExpr::create_expr_trees(_pool, tnode.repeat_node.exprs, &_probe_grouping_expr_ctxs));
+            VExpr::create_expr_trees(_pool, tnode.repeat_node.exprs, &_expr_ctxs));
     return Status::OK();
 }
 
@@ -37,7 +37,7 @@ Status VRepeatNode::prepare(RuntimeState* state) {
     VLOG_CRITICAL << "VRepeatNode::prepare";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(RepeatNode::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_probe_grouping_expr_ctxs, state, child(0)->row_desc()));
+    RETURN_IF_ERROR(VExpr::prepare(_expr_ctxs, state, child(0)->row_desc()));
 
     for (const auto& slot_desc : _output_tuple_desc->slots()) {
         _output_slots.push_back(slot_desc);
@@ -52,7 +52,7 @@ Status VRepeatNode::open(RuntimeState* state) {
     VLOG_CRITICAL << "VRepeatNode::open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(RepeatNode::open(state));
-    RETURN_IF_ERROR(VExpr::open(_probe_grouping_expr_ctxs, state));
+    RETURN_IF_ERROR(VExpr::open(_expr_ctxs, state));
     return Status::OK();
 }
 
@@ -177,9 +177,9 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             return Status::OK();
         }
 
-        DCHECK(!_probe_grouping_expr_ctxs.empty());
+        DCHECK(!_expr_ctxs.empty());
         _intermediate_block.reset(new Block());
-        for (auto vexpr_ctx : _probe_grouping_expr_ctxs) {
+        for (auto vexpr_ctx : _expr_ctxs) {
             int result_column_id = -1;
             RETURN_IF_ERROR(vexpr_ctx->execute(_child_block.get(), &result_column_id));
             DCHECK(result_column_id != -1);
@@ -188,7 +188,7 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                             .column->convert_to_full_column_if_const();
             _intermediate_block->insert(_child_block->get_by_position(result_column_id));
         }
-        DCHECK_EQ(_probe_grouping_expr_ctxs.size(), _intermediate_block->columns());
+        DCHECK_EQ(_expr_ctxs.size(), _intermediate_block->columns());
     }
 
     RETURN_IF_ERROR(get_repeated_block(_intermediate_block.get(), _repeat_id_idx, block));
@@ -214,9 +214,7 @@ Status VRepeatNode::close(RuntimeState* state) {
         return Status::OK();
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VRepeatNode::close");
-    _intermediate_block->clear();
-    release_block_memory(*_child_block);
-    VExpr::close(_probe_grouping_expr_ctxs, state);
+    VExpr::close(_expr_ctxs, state);
     RETURN_IF_ERROR(child(0)->close(state));
     return ExecNode::close(state);
 }

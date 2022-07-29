@@ -63,9 +63,9 @@ protected:
     RuntimeState* _runtime_state;
 
     // Exprs used to evaluate input rows
-    std::vector<Expr*> _probe_exprs;
+    std::vector<Expr*> _exprs;
 
-    std::vector<ExprContext*> _probe_expr_evals;
+    std::vector<ExprContext*> _expr_evals;
 };
 
 } // namespace doris

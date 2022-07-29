@@ -17,7 +17,6 @@
 
 #include "exec/repeat_node.h"
 
-#include "common/compiler_util.h"
 #include "gutil/strings/join.h"
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
@@ -46,8 +45,8 @@ RepeatNode::~RepeatNode() {}
 Status RepeatNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     const RowDescriptor& row_desc = child(0)->row_desc();
-    RETURN_IF_ERROR(Expr::create(tnode.repeat_node.exprs, row_desc, state, &_probe_exprs));
-    DCHECK(!_probe_exprs.empty());
+    RETURN_IF_ERROR(Expr::create(tnode.repeat_node.exprs, row_desc, state, &_exprs));
+    DCHECK(!_exprs.empty());
     return Status::OK();
 }
 
@@ -61,12 +60,12 @@ Status RepeatNode::prepare(RuntimeState* state) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
-    for (int i = 0; i < _probe_exprs.size(); i++) {
-        ExprContext* context = _pool->add(new ExprContext(_probe_exprs[i]));
+    for (int i = 0; i < _exprs.size(); i++) {
+        ExprContext* context = _pool->add(new ExprContext(_exprs[i]));
         RETURN_IF_ERROR(context->prepare(state, child(0)->row_desc()));
-        _probe_expr_evals.push_back(context);
+        _expr_evals.push_back(context);
     }
-    DCHECK_EQ(_probe_exprs.size(), _probe_expr_evals.size());
+    DCHECK_EQ(_exprs.size(), _expr_evals.size());
     return Status::OK();
 }
 
@@ -75,8 +74,8 @@ Status RepeatNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
-    for (int i = 0; i < _probe_expr_evals.size(); i++) {
-        RETURN_IF_ERROR(_probe_expr_evals[i]->open(state));
+    for (int i = 0; i < _expr_evals.size(); i++) {
+        RETURN_IF_ERROR(_expr_evals[i]->open(state));
     }
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(child(0)->open(state));
@@ -118,7 +117,7 @@ Status RepeatNode::get_repeated_batch(RowBatch* child_row_batch, int repeat_id_i
         memset(tuple, 0, _output_tuple_desc->num_null_bytes());
 
         int slot_index = 0;
-        for (; slot_index < _probe_expr_evals.size(); ++slot_index) {
+        for (; slot_index < _expr_evals.size(); ++slot_index) {
             const SlotDescriptor* slot_desc = _output_tuple_desc->slots()[slot_index];
             // set null base on repeated list
             if (_all_slot_ids.find(slot_desc->id()) != _all_slot_ids.end()) {
@@ -129,7 +128,7 @@ Status RepeatNode::get_repeated_batch(RowBatch* child_row_batch, int repeat_id_i
                 }
             }
 
-            void* val = _probe_expr_evals[slot_index]->get_value(src_row);
+            void* val = _expr_evals[slot_index]->get_value(src_row);
             tuple->set_not_null(slot_desc->null_indicator_offset());
             RawValue::write(val, tuple, slot_desc, tuple_pool);
         }
@@ -191,11 +190,11 @@ Status RepeatNode::close(RuntimeState* state) {
         return Status::OK();
     }
     _child_row_batch.reset(nullptr);
-    for (int i = 0; i < _probe_expr_evals.size(); i++) {
-        _probe_expr_evals[i]->close(state);
+    for (int i = 0; i < _expr_evals.size(); i++) {
+        _expr_evals[i]->close(state);
     }
-    _probe_expr_evals.clear();
-    Expr::close(_probe_exprs);
+    _expr_evals.clear();
+    Expr::close(_exprs);
     RETURN_IF_ERROR(child(0)->close(state));
     return ExecNode::close(state);
 }
@@ -205,7 +204,7 @@ void RepeatNode::debug_string(int indentation_level, std::stringstream* out) con
     *out << "RepeatNode(";
     *out << "repeat pattern: [" << JoinElements(_repeat_id_list, ",") << "]\n";
     *out << "add " << _grouping_list.size() << " columns. \n";
-    *out << "_exprs: " << Expr::debug_string(_probe_exprs);
+    *out << "_exprs: " << Expr::debug_string(_exprs);
     *out << "added column values: ";
     for (const std::vector<int64_t>& v : _grouping_list) {
         *out << "[" << JoinElements(v, ",") << "] ";

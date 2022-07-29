@@ -53,7 +53,7 @@ private:
 
     std::vector<SlotDescriptor*> _output_slots;
 
-    std::vector<VExprContext*> _probe_grouping_expr_ctxs;
+    std::vector<VExprContext*> _expr_ctxs;
 };
 } // namespace vectorized
 } // namespace doris
