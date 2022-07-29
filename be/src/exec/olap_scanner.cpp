@@ -333,7 +333,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
         ObjectPool unused_object_pool;
         if (batch->tuple_data_pool()->total_reserved_bytes() >= raw_bytes_threshold) {
             return Status::RuntimeError(
-                    "Scanner row bytes is to small, you can try incease be config "
+                    "Scanner row bytes buffer is too small, please try to increase be config "
                     "'doris_scanner_row_bytes'.");
         }
         while (true) {
