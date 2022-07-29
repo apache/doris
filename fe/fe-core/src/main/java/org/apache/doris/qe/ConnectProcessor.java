@@ -91,8 +91,20 @@ public class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_CLUSTER_NAME_NULL, "Please enter cluster");
             return;
         }
+        String catalogName = null;
+        String[] dbNames = dbName.split("\\.");
+        if (dbNames.length == 2) {
+            catalogName = dbNames[0];
+            dbName = dbNames[1];
+        } else if (dbNames.length > 2) {
+            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + dbName);
+            return;
+        }
         dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
         try {
+            if (catalogName != null) {
+                ctx.getEnv().changeCatalog(ctx, catalogName);
+            }
             ctx.getEnv().changeDb(ctx, dbName);
         } catch (DdlException e) {
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());

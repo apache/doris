@@ -2729,7 +2729,7 @@ show_param ::=
     {:
         RESULT = new ShowDbStmt(parser.wild, parser.where);
     :}
-    | KW_DATABASES KW_FROM STRING_LITERAL:catalogName
+    | KW_DATABASES KW_FROM ident:catalogName
     {:
         RESULT = new ShowDbStmt(null, null, catalogName);
     :}
@@ -2742,7 +2742,7 @@ show_param ::=
     {:
         RESULT = new ShowDbStmt(parser.wild, parser.where);
     :}
-    | KW_SCHEMAS KW_FROM STRING_LITERAL:catalogName
+    | KW_SCHEMAS KW_FROM ident:catalogName
     {:
         RESULT = new ShowDbStmt(null, null, catalogName);
     :}
@@ -3463,6 +3463,10 @@ use_stmt ::=
     KW_USE ident:db
     {:
         RESULT = new UseStmt(db);
+    :}
+    | KW_USE ident:ctl DOT ident:db
+    {:
+        RESULT = new UseStmt(ctl, db);
     :}
     ;
 

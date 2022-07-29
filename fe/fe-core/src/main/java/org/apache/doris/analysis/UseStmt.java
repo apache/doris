@@ -60,7 +60,7 @@ public class UseStmt extends StatementBase {
         StringBuilder sb = new StringBuilder();
         sb.append("USE ");
         if (catalogName != null) {
-            sb.append("`").append(catalogName).append("`");
+            sb.append("`").append(catalogName).append("`.");
         }
         sb.append("`").append(database).append("`");
         return sb.toString();
