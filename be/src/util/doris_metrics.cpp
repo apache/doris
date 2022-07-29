@@ -104,12 +104,12 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(
         "(segment_v2) total number of rows in queried segments (before index pruning)",
         segment_read, Labels({{"type", "segment_row_total"}}));
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_begin_request_total, MetricUnit::OPERATIONS, "",
-                                     stream_load_txn_request, Labels({{"type", "begin"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_commit_request_total, MetricUnit::OPERATIONS, "",
-                                     stream_load_txn_request, Labels({{"type", "commit"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_rollback_request_total, MetricUnit::OPERATIONS, "",
-                                     stream_load_txn_request, Labels({{"type", "rollback"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_begin_request_total, MetricUnit::OPERATIONS,
+                                     "", stream_load_txn_request, Labels({{"type", "begin"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_commit_request_total, MetricUnit::OPERATIONS,
+                                     "", stream_load_txn_request, Labels({{"type", "commit"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_rollback_request_total, MetricUnit::OPERATIONS,
+                                     "", stream_load_txn_request, Labels({{"type", "rollback"}}));
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_receive_bytes_total, MetricUnit::BYTES, "", stream_load,
                                      Labels({{"type", "receive_bytes"}}));

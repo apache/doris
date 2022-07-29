@@ -35,9 +35,7 @@ using std::string;
 
 namespace doris {
 
-FileHandler::FileHandler()
-        : _fd(-1), _wr_length(0), _file_name(""){
-}
+FileHandler::FileHandler() : _fd(-1), _wr_length(0), _file_name("") {}
 
 FileHandler::~FileHandler() {
     this->close();
