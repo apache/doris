@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
+import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StringLiteral;
@@ -238,6 +239,10 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitTimestampArithmetic(TimestampArithmetic arithmetic, C context) {
         return visit(arithmetic, context);
+    }
+
+    public R visitScalarSubquery(ScalarSubquery scalar, C context) {
+        return visitSubqueryExpr(scalar, context);
     }
 
     /* ********************************************************************************************

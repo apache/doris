@@ -95,7 +95,7 @@ public class SubqueryExpr extends Expression {
      * @param o compared query.
      * @return equal ? true : false;
      */
-    private boolean checkEquals(Object i, Object o) {
+    protected boolean checkEquals(Object i, Object o) {
         if (!(i instanceof LogicalPlan) || !(o instanceof LogicalPlan)) {
             return false;
         }
