@@ -31,6 +31,7 @@ public:
     int32_t num_row_groups() const { return _num_groups; }
     int32_t num_columns() const { return _num_columns; };
     int32_t num_rows() const { return _num_rows; };
+    SchemaDescriptor schema() const { return _schema; };
     std::string debug_string() const;
 
 private:

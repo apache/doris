@@ -29,7 +29,7 @@ public:
 private:
     int16_t _max_def_level;
     int16_t _max_rep_level;
-    std::vector<FieldSchema> children;
+    //    std::vector<FieldSchema> children;
 };
 
 class SchemaDescriptor {
@@ -40,7 +40,7 @@ public:
     std::string debug_string() const;
 
 private:
-    std::vector<FieldSchema> fields;
+    //    std::vector<FieldSchema> fields;
 };
 
 } // namespace doris::vectorized

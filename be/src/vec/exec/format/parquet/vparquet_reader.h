@@ -66,19 +66,19 @@ private:
 private:
     FileReader* _file_reader;
     std::shared_ptr<FileMetaData> _file_metadata;
-    const int64_t _batch_size;
-    const int32_t _num_of_columns_from_file;
-    int _total_groups;                      // num of groups(stripes) of a parquet(orc) file
-    int _current_group;                     // current group(stripe)
-    std::map<std::string, int> _map_column; // column-name <---> column-index
-    std::vector<int> _include_column_ids;   // columns that need to get from file
-                                            //        std::shared_ptr<Statistics> _statistics;
+    //    const int64_t _batch_size;
+    //    const int32_t _num_of_columns_from_file;
+    int _total_groups; // num of groups(stripes) of a parquet(orc) file
+    //    int _current_group;                     // current group(stripe)
+    //    std::map<std::string, int> _map_column; // column-name <---> column-index
+    //    std::vector<int> _include_column_ids;   // columns that need to get from file
+    //        std::shared_ptr<Statistics> _statistics;
 
     // parquet file reader object
-    std::vector<Block*> _batch;
-    std::string _timezone;
-    int64_t _range_start_offset;
-    int64_t _range_size;
+    //    std::vector<Block*> _batch;
+    //    std::string _timezone;
+    //    int64_t _range_start_offset;
+    //    int64_t _range_size;
 
 private:
     std::atomic<bool> _closed = false;

@@ -26,10 +26,10 @@ public:
     Status get_row_range_for_page();
     Status collect_skipped_page_range();
 
-private:
-    // row range define
-    tparquet::ColumnIndex _column_index;
-    tparquet::OffsetIndex _offset_index;
+    //private:
+    //    // row range define
+    //    tparquet::ColumnIndex _column_index;
+    //    tparquet::OffsetIndex _offset_index;
 };
 
 } // namespace doris::vectorized

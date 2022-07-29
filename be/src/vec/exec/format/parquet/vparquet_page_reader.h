@@ -27,8 +27,8 @@ public:
     Status read_page_header();
     Status read_page_data();
 
-private:
-    tparquet::PageHeader* _page_header;
+    //private:
+    //    tparquet::PageHeader* _page_header;
 };
 
 } // namespace doris::vectorized
