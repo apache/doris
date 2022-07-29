@@ -473,6 +473,7 @@ struct THashJoinNode {
   // hash output column
   6: optional list<Types.TSlotId> hash_output_slot_ids
 
+  // TODO: remove 7 and 8 in the version after the version include projection on ExecNode
   7: optional list<Exprs.TExpr> srcExprList
 
   8: optional Types.TTupleId voutput_tuple_id
@@ -878,6 +879,9 @@ struct TPlanNode {
 
   // file scan node
   44: optional TFileScanNode file_scan_node
+
+  101: optional list<Exprs.TExpr> projections
+  102: optional Types.TTupleId output_tuple_id
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first
