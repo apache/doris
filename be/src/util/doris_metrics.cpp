@@ -135,8 +135,8 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_total, MetricUnit::OPERATION
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_duration_us, MetricUnit::MICROSECONDS);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(attach_task_thread_count, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(switch_thread_mem_tracker_count, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(switch_thread_mem_tracker_err_cb_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(add_thread_mem_tracker_consumer_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_mem_tracker_exceed_call_back_count, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(switch_bthread_count, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(memory_pool_bytes_total, MetricUnit::BYTES);
@@ -287,22 +287,12 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, max_network_send_bytes_rate);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, max_network_receive_bytes_rate);
 
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, readable_blocks_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, writable_blocks_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, blocks_created_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, blocks_deleted_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, bytes_read_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, bytes_written_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, disk_sync_total);
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, blocks_open_reading);
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, blocks_open_writing);
-
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, load_rows);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, load_bytes);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, attach_task_thread_count);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, switch_thread_mem_tracker_count);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, switch_thread_mem_tracker_err_cb_count);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, add_thread_mem_tracker_consumer_count);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, thread_mem_tracker_exceed_call_back_count);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, switch_bthread_count);
 
     INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, upload_total_byte);

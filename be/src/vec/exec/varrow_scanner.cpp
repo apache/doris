@@ -76,8 +76,9 @@ Status VArrowScanner::_open_next_reader() {
         if (range.__isset.num_of_columns_from_file) {
             num_of_columns_from_file = range.num_of_columns_from_file;
         }
-        _cur_file_reader = _new_arrow_reader(file_reader.release(), _state->batch_size(),
-                                             num_of_columns_from_file);
+        _cur_file_reader =
+                _new_arrow_reader(file_reader.release(), _state->batch_size(),
+                                  num_of_columns_from_file, range.start_offset, range.size);
         auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
         Status status = _cur_file_reader->init_reader(tuple_desc, _src_slot_descs, _conjunct_ctxs,
                                                       _state->timezone());
@@ -271,7 +272,7 @@ Status VArrowScanner::_append_batch_to_src_block(Block* block) {
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         RETURN_IF_ERROR(arrow_column_to_doris_column(
                 array, _arrow_batch_cur_idx, column_with_type_and_name.column,
-                column_with_type_and_name.type, num_elements, _state->timezone()));
+                column_with_type_and_name.type, num_elements, _state->timezone_obj()));
     }
 
     _arrow_batch_cur_idx += num_elements;

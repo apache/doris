@@ -21,11 +21,11 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * All arithmetic operator.
@@ -108,37 +108,12 @@ public abstract class Arithmetic extends Expression {
     private final ArithmeticOperator op;
 
     public Arithmetic(ArithmeticOperator op, Expression... children) {
-        super(genNodeType(op), children);
+        super(children);
         this.op = op;
     }
 
     public ArithmeticOperator getArithmeticOperator() {
         return op;
-    }
-
-    private static NodeType genNodeType(ArithmeticOperator op) {
-        switch (op) {
-            case MULTIPLY:
-                return NodeType.MULTIPLY;
-            case DIVIDE:
-                return NodeType.DIVIDE;
-            case MOD:
-                return NodeType.MOD;
-            case ADD:
-                return NodeType.ADD;
-            case SUBTRACT:
-                return NodeType.SUBTRACT;
-            case BITAND:
-                return NodeType.BITAND;
-            case BITOR:
-                return NodeType.BITOR;
-            case BITXOR:
-                return NodeType.BITXOR;
-            case BITNOT:
-                return NodeType.NOT;
-            default:
-                return null;
-        }
     }
 
     @Override
@@ -176,17 +151,38 @@ public abstract class Arithmetic extends Expression {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
+        if (!super.equals(o)) {
+            return false;
+        }
         Arithmetic that = (Arithmetic) o;
-        return op == that.op;
+        return op == that.op && Objects.equals(this.children(), that.children());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(op);
+        return Objects.hash(op, children());
     }
 
     @Override
     public String toString() {
-        return sql();
+        return stringBuilder(Object::toString);
+    }
+
+    @Override
+    public String toSql() {
+        return stringBuilder(Expression::toSql);
+    }
+
+    private String stringBuilder(Function<Expression, String> stringMapper) {
+        switch (op.getPos()) {
+            case BINARY_INFIX:
+                return stringMapper.apply(children.get(0)) + " " + op + " " + stringMapper.apply(children.get(1));
+            case UNARY_PREFIX:
+                return op + stringMapper.apply(children.get(0));
+            case UNARY_POSTFIX:
+                return stringMapper.apply(children.get(0)) + op;
+            default:
+                throw new IllegalStateException("Not supported operator: " + op);
+        }
     }
 }

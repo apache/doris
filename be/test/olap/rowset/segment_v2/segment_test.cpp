@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <functional>
 #include <iostream>
+#include <vector>
 
 #include "common/logging.h"
 #include "io/fs/file_system.h"
@@ -29,8 +30,6 @@
 #include "io/fs/local_file_system.h"
 #include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
 #include "olap/in_list_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/row_block.h"
@@ -38,13 +37,15 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "testutil/test_util.h"
+#include "util/debug_util.h"
 #include "util/file_utils.h"
+#include "util/key_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -73,6 +74,8 @@ static bool column_contains_index(ColumnMetaPB column_meta, ColumnIndexTypePB ty
     return false;
 }
 
+static StorageEngine* k_engine = nullptr;
+
 class SegmentReaderWriterTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -80,16 +83,25 @@ protected:
             EXPECT_TRUE(FileUtils::remove_all(kSegmentDir).ok());
         }
         EXPECT_TRUE(FileUtils::create_dir(kSegmentDir).ok());
+
+        doris::EngineOptions options;
+        k_engine = new StorageEngine(options);
+        StorageEngine::_s_instance = k_engine;
     }
 
     void TearDown() override {
         if (FileUtils::check_exist(kSegmentDir)) {
             EXPECT_TRUE(FileUtils::remove_all(kSegmentDir).ok());
         }
+        if (k_engine != nullptr) {
+            k_engine->stop();
+            delete k_engine;
+            k_engine = nullptr;
+        }
     }
 
     TabletSchema create_schema(const std::vector<TabletColumn>& columns,
-                               int num_short_key_columns = -1) {
+                               KeysType keys_type = DUP_KEYS, int num_custom_key_columns = -1) {
         TabletSchema res;
         int num_key_columns = 0;
         for (auto& col : columns) {
@@ -101,7 +113,8 @@ protected:
         res._num_columns = columns.size();
         res._num_key_columns = num_key_columns;
         res._num_short_key_columns =
-                num_short_key_columns != -1 ? num_short_key_columns : num_key_columns;
+                num_custom_key_columns != -1 ? num_custom_key_columns : num_key_columns;
+        res._keys_type = keys_type;
         res.init_field_index_for_test();
         return res;
     }
@@ -116,7 +129,7 @@ protected:
         std::string path = fmt::format("{}/{}", kSegmentDir, filename);
         auto fs = io::global_local_filesystem();
 
-        std::unique_ptr<io::FileWriter> file_writer;
+        io::FileWriterPtr file_writer;
         Status st = fs->create_file(path, &file_writer);
         EXPECT_TRUE(st.ok());
         DataDir data_dir(kSegmentDir);
@@ -142,6 +155,30 @@ protected:
         st = writer.finalize(&file_size, &index_size);
         EXPECT_TRUE(st.ok());
         EXPECT_TRUE(file_writer->close().ok());
+        // Check min/max key generation
+        if (build_schema.keys_type() == UNIQUE_KEYS && opts.enable_unique_key_merge_on_write) {
+            // Create min row
+            for (int cid = 0; cid < build_schema.num_key_columns(); ++cid) {
+                RowCursorCell cell = row.cell(cid);
+                generator(0, cid, 0 / opts.num_rows_per_block, cell);
+            }
+            std::string min_encoded_key;
+            encode_key<RowCursor, true, true>(&min_encoded_key, row,
+                                              build_schema.num_key_columns());
+            EXPECT_EQ(min_encoded_key, writer.min_encoded_key().to_string());
+            // Create max row
+            for (int cid = 0; cid < build_schema.num_key_columns(); ++cid) {
+                RowCursorCell cell = row.cell(cid);
+                generator(nrows - 1, cid, (nrows - 1) / opts.num_rows_per_block, cell);
+            }
+            std::string max_encoded_key;
+            encode_key<RowCursor, true, true>(&max_encoded_key, row,
+                                              build_schema.num_key_columns());
+            EXPECT_EQ(max_encoded_key, writer.max_encoded_key().to_string());
+        } else {
+            EXPECT_EQ("", writer.min_encoded_key().to_string());
+            EXPECT_EQ("", writer.max_encoded_key().to_string());
+        }
 
         st = Segment::open(fs, path, 0, &query_schema, res);
         EXPECT_TRUE(st.ok());
@@ -153,140 +190,215 @@ public:
 };
 
 TEST_F(SegmentReaderWriterTest, normal) {
-    TabletSchema tablet_schema = create_schema(
-            {create_int_key(1), create_int_key(2), create_int_value(3), create_int_value(4)});
+    std::vector<KeysType> keys_type_vec = {DUP_KEYS, AGG_KEYS, UNIQUE_KEYS};
+    std::vector<bool> enable_unique_key_merge_on_write_vec = {false, true};
+    for (auto keys_type : keys_type_vec) {
+        for (auto enable_unique_key_merge_on_write : enable_unique_key_merge_on_write_vec) {
+            TabletSchema tablet_schema = create_schema({create_int_key(1), create_int_key(2),
+                                                        create_int_value(3), create_int_value(4)},
+                                                       keys_type);
+            SegmentWriterOptions opts;
+            opts.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write;
+            opts.num_rows_per_block = 10;
 
-    SegmentWriterOptions opts;
-    opts.num_rows_per_block = 10;
+            shared_ptr<Segment> segment;
+            build_segment(opts, tablet_schema, tablet_schema, 4096, DefaultIntGenerator, &segment);
 
-    shared_ptr<Segment> segment;
-    build_segment(opts, tablet_schema, tablet_schema, 4096, DefaultIntGenerator, &segment);
+            // reader
+            {
+                Schema schema(tablet_schema);
+                OlapReaderStatistics stats;
+                // scan all rows
+                {
+                    StorageReadOptions read_opts;
+                    read_opts.stats = &stats;
+                    read_opts.tablet_schema = &tablet_schema;
+                    std::unique_ptr<RowwiseIterator> iter;
+                    ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
-    // reader
-    {
-        Schema schema(tablet_schema);
-        OlapReaderStatistics stats;
-        // scan all rows
-        {
-            StorageReadOptions read_opts;
-            read_opts.stats = &stats;
-            std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
+                    RowBlockV2 block(schema, 1024);
 
-            RowBlockV2 block(schema, 1024);
+                    int left = 4096;
 
-            int left = 4096;
+                    int rowid = 0;
+                    while (left > 0) {
+                        int rows_read = left > 1024 ? 1024 : left;
+                        block.clear();
+                        EXPECT_TRUE(iter->next_batch(&block).ok());
+                        EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                        EXPECT_EQ(rows_read, block.num_rows());
+                        left -= rows_read;
 
-            int rowid = 0;
-            while (left > 0) {
-                int rows_read = left > 1024 ? 1024 : left;
-                block.clear();
-                EXPECT_TRUE(iter->next_batch(&block).ok());
-                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
-                EXPECT_EQ(rows_read, block.num_rows());
-                left -= rows_read;
-
-                for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
-                    auto cid = block.schema()->column_ids()[j];
-                    auto column_block = block.column_block(j);
-                    for (int i = 0; i < rows_read; ++i) {
-                        int rid = rowid + i;
-                        EXPECT_FALSE(column_block.is_null(i));
-                        EXPECT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
+                        for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
+                            auto cid = block.schema()->column_ids()[j];
+                            auto column_block = block.column_block(j);
+                            for (int i = 0; i < rows_read; ++i) {
+                                int rid = rowid + i;
+                                EXPECT_FALSE(column_block.is_null(i));
+                                EXPECT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
+                            }
+                        }
+                        rowid += rows_read;
                     }
                 }
-                rowid += rows_read;
-            }
-        }
-        // test seek, key
-        {
-            // lower bound
-            std::unique_ptr<RowCursor> lower_bound(new RowCursor());
-            lower_bound->init(tablet_schema, 2);
-            {
-                auto cell = lower_bound->cell(0);
-                cell.set_not_null();
-                *(int*)cell.mutable_cell_ptr() = 100;
-            }
-            {
-                auto cell = lower_bound->cell(1);
-                cell.set_not_null();
-                *(int*)cell.mutable_cell_ptr() = 100;
-            }
+                // test seek, key, not exits
+                {
+                    // lower bound
+                    std::unique_ptr<RowCursor> lower_bound(new RowCursor());
+                    lower_bound->init(tablet_schema, 2);
+                    {
+                        auto cell = lower_bound->cell(0);
+                        cell.set_not_null();
+                        *(int*)cell.mutable_cell_ptr() = 100;
+                    }
+                    {
+                        auto cell = lower_bound->cell(1);
+                        cell.set_not_null();
+                        *(int*)cell.mutable_cell_ptr() = 100;
+                    }
 
-            // upper bound
-            std::unique_ptr<RowCursor> upper_bound(new RowCursor());
-            upper_bound->init(tablet_schema, 1);
-            {
-                auto cell = upper_bound->cell(0);
-                cell.set_not_null();
-                *(int*)cell.mutable_cell_ptr() = 200;
+                    // upper bound
+                    std::unique_ptr<RowCursor> upper_bound(new RowCursor());
+                    upper_bound->init(tablet_schema, 1);
+                    {
+                        auto cell = upper_bound->cell(0);
+                        cell.set_not_null();
+                        *(int*)cell.mutable_cell_ptr() = 200;
+                    }
+
+                    StorageReadOptions read_opts;
+                    read_opts.stats = &stats;
+                    read_opts.tablet_schema = &tablet_schema;
+                    read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(),
+                                                      true);
+                    std::unique_ptr<RowwiseIterator> iter;
+                    ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
+
+                    RowBlockV2 block(schema, 100);
+                    EXPECT_TRUE(iter->next_batch(&block).ok());
+                    EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                    EXPECT_EQ(11, block.num_rows());
+                    auto column_block = block.column_block(0);
+                    for (int i = 0; i < 11; ++i) {
+                        EXPECT_EQ(100 + i * 10, *(int*)column_block.cell_ptr(i));
+                    }
+                }
+                // test seek, existing key
+                {
+                    // lower bound
+                    std::unique_ptr<RowCursor> lower_bound(new RowCursor());
+                    lower_bound->init(tablet_schema, 2);
+                    {
+                        auto cell = lower_bound->cell(0);
+                        cell.set_not_null();
+                        *(int*)cell.mutable_cell_ptr() = 100;
+                    }
+                    {
+                        auto cell = lower_bound->cell(1);
+                        cell.set_not_null();
+                        *(int*)cell.mutable_cell_ptr() = 101;
+                    }
+
+                    // upper bound
+                    std::unique_ptr<RowCursor> upper_bound(new RowCursor());
+                    upper_bound->init(tablet_schema, 2);
+                    {
+                        auto cell = upper_bound->cell(0);
+                        cell.set_not_null();
+                        *(int*)cell.mutable_cell_ptr() = 200;
+                    }
+                    {
+                        auto cell = upper_bound->cell(1);
+                        cell.set_not_null();
+                        *(int*)cell.mutable_cell_ptr() = 201;
+                    }
+
+                    // include upper key
+                    StorageReadOptions read_opts;
+                    read_opts.stats = &stats;
+                    read_opts.tablet_schema = &tablet_schema;
+                    read_opts.key_ranges.emplace_back(lower_bound.get(), true, upper_bound.get(),
+                                                      true);
+                    std::unique_ptr<RowwiseIterator> iter;
+                    segment->new_iterator(schema, read_opts, &iter);
+
+                    RowBlockV2 block(schema, 100);
+                    EXPECT_TRUE(iter->next_batch(&block).ok());
+                    EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                    EXPECT_EQ(11, block.num_rows());
+                    auto column_block = block.column_block(0);
+                    for (int i = 0; i < 11; ++i) {
+                        EXPECT_EQ(100 + i * 10, *(int*)column_block.cell_ptr(i));
+                    }
+
+                    // not include upper key
+                    StorageReadOptions read_opts1;
+                    read_opts1.stats = &stats;
+                    read_opts1.tablet_schema = &tablet_schema;
+                    read_opts1.key_ranges.emplace_back(lower_bound.get(), true, upper_bound.get(),
+                                                       false);
+                    std::unique_ptr<RowwiseIterator> iter1;
+                    segment->new_iterator(schema, read_opts1, &iter1);
+
+                    RowBlockV2 block1(schema, 100);
+                    EXPECT_TRUE(iter1->next_batch(&block1).ok());
+                    EXPECT_EQ(DEL_NOT_SATISFIED, block1.delete_state());
+                    EXPECT_EQ(10, block1.num_rows());
+                }
+                // test seek, key
+                {
+                    // lower bound
+                    std::unique_ptr<RowCursor> lower_bound(new RowCursor());
+                    lower_bound->init(tablet_schema, 1);
+                    {
+                        auto cell = lower_bound->cell(0);
+                        cell.set_not_null();
+                        *(int*)cell.mutable_cell_ptr() = 40970;
+                    }
+
+                    StorageReadOptions read_opts;
+                    read_opts.stats = &stats;
+                    read_opts.tablet_schema = &tablet_schema;
+                    read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
+                    std::unique_ptr<RowwiseIterator> iter;
+                    ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
+
+                    RowBlockV2 block(schema, 100);
+                    EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
+                    EXPECT_EQ(0, block.num_rows());
+                }
+                // test seek, key (-2, -1)
+                {
+                    // lower bound
+                    std::unique_ptr<RowCursor> lower_bound(new RowCursor());
+                    lower_bound->init(tablet_schema, 1);
+                    {
+                        auto cell = lower_bound->cell(0);
+                        cell.set_not_null();
+                        *(int*)cell.mutable_cell_ptr() = -2;
+                    }
+
+                    std::unique_ptr<RowCursor> upper_bound(new RowCursor());
+                    upper_bound->init(tablet_schema, 1);
+                    {
+                        auto cell = upper_bound->cell(0);
+                        cell.set_not_null();
+                        *(int*)cell.mutable_cell_ptr() = -1;
+                    }
+
+                    StorageReadOptions read_opts;
+                    read_opts.stats = &stats;
+                    read_opts.tablet_schema = &tablet_schema;
+                    read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(),
+                                                      false);
+                    std::unique_ptr<RowwiseIterator> iter;
+                    ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
+
+                    RowBlockV2 block(schema, 100);
+                    EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
+                    EXPECT_EQ(0, block.num_rows());
+                }
             }
-
-            StorageReadOptions read_opts;
-            read_opts.stats = &stats;
-            read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), true);
-            std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
-
-            RowBlockV2 block(schema, 100);
-            EXPECT_TRUE(iter->next_batch(&block).ok());
-            EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
-            EXPECT_EQ(11, block.num_rows());
-            auto column_block = block.column_block(0);
-            for (int i = 0; i < 11; ++i) {
-                EXPECT_EQ(100 + i * 10, *(int*)column_block.cell_ptr(i));
-            }
-        }
-        // test seek, key
-        {
-            // lower bound
-            std::unique_ptr<RowCursor> lower_bound(new RowCursor());
-            lower_bound->init(tablet_schema, 1);
-            {
-                auto cell = lower_bound->cell(0);
-                cell.set_not_null();
-                *(int*)cell.mutable_cell_ptr() = 40970;
-            }
-
-            StorageReadOptions read_opts;
-            read_opts.stats = &stats;
-            read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
-            std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
-
-            RowBlockV2 block(schema, 100);
-            EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
-            EXPECT_EQ(0, block.num_rows());
-        }
-        // test seek, key (-2, -1)
-        {
-            // lower bound
-            std::unique_ptr<RowCursor> lower_bound(new RowCursor());
-            lower_bound->init(tablet_schema, 1);
-            {
-                auto cell = lower_bound->cell(0);
-                cell.set_not_null();
-                *(int*)cell.mutable_cell_ptr() = -2;
-            }
-
-            std::unique_ptr<RowCursor> upper_bound(new RowCursor());
-            upper_bound->init(tablet_schema, 1);
-            {
-                auto cell = upper_bound->cell(0);
-                cell.set_not_null();
-                *(int*)cell.mutable_cell_ptr() = -1;
-            }
-
-            StorageReadOptions read_opts;
-            read_opts.stats = &stats;
-            read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), false);
-            std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
-
-            RowBlockV2 block(schema, 100);
-            EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
-            EXPECT_EQ(0, block.num_rows());
         }
     }
 }
@@ -317,6 +429,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             StorageReadOptions read_opts;
             read_opts.column_predicates = predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
@@ -341,6 +454,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             StorageReadOptions read_opts;
             read_opts.column_predicates = predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
@@ -361,6 +475,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
@@ -393,6 +508,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             StorageReadOptions read_opts;
             read_opts.column_predicates = predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
@@ -454,6 +570,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             read_opts.conditions = conditions.get();
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -477,6 +594,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             read_opts.conditions = conditions.get();
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -536,6 +654,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             read_opts.conditions = conditions.get();
             read_opts.delete_conditions.push_back(delete_conditions.get());
 
@@ -577,6 +696,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
         {
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
             TCondition condition;
             condition.__set_column_name("2");
             condition.__set_condition_op("=");
@@ -616,7 +736,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     std::string fname = kSegmentDir + "/int_case";
     auto fs = io::global_local_filesystem();
 
-    std::unique_ptr<io::FileWriter> file_writer;
+    io::FileWriterPtr file_writer;
     Status st = fs->create_file(fname, &file_writer);
     EXPECT_TRUE(st.ok()) << st.to_string();
     DataDir data_dir(kSegmentDir);
@@ -676,6 +796,7 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         {
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &query_schema;
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
@@ -726,6 +847,7 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         {
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &query_schema;
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
@@ -763,8 +885,7 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
 
 TEST_F(SegmentReaderWriterTest, TestStringDict) {
     size_t num_rows_per_block = 10;
-    auto tracker = std::make_shared<MemTracker>();
-    MemPool pool(tracker.get());
+    MemPool pool;
 
     std::shared_ptr<TabletSchema> tablet_schema(new TabletSchema());
     tablet_schema->_num_columns = 4;
@@ -783,7 +904,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     std::string fname = kSegmentDir + "/string_case";
     auto fs = io::global_local_filesystem();
 
-    std::unique_ptr<io::FileWriter> file_writer;
+    io::FileWriterPtr file_writer;
     Status st = fs->create_file(fname, &file_writer);
     EXPECT_TRUE(st.ok());
     DataDir data_dir(kSegmentDir);
@@ -828,6 +949,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
         {
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = tablet_schema.get();
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
@@ -880,6 +1002,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = tablet_schema.get();
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, nullptr, false);
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
@@ -913,6 +1036,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = tablet_schema.get();
             read_opts.key_ranges.emplace_back(lower_bound.get(), false, upper_bound.get(), false);
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
@@ -936,6 +1060,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = tablet_schema.get();
             read_opts.conditions = conditions.get();
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -993,6 +1118,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = tablet_schema.get();
             read_opts.conditions = conditions.get();
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -1031,6 +1157,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             OlapReaderStatistics stats;
             read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
@@ -1053,6 +1180,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             OlapReaderStatistics stats;
             read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
@@ -1075,6 +1203,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             OlapReaderStatistics stats;
             read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
@@ -1099,6 +1228,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             OlapReaderStatistics stats;
             read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
@@ -1122,6 +1252,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             OlapReaderStatistics stats;
             read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
+            read_opts.tablet_schema = &tablet_schema;
 
             std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
@@ -1155,6 +1286,5 @@ TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
     build_segment(opts2, schema, schema, 100, DefaultIntGenerator, &seg2);
     EXPECT_TRUE(column_contains_index(seg2->footer().columns(3), BLOOM_FILTER_INDEX));
 }
-
 } // namespace segment_v2
 } // namespace doris

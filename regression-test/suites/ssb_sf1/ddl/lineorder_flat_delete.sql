@@ -1,0 +1,1 @@
+truncate table lineorder_flat;

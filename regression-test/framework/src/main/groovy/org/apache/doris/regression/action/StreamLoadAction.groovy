@@ -57,7 +57,10 @@ class StreamLoadAction implements SuiteAction {
         this.address = context.config.feHttpInetSocketAddress
         this.user = context.config.feHttpUser
         this.password = context.config.feHttpPassword
-        this.db = context.config.defaultDb
+
+        def groupList = context.group.split(',')
+        this.db = context.config.getDbNameByFile(context.file)
+
         this.context = context
         this.headers = new LinkedHashMap<>()
         this.headers.put('label', UUID.randomUUID().toString())

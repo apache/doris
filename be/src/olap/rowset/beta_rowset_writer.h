@@ -65,6 +65,11 @@ public:
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
+    Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {
+        *segment_num_rows = _segment_num_rows;
+        return Status::OK();
+    }
+
 private:
     template <typename RowType>
     Status _add_row(const RowType& row);
@@ -85,8 +90,7 @@ private:
     /// In other processes, such as merger or schema change, we will use this unified writer for data writing.
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
     mutable SpinLock _lock; // lock to protect _wblocks.
-    // TODO(lingbin): it is better to wrapper in a Batch?
-    std::vector<std::unique_ptr<io::FileWriter>> _file_writers;
+    std::vector<io::FileWriterPtr> _file_writers;
 
     // counters and statistics maintained during data write
     std::atomic<int64_t> _num_rows_written;
@@ -96,6 +100,9 @@ private:
 
     bool _is_pending = false;
     bool _already_built = false;
+
+    // record rows number of every segment
+    std::vector<uint32_t> _segment_num_rows;
 };
 
 } // namespace doris

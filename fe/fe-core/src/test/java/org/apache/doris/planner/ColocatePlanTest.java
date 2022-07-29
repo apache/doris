@@ -19,7 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
@@ -50,7 +50,7 @@ public class ColocatePlanTest {
         ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         // create table test_colocate (k1 int ,k2 int, k3 int, k4 int)
         // distributed by hash(k1, k2) buckets 10
         // properties ("replication_num" = "2");
@@ -58,19 +58,19 @@ public class ColocatePlanTest {
                 + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2',"
                 + "'colocate_with' = 'group1');";
         CreateTableStmt createColocateTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
-        Catalog.getCurrentCatalog().createTable(createColocateTableStmt);
+        Env.getCurrentEnv().createTable(createColocateTableStmt);
         String createTblStmtStr = "create table db1.test(k1 int, k2 int, k3 int, k4 int)"
                 + "partition by range(k1) (partition p1 values less than (\"1\"), partition p2 values less than (\"2\"))"
                 + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2')";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
         String createMultiPartitionTableStmt = "create table db1.test_multi_partition(k1 int, k2 int)"
                 + "partition by range(k1) (partition p1 values less than(\"1\"), partition p2 values less than (\"2\"))"
                 + "distributed by hash(k2) buckets 10 properties ('replication_num' = '2', 'colocate_with' = 'group2')";
         CreateTableStmt createMultiTableStmt = (CreateTableStmt) UtFrameUtils
                 .parseAndAnalyzeStmt(createMultiPartitionTableStmt, ctx);
-        Catalog.getCurrentCatalog().createTable(createMultiTableStmt);
+        Env.getCurrentEnv().createTable(createMultiTableStmt);
     }
 
     @AfterClass
@@ -191,7 +191,7 @@ public class ColocatePlanTest {
         String createColocateTblStmtStr = "create table db1.test_colocate_one_backend(k1 int, k2 int, k3 int, k4 int) "
                 + "distributed by hash(k1, k2, k3) buckets 10 properties('replication_num' = '1');";
         CreateTableStmt createColocateTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
-        Catalog.getCurrentCatalog().createTable(createColocateTableStmt);
+        Env.getCurrentEnv().createTable(createColocateTableStmt);
 
         String sql = "select a.k1, a.k2, sum(a.k3) "
                 + "from db1.test_colocate_one_backend a join[shuffle] db1.test_colocate_one_backend b on a.k1=b.k1 "

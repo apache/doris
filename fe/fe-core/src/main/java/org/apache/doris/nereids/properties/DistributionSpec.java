@@ -17,20 +17,37 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.planner.DataPartition;
 
+import com.google.common.collect.Lists;
+
 /**
- * Base class for data distribution.
+ * Spec of data distribution.
  */
 public class DistributionSpec {
 
     private DataPartition dataPartition;
 
+    // TODO: why exist?
     public DistributionSpec() {
     }
 
     public DistributionSpec(DataPartition dataPartition) {
         this.dataPartition = dataPartition;
+    }
+
+    /**
+     * TODO: need read ORCA.
+     * Whether other `DistributionSpec` is satisfied the current `DistributionSpec`.
+     *
+     * @param other another DistributionSpec.
+     */
+    public boolean meet(DistributionSpec other) {
+        return false;
     }
 
     public DataPartition getDataPartition() {
@@ -39,5 +56,17 @@ public class DistributionSpec {
 
     public void setDataPartition(DataPartition dataPartition) {
         this.dataPartition = dataPartition;
+    }
+
+    public GroupExpression addEnforcer(Group child) {
+        PhysicalDistribution distribution = new PhysicalDistribution(
+                new DistributionSpec(dataPartition), child.getLogicalProperties(), new GroupPlan(child));
+        return new GroupExpression(distribution, Lists.newArrayList(child));
+    }
+
+    // TODO
+    @Override
+    public boolean equals(Object obj) {
+        return super.equals(obj);
     }
 }

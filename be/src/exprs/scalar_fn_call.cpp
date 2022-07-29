@@ -355,7 +355,12 @@ typedef FloatVal (*FloatWrapper)(ExprContext*, TupleRow*);
 typedef DoubleVal (*DoubleWrapper)(ExprContext*, TupleRow*);
 typedef StringVal (*StringWrapper)(ExprContext*, TupleRow*);
 typedef DateTimeVal (*DatetimeWrapper)(ExprContext*, TupleRow*);
+typedef DateV2Val (*DateV2Wrapper)(ExprContext*, TupleRow*);
+typedef DateTimeV2Val (*DateTimeV2Wrapper)(ExprContext*, TupleRow*);
 typedef DecimalV2Val (*DecimalV2Wrapper)(ExprContext*, TupleRow*);
+typedef Decimal32Val (*Decimal32Wrapper)(ExprContext*, TupleRow*);
+typedef Decimal64Val (*Decimal64Wrapper)(ExprContext*, TupleRow*);
+typedef Decimal128Val (*Decimal128Wrapper)(ExprContext*, TupleRow*);
 typedef CollectionVal (*ArrayWrapper)(ExprContext*, TupleRow*);
 
 // TODO: macroify this?
@@ -430,7 +435,7 @@ FloatVal ScalarFnCall::get_float_val(ExprContext* context, TupleRow* row) {
 }
 
 DoubleVal ScalarFnCall::get_double_val(ExprContext* context, TupleRow* row) {
-    DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME);
+    DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME || _type.type == TYPE_TIMEV2);
     DCHECK(context != nullptr);
     if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<DoubleVal>(context, row);
@@ -460,6 +465,26 @@ DateTimeVal ScalarFnCall::get_datetime_val(ExprContext* context, TupleRow* row) 
     return fn(context, row);
 }
 
+DateV2Val ScalarFnCall::get_datev2_val(ExprContext* context, TupleRow* row) {
+    DCHECK(_type.is_date_v2_type());
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
+        return interpret_eval<DateV2Val>(context, row);
+    }
+    DateV2Wrapper fn = reinterpret_cast<DateV2Wrapper>(_scalar_fn_wrapper);
+    return fn(context, row);
+}
+
+DateTimeV2Val ScalarFnCall::get_datetimev2_val(ExprContext* context, TupleRow* row) {
+    DCHECK(_type.is_datetime_v2_type());
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
+        return interpret_eval<DateTimeV2Val>(context, row);
+    }
+    DateTimeV2Wrapper fn = reinterpret_cast<DateTimeV2Wrapper>(_scalar_fn_wrapper);
+    return fn(context, row);
+}
+
 DecimalV2Val ScalarFnCall::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_DECIMALV2);
     DCHECK(context != nullptr);
@@ -467,6 +492,36 @@ DecimalV2Val ScalarFnCall::get_decimalv2_val(ExprContext* context, TupleRow* row
         return interpret_eval<DecimalV2Val>(context, row);
     }
     DecimalV2Wrapper fn = reinterpret_cast<DecimalV2Wrapper>(_scalar_fn_wrapper);
+    return fn(context, row);
+}
+
+Decimal32Val ScalarFnCall::get_decimal32_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_DECIMAL32);
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
+        return interpret_eval<Decimal32Val>(context, row);
+    }
+    Decimal32Wrapper fn = reinterpret_cast<Decimal32Wrapper>(_scalar_fn_wrapper);
+    return fn(context, row);
+}
+
+Decimal64Val ScalarFnCall::get_decimal64_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_DECIMAL64);
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
+        return interpret_eval<Decimal64Val>(context, row);
+    }
+    Decimal64Wrapper fn = reinterpret_cast<Decimal64Wrapper>(_scalar_fn_wrapper);
+    return fn(context, row);
+}
+
+Decimal128Val ScalarFnCall::get_decimal128_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_DECIMAL128);
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
+        return interpret_eval<Decimal128Val>(context, row);
+    }
+    Decimal128Wrapper fn = reinterpret_cast<Decimal128Wrapper>(_scalar_fn_wrapper);
     return fn(context, row);
 }
 

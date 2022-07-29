@@ -17,9 +17,9 @@
 
 package org.apache.doris.httpv2.restv2;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -93,14 +93,14 @@ public class MetaInfoActionV2 extends RestBaseController {
         // 1. get all database with privilege
         List<String> dbNames = null;
         try {
-            dbNames = Catalog.getCurrentInternalCatalog().getClusterDbNames(ns);
+            dbNames = Env.getCurrentInternalCatalog().getClusterDbNames(ns);
         } catch (AnalysisException e) {
             return ResponseEntityBuilder.okWithCommonError("namespace does not exist: " + ns);
         }
         List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
-            if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), fullName,
+            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), fullName,
                     PrivPredicate.SHOW)) {
                 continue;
             }
@@ -140,7 +140,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         String fullDbName = getFullDbName(dbName);
         Database db;
         try {
-            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
@@ -149,7 +149,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         db.readLock();
         try {
             for (Table tbl : db.getTables()) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
+                if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
                         PrivPredicate.SHOW)) {
                     continue;
                 }
@@ -212,7 +212,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         boolean withMv = !Strings.isNullOrEmpty(withMvPara) && withMvPara.equals("1");
 
         try {
-            Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
             db.readLock();
             try {
                 Table tbl = db.getTableOrMetaException(tblName, Table.TableType.OLAP);

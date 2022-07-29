@@ -41,7 +41,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * used to analyze operator class extends hierarchy and then generated pattern builder methods.
+ * used to analyze plan class extends hierarchy and then generated pattern builder methods.
  */
 public class PatternGeneratorAnalyzer {
     private final Map<String, TypeDeclaration> name2Ast = new LinkedHashMap<>();
@@ -74,16 +74,16 @@ public class PatternGeneratorAnalyzer {
     }
 
     private String doGenerate() {
-        Map<ClassDeclaration, Set<String>> planOpClassMap = parentClassMap.entrySet().stream()
-                .filter(kv -> kv.getValue().contains("org.apache.doris.nereids.operators.plans.PlanOperator"))
+        Map<ClassDeclaration, Set<String>> planClassMap = parentClassMap.entrySet().stream()
+                .filter(kv -> kv.getValue().contains("org.apache.doris.nereids.trees.plans.Plan"))
                 .filter(kv -> !Modifier.isAbstract(kv.getKey().modifiers.mod)
                         && kv.getKey() instanceof ClassDeclaration)
                 .collect(Collectors.toMap(kv -> (ClassDeclaration) kv.getKey(), kv -> kv.getValue()));
 
-        List<PatternGenerator> generators = planOpClassMap.entrySet()
+        List<PatternGenerator> generators = planClassMap.entrySet()
                 .stream()
                 .map(kv -> PatternGenerator.create(this, kv.getKey(), kv.getValue()))
-                .filter(generator -> generator.isPresent())
+                .filter(Optional::isPresent)
                 .map(Optional::get)
                 .sorted((g1, g2) -> {
                     // logical first
@@ -135,9 +135,8 @@ public class PatternGeneratorAnalyzer {
             }
         } else if (typeDeclaration instanceof ClassDeclaration) {
             ClassDeclaration classDeclaration = (ClassDeclaration) typeDeclaration;
-            if (classDeclaration.extendsType.isPresent()) {
-                analyzeClass(currentParentClasses, typeDeclaration, classDeclaration.extendsType.get());
-            }
+            classDeclaration.extendsType.ifPresent(
+                    typeType -> analyzeClass(currentParentClasses, typeDeclaration, typeType));
             if (!classDeclaration.implementTypes.isEmpty()) {
                 for (TypeType implementType : classDeclaration.implementTypes) {
                     analyzeClass(currentParentClasses, typeDeclaration, implementType);

@@ -17,8 +17,8 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.load.ExportFailMsg;
@@ -58,7 +58,7 @@ public class ExportPendingTask extends MasterTask {
         }
 
         long dbId = job.getDbId();
-        db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+        db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             job.cancel(ExportFailMsg.CancelType.RUN_FAIL, "database does not exist");
             return;
@@ -101,12 +101,12 @@ public class ExportPendingTask extends MasterTask {
                 TNetworkAddress address = location.getServer();
                 String host = address.getHostname();
                 int port = address.getPort();
-                Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(host, port);
+                Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(host, port);
                 if (backend == null) {
                     return Status.CANCELLED;
                 }
                 long backendId = backend.getId();
-                if (!Catalog.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
+                if (!Env.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
                     return Status.CANCELLED;
                 }
                 TSnapshotRequest snapshotRequest = new TSnapshotRequest();

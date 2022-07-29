@@ -139,7 +139,7 @@ public class FloatLiteral extends LiteralExpr {
     public static Type getDefaultTimeType(Type type) throws AnalysisException {
         switch (type.getPrimitiveType()) {
             case TIME:
-                if (Config.use_date_v2_by_default) {
+                if (Config.enable_date_conversion) {
                     return Type.TIMEV2;
                 } else {
                     return Type.TIME;
@@ -173,7 +173,7 @@ public class FloatLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (!(targetType.isFloatingPointType() || targetType.isDecimalV2())) {
+        if (!(targetType.isFloatingPointType() || targetType.isDecimalV2() || targetType.isDecimalV3())) {
             return super.uncheckedCastTo(targetType);
         }
         if (targetType.isFloatingPointType()) {
@@ -183,7 +183,7 @@ public class FloatLiteral extends LiteralExpr {
                 return floatLiteral;
             }
             return this;
-        } else if (targetType.isDecimalV2()) {
+        } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
             // the double constructor does an exact translation, use valueOf() instead.
             return new DecimalLiteral(BigDecimal.valueOf(value));
         }

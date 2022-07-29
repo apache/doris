@@ -17,11 +17,21 @@
 #pragma once
 
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_array.h"
 
 namespace doris::vectorized {
 
 struct ColumnArrayExecutionData {
+public:
+    void reset() {
+        array_nullmap_data = nullptr;
+        array_col = nullptr;
+        offsets_ptr = nullptr;
+        nested_nullmap_data = nullptr;
+        nested_col = nullptr;
+    }
+
 public:
     const UInt8* array_nullmap_data = nullptr;
     const ColumnArray* array_col = nullptr;
@@ -30,6 +40,19 @@ public:
     const IColumn* nested_col = nullptr;
 };
 
+struct ColumnArrayMutableData {
+public:
+    MutableColumnPtr array_nested_col = nullptr;
+    ColumnUInt8::Container* nested_nullmap_data = nullptr;
+    MutableColumnPtr offsets_col = nullptr;
+    ColumnArray::Offsets* offsets_ptr = nullptr;
+    IColumn* nested_col = nullptr;
+};
+
 bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& data);
+
+ColumnArrayMutableData create_mutable_data(const IColumn* nested_col, bool is_nullable);
+
+MutableColumnPtr assemble_column_array(ColumnArrayMutableData& data);
 
 } // namespace doris::vectorized

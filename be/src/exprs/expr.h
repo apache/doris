@@ -34,6 +34,9 @@
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
 #include "udf/udf.h"
+#include "util/string_parser.hpp"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/io/io_helper.h"
 
 #undef USING_DORIS_UDF
 #define USING_DORIS_UDF using namespace doris_udf
@@ -102,7 +105,13 @@ public:
     // virtual ArrayVal GetArrayVal(ExprContext* context, TupleRow*);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
+    virtual DateV2Val get_datev2_val(ExprContext* context, TupleRow*);
+    virtual DateTimeV2Val get_datetimev2_val(ExprContext* context, TupleRow*);
     virtual CollectionVal get_array_val(ExprContext* context, TupleRow*);
+
+    virtual Decimal32Val get_decimal32_val(ExprContext* context, TupleRow*);
+    virtual Decimal64Val get_decimal64_val(ExprContext* context, TupleRow*);
+    virtual Decimal128Val get_decimal128_val(ExprContext* context, TupleRow*);
 
     // Get the number of digits after the decimal that should be displayed for this
     // value. Returns -1 if no scale has been specified (currently the scale is only set for
@@ -189,8 +198,7 @@ public:
     /// Convenience function for preparing multiple expr trees.
     /// Allocations from 'ctxs' will be counted against 'tracker'.
     static Status prepare(const std::vector<ExprContext*>& ctxs, RuntimeState* state,
-                          const RowDescriptor& row_desc,
-                          const std::shared_ptr<MemTracker>& tracker);
+                          const RowDescriptor& row_desc);
 
     /// Convenience function for opening multiple expr trees.
     static Status open(const std::vector<ExprContext*>& ctxs, RuntimeState* state);
@@ -252,6 +260,7 @@ public:
     };
 
     static Expr* copy(ObjectPool* pool, Expr* old_expr);
+    int get_fn_context_index() { return _fn_context_index; }
 
 protected:
     friend class AggFnEvaluator;
@@ -447,39 +456,52 @@ private:
     int _fn_ctx_idx_end = 0;
 };
 
-template <typename T>
-Status create_texpr_literal_node(const void* data, TExprNode* node) {
-    if constexpr (std::is_same_v<bool, T>) {
-        auto origin_value = reinterpret_cast<const T*>(data);
+template <PrimitiveType T>
+Status create_texpr_literal_node(const void* data, TExprNode* node, int precision = 0,
+                                 int scale = 0) {
+    if constexpr (T == TYPE_BOOLEAN) {
+        auto origin_value = reinterpret_cast<const bool*>(data);
         TBoolLiteral boolLiteral;
         (*node).__set_node_type(TExprNodeType::BOOL_LITERAL);
         boolLiteral.__set_value(*origin_value);
         (*node).__set_bool_literal(boolLiteral);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-    } else if constexpr (std::is_same_v<int8_t, T> || std::is_same_v<int16_t, T> ||
-                         std::is_same_v<int32_t, T> || std::is_same_v<int64_t, T>) {
-        auto origin_value = reinterpret_cast<const T*>(data);
+    } else if constexpr (T == TYPE_TINYINT) {
+        auto origin_value = reinterpret_cast<const int8_t*>(data);
         (*node).__set_node_type(TExprNodeType::INT_LITERAL);
         TIntLiteral intLiteral;
         intLiteral.__set_value(*origin_value);
         (*node).__set_int_literal(intLiteral);
-        if constexpr (std::is_same_v<int8_t, T>) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TINYINT));
-        } else if constexpr (std::is_same_v<int16_t, T>) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_SMALLINT));
-        } else if constexpr (std::is_same_v<int32_t, T>) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_INT));
-        } else if constexpr (std::is_same_v<int64_t, T>) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BIGINT));
-        }
-    } else if constexpr (std::is_same_v<__int128_t, T>) {
-        auto origin_value = reinterpret_cast<const T*>(data);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TINYINT));
+    } else if constexpr (T == TYPE_SMALLINT) {
+        auto origin_value = reinterpret_cast<const int16_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_SMALLINT));
+    } else if constexpr (T == TYPE_INT) {
+        auto origin_value = reinterpret_cast<const int32_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_INT));
+    } else if constexpr (T == TYPE_BIGINT) {
+        auto origin_value = reinterpret_cast<const int64_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BIGINT));
+    } else if constexpr (T == TYPE_LARGEINT) {
+        auto origin_value = reinterpret_cast<const int128_t*>(data);
         (*node).__set_node_type(TExprNodeType::LARGE_INT_LITERAL);
         TLargeIntLiteral large_int_literal;
         large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
-    } else if constexpr (std::is_same_v<DateTimeValue, T>) {
+    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
         auto origin_value = reinterpret_cast<const doris::DateTimeValue*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
@@ -494,8 +516,9 @@ Status create_texpr_literal_node(const void* data, TExprNode* node) {
         } else if (origin_value->type() == TimeType::TIME_TIME) {
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
         }
-    } else if constexpr (std::is_same_v<doris::vectorized::DateV2Value, T>) {
-        auto origin_value = reinterpret_cast<const doris::vectorized::DateV2Value*>(data);
+    } else if constexpr (T == TYPE_DATEV2) {
+        auto origin_value = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
         origin_value->to_string(convert_buffer);
@@ -503,25 +526,66 @@ Status create_texpr_literal_node(const void* data, TExprNode* node) {
         (*node).__set_date_literal(date_literal);
         (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATEV2));
-    } else if constexpr (std::is_same_v<DecimalV2Value, T>) {
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        auto origin_value = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2));
+    } else if constexpr (T == TYPE_DECIMALV2) {
         auto origin_value = reinterpret_cast<const DecimalV2Value*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
         decimal_literal.__set_value(origin_value->to_string());
         (*node).__set_decimal_literal(decimal_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMALV2));
-    } else if constexpr (std::is_same_v<float, T> || std::is_same_v<double, T>) {
-        auto origin_value = reinterpret_cast<const T*>(data);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMALV2, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL32) {
+        auto origin_value = reinterpret_cast<const int32_t*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        std::stringstream ss;
+        vectorized::write_text<int32_t>(*origin_value, scale, ss);
+        decimal_literal.__set_value(ss.str());
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL32, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        auto origin_value = reinterpret_cast<const int64_t*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        std::stringstream ss;
+        vectorized::write_text<int64_t>(*origin_value, scale, ss);
+        decimal_literal.__set_value(ss.str());
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL64, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL128) {
+        auto origin_value = reinterpret_cast<const int128_t*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        std::stringstream ss;
+        vectorized::write_text<int128_t>(*origin_value, scale, ss);
+        decimal_literal.__set_value(ss.str());
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL128, precision, scale));
+    } else if constexpr (T == TYPE_FLOAT) {
+        auto origin_value = reinterpret_cast<const float*>(data);
         (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);
         TFloatLiteral float_literal;
         float_literal.__set_value(*origin_value);
         (*node).__set_float_literal(float_literal);
-        if constexpr (std::is_same_v<float, T>) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_FLOAT));
-        } else if constexpr (std::is_same_v<double, T>) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DOUBLE));
-        }
-    } else if constexpr (std::is_same_v<StringValue, T>) {
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_FLOAT));
+    } else if constexpr (T == TYPE_DOUBLE) {
+        auto origin_value = reinterpret_cast<const double*>(data);
+        (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);
+        TFloatLiteral float_literal;
+        float_literal.__set_value(*origin_value);
+        (*node).__set_float_literal(float_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DOUBLE));
+    } else if constexpr ((T == TYPE_STRING) || (T == TYPE_CHAR) || (T == TYPE_VARCHAR)) {
         auto origin_value = reinterpret_cast<const StringValue*>(data);
         (*node).__set_node_type(TExprNodeType::STRING_LITERAL);
         TStringLiteral string_literal;

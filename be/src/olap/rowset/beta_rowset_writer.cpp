@@ -24,7 +24,6 @@
 #include "env/env.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
-#include "olap/fs/fs_util.h"
 #include "olap/memtable.h"
 #include "olap/olap_define.h"
 #include "olap/row.h"        // ContiguousRow
@@ -88,6 +87,8 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
+    _rowset_meta->set_tablet_schema(_context.tablet_schema);
+
     return Status::OK();
 }
 
@@ -276,7 +277,7 @@ Status BetaRowsetWriter::_create_segment_writer(
     if (!fs) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
     }
-    std::unique_ptr<io::FileWriter> file_writer;
+    io::FileWriterPtr file_writer;
     Status st = fs->create_file(path, &file_writer);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path
@@ -286,6 +287,7 @@ Status BetaRowsetWriter::_create_segment_writer(
 
     DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
+    writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segment,
                                                 _context.tablet_schema, _context.data_dir,
                                                 _context.max_rows_per_segment, writer_options));
@@ -304,6 +306,7 @@ Status BetaRowsetWriter::_create_segment_writer(
 }
 
 Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+    _segment_num_rows.push_back((*writer)->num_rows_written());
     if ((*writer)->num_rows_written() == 0) {
         return Status::OK();
     }

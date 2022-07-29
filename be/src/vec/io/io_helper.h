@@ -283,27 +283,46 @@ bool read_date_text_impl(T& x, ReadBuffer& buf) {
 template <typename T>
 bool read_date_v2_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<UInt32, T>);
-    auto dv = binary_cast<UInt32, DateV2Value>(x);
+    auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
     auto ans = dv.from_date_str(buf.position(), buf.count());
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
-    x = binary_cast<DateV2Value, UInt32>(dv);
+    x = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dv);
     return ans;
 }
 
 template <typename T>
-bool read_decimal_text_impl(T& x, ReadBuffer& buf) {
+bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, UInt32 scale = -1) {
+    static_assert(std::is_same_v<UInt64, T>);
+    auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
+    auto ans = dv.from_date_str(buf.position(), buf.count(), scale);
+
+    // only to match the is_all_read() check to prevent return null
+    buf.position() = buf.end();
+    x = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dv);
+    return ans;
+}
+
+template <typename T>
+bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
-    // TODO: open this static_assert
-    // static_assert(std::is_same_v<Decimal128, T>);
+    if (config::enable_decimalv3) {
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+
+        x.value = StringParser::string_to_decimal<typename T::NativeType>(
+                (const char*)buf.position(), buf.count(), precision, scale, &result);
+        // only to match the is_all_read() check to prevent return null
+        buf.position() = buf.end();
+        return result != StringParser::PARSE_FAILURE;
+    }
     auto dv = binary_cast<Int128, DecimalV2Value>(x.value);
     auto ans = dv.parse_from_str((const char*)buf.position(), buf.count()) == 0;
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
 
-    x.value = binary_cast<DecimalV2Value, Int128>(dv);
+    x.value = dv.value();
     return ans;
 }
 
@@ -335,8 +354,8 @@ bool try_read_float_text(T& x, ReadBuffer& in) {
 }
 
 template <typename T>
-bool try_read_decimal_text(T& x, ReadBuffer& in) {
-    return read_decimal_text_impl<T>(x, in);
+bool try_read_decimal_text(T& x, ReadBuffer& in, UInt32 precision, UInt32 scale) {
+    return read_decimal_text_impl<T>(x, in, precision, scale);
 }
 
 template <typename T>
@@ -352,5 +371,10 @@ bool try_read_date_text(T& x, ReadBuffer& in) {
 template <typename T>
 bool try_read_date_v2_text(T& x, ReadBuffer& in) {
     return read_date_v2_text_impl<T>(x, in);
+}
+
+template <typename T>
+bool try_read_datetime_v2_text(T& x, ReadBuffer& in, UInt32 scale) {
+    return read_datetime_v2_text_impl<T>(x, in, scale);
 }
 } // namespace doris::vectorized

@@ -23,7 +23,7 @@ import org.apache.doris.backup.RemoteFile;
 import org.apache.doris.backup.S3Storage;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.AuthType;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
@@ -89,6 +89,8 @@ public class BrokerUtil {
     public static String HADOOP_USER_NAME = "hadoop.username";
     public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
+    public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
+    public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
 
     public static THdfsParams generateHdfsParam(Map<String, String> properties) {
         THdfsParams tHdfsParams = new THdfsParams();
@@ -108,6 +110,11 @@ public class BrokerUtil {
                 hdfsConf.setValue(property.getValue());
                 tHdfsParams.hdfs_conf.add(hdfsConf);
             }
+        }
+        // `dfs.client.read.shortcircuit` and `dfs.domain.socket.path` should be both set to enable short circuit read.
+        // We should disable short circuit read if they are not both set because it will cause performance down.
+        if (!properties.containsKey(HADOOP_SHORT_CIRCUIT) || !properties.containsKey(HADOOP_SOCKET_PATH)) {
+            tHdfsParams.addToHdfsConf(new THdfsConf(HADOOP_SHORT_CIRCUIT, "false"));
         }
         return tHdfsParams;
     }
@@ -522,7 +529,7 @@ public class BrokerUtil {
         FsBroker broker = null;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
-            broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(brokerDesc.getName(), localIP);
+            broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerDesc.getName(), localIP);
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }

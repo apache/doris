@@ -18,13 +18,13 @@
 package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.planner.PlanFragment;
@@ -50,7 +50,7 @@ public class PlanTranslatorContext {
     /**
      * Map expressions of new optimizer to the stale expr.
      */
-    private Map<Expression, Expr> expressionToExecExpr = new HashMap<>();
+    private final Map<ExprId, SlotRef> exprIdSlotRefMap = new HashMap<>();
 
     private final List<ScanNode> scanNodeList = new ArrayList<>();
 
@@ -66,7 +66,11 @@ public class PlanTranslatorContext {
         return descTable.createTupleDescriptor();
     }
 
-    public PlanNodeId nextNodeId() {
+    public PlanFragmentId nextFragmentId() {
+        return fragmentIdGenerator.getNextId();
+    }
+
+    public PlanNodeId nextPlanNodeId() {
         return nodeIdGenerator.getNextId();
     }
 
@@ -74,24 +78,16 @@ public class PlanTranslatorContext {
         return descTable.addSlotDescriptor(t);
     }
 
-    public SlotDescriptor addSlotDesc(TupleDescriptor t, int id) {
-        return descTable.addSlotDescriptor(t, id);
-    }
-
-    public PlanFragmentId nextFragmentId() {
-        return fragmentIdGenerator.getNextId();
-    }
-
     public void addPlanFragment(PlanFragment planFragment) {
         this.planFragmentList.add(planFragment);
     }
 
-    public void addSlotRefMapping(Expression expression, Expr expr) {
-        expressionToExecExpr.put(expression, expr);
+    public void addExprIdPair(ExprId exprId, SlotRef slotRef) {
+        exprIdSlotRefMap.put(exprId, slotRef);
     }
 
-    public Expr findExpr(Expression expression) {
-        return expressionToExecExpr.get(expression);
+    public SlotRef findSlotRef(ExprId exprId) {
+        return exprIdSlotRefMap.get(exprId);
     }
 
     public void addScanNode(ScanNode scanNode) {
@@ -114,7 +110,7 @@ public class PlanTranslatorContext {
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
-        this.addSlotRefMapping(slotReference, new SlotRef(slotDescriptor));
+        this.addExprIdPair(slotReference.getExprId(), new SlotRef(slotDescriptor));
         return slotDescriptor;
     }
 
@@ -122,11 +118,8 @@ public class PlanTranslatorContext {
      * Create slotDesc with Expression.
      */
     public void createSlotDesc(TupleDescriptor tupleDesc, Expression expression) {
-        if (!expressionToExecExpr.containsKey(expression)) {
-            SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
-            slotDescriptor.setType(expression.getDataType().toCatalogDataType());
-            this.addSlotRefMapping(expression, new SlotRef(slotDescriptor));
-        }
+        SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
+        slotDescriptor.setType(expression.getDataType().toCatalogDataType());
     }
 
     public TupleDescriptor getTupleDesc(TupleId tupleId) {

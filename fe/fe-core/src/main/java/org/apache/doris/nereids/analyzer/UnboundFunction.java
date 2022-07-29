@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
@@ -25,6 +25,7 @@ import com.google.common.base.Joiner;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Expression for unbound function.
@@ -35,7 +36,7 @@ public class UnboundFunction extends Expression implements Unbound {
     private final boolean isDistinct;
 
     public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
-        super(NodeType.UNBOUND_FUNCTION, arguments.toArray(new Expression[0]));
+        super(arguments.toArray(new Expression[0]));
         this.name = Objects.requireNonNull(name, "name can not be null");
         this.isDistinct = isDistinct;
     }
@@ -53,6 +54,14 @@ public class UnboundFunction extends Expression implements Unbound {
     }
 
     @Override
+    public String toSql() throws UnboundException {
+        String params = children.stream()
+                .map(Expression::toSql)
+                .collect(Collectors.joining(", "));
+        return name + "(" + (isDistinct ? "DISTINCT " : "")  + params + ")";
+    }
+
+    @Override
     public String toString() {
         String params = Joiner.on(", ").join(children);
         return "'" + name + "(" + (isDistinct ? "DISTINCT " : "")  + params + ")";
@@ -66,5 +75,25 @@ public class UnboundFunction extends Expression implements Unbound {
     @Override
     public Expression withChildren(List<Expression> children) {
         return new UnboundFunction(name, isDistinct, children);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        UnboundFunction that = (UnboundFunction) o;
+        return isDistinct == that.isDistinct && name.equals(that.name);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(name, isDistinct);
     }
 }

@@ -21,22 +21,27 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -61,11 +66,6 @@ public abstract class IterationVisitor<C> extends DefaultExpressionVisitor<Void,
     public Void visitCompoundPredicate(CompoundPredicate expr, C context) {
         visit(expr.left(), context);
         visit(expr.right(), context);
-        return null;
-    }
-
-    @Override
-    public Void visitLiteral(Literal literal, C context) {
         return null;
     }
 
@@ -177,6 +177,36 @@ public abstract class IterationVisitor<C> extends DefaultExpressionVisitor<Void,
     @Override
     public Void visitMod(Mod mod, C context) {
         return visitArithmetic(mod, context);
+    }
+
+    @Override
+    public Void visitSlotReference(SlotReference slotReference, C context) {
+        return super.visitSlotReference(slotReference, context);
+    }
+
+    @Override
+    public Void visitBooleanLiteral(BooleanLiteral booleanLiteral, C context) {
+        return null;
+    }
+
+    @Override
+    public Void visitStringLiteral(StringLiteral stringLiteral, C context) {
+        return null;
+    }
+
+    @Override
+    public Void visitIntegerLiteral(IntegerLiteral integerLiteral, C context) {
+        return null;
+    }
+
+    @Override
+    public Void visitNullLiteral(NullLiteral nullLiteral, C context) {
+        return null;
+    }
+
+    @Override
+    public Void visitDoubleLiteral(DoubleLiteral doubleLiteral, C context) {
+        return null;
     }
 }
 

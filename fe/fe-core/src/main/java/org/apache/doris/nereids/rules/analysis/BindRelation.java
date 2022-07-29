@@ -17,17 +17,15 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.operators.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -36,38 +34,35 @@ import java.util.List;
  */
 public class BindRelation extends OneAnalysisRuleFactory {
     @Override
-    public Rule<Plan> build() {
-        // fixme, just for example now
+    public Rule build() {
         return unboundRelation().thenApply(ctx -> {
             ConnectContext connectContext = ctx.plannerContext.getConnectContext();
-            List<String> nameParts = ctx.root.operator.getNameParts();
+            List<String> nameParts = ctx.root.getNameParts();
             switch (nameParts.size()) {
                 case 1: {
-                    List<String> qualifier = Lists.newArrayList(connectContext.getDatabase(), nameParts.get(0));
-                    Table table = getTable(qualifier, connectContext.getCatalog());
+                    // Use current database name from catalog.
+                    String dbName = connectContext.getDatabase();
+                    Table table = getTable(dbName, nameParts.get(0), connectContext.getEnv());
                     // TODO: should generate different Scan sub class according to table's type
-                    LogicalOlapScan olapScan = new LogicalOlapScan(table, qualifier);
-                    return new LogicalLeafPlan<>(olapScan);
+                    return new LogicalOlapScan(table, ImmutableList.of(dbName));
                 }
                 case 2: {
-                    Table table = getTable(nameParts, connectContext.getCatalog());
-                    LogicalOlapScan olapScan = new LogicalOlapScan(table, nameParts);
-                    return new LogicalLeafPlan<>(olapScan);
+                    // Use database name from table name parts.
+                    String dbName = connectContext.getClusterName() + ":" + nameParts.get(0);
+                    Table table = getTable(dbName, nameParts.get(1), connectContext.getEnv());
+                    return new LogicalOlapScan(table, ImmutableList.of(dbName));
                 }
                 default:
-                    throw new IllegalStateException("Table name ["
-                            + ctx.root.operator.getTableName() + "] is invalid.");
+                    throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
             }
         }).toRule(RuleType.BINDING_RELATION);
     }
 
-    private Table getTable(List<String> qualifier, Catalog catalog) {
-        String dbName = qualifier.get(0);
-        Database db = catalog.getInternalDataSource().getDb(dbName)
+    private Table getTable(String dbName, String tableName, Env env) {
+        Database db = env.getInternalDataSource().getDb(dbName)
                 .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
         db.readLock();
         try {
-            String tableName = qualifier.get(1);
             return db.getTable(tableName).orElseThrow(() -> new RuntimeException(
                     "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
         } finally {

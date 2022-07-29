@@ -17,7 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -56,7 +57,8 @@ public class DropPolicyStmt extends DdlStmt {
         super.analyze(analyzer);
         switch (type) {
             case STORAGE:
-                break;
+                // current not support drop storage policy, because be use it policy name to find s3 resource.
+                throw new DdlException("current not support drop storage policy.");
             case ROW:
             default:
                 tableName.analyze(analyzer);
@@ -65,7 +67,7 @@ public class DropPolicyStmt extends DdlStmt {
                 }
         }
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }

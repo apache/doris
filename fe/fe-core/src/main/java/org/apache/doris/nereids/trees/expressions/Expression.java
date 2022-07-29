@@ -17,12 +17,13 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,15 +37,15 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
 
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
-    public Expression(NodeType type, Expression... children) {
-        super(type, children);
+    public Expression(Expression... children) {
+        super(children);
     }
 
     public DataType getDataType() throws UnboundException {
         throw new UnboundException("dataType");
     }
 
-    public String sql() throws UnboundException {
+    public String toSql() throws UnboundException {
         throw new UnboundException("sql");
     }
 
@@ -71,20 +72,23 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         throw new RuntimeException();
     }
 
+    public final Expression withChildren(Expression... children) {
+        return withChildren(ImmutableList.copyOf(children));
+    }
+
     /**
      * Whether the expression is a constant.
      */
     public boolean isConstant() {
-        for (Expression child : children()) {
-            if (child.isConstant()) {
-                return true;
-            }
-        }
-        return false;
+        return children().stream().allMatch(Expression::isConstant);
     }
 
-    public Expression clone() {
-        throw new RuntimeException("Unimplemented method");
+    public final Expression castTo(DataType targetType) throws AnalysisException {
+        return uncheckedCastTo(targetType);
+    }
+
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        throw new RuntimeException("Do not implement uncheckedCastTo");
     }
 
     @Override
@@ -97,5 +101,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         }
         Expression that = (Expression) o;
         return Objects.equals(children(), that.children());
+    }
+
+    @Override
+    public int hashCode() {
+        return 0;
     }
 }

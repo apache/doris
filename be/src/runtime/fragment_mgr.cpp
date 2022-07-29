@@ -26,6 +26,7 @@
 #include "agent/cgroups_mgr.h"
 #include "common/object_pool.h"
 #include "common/resource_tls.h"
+#include "common/signal_handler.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService.h"
@@ -254,8 +255,7 @@ Status FragmentExecState::execute() {
 Status FragmentExecState::cancel_before_execute() {
     // set status as 'abort', cuz cancel() won't effect the status arg of DataSink::close().
 #ifndef BE_TEST
-    SCOPED_ATTACH_TASK_THREAD(executor()->runtime_state()->query_type(),
-                              executor()->runtime_state()->instance_mem_tracker());
+    SCOPED_ATTACH_TASK(executor()->runtime_state());
 #endif
     _executor.set_abort();
     _executor.cancel();
@@ -434,7 +434,7 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
     REGISTER_HOOK_METRIC(plan_fragment_count, [this]() {
-        std::lock_guard<std::mutex> lock(_lock);
+        // std::lock_guard<std::mutex> lock(_lock);
         return _fragment_map.size();
     });
 
@@ -477,6 +477,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     std::string func_name {"PlanFragmentExecutor::_exec_actual"};
 #ifndef BE_TEST
     auto span = exec_state->executor()->runtime_state()->get_tracer()->StartSpan(func_name);
+    SCOPED_ATTACH_TASK(exec_state->executor()->runtime_state());
 #else
     auto span = telemetry::get_noop_tracer()->StartSpan(func_name);
 #endif
@@ -484,15 +485,16 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     span->SetAttribute("query_id", print_id(exec_state->query_id()));
     span->SetAttribute("instance_id", print_id(exec_state->fragment_instance_id()));
 
+    // these two are used to output query_id when be cored dump.
+    doris::signal::query_id_hi = exec_state->query_id().hi;
+    doris::signal::query_id_lo = exec_state->query_id().lo;
+
     TAG(LOG(INFO))
             .log(std::move(func_name))
             .query_id(exec_state->query_id())
             .instance_id(exec_state->fragment_instance_id())
             .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
-#ifndef BE_TEST
-    SCOPED_ATTACH_TASK_THREAD(exec_state->executor()->runtime_state(),
-                              exec_state->executor()->runtime_state()->instance_mem_tracker());
-#endif
+
     exec_state->execute();
 
     std::shared_ptr<QueryFragmentsCtx> fragments_ctx = exec_state->get_fragments_ctx();

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -31,11 +30,7 @@ import java.util.Objects;
 /**
  * Between predicate expression.
  */
-public class Between<
-            FIRST_CHILD_TYPE extends Expression,
-            SECOND_CHILD_TYPE extends Expression,
-            THIRD_CHILD_TYPE extends Expression>
-        extends Expression implements TernaryExpression<FIRST_CHILD_TYPE, SECOND_CHILD_TYPE, THIRD_CHILD_TYPE> {
+public class Between extends Expression implements TernaryExpression {
 
     private Expression compareExpr;
     private Expression lowerBound;
@@ -50,7 +45,7 @@ public class Between<
 
     public Between(Expression compareExpr, Expression lowerBound,
                    Expression upperBound) {
-        super(NodeType.BETWEEN, compareExpr, lowerBound, upperBound);
+        super(compareExpr, lowerBound, upperBound);
         this.compareExpr = compareExpr;
         this.lowerBound = lowerBound;
         this.upperBound = upperBound;
@@ -67,8 +62,8 @@ public class Between<
     }
 
     @Override
-    public String sql() {
-        return compareExpr.sql() + " BETWEEN " + lowerBound.sql() + " AND " + upperBound.sql();
+    public String toSql() {
+        return compareExpr.toSql() + " BETWEEN " + lowerBound.toSql() + " AND " + upperBound.toSql();
     }
 
     @Override
@@ -85,7 +80,7 @@ public class Between<
     }
 
     public Expression getLowerBound() {
-        return  lowerBound;
+        return lowerBound;
     }
 
     public Expression getUpperBound() {
@@ -95,7 +90,7 @@ public class Between<
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new Between<>(children.get(0), children.get(1), children.get(2));
+        return new Between(children.get(0), children.get(1), children.get(2));
     }
 
     @Override
@@ -106,10 +101,11 @@ public class Between<
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        Between<?, ?, ?> between = (Between<?, ?, ?>) o;
-        return Objects.equals(compareExpr, between.compareExpr)
-                && Objects.equals(lowerBound, between.lowerBound)
-                && Objects.equals(upperBound, between.upperBound);
+        Between that = (Between) o;
+        return Objects.equals(compareExpr, that.compareExpr)
+                && Objects.equals(lowerBound, that.lowerBound)
+                && Objects.equals(upperBound, that.upperBound)
+                && Objects.equals(children, that.children);
     }
 
     @Override

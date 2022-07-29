@@ -39,12 +39,7 @@ const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
 /// See compaction-action.md for details.
 class CompactionAction : public HttpHandler {
 public:
-    CompactionAction(CompactionActionType type) : _type(type) {
-        _compaction_mem_tracker =
-                type == RUN_COMPACTION ? MemTracker::create_tracker(-1, "ManualCompaction", nullptr,
-                                                                    MemTrackerLevel::VERBOSE)
-                                       : nullptr;
-    }
+    CompactionAction(CompactionActionType type) : _type(type) {}
 
     virtual ~CompactionAction() {}
 
@@ -75,8 +70,6 @@ private:
     static std::mutex _compaction_running_mutex;
     /// whether there is manual compaction running
     static bool _is_compaction_running;
-    /// memory tracker
-    std::shared_ptr<MemTracker> _compaction_mem_tracker;
 };
 
 } // end namespace doris

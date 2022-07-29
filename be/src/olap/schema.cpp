@@ -156,6 +156,9 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(FieldType type)
     case OLAP_FIELD_TYPE_DATEV2:
         return doris::vectorized::PredicateColumnType<uint32_t>::create();
 
+    case OLAP_FIELD_TYPE_DATETIMEV2:
+        return doris::vectorized::PredicateColumnType<uint64_t>::create();
+
     case OLAP_FIELD_TYPE_DATETIME:
         return doris::vectorized::PredicateColumnType<uint64_t>::create();
 
@@ -169,6 +172,12 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(FieldType type)
 
     case OLAP_FIELD_TYPE_DECIMAL:
         return doris::vectorized::PredicateColumnType<decimal12_t>::create();
+    case OLAP_FIELD_TYPE_DECIMAL32:
+        return doris::vectorized::PredicateColumnType<doris::vectorized::Int32>::create();
+    case OLAP_FIELD_TYPE_DECIMAL64:
+        return doris::vectorized::PredicateColumnType<doris::vectorized::Int64>::create();
+    case OLAP_FIELD_TYPE_DECIMAL128:
+        return doris::vectorized::PredicateColumnType<doris::vectorized::Int128>::create();
 
     default:
         LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << type;

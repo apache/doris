@@ -17,7 +17,7 @@
 
 package org.apache.doris;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LdapConfig;
@@ -61,11 +61,14 @@ public class PaloFe {
     public static final String PID_DIR = System.getenv("PID_DIR");
 
     public static void main(String[] args) {
-        start(DORIS_HOME_DIR, PID_DIR, args);
+        StartupOptions options = new StartupOptions();
+        options.enableHttpServer = true;
+        options.enableQeService = true;
+        start(DORIS_HOME_DIR, PID_DIR, args, options);
     }
 
     // entrance for doris frontend
-    public static void start(String dorisHomeDir, String pidDir, String[] args) {
+    public static void start(String dorisHomeDir, String pidDir, String[] args, StartupOptions options) {
         if (System.getenv("DORIS_LOG_TO_STDERR") != null) {
             Log4jConfig.foreground = true;
         }
@@ -126,8 +129,8 @@ public class PaloFe {
             }
 
             // init catalog and wait it be ready
-            Catalog.getCurrentCatalog().initialize(args);
-            Catalog.getCurrentCatalog().waitForReady();
+            Env.getCurrentEnv().initialize(args);
+            Env.getCurrentEnv().waitForReady();
 
             Telemetry.initOpenTelemetry();
 
@@ -135,24 +138,27 @@ public class PaloFe {
             // 1. HttpServer for HTTP Server
             // 2. FeServer for Thrift Server
             // 3. QeService for MySQL Server
-            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled,
-                    ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
-
             feServer.start();
 
-            HttpServer httpServer = new HttpServer();
-            httpServer.setPort(Config.http_port);
-            httpServer.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
-            httpServer.setAcceptors(Config.jetty_server_acceptors);
-            httpServer.setSelectors(Config.jetty_server_selectors);
-            httpServer.setWorkers(Config.jetty_server_workers);
-            httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
-            httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
-            httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);
-            httpServer.start();
+            if (options.enableHttpServer) {
+                HttpServer httpServer = new HttpServer();
+                httpServer.setPort(Config.http_port);
+                httpServer.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
+                httpServer.setAcceptors(Config.jetty_server_acceptors);
+                httpServer.setSelectors(Config.jetty_server_selectors);
+                httpServer.setWorkers(Config.jetty_server_workers);
+                httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
+                httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
+                httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);
+                httpServer.start();
+            }
 
-            qeService.start();
+            if (options.enableQeService) {
+                QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled,
+                        ExecuteEnv.getInstance().getScheduler());
+                qeService.start();
+            }
 
             ThreadPoolManager.registerAllThreadPoolMetric();
 
@@ -319,7 +325,7 @@ public class PaloFe {
             System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
             System.exit(0);
         } else if (cmdLineOpts.runBdbTools()) {
-            BDBTool bdbTool = new BDBTool(Catalog.getCurrentCatalog().getBdbDir(), cmdLineOpts.getBdbToolOpts());
+            BDBTool bdbTool = new BDBTool(Env.getCurrentEnv().getBdbDir(), cmdLineOpts.getBdbToolOpts());
             if (bdbTool.run()) {
                 System.exit(0);
             } else {
@@ -334,7 +340,7 @@ public class PaloFe {
             } else {
                 System.out.println("Start to load image: ");
                 try {
-                    MetaReader.read(imageFile, Catalog.getCurrentCatalog());
+                    MetaReader.read(imageFile, Env.getCurrentEnv());
                     System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
                 } catch (Exception e) {
                     System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
@@ -371,5 +377,10 @@ public class PaloFe {
             file.close();
             throw e;
         }
+    }
+
+    public static class StartupOptions {
+        public boolean enableHttpServer = true;
+        public boolean enableQeService = true;
     }
 }

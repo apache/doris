@@ -54,10 +54,15 @@ static const std::string PREFIX = "prefix";
 class TabletCloneTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
-        std::map<std::string, std::string> properties = {
-                {S3_AK, AK}, {S3_SK, SK}, {S3_ENDPOINT, ENDPOINT}, {S3_REGION, REGION}};
-        auto s3_fs = std::make_shared<io::S3FileSystem>(properties, BUCKET, PREFIX, kResourceId);
-        s3_fs->connect();
+        S3Conf s3_conf;
+        s3_conf.ak = AK;
+        s3_conf.sk = SK;
+        s3_conf.endpoint = ENDPOINT;
+        s3_conf.region = REGION;
+        s3_conf.bucket = BUCKET;
+        s3_conf.prefix = PREFIX;
+        auto s3_fs = std::make_shared<io::S3FileSystem>(std::move(s3_conf), kResourceId);
+        ASSERT_TRUE(s3_fs->connect().ok());
         io::FileSystemMap::instance()->insert(kResourceId, s3_fs);
 
         config::storage_root_path = kTestDir;
@@ -162,8 +167,7 @@ TEST_F(TabletCloneTest, convert_rowset_ids_has_file_in_s3) {
     DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
 
-    MemTracker tracker;
-    MemPool pool(&tracker);
+    MemPool pool;
     // Tuple 1
     {
         Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
@@ -197,8 +201,8 @@ TEST_F(TabletCloneTest, convert_rowset_ids_has_file_in_s3) {
         RowsetSharedPtr rowset = tablet_rs.second;
         rowset->rowset_meta()->set_resource_id(kResourceId);
         st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                  write_req.tablet_id, write_req.schema_hash,
-                                                  tablet_rs.first.tablet_uid, version);
+                                                  tablet->tablet_id(), tablet->schema_hash(),
+                                                  tablet->tablet_uid(), version);
         ASSERT_EQ(Status::OK(), st);
         st = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);

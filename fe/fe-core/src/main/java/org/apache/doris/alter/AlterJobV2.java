@@ -17,8 +17,8 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
@@ -111,6 +111,10 @@ public abstract class AlterJobV2 implements Writable {
         return jobState;
     }
 
+    public void setJobState(JobState jobState) {
+        this.jobState = jobState;
+    }
+
     public JobType getType() {
         return type;
     }
@@ -141,6 +145,10 @@ public abstract class AlterJobV2 implements Writable {
 
     public long getFinishedTimeMs() {
         return finishedTimeMs;
+    }
+
+    public void setFinishedTimeMs(long finishedTimeMs) {
+        this.finishedTimeMs = finishedTimeMs;
     }
 
     /**
@@ -196,8 +204,8 @@ public abstract class AlterJobV2 implements Writable {
 
         tbl.writeLockOrAlterCancelException();
         try {
-            boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
-                    Catalog.getCurrentCatalog().getTabletScheduler(), db.getClusterName());
+            boolean isStable = tbl.isStable(Env.getCurrentSystemInfo(),
+                    Env.getCurrentEnv().getTabletScheduler(), db.getClusterName());
 
             if (!isStable) {
                 errMsg = "table is unstable";

@@ -264,7 +264,7 @@ public:
                                  uint32_t* start_offset_array, size_t num) override {
         if constexpr (std::is_same_v<T, StringValue>) {
             if (_pool == nullptr) {
-                _pool.reset(new MemPool("PredicateStringColumn"));
+                _pool.reset(new MemPool());
             }
 
             size_t total_mem_size = 0;
@@ -433,8 +433,15 @@ public:
                     reinterpret_cast<vectorized::ColumnVector<doris::vectorized::Float64>*>(
                             col_ptr));
         } else if constexpr (std::is_same_v<T, uint64_t>) {
-            insert_datetime_to_res_column(
-                    sel, sel_size, reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
+            if (const vectorized::ColumnVector<UInt64>* date_col =
+                        check_and_get_column<vectorized::ColumnVector<UInt64>>(
+                                const_cast<const IColumn*>(col_ptr))) {
+                insert_default_value_res_column(
+                        sel, sel_size, const_cast<vectorized::ColumnVector<UInt64>*>(date_col));
+            } else {
+                insert_datetime_to_res_column(
+                        sel, sel_size, reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
+            }
         } else if constexpr (std::is_same_v<T, uint24_t>) {
             insert_date_to_res_column(sel, sel_size,
                                       reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));

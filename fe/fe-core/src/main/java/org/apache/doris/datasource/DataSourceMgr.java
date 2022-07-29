@@ -22,8 +22,8 @@ import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -124,6 +124,9 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
         return Lists.newArrayList(idToCatalog.keySet());
     }
 
+    /**
+     * Get db allow return null
+     **/
     public DatabaseIf getDbNullable(long dbId) {
         DatabaseIf db = internalDataSource.getDbNullable(dbId);
         if (db != null) {
@@ -186,10 +189,10 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             if (nameToCatalog.containsKey(stmt.getCatalogName())) {
                 throw new DdlException("Catalog had already exist with name: " + stmt.getCatalogName());
             }
-            long id = Catalog.getCurrentCatalog().getNextId();
+            long id = Env.getCurrentEnv().getNextId();
             CatalogLog log = CatalogFactory.constructorCatalogLog(id, stmt);
             replayCreateCatalog(log);
-            Catalog.getCurrentCatalog().getEditLog().logDatasourceLog(OperationType.OP_CREATE_DS, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_CREATE_DS, log);
         } finally {
             writeUnlock();
         }
@@ -211,7 +214,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayDropCatalog(log);
-            Catalog.getCurrentCatalog().getEditLog().logDatasourceLog(OperationType.OP_DROP_DS, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_DROP_DS, log);
         } finally {
             writeUnlock();
         }
@@ -229,7 +232,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayAlterCatalogName(log);
-            Catalog.getCurrentCatalog().getEditLog().logDatasourceLog(OperationType.OP_ALTER_DS_NAME, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_ALTER_DS_NAME, log);
         } finally {
             writeUnlock();
         }
@@ -250,7 +253,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayAlterCatalogProps(log);
-            Catalog.getCurrentCatalog().getEditLog().logDatasourceLog(OperationType.OP_ALTER_DS_PROPS, log);
+            Env.getCurrentEnv().getEditLog().logDatasourceLog(OperationType.OP_ALTER_DS_PROPS, log);
         } finally {
             writeUnlock();
         }
@@ -272,7 +275,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
         try {
             if (showStmt.getCatalogName() == null) {
                 for (DataSourceIf ds : nameToCatalog.values()) {
-                    if (Catalog.getCurrentCatalog().getAuth()
+                    if (Env.getCurrentEnv().getAuth()
                             .checkCtlPriv(ConnectContext.get(), ds.getName(), PrivPredicate.SHOW)) {
                         List<String> row = Lists.newArrayList();
                         row.add(String.valueOf(ds.getId()));
@@ -286,7 +289,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
                     throw new AnalysisException("No catalog found with name: " + showStmt.getCatalogName());
                 }
                 DataSourceIf<DatabaseIf> ds = nameToCatalog.get(showStmt.getCatalogName());
-                if (!Catalog.getCurrentCatalog().getAuth().checkCtlPriv(
+                if (!Env.getCurrentEnv().getAuth().checkCtlPriv(
                         ConnectContext.get(), ds.getName(), PrivPredicate.SHOW)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                             ConnectContext.get().getQualifiedUser(), ds.getName());
@@ -308,7 +311,7 @@ public class DataSourceMgr implements Writable, GsonPostProcessable {
     /**
      * Reply for create catalog event.
      */
-    public void replayCreateCatalog(CatalogLog log) {
+    public void replayCreateCatalog(CatalogLog log) throws DdlException {
         writeLock();
         try {
             DataSourceIf ds = CatalogFactory.constructorFromLog(log);

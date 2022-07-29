@@ -25,15 +25,24 @@
 namespace doris::vectorized {
 
 using FunctionDayName = FunctionDateOrDateTimeToString<DayNameImpl<VecDateTimeValue, Int64>>;
-using FunctionDayNameV2 = FunctionDateOrDateTimeToString<DayNameImpl<DateV2Value, UInt32>>;
+using FunctionDayNameV2 =
+        FunctionDateOrDateTimeToString<DayNameImpl<DateV2Value<DateV2ValueType>, UInt32>>;
 using FunctionMonthName = FunctionDateOrDateTimeToString<MonthNameImpl<VecDateTimeValue, Int64>>;
-using FunctionMonthNameV2 = FunctionDateOrDateTimeToString<MonthNameImpl<DateV2Value, UInt32>>;
+using FunctionMonthNameV2 =
+        FunctionDateOrDateTimeToString<MonthNameImpl<DateV2Value<DateV2ValueType>, UInt32>>;
+
+using FunctionDateTimeV2DayName =
+        FunctionDateOrDateTimeToString<DayNameImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+using FunctionDateTimeV2MonthName =
+        FunctionDateOrDateTimeToString<MonthNameImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
 
 void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayName>();
     factory.register_function<FunctionMonthName>();
     factory.register_function<FunctionDayNameV2>();
     factory.register_function<FunctionMonthNameV2>();
+    factory.register_function<FunctionDateTimeV2DayName>();
+    factory.register_function<FunctionDateTimeV2MonthName>();
 }
 
 } // namespace doris::vectorized

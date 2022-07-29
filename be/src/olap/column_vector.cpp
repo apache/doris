@@ -87,6 +87,21 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
                     new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType>(
                             type_info, is_nullable));
             break;
+        case OLAP_FIELD_TYPE_DECIMAL32:
+            local.reset(
+                    new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL32>::CppType>(
+                            type_info, is_nullable));
+            break;
+        case OLAP_FIELD_TYPE_DECIMAL64:
+            local.reset(
+                    new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL64>::CppType>(
+                            type_info, is_nullable));
+            break;
+        case OLAP_FIELD_TYPE_DECIMAL128:
+            local.reset(
+                    new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL128>::CppType>(
+                            type_info, is_nullable));
+            break;
         case OLAP_FIELD_TYPE_DATE:
             local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType>(
                     type_info, is_nullable));
@@ -98,6 +113,11 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
         case OLAP_FIELD_TYPE_DATETIME:
             local.reset(
                     new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType>(
+                            type_info, is_nullable));
+            break;
+        case OLAP_FIELD_TYPE_DATETIMEV2:
+            local.reset(
+                    new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_DATETIMEV2>::CppType>(
                             type_info, is_nullable));
             break;
         case OLAP_FIELD_TYPE_CHAR:

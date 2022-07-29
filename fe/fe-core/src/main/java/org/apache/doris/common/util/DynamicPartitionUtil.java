@@ -18,9 +18,10 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
@@ -37,7 +38,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
 
 import com.google.common.base.Preconditions;
@@ -224,10 +224,11 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc) throws DdlException {
+    private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, Database db) throws DdlException {
         if (replicaAlloc.getTotalReplicaNum() <= 0) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, db.getClusterName(), null);
     }
 
     private static void checkHotPartitionNum(String val) throws DdlException {
@@ -341,23 +342,24 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkRemoteStoragePolicy(String val) throws DdlException {
-        if (Strings.isNullOrEmpty(val)) {
+    private static void checkRemoteStoragePolicy(String policyName) throws DdlException {
+        if (Strings.isNullOrEmpty(policyName)) {
             LOG.info(DynamicPartitionProperty.REMOTE_STORAGE_POLICY + " is null, remove this key");
             return;
         }
-        if (val.isEmpty()) {
+        if (policyName.isEmpty()) {
             throw new DdlException(DynamicPartitionProperty.REMOTE_STORAGE_POLICY + " is empty.");
         }
-        StoragePolicy checkedPolicyCondition = new StoragePolicy(PolicyTypeEnum.STORAGE, val);
-        if (!Catalog.getCurrentCatalog().getPolicyMgr().existPolicy(checkedPolicyCondition)) {
-            throw new DdlException(DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + val + " doesn't exist.");
+        StoragePolicy checkedPolicyCondition = StoragePolicy.ofCheck(policyName);
+        if (!Env.getCurrentEnv().getPolicyMgr().existPolicy(checkedPolicyCondition)) {
+            throw new DdlException(
+                    DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + policyName + " doesn't exist.");
         }
-        StoragePolicy storagePolicy = (StoragePolicy) Catalog.getCurrentCatalog()
-                .getPolicyMgr().getPolicy(checkedPolicyCondition);
+        StoragePolicy storagePolicy = (StoragePolicy) Env.getCurrentEnv().getPolicyMgr()
+                .getPolicy(checkedPolicyCondition);
         if (Strings.isNullOrEmpty(storagePolicy.getCooldownTtl())) {
             throw new DdlException("Storage policy cooldown type need to be cooldownTtl for properties "
-                    + DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + val);
+                    + DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + policyName);
         }
     }
 
@@ -456,13 +458,13 @@ public class DynamicPartitionUtil {
                 if (!isReplay) {
                     // execute create partition first time only in master of FE, So no need execute
                     // when it's replay
-                    Catalog.getCurrentCatalog().getDynamicPartitionScheduler()
+                    Env.getCurrentEnv().getDynamicPartitionScheduler()
                             .executeDynamicPartitionFirstTime(dbId, olapTable.getId());
                 }
-                Catalog.getCurrentCatalog().getDynamicPartitionScheduler()
+                Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .registerDynamicPartitionTable(dbId, olapTable.getId());
             } else {
-                Catalog.getCurrentCatalog().getDynamicPartitionScheduler()
+                Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .removeDynamicPartitionTable(dbId, olapTable.getId());
             }
         }
@@ -470,12 +472,12 @@ public class DynamicPartitionUtil {
 
     // Analyze all properties to check their validation
     public static Map<String, String> analyzeDynamicPartition(Map<String, String> properties,
-            PartitionInfo partitionInfo) throws UserException {
+            OlapTable olapTable, Database db) throws UserException {
         // properties should not be empty, check properties before call this function
         Map<String, String> analyzedProperties = new HashMap<>();
         if (properties.containsKey(DynamicPartitionProperty.TIME_UNIT)) {
             String timeUnitValue = properties.get(DynamicPartitionProperty.TIME_UNIT);
-            checkTimeUnit(timeUnitValue, partitionInfo);
+            checkTimeUnit(timeUnitValue, olapTable.getPartitionInfo());
             properties.remove(DynamicPartitionProperty.TIME_UNIT);
             analyzedProperties.put(DynamicPartitionProperty.TIME_UNIT, timeUnitValue);
         }
@@ -592,9 +594,11 @@ public class DynamicPartitionUtil {
 
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
-            checkReplicaAllocation(replicaAlloc);
+            checkReplicaAllocation(replicaAlloc, db);
             properties.remove(DynamicPartitionProperty.REPLICATION_ALLOCATION);
             analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
+        } else {
+            checkReplicaAllocation(olapTable.getDefaultReplicaAllocation(), db);
         }
 
         if (properties.containsKey(DynamicPartitionProperty.HOT_PARTITION_NUM)) {
@@ -649,11 +653,11 @@ public class DynamicPartitionUtil {
     /**
      * properties should be checked before call this method
      */
-    public static void checkAndSetDynamicPartitionProperty(OlapTable olapTable, Map<String, String> properties)
-            throws UserException {
+    public static void checkAndSetDynamicPartitionProperty(OlapTable olapTable, Map<String, String> properties,
+            Database db) throws UserException {
         if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo())) {
             Map<String, String> dynamicPartitionProperties =
-                    DynamicPartitionUtil.analyzeDynamicPartition(properties, olapTable.getPartitionInfo());
+                    DynamicPartitionUtil.analyzeDynamicPartition(properties, olapTable, db);
             TableProperty tableProperty = olapTable.getTableProperty();
             if (tableProperty != null) {
                 tableProperty.modifyTableProperties(dynamicPartitionProperties);
@@ -665,9 +669,10 @@ public class DynamicPartitionUtil {
     }
 
     public static String getPartitionFormat(Column column) throws DdlException {
-        if (column.getDataType().equals(PrimitiveType.DATE)) {
+        if (column.getDataType().equals(PrimitiveType.DATE) || column.getDataType().equals(PrimitiveType.DATEV2)) {
             return DATE_FORMAT;
-        } else if (column.getDataType().equals(PrimitiveType.DATETIME)) {
+        } else if (column.getDataType().equals(PrimitiveType.DATETIME)
+                || column.getDataType().equals(PrimitiveType.DATETIMEV2)) {
             return DATETIME_FORMAT;
         } else if (PrimitiveType.getIntegerTypes().contains(column.getDataType())) {
             // TODO: For Integer Type, only support format it as yyyyMMdd now

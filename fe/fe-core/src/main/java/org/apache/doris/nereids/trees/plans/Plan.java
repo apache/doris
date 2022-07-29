@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.PlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.statistics.PlanStats;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import java.util.List;
 import java.util.Optional;
@@ -30,19 +30,40 @@ import java.util.Optional;
 /**
  * Abstract class for all plan node.
  */
-public interface Plan extends TreeNode<Plan>, PlanStats {
+public interface Plan extends TreeNode<Plan> {
 
-    PlanOperator getOperator();
+    PlanType getType();
+
+    // cache GroupExpression for fast exit from Memo.copyIn.
+    Optional<GroupExpression> getGroupExpression();
+
+    default <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        throw new RuntimeException("accept() is not implemented by plan " + this.getClass().getSimpleName());
+    }
+
+    List<Expression> getExpressions();
 
     LogicalProperties getLogicalProperties();
 
+    default LogicalProperties computeLogicalProperties(Plan... inputs) {
+        throw new IllegalStateException("Not support compute logical properties for " + getClass().getName());
+    }
+
     List<Slot> getOutput();
+
+    default List<Slot> computeOutput(Plan... inputs) {
+        throw new IllegalStateException("Not support compute output for " + getClass().getName());
+    }
 
     String treeString();
 
-    Plan withOutput(List<Slot> output);
+    default Plan withOutput(List<Slot> output) {
+        return withLogicalProperties(Optional.of(getLogicalProperties().withOutput(output)));
+    }
 
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 
     Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties);
+
+    long getLimit();
 }

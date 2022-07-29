@@ -20,7 +20,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
@@ -934,7 +934,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         msg.type = type.toThrift();
         msg.num_children = children.size();
         if (fn != null) {
-            msg.setFn(fn.toThrift());
+            msg.setFn(fn.toThrift(type, collectChildReturnTypes()));
             if (fn.hasVarArgs()) {
                 msg.setVarargStartIdx(fn.getNumArgs() - 1);
             }
@@ -1295,7 +1295,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public Expr checkTypeCompatibility(Type targetType) throws AnalysisException {
         if (targetType.getPrimitiveType() != PrimitiveType.ARRAY
                 && targetType.getPrimitiveType() == type.getPrimitiveType()) {
-            return this;
+            if (targetType.isDecimalV2() && type.isDecimalV2()) {
+                return this;
+            } else if (!PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
+                return this;
+            } else if (((ScalarType) targetType).decimalScale() == ((ScalarType) type).decimalScale()
+                    && ((ScalarType) targetType).decimalPrecision() == ((ScalarType) type).decimalPrecision()) {
+                return this;
+            }
         }
         // bitmap must match exactly
         if (targetType.getPrimitiveType() == PrimitiveType.BITMAP) {
@@ -1622,7 +1629,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
                 VectorizedUtil.isVectorized());
-        Function f = Catalog.getCurrentCatalog().getFunction(searchDesc, mode);
+        Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
         if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
             if (this.children.size() == 1
                     && !(this.children.get(0) instanceof LiteralExpr)) {
@@ -1636,7 +1643,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
                 VectorizedUtil.isVectorized());
-        Function f = Catalog.getCurrentCatalog().getTableFunction(searchDesc, mode);
+        Function f = Env.getCurrentEnv().getTableFunction(searchDesc, mode);
         return f;
     }
 

@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class ShowPartitionsStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowPartitionsStmt.class);
@@ -101,14 +102,14 @@ public class ShowPartitionsStmt extends ShowStmt {
         // check access
         String dbName = tableName.getDb();
         String tblName = tableName.getTbl();
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
                                                                 PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW PARTITIONS",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
                                                 dbName + ": " + tblName);
         }
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         Table table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
         table.readLock();
         try {
@@ -193,7 +194,8 @@ public class ShowPartitionsStmt extends ShowStmt {
                     throw new AnalysisException("Where clause : LastConsistencyCheckTime =|>=|<=|>|<|!= "
                         + "\"2019-12-22|2019-12-22 22:22:00\"");
                 }
-                subExpr.setChild(1, (subExpr.getChild(1)).castTo(Type.DATETIME));
+                subExpr.setChild(1, (subExpr.getChild(1)).castTo(
+                        Objects.requireNonNull(ScalarType.getDefaultDateType(Type.DATETIME))));
             } else if (!leftKey.equalsIgnoreCase(FILTER_PARTITION_ID) && !leftKey.equalsIgnoreCase(FILTER_BUCKETS)
                     && !leftKey.equalsIgnoreCase(FILTER_REPLICATION_NUM)) {
                 throw new AnalysisException("Only the columns of PartitionId/PartitionName/"

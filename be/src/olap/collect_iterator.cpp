@@ -34,7 +34,9 @@ void CollectIterator::init(TabletReader* reader) {
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
     // multiple data to aggregate for better performance
     if (_reader->_reader_type == READER_QUERY &&
-        (_reader->_aggregation || _reader->_tablet->keys_type() == KeysType::DUP_KEYS)) {
+        (_reader->_aggregation || _reader->_tablet->keys_type() == KeysType::DUP_KEYS ||
+         (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+          _reader->_tablet->enable_unique_key_merge_on_write()))) {
         _merge = false;
     }
 }
@@ -55,9 +57,9 @@ Status CollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
 // then merged with the base rowset.
 void CollectIterator::build_heap(const std::vector<RowsetReaderSharedPtr>& rs_readers) {
     DCHECK(rs_readers.size() == _children.size());
-    _reverse = _reader->_tablet->tablet_schema().keys_type() == KeysType::UNIQUE_KEYS;
-    SortType sort_type = _reader->_tablet->tablet_schema().sort_type();
-    int sort_col_num = _reader->_tablet->tablet_schema().sort_col_num();
+    _reverse = _reader->_tablet_schema->keys_type() == KeysType::UNIQUE_KEYS;
+    SortType sort_type = _reader->_tablet_schema->sort_type();
+    int sort_col_num = _reader->_tablet_schema->sort_col_num();
     if (_children.empty()) {
         _inner_iter.reset(nullptr);
         return;
@@ -200,7 +202,7 @@ CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
 CollectIterator::Level0Iterator::~Level0Iterator() = default;
 
 Status CollectIterator::Level0Iterator::init() {
-    RETURN_NOT_OK_LOG(_row_cursor.init(_reader->_tablet->tablet_schema(), _reader->_seek_columns),
+    RETURN_NOT_OK_LOG(_row_cursor.init(*_reader->_tablet_schema, _reader->_seek_columns),
                       "failed to init row cursor");
     return (this->*_refresh_current_row)();
 }

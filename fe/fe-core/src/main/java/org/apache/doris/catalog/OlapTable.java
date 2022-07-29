@@ -38,6 +38,7 @@ import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -141,6 +142,8 @@ public class OlapTable extends Table {
 
     private TableProperty tableProperty;
 
+    private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
+
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -189,6 +192,20 @@ public class OlapTable extends Table {
 
     public TableProperty getTableProperty() {
         return this.tableProperty;
+    }
+
+    //take care: only use at create olap table.
+    public int incAndGetMaxColUniqueId() {
+        this.maxColUniqueId++;
+        return this.maxColUniqueId;
+    }
+
+    public int getMaxColUniqueId() {
+        return this.maxColUniqueId;
+    }
+
+    public void setMaxColUniqueId(int maxColUniqueId) {
+        this.maxColUniqueId = maxColUniqueId;
     }
 
     public boolean dynamicPartitionExists() {
@@ -431,9 +448,9 @@ public class OlapTable extends Table {
         setColocateGroup(null);
     }
 
-    public Status resetIdsForRestore(Catalog catalog, Database db, ReplicaAllocation restoreReplicaAlloc) {
+    public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc) {
         // table id
-        id = catalog.getNextId();
+        id = env.getNextId();
 
         // copy an origin index id to name map
         Map<Long, String> origIdxIdToName = Maps.newHashMap();
@@ -443,7 +460,7 @@ public class OlapTable extends Table {
 
         // reset all 'indexIdToXXX' map
         for (Map.Entry<Long, String> entry : origIdxIdToName.entrySet()) {
-            long newIdxId = catalog.getNextId();
+            long newIdxId = env.getNextId();
             if (entry.getValue().equals(name)) {
                 // base index
                 baseIndexId = newIdxId;
@@ -461,13 +478,13 @@ public class OlapTable extends Table {
         // reset partition info and idToPartition map
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
-                long newPartId = catalog.getNextId();
+                long newPartId = env.getNextId();
                 partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), restoreReplicaAlloc, false);
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         } else {
             // Single partitioned
-            long newPartId = catalog.getNextId();
+            long newPartId = env.getNextId();
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
                 partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), restoreReplicaAlloc, true);
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
@@ -494,18 +511,18 @@ public class OlapTable extends Table {
                 int tabletNum = idx.getTablets().size();
                 idx.clearTabletsForRestore();
                 for (int i = 0; i < tabletNum; i++) {
-                    long newTabletId = catalog.getNextId();
+                    long newTabletId = env.getNextId();
                     Tablet newTablet = new Tablet(newTabletId);
                     idx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
 
                     // replicas
                     try {
                         Map<Tag, List<Long>> tag2beIds =
-                                Catalog.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
+                                Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
                                 replicaAlloc, db.getClusterName(), null);
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
-                                long newReplicaId = catalog.getNextId();
+                                long newReplicaId = env.getNextId();
                                 Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
                                         partition.getVisibleVersion(), schemaHash);
                                 newTablet.addReplica(replica, true /* is restore */);
@@ -713,7 +730,7 @@ public class OlapTable extends Table {
             if (!isForceDrop) {
                 // recycle partition
                 if (partitionInfo.getType() == PartitionType.RANGE) {
-                    Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
                             partitionInfo.getItem(partition.getId()).getItems(),
                             new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
                             partitionInfo.getDataProperty(partition.getId()),
@@ -732,7 +749,7 @@ public class OlapTable extends Table {
                     }
                     Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
 
-                    Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
                             dummyRange,
                             partitionInfo.getItem(partition.getId()),
                             partitionInfo.getDataProperty(partition.getId()),
@@ -740,7 +757,7 @@ public class OlapTable extends Table {
                             partitionInfo.getIsInMemory(partition.getId()));
                 }
             } else if (!reserveTablets) {
-                Catalog.getCurrentCatalog().onErasePartition(partition);
+                Env.getCurrentEnv().onErasePartition(partition);
             }
 
             // drop partition info
@@ -1144,6 +1161,7 @@ public class OlapTable extends Table {
         }
 
         tempPartitions.write(out);
+        out.writeInt(maxColUniqueId);
     }
 
     @Override
@@ -1235,6 +1253,10 @@ public class OlapTable extends Table {
             }
         }
         tempPartitions.unsetPartitionInfo();
+
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_112) {
+            maxColUniqueId = in.readInt();
+        }
         // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
@@ -1359,8 +1381,8 @@ public class OlapTable extends Table {
                     + "Do not allow doing materialized view");
         }
         // check if all tablets are healthy, and no tablet is in tablet scheduler
-        boolean isStable = isStable(Catalog.getCurrentSystemInfo(),
-                Catalog.getCurrentCatalog().getTabletScheduler(),
+        boolean isStable = isStable(Env.getCurrentSystemInfo(),
+                Env.getCurrentEnv().getTabletScheduler(),
                 clusterName);
         if (!isStable) {
             throw new DdlException("table [" + name + "] is not stable."
@@ -1400,7 +1422,7 @@ public class OlapTable extends Table {
 
     // arbitrarily choose a partition, and get the buckets backends sequence from base index.
     public Map<Tag, List<List<Long>>> getArbitraryTabletBucketsSeq() throws DdlException {
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
         Map<Tag, List<List<Long>>> backendsPerBucketSeq = Maps.newHashMap();
         for (Partition partition : idToPartition.values()) {
             ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(partition.getId());
@@ -1423,11 +1445,11 @@ public class OlapTable extends Table {
                     if (be == null) {
                         continue;
                     }
-                    short num = currentReplicaAlloc.getOrDefault(be.getTag(), (short) 0);
-                    currentReplicaAlloc.put(be.getTag(), (short) (num + 1));
-                    List<Long> beIds = tag2beIds.getOrDefault(be.getTag(), Lists.newArrayList());
+                    short num = currentReplicaAlloc.getOrDefault(be.getLocationTag(), (short) 0);
+                    currentReplicaAlloc.put(be.getLocationTag(), (short) (num + 1));
+                    List<Long> beIds = tag2beIds.getOrDefault(be.getLocationTag(), Lists.newArrayList());
                     beIds.add(beId);
-                    tag2beIds.put(be.getTag(), beIds);
+                    tag2beIds.put(be.getLocationTag(), beIds);
                 }
                 if (!currentReplicaAlloc.equals(replicaAlloc.getAllocMap())) {
                     throw new DdlException("The relica allocation is " + currentReplicaAlloc.toString()
@@ -1537,6 +1559,21 @@ public class OlapTable extends Table {
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INMEMORY,
                 Boolean.valueOf(isInMemory).toString());
         tableProperty.buildInMemory();
+    }
+
+    public void setStoragePolicy(String storagePolicy) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, storagePolicy);
+        tableProperty.buildStoragePolicy();
+    }
+
+    public String getStoragePolicy() {
+        if (tableProperty != null) {
+            return tableProperty.getStoragePolicy();
+        }
+        return "";
     }
 
     public void setDataSortInfo(DataSortInfo dataSortInfo) {
@@ -1739,6 +1776,20 @@ public class OlapTable extends Table {
         return tableProperty.getRemoteStoragePolicy();
     }
 
+    public void setEnableUniqueKeyMergeOnWrite(boolean speedup) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.setEnableUniqueKeyMergeOnWrite(speedup);
+    }
+
+    public boolean getEnableUniqueKeyMergeOnWrite() {
+        if (tableProperty == null) {
+            return false;
+        }
+        return tableProperty.getEnableUniqueKeyMergeOnWrite();
+    }
+
     // For non partitioned table:
     //   The table's distribute hash columns need to be a subset of the aggregate columns.
     //
@@ -1777,7 +1828,7 @@ public class OlapTable extends Table {
 
     // for ut
     public void checkReplicaAllocation() throws UserException {
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
         for (Partition partition : getPartitions()) {
             ReplicaAllocation replicaAlloc = getPartitionInfo().getReplicaAllocation(partition.getId());
             Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
@@ -1789,8 +1840,8 @@ public class OlapTable extends Table {
                         if (be == null) {
                             continue;
                         }
-                        short num = curMap.getOrDefault(be.getTag(), (short) 0);
-                        curMap.put(be.getTag(), (short) (num + 1));
+                        short num = curMap.getOrDefault(be.getLocationTag(), (short) 0);
+                        curMap.put(be.getLocationTag(), (short) (num + 1));
                     }
                     if (!curMap.equals(allocMap)) {
                         throw new UserException("replica allocation of tablet " + tablet.getId() + " is not expected"

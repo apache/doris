@@ -31,6 +31,9 @@ void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     for (auto slot : slots) {
         pindex->add_columns(slot->col_name());
     }
+    for (auto column : columns) {
+        column->to_schema_pb(pindex->add_columns_desc());
+    }
 }
 
 Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
@@ -56,6 +59,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
                 return Status::InternalError("unknown index column, column={}", col);
             }
             index->slots.emplace_back(it->second);
+        }
+        for (auto& pcolumn_desc : p_index.columns_desc()) {
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_pb(pcolumn_desc);
+            index->columns.emplace_back(tc);
         }
         _indexes.emplace_back(index);
     }
@@ -89,6 +97,11 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 return Status::InternalError("unknown index column, column={}", col);
             }
             index->slots.emplace_back(it->second);
+        }
+        for (auto& tcolumn_desc : t_index.columns_desc) {
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_thrift(tcolumn_desc);
+            index->columns.emplace_back(tc);
         }
         _indexes.emplace_back(index);
     }
@@ -155,7 +168,7 @@ std::string OlapTablePartition::debug_string(TupleDescriptor* tuple_desc) const 
 
 OlapTablePartitionParam::OlapTablePartitionParam(std::shared_ptr<OlapTableSchemaParam> schema,
                                                  const TOlapTablePartitionParam& t_param)
-        : _schema(schema), _t_param(t_param), _mem_pool(new MemPool("OlapTablePartitionParam")) {}
+        : _schema(schema), _t_param(t_param), _mem_pool(new MemPool()) {}
 
 OlapTablePartitionParam::~OlapTablePartitionParam() {}
 
@@ -193,9 +206,8 @@ Status OlapTablePartitionParam::init() {
         }
     }
     if (_distributed_slot_descs.empty()) {
-        Random random(UnixMillis());
-        _compute_tablet_index = [&random](Tuple* key, int64_t num_buckets) -> uint32_t {
-            return random.Uniform(num_buckets);
+        _compute_tablet_index = [](Tuple* key, int64_t num_buckets) -> uint32_t {
+            return butil::fast_rand() % num_buckets;
         };
     } else {
         _compute_tablet_index = [this](Tuple* key, int64_t num_buckets) -> uint32_t {
@@ -407,7 +419,7 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
         : _schema(schema),
           _t_param(t_param),
           _slots(_schema->tuple_desc()->slots()),
-          _mem_tracker(MemTracker::create_virtual_tracker(-1, "OlapTablePartitionParam")) {
+          _mem_tracker(std::make_unique<MemTracker>("OlapTablePartitionParam")) {
     for (auto slot : _slots) {
         _partition_block.insert(
                 {slot->get_empty_mutable_column(), slot->get_data_type_ptr(), slot->col_name()});
@@ -450,9 +462,8 @@ Status VOlapTablePartitionParam::init() {
         }
     }
     if (_distributed_slot_locs.empty()) {
-        Random random(UnixMillis());
-        _compute_tablet_index = [&random](BlockRow* key, int64_t num_buckets) -> uint32_t {
-            return random.Uniform(num_buckets);
+        _compute_tablet_index = [](BlockRow* key, int64_t num_buckets) -> uint32_t {
+            return butil::fast_rand() % num_buckets;
         };
     } else {
         _compute_tablet_index = [this](BlockRow* key, int64_t num_buckets) -> uint32_t {
@@ -573,7 +584,16 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
         if (TypeDescriptor::from_thrift(t_expr.type).is_date_v2_type()) {
-            vectorized::DateV2Value dt;
+            vectorized::DateV2Value<doris::vectorized::DateV2ValueType> dt;
+            if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
+                                  t_expr.date_literal.value.size())) {
+                std::stringstream ss;
+                ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
+                return Status::InternalError(ss.str());
+            }
+            column->insert_data(reinterpret_cast<const char*>(&dt), 0);
+        } else if (TypeDescriptor::from_thrift(t_expr.type).is_datetime_v2_type()) {
+            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> dt;
             if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
                                   t_expr.date_literal.value.size())) {
                 std::stringstream ss;

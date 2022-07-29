@@ -17,13 +17,9 @@
 
 package org.apache.doris.nereids.trees;
 
-import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.Operator;
-
 import com.alibaba.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -34,13 +30,6 @@ import java.util.function.Predicate;
  *                 or {@link org.apache.doris.nereids.trees.expressions.Expression}
  */
 public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
-
-    Operator getOperator();
-
-    // cache GroupExpression for fast exit from Memo.copyIn.
-    Optional<GroupExpression> getGroupExpression();
-
-    NodeType getType();
 
     List<NODE_TYPE> children();
 
@@ -90,5 +79,4 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         });
         return (T) result.build();
     }
-
 }

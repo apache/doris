@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -29,17 +28,23 @@ import java.util.Objects;
  * string regex expression.
  * Such as: like, regexp
  */
-public abstract class StringRegexPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-        extends Expression implements BinaryExpression<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public abstract class StringRegexPredicate extends Expression implements BinaryExpression {
+
+    /**
+     * like or regexp
+     */
+    protected final String symbol;
+
     /**
      * Constructor of StringRegexPredicate.
      *
-     * @param nodeType node type of expression
      * @param left     left child of string regex
      * @param right    right child of string regex
+     * @param symbol   operator symbol
      */
-    public StringRegexPredicate(NodeType nodeType, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(nodeType, left, right);
+    public StringRegexPredicate(Expression left, Expression right, String symbol) {
+        super(left, right);
+        this.symbol = symbol;
     }
 
     @Override
@@ -48,9 +53,13 @@ public abstract class StringRegexPredicate<LEFT_CHILD_TYPE extends Expression, R
     }
 
     @Override
-    public String sql() {
-        String nodeType = getType().toString();
-        return left().sql() + ' ' + nodeType + ' ' + right().sql();
+    public String toSql() {
+        return '(' + left().toSql() + ' ' + symbol + ' ' + right().toSql() + ')';
+    }
+
+    @Override
+    public String toString() {
+        return "(" + left() + " " + symbol + " " + right() + ")";
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -59,7 +68,7 @@ public abstract class StringRegexPredicate<LEFT_CHILD_TYPE extends Expression, R
 
     @Override
     public int hashCode() {
-        return Objects.hash(type, left(), right());
+        return Objects.hash(symbol, left(), right());
     }
 
     @Override
@@ -71,7 +80,7 @@ public abstract class StringRegexPredicate<LEFT_CHILD_TYPE extends Expression, R
             return false;
         }
         StringRegexPredicate other = (StringRegexPredicate) o;
-        return (type == other.getType()) && Objects.equals(left(), other.left())
+        return Objects.equals(left(), other.left())
                 && Objects.equals(right(), other.right());
     }
 }

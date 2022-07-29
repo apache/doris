@@ -2129,11 +2129,11 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 ### `min_version_count_indicate_replica_compaction_too_slow`
 
-默认值：300
+默认值：200
 
 是否可以动态配置：true
 
-是否为 Master FE 节点独有的配置项：true
+是否为 Master FE 节点独有的配置项：false
 
 版本计数阈值，用来判断副本做 compaction 的速度是否太慢
 

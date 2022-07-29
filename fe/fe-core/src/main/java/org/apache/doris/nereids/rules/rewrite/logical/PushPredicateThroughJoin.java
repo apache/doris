@@ -17,20 +17,19 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.SlotExtractor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBinaryPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Lists;
@@ -43,54 +42,52 @@ import java.util.Set;
 
 /**
  * Push the predicate in the LogicalFilter or LogicalJoin to the join children.
- * For example:
- * select a.k1,b.k1 from a join b on a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5 where a.k1 > 1 and b.k1 > 2
- * Logical plan tree:
- *                 project
- *                   |
- *                filter (a.k1 > 1 and b.k1 > 2)
- *                   |
- *                join (a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5)
- *                 /   \
- *              scan  scan
- * transformed:
- *                      project
- *                        |
- *                join (a.k1 = b.k1)
- *                /                \
- * filter(a.k1 > 1 and a.k2 > 2 )   filter(b.k1 > 2 and b.k2 > 5)
- *             |                                    |
- *            scan                                scan
  * todo: Now, only support eq on condition for inner join, support other case later
  */
 public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
-
+    /*
+     * For example:
+     * select a.k1,b.k1 from a join b on a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5 where a.k1 > 1 and b.k1 > 2
+     * Logical plan tree:
+     *                 project
+     *                   |
+     *                filter (a.k1 > 1 and b.k1 > 2)
+     *                   |
+     *                join (a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5)
+     *                 /   \
+     *              scan  scan
+     * transformed:
+     *                      project
+     *                        |
+     *                join (a.k1 = b.k1)
+     *                /                \
+     * filter(a.k1 > 1 and a.k2 > 2 )   filter(b.k1 > 2 and b.k2 > 5)
+     *             |                                    |
+     *            scan                                scan
+     */
     @Override
-    public Rule<Plan> build() {
+    public Rule build() {
         return logicalFilter(innerLogicalJoin()).then(filter -> {
 
-            LogicalJoin joinOp = filter.child().operator;
+            LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
 
-            Expression wherePredicates = filter.operator.getPredicates();
-            Expression onPredicates = Literal.TRUE_LITERAL;
+            Expression wherePredicates = filter.getPredicates();
+            Expression onPredicates = join.getCondition().orElse(BooleanLiteral.TRUE);
 
             List<Expression> otherConditions = Lists.newArrayList();
             List<Expression> eqConditions = Lists.newArrayList();
 
-            if (joinOp.getCondition().isPresent()) {
-                onPredicates = joinOp.getCondition().get();
-            }
+            List<Slot> leftInput = join.left().getOutput();
+            List<Slot> rightInput = join.right().getOutput();
 
-            List<Slot> leftInput = filter.child().left().getOutput();
-            List<Slot> rightInput = filter.child().right().getOutput();
-
-            ExpressionUtils.extractConjunct(ExpressionUtils.add(onPredicates, wherePredicates)).forEach(predicate -> {
-                if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))) {
-                    eqConditions.add(predicate);
-                } else {
-                    otherConditions.add(predicate);
-                }
-            });
+            ExpressionUtils.extractConjunctive(ExpressionUtils.and(onPredicates, wherePredicates))
+                    .forEach(predicate -> {
+                        if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))) {
+                            eqConditions.add(predicate);
+                        } else {
+                            otherConditions.add(predicate);
+                        }
+                    });
 
             List<Expression> leftPredicates = Lists.newArrayList();
             List<Expression> rightPredicates = Lists.newArrayList();
@@ -100,6 +97,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
                 if (slots.isEmpty()) {
                     leftPredicates.add(p);
                     rightPredicates.add(p);
+                    continue;
                 }
                 if (leftInput.containsAll(slots)) {
                     leftPredicates.add(p);
@@ -112,30 +110,30 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             otherConditions.removeAll(leftPredicates);
             otherConditions.removeAll(rightPredicates);
             otherConditions.addAll(eqConditions);
-            Expression joinConditions = ExpressionUtils.add(otherConditions);
+            Expression joinConditions = ExpressionUtils.and(otherConditions);
 
-            return pushDownPredicate(filter.child(), joinConditions, leftPredicates, rightPredicates);
+            return pushDownPredicate(join, joinConditions, leftPredicates, rightPredicates);
         }).toRule(RuleType.PUSH_DOWN_PREDICATE_THROUGH_JOIN);
     }
 
-    private Plan pushDownPredicate(LogicalBinaryPlan<LogicalJoin, GroupPlan, GroupPlan> joinPlan,
+    private Plan pushDownPredicate(LogicalJoin<GroupPlan, GroupPlan> joinPlan,
             Expression joinConditions, List<Expression> leftPredicates, List<Expression> rightPredicates) {
 
-        Expression left = ExpressionUtils.add(leftPredicates);
-        Expression right = ExpressionUtils.add(rightPredicates);
+        Expression left = ExpressionUtils.and(leftPredicates);
+        Expression right = ExpressionUtils.and(rightPredicates);
         //todo expr should optimize again using expr rewrite
         ExpressionRuleExecutor exprRewriter = new ExpressionRuleExecutor();
         Plan leftPlan = joinPlan.left();
         Plan rightPlan = joinPlan.right();
-        if (!left.equals(Literal.TRUE_LITERAL)) {
-            leftPlan = plan(new LogicalFilter(exprRewriter.rewrite(left)), leftPlan);
+        if (!left.equals(BooleanLiteral.TRUE)) {
+            leftPlan = new LogicalFilter(exprRewriter.rewrite(left), leftPlan);
         }
 
-        if (!right.equals(Literal.TRUE_LITERAL)) {
-            rightPlan = plan(new LogicalFilter(exprRewriter.rewrite(right)), rightPlan);
+        if (!right.equals(BooleanLiteral.TRUE)) {
+            rightPlan = new LogicalFilter(exprRewriter.rewrite(right), rightPlan);
         }
 
-        return plan(new LogicalJoin(joinPlan.operator.getJoinType(), Optional.of(joinConditions)), leftPlan, rightPlan);
+        return new LogicalJoin<>(joinPlan.getJoinType(), Optional.of(joinConditions), leftPlan, rightPlan);
     }
 
     private Expression getJoinCondition(Expression predicate, List<Slot> leftOutputs, List<Slot> rightOutputs) {

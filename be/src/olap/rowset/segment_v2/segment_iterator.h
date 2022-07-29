@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
 #include "olap/olap_common.h"
 #include "olap/olap_cond.h"
 #include "olap/rowset/segment_v2/common.h"
@@ -56,6 +57,11 @@ public:
     Status next_batch(RowBlockV2* row_block) override;
     Status next_batch(vectorized::Block* block) override;
 
+    // Get current block row locations. This function should be called
+    // after the `next_batch` function.
+    // Only vectorized version is supported.
+    Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
+
     const Schema& schema() const override { return _schema; }
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
@@ -71,6 +77,11 @@ private:
     Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
     Status _lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
                            rowid_t* rowid);
+    // lookup the ordinal of given key from short key index
+    Status _lookup_ordinal_from_sk_index(const RowCursor& key, bool is_include, rowid_t upper_bound,
+                                         rowid_t* rowid);
+    // lookup the ordinal of given key from primary key index
+    Status _lookup_ordinal_from_pk_index(const RowCursor& key, bool is_include, rowid_t* rowid);
     Status _seek_and_peek(rowid_t rowid);
 
     // calculate row ranges that satisfy requested column conditions using various column index
@@ -145,6 +156,8 @@ private:
         }
     }
 
+    void _update_max_row(const vectorized::Block* block);
+
 private:
     class BitmapRangeIterator;
 
@@ -193,6 +206,7 @@ private:
 
     // the actual init process is delayed to the first call to next_batch()
     bool _inited;
+    bool _estimate_row_size;
 
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes
@@ -205,11 +219,16 @@ private:
     // only used in `_get_row_ranges_by_keys`
     std::unique_ptr<RowBlockV2> _seek_block;
 
-    // block for file to read
-    std::unique_ptr<io::FileReader> _file_reader;
+    io::FileReaderSPtr _file_reader;
 
     // char_type columns cid
     std::vector<size_t> _char_type_idx;
+
+    // number of rows read in the current batch
+    uint32_t _current_batch_rows_read = 0;
+    // used for compaction, record selectd rowids of current batch
+    uint16_t _selected_size;
+    vector<uint16_t> _sel_rowid_idx;
 };
 
 } // namespace segment_v2

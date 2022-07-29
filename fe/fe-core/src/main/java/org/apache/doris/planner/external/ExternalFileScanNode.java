@@ -21,8 +21,8 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -55,6 +55,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -63,7 +64,6 @@ import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.mortbay.log.Log;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -74,7 +74,8 @@ import java.util.Random;
 import java.util.Set;
 
 /**
- * ExternalFileScanNode for the file access type of datasource, now only support hive,hudi and iceberg.
+ * ExternalFileScanNode for the file access type of datasource, now only support
+ * hive,hudi and iceberg.
  */
 public class ExternalFileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(ExternalFileScanNode.class);
@@ -82,6 +83,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
     private static final String HIVE_DEFAULT_COLUMN_SEPARATOR = "\001";
 
     private static final String HIVE_DEFAULT_LINE_DELIMITER = "\n";
+
+    // Just for explain
+    private int inputSplitsNum = 0;
+    private long totalFileSize = 0;
 
     private static class ParamCreateContext {
         public TFileScanRangeParams params;
@@ -97,7 +102,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             Set<Tag> tags = Sets.newHashSet();
             if (ConnectContext.get().getCurrentUserIdentity() != null) {
                 String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-                tags = Catalog.getCurrentCatalog().getAuth().getResourceTags(qualifiedUser);
+                tags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
                 if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
                     throw new UserException("No valid resource tag for user: " + qualifiedUser);
                 }
@@ -111,7 +116,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                     .needLoadAvailable()
                     .addTags(tags)
                     .build();
-            for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
+            for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
                 if (policy.isMatch(be)) {
                     backends.add(be);
                 }
@@ -215,9 +220,11 @@ public class ExternalFileScanNode extends ExternalScanNode {
         if (scanProvider.getTableFormatType().equals(TFileFormatType.FORMAT_CSV_PLAIN)) {
             Map<String, String> serDeInfoParams = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
             String columnSeparator = Strings.isNullOrEmpty(serDeInfoParams.get("field.delim"))
-                    ? HIVE_DEFAULT_COLUMN_SEPARATOR : serDeInfoParams.get("field.delim");
+                    ? HIVE_DEFAULT_COLUMN_SEPARATOR
+                    : serDeInfoParams.get("field.delim");
             String lineDelimiter = Strings.isNullOrEmpty(serDeInfoParams.get("line.delim"))
-                    ? HIVE_DEFAULT_LINE_DELIMITER : serDeInfoParams.get("line.delim");
+                    ? HIVE_DEFAULT_LINE_DELIMITER
+                    : serDeInfoParams.get("line.delim");
 
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             textParams.setLineDelimiterStr(lineDelimiter);
@@ -242,7 +249,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
             slotDescByName.put(column.getName(), slotDesc);
         }
 
-        // Hive table must extract partition value from path and hudi/iceberg table keep partition field in file.
+        // Hive table must extract partition value from path and hudi/iceberg table keep
+        // partition field in file.
         partitionKeys.addAll(scanProvider.getPathPartitionKeys());
         context.params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
         for (SlotDescriptor slot : desc.getSlots()) {
@@ -272,14 +280,25 @@ public class ExternalFileScanNode extends ExternalScanNode {
     // If fileFormat is not null, we use fileFormat instead of check file's suffix
     private void buildScanRange() throws UserException, IOException {
         scanRangeLocations = Lists.newArrayList();
-        InputSplit[] inputSplits = scanProvider.getSplits(conjuncts);
-        if (0 == inputSplits.length) {
+        List<InputSplit> inputSplits = scanProvider.getSplits(conjuncts);
+        if (inputSplits.isEmpty()) {
             return;
         }
+        inputSplitsNum = inputSplits.size();
 
-        String fullPath = ((FileSplit) inputSplits[0]).getPath().toUri().toString();
-        String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
+        String fullPath = ((FileSplit) inputSplits.get(0)).getPath().toUri().toString();
+        String filePath = ((FileSplit) inputSplits.get(0)).getPath().toUri().getPath();
         String fsName = fullPath.replace(filePath, "");
+        context.params.setFileType(scanProvider.getTableFileType());
+        context.params.setFormatType(scanProvider.getTableFormatType());
+        // set hdfs params for hdfs file type.
+        if (scanProvider.getTableFileType() == TFileType.FILE_HDFS) {
+            THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(scanProvider.getTableProperties());
+            tHdfsParams.setFsName(fsName);
+            context.params.setHdfsParams(tHdfsParams);
+        } else if (scanProvider.getTableFileType() == TFileType.FILE_S3) {
+            context.params.setProperties(hmsTable.getS3Properties());
+        }
 
         TScanRangeLocations curLocations = newLocations(context.params);
 
@@ -287,17 +306,17 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         for (InputSplit split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
+            totalFileSize += split.getLength();
 
             List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
                     partitionKeys);
 
             TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath);
-            rangeDesc.getHdfsParams().setFsName(fsName);
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
-            Log.debug("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
-                    + " with table split: " +  fileSplit.getPath()
-                    + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")");
+            LOG.info("Assign to backend " + curLocations.getLocations().get(0).getBackendId() + " with table split: "
+                    + fileSplit.getPath() + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")"
+                    + " loaction: " + Joiner.on("|").join(split.getLocations()));
 
             fileSplitStrategy.update(fileSplit);
             // Add a new location when it's can be split
@@ -340,16 +359,14 @@ public class ExternalFileScanNode extends ExternalScanNode {
             FileSplit fileSplit,
             List<String> columnsFromPath) throws DdlException, MetaNotFoundException {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
-        rangeDesc.setFileType(scanProvider.getTableFileType());
-        rangeDesc.setFormatType(scanProvider.getTableFormatType());
-        rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
         rangeDesc.setStartOffset(fileSplit.getStart());
         rangeDesc.setSize(fileSplit.getLength());
         rangeDesc.setColumnsFromPath(columnsFromPath);
-        // set hdfs params for hdfs file type.
+
         if (scanProvider.getTableFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(scanProvider.getTableProperties());
-            rangeDesc.setHdfsParams(tHdfsParams);
+            rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
+        } else if (scanProvider.getTableFileType() == TFileType.FILE_S3) {
+            rangeDesc.setPath(fileSplit.getPath().toString());
         }
         return rangeDesc;
     }
@@ -385,17 +402,19 @@ public class ExternalFileScanNode extends ExternalScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix).append("TABLE: ")
-                .append(hmsTable.getDbName()).append(".").append(hmsTable.getName()).append("\n")
-                .append(prefix).append("HIVE URL: ").append(scanProvider.getMetaStoreUrl()).append("\n");
+        output.append(prefix).append("table: ").append(hmsTable.getDbName()).append(".").append(hmsTable.getName())
+                .append("\n").append(prefix).append("hms url: ").append(scanProvider.getMetaStoreUrl()).append("\n");
 
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
+            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");
             output.append(getRuntimeFilterExplainString(false));
         }
+
+        output.append(prefix).append("inputSplitNum=").append(inputSplitsNum).append(", totalFileSize=")
+                .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
 
         output.append(prefix);
         if (cardinality > 0) {

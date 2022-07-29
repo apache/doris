@@ -144,6 +144,9 @@ set_target_properties(backtrace PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/l
 add_library(re2 STATIC IMPORTED)
 set_target_properties(re2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libre2.a)
 
+add_library(hyperscan STATIC IMPORTED)
+set_target_properties(hyperscan PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhs.a)
+
 add_library(odbc STATIC IMPORTED)
 set_target_properties(odbc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libodbc.a)
 
@@ -467,6 +470,21 @@ if (USE_MEM_TRACKER)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_MEM_TRACKER")
 endif()
 
+# Compile with jemalloc.
+# Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc 
+if (USE_JEMALLOC)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC")
+endif()
+
+# STRICT_MEMORY_USE=ON` expects BE to use less memory, and gives priority to ensuring stability
+# when the cluster memory is limited.
+# TODO In the future, expect a dynamic soft memory limit, combined with real-time memory usage of the cluster,
+# to control the main memory consumers, including HashTable, LRU Cache elimination strategy,
+# ChunkAllocator cache strategy, Disk IO buffer cache strategy, etc.
+if (STRICT_MEMORY_USE)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DSTRICT_MEMORY_USE")
+endif()
+
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
 endif()
@@ -487,7 +505,6 @@ set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG")
-
 SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O0 -fsanitize=address -DADDRESS_SANITIZER")
 SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
@@ -598,7 +615,6 @@ set(DORIS_LINK_LIBS
     IO
     Olap
     Rowset
-    OlapFs
     Runtime
     Service
     Udf
@@ -625,6 +641,7 @@ set(COMMON_THIRDPARTY
     thriftnb
     glog
     re2
+    hyperscan
     pprof
     lz4
     libevent
@@ -719,9 +736,15 @@ else ()
     set(UBSAN_LIBS -rtlib=compiler-rt tcmalloc)
 endif ()
 
+if (USE_JEMALLOC)
+    set(MALLOCLIB jemalloc)
+else ()
+    set(MALLOCLIB tcmalloc)
+endif()
+
 # Add sanitize static link flags or tcmalloc
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} tcmalloc)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
@@ -804,6 +827,7 @@ install(FILES
 install(FILES
     ${BASE_DIR}/../conf/be.conf
     ${BASE_DIR}/../conf/odbcinst.ini
+    ${BASE_DIR}/../conf/asan_suppr.conf
     DESTINATION ${OUTPUT_DIR}/conf)
 
 get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)

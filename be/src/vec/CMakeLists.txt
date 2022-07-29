@@ -26,6 +26,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_count.cpp
   aggregate_functions/aggregate_function_distinct.cpp
   aggregate_functions/aggregate_function_sum.cpp
+  aggregate_functions/aggregate_function_sort.cpp
   aggregate_functions/aggregate_function_min_max.cpp
   aggregate_functions/aggregate_function_min_max_by.cpp
   aggregate_functions/aggregate_function_null.cpp
@@ -134,8 +135,15 @@ set(VEC_FILES
   functions/array/function_array_register.cpp
   functions/array/function_array_size.cpp
   functions/array/function_array_aggregation.cpp
+  functions/array/function_array_sort.cpp
   functions/array/function_array_utils.cpp
   functions/array/function_arrays_overlap.cpp
+  functions/array/function_array_distinct.cpp
+  functions/array/function_array_remove.cpp
+  functions/array/function_array_union.cpp
+  functions/array/function_array_except.cpp
+  functions/array/function_array_intersect.cpp
+  functions/array/function_array_slice.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -201,11 +209,9 @@ set(VEC_FILES
   sink/vtablet_sink.cpp
   sink/vmysql_table_writer.cpp
   sink/vmysql_table_sink.cpp
+  sink/vodbc_table_sink.cpp
   sink/vresult_file_sink.cpp
   runtime/vdatetime_value.cpp
-  runtime/week_of_year.data
-  runtime/week.data
-  runtime/year_week.data
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp
   runtime/vfile_result_writer.cpp

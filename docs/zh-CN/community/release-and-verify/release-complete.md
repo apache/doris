@@ -39,6 +39,9 @@ https://dist.apache.org/repos/dist/dev/doris/
 
 To:
 https://dist.apache.org/repos/dist/release/doris/
+
+Eg:
+svn mv -m "move doris 1.1.0-rc05 to release" https://dist.apache.org/repos/dist/dev/doris/1.1 https://dist.apache.org/repos/dist/release/doris/1.1
 ```
 
 第一次发布的话 KEYS 文件也需要拷贝过来。然后add到svn release 下。

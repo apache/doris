@@ -17,8 +17,8 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -72,10 +72,10 @@ public class GlobalTransactionMgr implements Writable {
     private TransactionIdGenerator idGenerator = new TransactionIdGenerator();
     private TxnStateCallbackFactory callbackFactory = new TxnStateCallbackFactory();
 
-    private Catalog catalog;
+    private Env env;
 
-    public GlobalTransactionMgr(Catalog catalog) {
-        this.catalog = catalog;
+    public GlobalTransactionMgr(Env env) {
+        this.env = env;
     }
 
     public TxnStateCallbackFactory getCallbackFactory() {
@@ -92,7 +92,7 @@ public class GlobalTransactionMgr implements Writable {
 
     public void addDatabaseTransactionMgr(Long dbId) {
         if (dbIdToDatabaseTransactionMgrs.putIfAbsent(dbId,
-                new DatabaseTransactionMgr(dbId, catalog, idGenerator)) == null) {
+                new DatabaseTransactionMgr(dbId, env, idGenerator)) == null) {
             LOG.debug("add database transaction manager for db {}", dbId);
         }
     }
@@ -443,7 +443,7 @@ public class GlobalTransactionMgr implements Writable {
         for (long dbId : dbIds) {
             List<Comparable> info = new ArrayList<Comparable>();
             info.add(dbId);
-            Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -602,13 +602,13 @@ public class GlobalTransactionMgr implements Writable {
         long dbId = request.getDbId();
         int commitTimeoutSec = Config.commit_timeout_second;
         for (int i = 0; i < commitTimeoutSec; ++i) {
-            Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
+            Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
             TWaitingTxnStatusResult statusResult = new TWaitingTxnStatusResult();
             statusResult.status = new TStatus();
             TransactionStatus txnStatus = null;
             if (request.isSetTxnId()) {
                 long txnId = request.getTxnId();
-                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(dbId, txnId);
+                TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, txnId);
                 if (txnState == null) {
                     throw new AnalysisException("txn does not exist: " + txnId);
                 }

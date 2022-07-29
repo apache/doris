@@ -19,8 +19,8 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -96,7 +96,7 @@ public class BrokerLoadJob extends BulkLoadJob {
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
         MetricRepo.COUNTER_LOAD_ADD.increase(1L);
-        transactionId = Catalog.getCurrentGlobalTransactionMgr()
+        transactionId = Env.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
                         new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                         TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
@@ -107,7 +107,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected void unprotectedExecuteJob() {
         LoadTask task = new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc);
         idToTasks.put(task.getSignature(), task);
-        Catalog.getCurrentCatalog().getPendingLoadTaskScheduler().submit(task);
+        Env.getCurrentEnv().getPendingLoadTaskScheduler().submit(task);
     }
 
     /**
@@ -215,7 +215,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 // load id will be added to loadStatistic when executing this task
 
                 // save all related tables and rollups in transaction state
-                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr()
+                TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                         .getTransactionState(dbId, transactionId);
                 if (txnState == null) {
                     throw new UserException("txn does not exist: " + transactionId);
@@ -227,7 +227,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
         // Submit task outside the database lock, cause it may take a while if task queue is full.
         for (LoadTask loadTask : newLoadingTasks) {
-            Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().submit(loadTask);
+            Env.getCurrentEnv().getLoadingLoadTaskScheduler().submit(loadTask);
         }
     }
 
@@ -295,7 +295,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                     .add("msg", "Load job try to commit txn")
                     .build());
             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
-            Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
+            Env.getCurrentGlobalTransactionMgr().commitTransaction(
                     dbId, tableList, transactionId, commitInfos,
                     new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
                             finishTimestamp, state, failMsg));

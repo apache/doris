@@ -26,9 +26,9 @@ add_library(Rowset STATIC
     rowset.cpp
     rowset_factory.cpp
     rowset_meta_manager.cpp
-    alpha_rowset_meta.cpp
     beta_rowset.cpp
     beta_rowset_reader.cpp
-    beta_rowset_writer.cpp)
+    beta_rowset_writer.cpp
+    rowset_tree.cpp)
 
 target_compile_options(Rowset PUBLIC)

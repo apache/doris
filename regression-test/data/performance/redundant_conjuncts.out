@@ -3,7 +3,7 @@
 PLAN FRAGMENT 0
   OUTPUT EXPRS:
     `v1`
-  PARTITION: HASH_PARTITIONED: `default_cluster:regression_test`.`redundant_conjuncts`.`k1`
+  PARTITION: HASH_PARTITIONED: `default_cluster:regression_test_performance`.`redundant_conjuncts`.`k1`
 
   VRESULT SINK
 
@@ -12,13 +12,12 @@ PLAN FRAGMENT 0
      PREDICATES: `k1` = 1
      partitions=0/1, tablets=0/0, tabletList=
      cardinality=0, avgRowSize=8.0, numNodes=1
-     output slot ids: 0 
 
 -- !redundant_conjuncts_gnerated_by_extract_common_filter --
 PLAN FRAGMENT 0
   OUTPUT EXPRS:
     `v1`
-  PARTITION: HASH_PARTITIONED: `default_cluster:regression_test`.`redundant_conjuncts`.`k1`
+  PARTITION: HASH_PARTITIONED: `default_cluster:regression_test_performance`.`redundant_conjuncts`.`k1`
 
   VRESULT SINK
 
@@ -27,5 +26,4 @@ PLAN FRAGMENT 0
      PREDICATES: (`k1` = 1 OR `k1` = 2)
      partitions=0/1, tablets=0/0, tabletList=
      cardinality=0, avgRowSize=8.0, numNodes=1
-     output slot ids: 0 
 

@@ -308,8 +308,19 @@ if [ $OPENTELEMETRY_SOURCE == "opentelemetry-cpp-1.4.0" ]; then
 fi
 echo "Finished patching $OPENTELEMETRY_SOURCE"
 
+# arrow patch is used to get the raw orc reader for filter prune.
+if [ $ARROW_SOURCE == "apache-arrow-7.0.0" ]; then
+    cd $TP_SOURCE_DIR/$ARROW_SOURCE
+    if [ ! -f $PATCHED_MARK ]; then
+        patch -p1 < $TP_PATCH_DIR/apache-arrow-7.0.0.patch
+        touch $PATCHED_MARK
+    fi
+    cd -
+fi
+echo "Finished patching $ARROW_SOURCE"
+
 # patch librdkafka to avoid crash
-if [ $LIBRDKAFKA_SOURCE = "librdkafka-1.8.2" ]; then
+if [ $LIBRDKAFKA_SOURCE == "librdkafka-1.8.2" ]; then
     cd $TP_SOURCE_DIR/$LIBRDKAFKA_SOURCE
     if [ ! -f $PATCHED_MARK ]; then
         patch -p0 < $TP_PATCH_DIR/librdkafka-1.8.2.patch
@@ -321,10 +332,17 @@ echo "Finished patching $LIBRDKAFKA_SOURCE"
 
 # patch hyperscan
 # https://github.com/intel/hyperscan/issues/292
-if [ $HYPERSCAN_SOURCE = "hyperscan-5.4.0" ]; then
+if [ $HYPERSCAN_SOURCE == "hyperscan-5.4.0" ]; then
     cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
     if [ ! -f $PATCHED_MARK ]; then
         patch -p0 < $TP_PATCH_DIR/hyperscan-5.4.0.patch
+        touch $PATCHED_MARK
+    fi
+    cd -
+elif [ $HYPERSCAN_SOURCE == "vectorscan-vectorscan-5.4.7" ]; then
+    cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
+    if [ ! -f $PATCHED_MARK ]; then
+        patch -p0 < $TP_PATCH_DIR/vectorscan-5.4.7.patch
         touch $PATCHED_MARK
     fi
     cd -
@@ -349,4 +367,12 @@ fi
 cd -
 echo "Finished patching $AWS_SDK_SOURCE"
 
-
+cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
+if [[ ! -f $PATCHED_MARK ]]; then
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/brpc-1.1.0.patch"
+        touch ${PATCHED_MARK}
+    fi
+fi
+cd -
+echo "Finished patching ${BRPC_SOURCE}"

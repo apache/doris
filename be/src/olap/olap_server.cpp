@@ -66,17 +66,6 @@ Status StorageEngine::start_bg_threads() {
         data_dirs.push_back(tmp_store.second);
     }
 
-    int32_t max_thread_num = config::max_base_compaction_threads;
-    ThreadPoolBuilder("BaseCompactionTaskThreadPool")
-            .set_min_threads(max_thread_num)
-            .set_max_threads(max_thread_num)
-            .build(&_base_compaction_thread_pool);
-    max_thread_num = config::max_cumu_compaction_threads;
-    ThreadPoolBuilder("CumuCompactionTaskThreadPool")
-            .set_min_threads(max_thread_num)
-            .set_max_threads(max_thread_num)
-            .build(&_cumu_compaction_thread_pool);
-
     ThreadPoolBuilder("BaseCompactionTaskThreadPool")
             .set_min_threads(config::max_base_compaction_threads)
             .set_max_threads(config::max_base_compaction_threads)
@@ -122,14 +111,20 @@ Status StorageEngine::start_bg_threads() {
             scoped_refptr<Thread> path_scan_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_scan_thread",
-                    [this, data_dir]() { this->_path_scan_thread_callback(data_dir); },
+                    [this, data_dir]() {
+                        SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE);
+                        this->_path_scan_thread_callback(data_dir);
+                    },
                     &path_scan_thread));
             _path_scan_threads.emplace_back(path_scan_thread);
 
             scoped_refptr<Thread> path_gc_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_gc_thread",
-                    [this, data_dir]() { this->_path_gc_thread_callback(data_dir); },
+                    [this, data_dir]() {
+                        SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE);
+                        this->_path_gc_thread_callback(data_dir);
+                    },
                     &path_gc_thread));
             _path_gc_threads.emplace_back(path_gc_thread);
         }
@@ -147,6 +142,12 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_cooldown_tasks_producer_callback(); },
             &_cooldown_tasks_producer_thread));
     LOG(INFO) << "cooldown tasks producer thread started";
+
+    // add tablet publish version thread pool
+    ThreadPoolBuilder("TabletPublishTxnThreadPool")
+            .set_min_threads(config::tablet_publish_txn_max_thread)
+            .set_max_threads(config::tablet_publish_txn_max_thread)
+            .build(&_tablet_publish_txn_thread_pool);
 
     LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();
@@ -617,8 +618,6 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
         auto st = thread_pool->submit_func([=]() {
-            SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::COMPACTION,
-                                      tablet->get_compaction_mem_tracker(compaction_type));
             CgroupsMgr::apply_system_cgroup();
             tablet->execute_compaction(compaction_type);
             _permit_limiter.release(permits);

@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//  http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -162,7 +162,7 @@ public class SSBUtils {
             + "    d_year,\n"
             + "    c_nation,\n"
             + "    SUM(lo_revenue - lo_supplycost) AS PROFIT\n"
-            + "FROM lineorder, dates, customer, supplier, part\n"
+            + "FROM dates, customer, supplier, part, lineorder\n"
             + "WHERE\n"
             + "    lo_custkey = c_custkey\n"
             + "    AND lo_suppkey = s_suppkey\n"
@@ -182,7 +182,7 @@ public class SSBUtils {
             + "    s_nation,\n"
             + "    p_category,\n"
             + "    SUM(lo_revenue - lo_supplycost) AS PROFIT\n"
-            + "FROM lineorder, dates, customer, supplier, part\n"
+            + "FROM dates, customer, supplier, part, lineorder\n"
             + "WHERE\n"
             + "    lo_custkey = c_custkey\n"
             + "    AND lo_suppkey = s_suppkey\n"
@@ -206,7 +206,7 @@ public class SSBUtils {
             + "    s_city,\n"
             + "    p_brand,\n"
             + "    SUM(lo_revenue - lo_supplycost) AS PROFIT\n"
-            + "FROM lineorder, dates, customer, supplier, part\n"
+            + "FROM dates, customer, supplier, part, lineorder\n"
             + "WHERE\n"
             + "    lo_custkey = c_custkey\n"
             + "    AND lo_suppkey = s_suppkey\n"
@@ -349,3 +349,4 @@ public class SSBUtils {
                 + ")");
     }
 }
+

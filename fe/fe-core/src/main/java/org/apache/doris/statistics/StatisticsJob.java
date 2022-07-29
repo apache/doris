@@ -18,7 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
@@ -51,7 +51,7 @@ public class StatisticsJob {
 
     protected final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    private final long id = Catalog.getCurrentCatalog().getNextId();
+    private final long id = Env.getCurrentEnv().getNextId();
 
     /**
      * to be collected database stats.
@@ -62,6 +62,11 @@ public class StatisticsJob {
      * to be collected table stats.
      */
     private final Set<Long> tblIds;
+
+    /**
+     * to be collected partition stats.
+     */
+    private final Map<Long, List<String>> tableIdToPartitionName;
 
     /**
      * to be collected column stats.
@@ -85,10 +90,12 @@ public class StatisticsJob {
 
     public StatisticsJob(Long dbId,
                          Set<Long> tblIds,
+                         Map<Long, List<String>> tblIdToPartitionName,
                          Map<Long, List<String>> tableIdToColumnName,
                          Map<String, String> properties) {
         this.dbId = dbId;
         this.tblIds = tblIds;
+        this.tableIdToPartitionName = tblIdToPartitionName;
         this.tableIdToColumnName = tableIdToColumnName;
         this.properties = properties == null ? Maps.newHashMap() : properties;
     }
@@ -119,6 +126,10 @@ public class StatisticsJob {
 
     public Set<Long> getTblIds() {
         return tblIds;
+    }
+
+    public Map<Long, List<String>> getTableIdToPartitionName() {
+        return tableIdToPartitionName;
     }
 
     public Map<Long, List<String>> getTableIdToColumnName() {
@@ -246,11 +257,12 @@ public class StatisticsJob {
      * tableId: [t1]
      * tableIdToColumnName <t1, [c1,c2,c3]>
      */
-    public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt analyzeStmt) throws AnalysisException {
-        long dbId = analyzeStmt.getDbId();
-        Map<Long, List<String>> tableIdToColumnName = analyzeStmt.getTableIdToColumnName();
-        Set<Long> tblIds = analyzeStmt.getTblIds();
-        Map<String, String> properties = analyzeStmt.getProperties();
-        return new StatisticsJob(dbId, tblIds, tableIdToColumnName, properties);
+    public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt stmt) throws AnalysisException {
+        long dbId = stmt.getDbId();
+        Set<Long> tblIds = stmt.getTblIds();
+        Map<Long, List<String>> tableIdToPartitionName = stmt.getTableIdToPartitionName();
+        Map<Long, List<String>> tableIdToColumnName = stmt.getTableIdToColumnName();
+        Map<String, String> properties = stmt.getProperties();
+        return new StatisticsJob(dbId, tblIds, tableIdToPartitionName, tableIdToColumnName, properties);
     }
 }

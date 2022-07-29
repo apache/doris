@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 
 import org.apache.logging.log4j.LogManager;
@@ -67,7 +67,7 @@ public class JournalObserver implements Comparable<JournalObserver> {
             boolean ok = false;
             do {
                 // check if the replayed journal version is already larger than the expected version
-                long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
+                long replayedJournalId = Env.getCurrentEnv().getReplayedJournalId();
                 if (replayedJournalId >= targetJournalVersion || timeoutMs <= 0) {
                     LOG.debug("the replayed journal version {} already large than expected version: {}",
                               replayedJournalId, targetJournalVersion);

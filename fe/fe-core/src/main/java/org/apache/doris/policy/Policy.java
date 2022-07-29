@@ -19,8 +19,8 @@ package org.apache.doris.policy;
 
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -57,8 +57,8 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     @SerializedName(value = "policyName")
     protected String policyName = null;
 
-    public Policy() {
-        policyId = Catalog.getCurrentCatalog().getNextId();
+    public Policy(PolicyTypeEnum type) {
+        this.type = type;
     }
 
     /**
@@ -67,8 +67,8 @@ public abstract class Policy implements Writable, GsonPostProcessable {
      * @param type policy type
      * @param policyName policy name
      */
-    public Policy(final PolicyTypeEnum type, final String policyName) {
-        policyId = Catalog.getCurrentCatalog().getNextId();
+    public Policy(long policyId, final PolicyTypeEnum type, final String policyName) {
+        this.policyId = policyId;
         this.type = type;
         this.policyName = policyName;
     }
@@ -77,23 +77,24 @@ public abstract class Policy implements Writable, GsonPostProcessable {
      * Trans stmt to Policy.
      **/
     public static Policy fromCreateStmt(CreatePolicyStmt stmt) throws AnalysisException {
+        long policyId = Env.getCurrentEnv().getNextId();
         switch (stmt.getType()) {
             case STORAGE:
-                StoragePolicy storagePolicy = new StoragePolicy(stmt.getType(), stmt.getPolicyName());
-                storagePolicy.init(stmt.getProperties());
+                StoragePolicy storagePolicy = new StoragePolicy(policyId, stmt.getPolicyName());
+                storagePolicy.init(stmt.getProperties(), stmt.isIfNotExists());
                 return storagePolicy;
             case ROW:
-            default:
                 // stmt must be analyzed.
-                DatabaseIf db = Catalog.getCurrentCatalog().getDataSourceMgr()
+                DatabaseIf db = Env.getCurrentEnv().getDataSourceMgr()
                         .getCatalogOrAnalysisException(stmt.getTableName().getCtl())
                         .getDbOrAnalysisException(stmt.getTableName().getDb());
                 UserIdentity userIdent = stmt.getUser();
                 userIdent.analyze(ConnectContext.get().getClusterName());
                 TableIf table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
-                return new RowPolicy(stmt.getType(), stmt.getPolicyName(), db.getId(), userIdent,
-                    stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(),
-                    stmt.getWherePredicate());
+                return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), userIdent,
+                        stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(), stmt.getWherePredicate());
+            default:
+                throw new AnalysisException("Unknown policy type: " + stmt.getType());
         }
     }
 

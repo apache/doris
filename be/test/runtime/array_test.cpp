@@ -31,8 +31,6 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
 #include "olap/row_block2.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_writer.h"
@@ -41,7 +39,6 @@
 #include "runtime/collection_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/primitive_type.h"
 #include "runtime/raw_value.h"
 #include "testutil/array_utils.h"
@@ -155,9 +152,7 @@ void validate(const Field* field, const CollectionValue* expect, const Collectio
 
 class ArrayTest : public ::testing::Test {
 public:
-    ArrayTest()
-            : _mem_tracker(new MemTracker(MAX_MEMORY_BYTES, "ArrayTest")),
-              _mem_pool(new MemPool(_mem_tracker.get())) {}
+    ArrayTest() : _mem_pool(new MemPool()) {}
 
     template <segment_v2::EncodingTypePB array_encoding, segment_v2::EncodingTypePB item_encoding>
     void test(const ColumnPB& column_pb, const std::vector<std::string>& literal_arrays) {
@@ -378,8 +373,8 @@ private:
         }
     }
 
-    std::unique_ptr<io::FileWriter> creat_file_writer(const std::string& path) {
-        std::unique_ptr<io::FileWriter> file_writer;
+    io::FileWriterPtr creat_file_writer(const std::string& path) {
+        io::FileWriterPtr file_writer;
         io::global_local_filesystem()->create_file(path, &file_writer);
         return file_writer;
     }
@@ -409,8 +404,8 @@ private:
         return st.ok() ? std::move(reader) : nullptr;
     }
 
-    std::unique_ptr<io::FileReader> create_readable_block(const std::string& path) {
-        std::unique_ptr<io::FileReader> reader;
+    io::FileReaderSPtr create_readable_block(const std::string& path) {
+        io::FileReaderSPtr reader;
         auto st = io::global_local_filesystem()->open_file(path, &reader);
         return st.ok() ? std::move(reader) : nullptr;
     }
@@ -459,7 +454,6 @@ private:
 private:
     static constexpr size_t MAX_MEMORY_BYTES = 1024 * 1024;
     static const std::string TEST_DIR;
-    std::unique_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     ObjectPool _object_pool;
 };

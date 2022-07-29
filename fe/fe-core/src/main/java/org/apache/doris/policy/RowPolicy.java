@@ -22,9 +22,9 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -88,12 +88,14 @@ public class RowPolicy extends Policy {
 
     private Expr wherePredicate = null;
 
-    public RowPolicy() {}
+    public RowPolicy() {
+        super(PolicyTypeEnum.ROW);
+    }
 
     /**
      * Policy for Table. Policy of ROW or others.
      *
-     * @param type PolicyType
+     * @param policyId policy id
      * @param policyName policy name
      * @param dbId database i
      * @param user username
@@ -102,10 +104,9 @@ public class RowPolicy extends Policy {
      * @param filterType filter type
      * @param wherePredicate where predicate
      */
-    public RowPolicy(final PolicyTypeEnum type, final String policyName, long dbId,
-                     UserIdentity user, String originStmt, final long tableId,
-                     final FilterType filterType, final Expr wherePredicate) {
-        super(type, policyName);
+    public RowPolicy(long policyId, final String policyName, long dbId, UserIdentity user, String originStmt,
+            final long tableId, final FilterType filterType, final Expr wherePredicate) {
+        super(policyId, PolicyTypeEnum.ROW, policyName);
         this.user = user;
         this.dbId = dbId;
         this.tableId = tableId;
@@ -118,7 +119,7 @@ public class RowPolicy extends Policy {
      * Use for SHOW POLICY.
      **/
     public List<String> getShowInfo() throws AnalysisException {
-        Database database = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(this.dbId);
+        Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(this.dbId);
         Table table = database.getTableOrAnalysisException(this.tableId);
         return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type.name(),
                 this.filterType.name(), this.wherePredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);
@@ -141,8 +142,8 @@ public class RowPolicy extends Policy {
 
     @Override
     public RowPolicy clone() {
-        return new RowPolicy(this.type, this.policyName, this.dbId, this.user, this.originStmt, this.tableId,
-                               this.filterType, this.wherePredicate);
+        return new RowPolicy(this.policyId, this.policyName, this.dbId, this.user, this.originStmt, this.tableId,
+                this.filterType, this.wherePredicate);
     }
 
     private boolean checkMatched(long dbId, long tableId, PolicyTypeEnum type,

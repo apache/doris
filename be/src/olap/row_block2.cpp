@@ -250,6 +250,11 @@ Status RowBlockV2::_copy_data_to_column(int cid,
         insert_data_directly(cid, column_int);
         break;
     }
+    case OLAP_FIELD_TYPE_DATETIMEV2: {
+        auto column_int = assert_cast<vectorized::ColumnVector<vectorized::UInt64>*>(column);
+        insert_data_directly(cid, column_int);
+        break;
+    }
     case OLAP_FIELD_TYPE_DATETIME: {
         auto column_int = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column);
 
@@ -285,6 +290,24 @@ Status RowBlockV2::_copy_data_to_column(int cid,
                 column_decimal->insert_default();
             }
         }
+        break;
+    }
+    case OLAP_FIELD_TYPE_DECIMAL32: {
+        auto column_decimal =
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal32>*>(column);
+        insert_data_directly(cid, column_decimal);
+        break;
+    }
+    case OLAP_FIELD_TYPE_DECIMAL64: {
+        auto column_decimal =
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal64>*>(column);
+        insert_data_directly(cid, column_decimal);
+        break;
+    }
+    case OLAP_FIELD_TYPE_DECIMAL128: {
+        auto column_decimal =
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
+        insert_data_directly(cid, column_decimal);
         break;
     }
     case OLAP_FIELD_TYPE_ARRAY: {
@@ -517,6 +540,11 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
         insert_data_directly(batch, column_int, start, len);
         break;
     }
+    case OLAP_FIELD_TYPE_DATETIMEV2: {
+        auto column_int = assert_cast<vectorized::ColumnVector<vectorized::UInt64>*>(column);
+        insert_data_directly(batch, column_int, start, len);
+        break;
+    }
     case OLAP_FIELD_TYPE_DATETIME: {
         auto column_int = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column);
 
@@ -553,6 +581,21 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
             }
         }
         break;
+    }
+    case OLAP_FIELD_TYPE_DECIMAL32: {
+        auto column_decimal =
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal32>*>(column);
+        insert_data_directly(batch, column_decimal, start, len);
+    }
+    case OLAP_FIELD_TYPE_DECIMAL64: {
+        auto column_decimal =
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal64>*>(column);
+        insert_data_directly(batch, column_decimal, start, len);
+    }
+    case OLAP_FIELD_TYPE_DECIMAL128: {
+        auto column_decimal =
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
+        insert_data_directly(batch, column_decimal, start, len);
     }
     case OLAP_FIELD_TYPE_ARRAY: {
         auto array_batch = reinterpret_cast<const ArrayColumnVectorBatch*>(batch);

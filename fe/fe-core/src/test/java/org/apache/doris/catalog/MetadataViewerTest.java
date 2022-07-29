@@ -42,7 +42,7 @@ public class MetadataViewerTest {
     private static Method getTabletDistributionMethod;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
 
     @Mocked
     private InternalDataSource internalDataSource;
@@ -78,11 +78,11 @@ public class MetadataViewerTest {
 
         new Expectations() {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = internalDataSource;
             }
@@ -90,7 +90,7 @@ public class MetadataViewerTest {
 
         new Expectations() {
             {
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = infoService;
 
@@ -109,7 +109,6 @@ public class MetadataViewerTest {
                 null };
         List<List<String>> result = (List<List<String>>) getTabletStatusMethod.invoke(null, args);
         Assert.assertEquals(3, result.size());
-        System.out.println(result);
 
         args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, partitions, ReplicaStatus.DEAD,
                 Operator.EQ };
@@ -128,7 +127,6 @@ public class MetadataViewerTest {
         Object[] args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, null };
         List<List<String>> result = (List<List<String>>) getTabletDistributionMethod.invoke(null, args);
         Assert.assertEquals(3, result.size());
-        System.out.println(result);
     }
 
 }
