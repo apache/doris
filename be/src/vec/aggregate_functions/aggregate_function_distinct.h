@@ -172,7 +172,7 @@ public:
                       arguments, nested_func_->get_parameters()),
               nested_func(nested_func_),
               arguments_num(arguments.size()) {
-        size_t nested_size = nested_func->size_of_data();
+        size_t nested_size = nested_func->align_of_data();
         CHECK_GT(nested_size, 0);
         prefix_size = (sizeof(Data) + nested_size - 1) / nested_size * nested_size;
     }
