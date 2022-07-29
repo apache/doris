@@ -168,7 +168,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
     public Void visitLogicalFilter(LogicalFilter<Plan> filter, Void context) {
         Plan child = filter.child();
         if (child instanceof LogicalJoin) {
-            conjuncts.addAll(ExpressionUtils.extractConjunctive(filter.getPredicates()));
+            conjuncts.addAll(ExpressionUtils.extractConjunction(filter.getPredicates()));
         }
 
         child.accept(this, context);
@@ -184,7 +184,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
         join.left().accept(this, context);
         join.right().accept(this, context);
 
-        join.getCondition().ifPresent(cond -> conjuncts.addAll(ExpressionUtils.extractConjunctive(cond)));
+        join.getCondition().ifPresent(cond -> conjuncts.addAll(ExpressionUtils.extractConjunction(cond)));
         if (!(join.left() instanceof LogicalJoin)) {
             joinInputs.add(join.left());
         }
