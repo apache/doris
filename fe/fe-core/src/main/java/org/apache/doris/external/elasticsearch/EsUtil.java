@@ -36,6 +36,7 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.Type;
@@ -130,6 +131,19 @@ public class EsUtil {
             throw new DdlException(String.format("fail to parse %s, %s = %s, `%s` should be like 'true' or 'false', "
                     + "value should be double quotation marks", name, name, property, name));
         }
+    }
+
+    public static List<String> getArrayFields(String indexMapping) {
+        JSONObject jsonObject = (JSONObject) JSONValue.parse(indexMapping);
+        if (!jsonObject.containsKey("_meta")) {
+            return new ArrayList<>();
+        }
+        JSONObject meta = (JSONObject) jsonObject.get("_meta");
+        if (!meta.containsKey("doris")) {
+            return new ArrayList<>();
+        }
+        JSONObject dorisMeta = (JSONObject) meta.get("doris");
+        return (List<String>) dorisMeta.get("array_field");
     }
 
     /**
@@ -373,7 +387,8 @@ public class EsUtil {
      **/
     public static List<Column> genColumnsFromEs(EsRestClient client, String indexName, String mappingType) {
         String mapping = client.getMapping(indexName);
-        JSONObject mappingProps = EsUtil.getMappingProps(indexName, mapping, mappingType);
+        JSONObject mappingProps = getMappingProps(indexName, mapping, mappingType);
+        List<String> arrayFields = getArrayFields(mapping);
         Set<String> keys = (Set<String>) mappingProps.keySet();
         List<Column> columns = new ArrayList<>();
         for (String key : keys) {
@@ -384,9 +399,13 @@ public class EsUtil {
                 if (!type.isInvalid()) {
                     Column column = new Column();
                     column.setName(key);
-                    column.setType(type);
                     column.setIsKey(true);
                     column.setIsAllowNull(true);
+                    if (arrayFields.contains(key)) {
+                        column.setType(ArrayType.create(type, true));
+                    } else {
+                        column.setType(type);
+                    }
                     columns.add(column);
                 }
             }
