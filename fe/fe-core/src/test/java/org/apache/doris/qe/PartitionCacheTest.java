@@ -24,9 +24,9 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -113,7 +113,7 @@ public class PartitionCacheTest {
     @Mocked
     private SystemInfoService service;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private InternalDataSource ds;
     @Mocked
@@ -149,7 +149,7 @@ public class PartitionCacheTest {
                 return true;
             }
         };
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             @Mock
             public SystemInfoService getCurrentSystemInfo() {
                 return service;
@@ -210,28 +210,28 @@ public class PartitionCacheTest {
             }
         };
 
-        new Expectations(catalog) {
+        new Expectations(env) {
             {
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 
-                catalog.getCurrentDataSource();
+                env.getCurrentDataSource();
                 minTimes = 0;
                 result = ds;
 
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
-                catalog.getDataSourceMgr();
+                env.getDataSourceMgr();
                 minTimes = 0;
                 result = dsMgr;
             }
         };
         FunctionSet fs = new FunctionSet();
         fs.init();
-        Deencapsulation.setField(catalog, "functionSet", fs);
+        Deencapsulation.setField(env, "functionSet", fs);
         QueryState state = new QueryState();
         channel.reset();
 
@@ -249,9 +249,9 @@ public class PartitionCacheTest {
                 minTimes = 0;
                 result = MysqlSerializer.newInstance();
 
-                ctx.getCatalog();
+                ctx.getEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
                 ctx.getState();
                 minTimes = 0;
@@ -306,7 +306,7 @@ public class PartitionCacheTest {
             }
         };
 
-        analyzer = new Analyzer(catalog, ctx);
+        analyzer = new Analyzer(env, ctx);
         newRangeList = Lists.newArrayList();
     }
 
@@ -536,7 +536,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testCacheNode() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         CacheCoordinator cp = CacheCoordinator.getInstance();
         cp.debugModel = true;
         Backend bd1 = new Backend(1, "", 1000);
@@ -562,7 +562,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testCacheModeNone() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql("select @@version_comment limit 1");
         List<ScanNode> scanNodes = Lists.newArrayList();
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
@@ -572,7 +572,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testCacheModeTable() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT country, COUNT(userid) FROM userprofile GROUP BY country"
         );
@@ -586,7 +586,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testWithinMinTime() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT country, COUNT(userid) FROM userprofile GROUP BY country"
         );
@@ -600,7 +600,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testPartitionModel() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(DISTINCT userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-15\" GROUP BY eventdate"
@@ -616,7 +616,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testParseByte() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         RowBatchBuilder sb = new RowBatchBuilder(CacheMode.Partition);
         byte[] buffer = new byte[]{10, 50, 48, 50, 48, 45, 48, 51, 45, 49, 48, 1, 51, 2, 67, 78};
         PartitionRange.PartitionKeyType key1 = sb.getKeyFromRow(buffer, 0, Type.DATE);
@@ -629,7 +629,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testPartitionIntTypeSql() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT `date`, COUNT(id) FROM `order` WHERE `date`>=20200112 and `date`<=20200115 GROUP BY date"
         );
@@ -673,7 +673,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testSimpleCacheSql() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-15\" GROUP BY eventdate"
@@ -716,7 +716,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testHitSqlCache() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
@@ -731,7 +731,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testHitPartPartition() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
@@ -777,7 +777,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testNoUpdatePartition() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
@@ -819,7 +819,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testUpdatePartition() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-15\" GROUP BY eventdate"
@@ -868,7 +868,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testRewriteMultiPredicate1() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>\"2020-01-11\" and "
                         + "eventdate<\"2020-01-16\""
@@ -912,7 +912,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testRewriteJoin() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT appevent.eventdate, country, COUNT(appevent.userid) FROM appevent"
                         + " INNER JOIN userprofile ON appevent.userid = userprofile.userid"
@@ -957,7 +957,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testSubSelect() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, sum(pv) FROM (SELECT eventdate, COUNT(userid) AS pv FROM appevent WHERE "
                         + "eventdate>\"2020-01-11\" AND eventdate<\"2020-01-16\""
@@ -1010,7 +1010,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testNotHitPartition() throws Exception {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
@@ -1039,7 +1039,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testSqlCacheKey() {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
@@ -1060,7 +1060,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testSqlCacheKeyWithChineseChar() {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-14\" and city=\"北京\" GROUP BY eventdate"
@@ -1079,7 +1079,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testSqlCacheKeyWithView() {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql("SELECT * from testDb.view1");
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -1097,7 +1097,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testSqlCacheKeyWithSubSelectView() {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "select origin.eventdate as eventdate, origin.userid as userid\n"
                         + "from (\n"
@@ -1123,7 +1123,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testPartitionCacheKeyWithView() {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql("SELECT * from testDb.view3");
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L, 20200115L);
@@ -1149,7 +1149,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testPartitionCacheKeyWithSubSelectView() {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "select origin.eventdate as eventdate, origin.cnt as cnt\n"
                         + "from (\n"
@@ -1182,7 +1182,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testSqlCacheKeyWithNestedView() {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql("SELECT * from testDb.view4");
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -1201,7 +1201,7 @@ public class PartitionCacheTest {
 
     @Test
     public void testCacheLocalViewMultiOperand() {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT COUNT(userid)\n"
                         + "FROM (\n"
@@ -1223,7 +1223,7 @@ public class PartitionCacheTest {
     @Test
     // test that some partitions do not exist in the table
     public void testNotExistPartitionSql() {
-        Catalog.getCurrentSystemInfo();
+        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT `date`, COUNT(id) FROM `order` WHERE `date`>=20200110 and `date`<=20200115 GROUP BY date"
         );

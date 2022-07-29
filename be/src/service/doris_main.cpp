@@ -281,7 +281,8 @@ int main(int argc, char** argv) {
 
     // open pid file, obtain file lock and save pid
     string pid_file = string(getenv("PID_DIR")) + "/be.pid";
-    int fd = open(pid_file.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+    int fd = open(pid_file.c_str(), O_RDWR | O_CREAT,
+                  S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
     if (fd < 0) {
         fprintf(stderr, "fail to create pid file.");
         exit(-1);
@@ -472,9 +473,7 @@ int main(int argc, char** argv) {
 #endif
         doris::PerfCounters::refresh_proc_status();
 
-        // TODO(zxy) 10s is too long to clear the expired task mem tracker.
-        // A query mem tracker is about 57 bytes, assuming 10000 qps, which wastes about 55M of memory.
-        // It should be actively triggered at the end of query/load.
+        // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
         doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
         sleep(1);
     }

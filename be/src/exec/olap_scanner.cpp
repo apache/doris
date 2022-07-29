@@ -263,6 +263,8 @@ Status OlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.use_page_cache = true;
     }
 
+    _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
+
     return Status::OK();
 }
 
@@ -586,6 +588,7 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(_parent->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_del_filtered);
+    COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_del_by_bitmap);
     COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_vec_del_cond_filtered);
 
     COUNTER_UPDATE(_parent->_conditions_filtered_counter, stats.rows_conditions_filtered);

@@ -78,6 +78,7 @@ public class ScalarType extends Type {
     public static final int MAX_DECIMAL32_PRECISION = 9;
     public static final int MAX_DECIMAL64_PRECISION = 18;
     public static final int MAX_DECIMAL128_PRECISION = 38;
+    public static final int MAX_DATETIMEV2_SCALE = 6;
 
     private static final Logger LOG = LogManager.getLogger(ScalarType.class);
     @SerializedName(value = "type")
@@ -350,7 +351,7 @@ public class ScalarType extends Type {
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createDatetimeType() {
-        if (!Config.use_date_v2_by_default) {
+        if (!Config.enable_date_conversion) {
             return new ScalarType(PrimitiveType.DATETIME);
         }
         ScalarType type = new ScalarType(PrimitiveType.DATETIMEV2);
@@ -361,7 +362,7 @@ public class ScalarType extends Type {
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createDateType() {
-        if (Config.use_date_v2_by_default) {
+        if (Config.enable_date_conversion) {
             return new ScalarType(PrimitiveType.DATEV2);
         } else {
             return new ScalarType(PrimitiveType.DATE);
@@ -370,13 +371,38 @@ public class ScalarType extends Type {
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createTimeType() {
-        if (!Config.use_date_v2_by_default) {
+        if (!Config.enable_date_conversion) {
             return new ScalarType(PrimitiveType.TIME);
         }
         ScalarType type = new ScalarType(PrimitiveType.TIMEV2);
         type.precision = DATETIME_PRECISION;
         type.scale = 0;
         return type;
+    }
+
+    public static ScalarType createDateV2Type() {
+        return new ScalarType(PrimitiveType.DATEV2);
+    }
+
+    public static Type getDefaultDateType(Type type) {
+        switch (type.getPrimitiveType()) {
+            case DATE:
+                if (Config.enable_date_conversion) {
+                    return Type.DATEV2;
+                } else {
+                    return Type.DATE;
+                }
+            case DATETIME:
+                if (Config.enable_date_conversion) {
+                    return Type.DATETIMEV2;
+                } else {
+                    return Type.DATETIME;
+                }
+            case DATEV2:
+            case DATETIMEV2:
+            default:
+                return type;
+        }
     }
 
     /**

@@ -27,11 +27,11 @@ import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -525,7 +525,7 @@ public class DistributedPlanner {
                 && (leftPartitions.equals(rightPartitions)) && (leftPartitions.size() <= 1);
 
         if (!noNeedCheckColocateGroup) {
-            ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
+            ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
 
             //1 the table must be colocate
             if (!colocateIndex.isSameGroup(leftTable.getId(), rightTable.getId())) {
@@ -616,7 +616,7 @@ public class DistributedPlanner {
 
         //1 the left table has more than one partition or left table is not a stable colocate table
         if (leftScanNode.getSelectedPartitionIds().size() != 1) {
-            ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
+            ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
             if (!leftTable.isColocateTable()
                     || colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTable.getId()))) {
                 return false;

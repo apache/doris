@@ -28,7 +28,20 @@ AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& 
                                                              const DataTypes& argument_types,
                                                              const Array& parameters,
                                                              const bool result_is_nullable) {
-    return std::make_shared<AggregateFunctionWindowFunnel<VecDateTimeValue, Int64>>(argument_types);
+    if (WhichDataType(argument_types[2]).is_date_time_v2()) {
+        return std::make_shared<
+                AggregateFunctionWindowFunnel<DateV2Value<DateTimeV2ValueType>, UInt64>>(
+                argument_types);
+    } else if (WhichDataType(argument_types[2]).is_date_v2()) {
+        return std::make_shared<
+                AggregateFunctionWindowFunnel<DateV2Value<DateV2ValueType>, UInt32>>(
+                argument_types);
+    } else if (WhichDataType(argument_types[2]).is_date_or_datetime()) {
+        return std::make_shared<AggregateFunctionWindowFunnel<VecDateTimeValue, Int64>>(
+                argument_types);
+    } else {
+        LOG(FATAL) << "Only support Date/DateTime type as window argument!";
+    }
 }
 
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory) {

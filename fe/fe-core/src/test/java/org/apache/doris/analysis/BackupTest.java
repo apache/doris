@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.qe.ConnectContext;
 
@@ -34,7 +34,7 @@ public class BackupTest {
 
     private Analyzer analyzer;
 
-    private Catalog catalog;
+    private Env env;
 
     @Mocked
     private ConnectContext ctx;
@@ -42,11 +42,11 @@ public class BackupTest {
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        catalog = AccessTestUtil.fetchAdminCatalog();
-        new MockUp<Catalog>() {
+        env = AccessTestUtil.fetchAdminCatalog();
+        new MockUp<Env>() {
             @Mock
-            public Catalog getCurrentCatalog() {
-                return catalog;
+            public Env getCurrentEnv() {
+                return env;
             }
         };
     }

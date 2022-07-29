@@ -81,6 +81,8 @@ CONF_Int32(push_worker_count_normal_priority, "3");
 CONF_Int32(push_worker_count_high_priority, "3");
 // the count of thread to publish version
 CONF_Int32(publish_version_worker_count, "8");
+// the count of tablet thread to publish version
+CONF_Int32(tablet_publish_txn_max_thread, "32");
 // the count of thread to clear transaction task
 CONF_Int32(clear_transaction_task_worker_count, "1");
 // the count of thread to delete
@@ -651,7 +653,7 @@ CONF_Bool(memory_verbose_track, "false");
 // smaller than this value will continue to accumulate. specified as number of bytes.
 // Decreasing this value will increase the frequency of consume/release.
 // Increasing this value will cause MemTracker statistics to be inaccurate.
-CONF_mInt32(mem_tracker_consume_min_size_bytes, "4194304");
+CONF_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 
 // The version information of the tablet will be stored in the memory
 // in an adjacency graph data structure.

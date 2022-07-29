@@ -24,6 +24,7 @@ import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -91,6 +92,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PARTITION_CACHE = "enable_partition_cache";
 
     public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
+
+    public static final String ENABLE_NEREIDS_CBO = "enable_nereids_cbo";
 
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
@@ -175,6 +178,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
+    public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
+
     public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
 
     public static final String RETURN_OBJECT_DATA_AS_BINARY = "return_object_data_as_binary";
@@ -197,6 +202,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER =
             "enable_remove_no_conjuncts_runtime_filter_policy";
+
+    static final String SESSION_CONTEXT = "session_context";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -431,6 +438,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
     private boolean enableJoinReorderBasedCost = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_CBO)
+    private boolean enableNereidsCBO = false;
+
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE)
     private boolean enableFoldConstantByBe = false;
 
@@ -471,6 +481,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
     private String blockEncryptionMode = "";
 
+
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
 
@@ -491,6 +502,14 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER)
     public boolean enableRemoveNoConjunctsRuntimeFilterPolicy = false;
+
+    /**
+     * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
+     * For example, trace_id can be passed to trace the query request sent by the user.
+     * set session_context="trace_id:1234565678";
+     */
+    @VariableMgr.VarAttr(name = SESSION_CONTEXT, needForward = true)
+    public String sessionContext = "";
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -979,6 +998,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
     }
 
+    public boolean isEnableNereidsCBO() {
+        return enableNereidsCBO;
+    }
+
+    public void setEnableNereidsCBO(boolean enableNereidsCBO) {
+        this.enableNereidsCBO = enableNereidsCBO;
+    }
+
     public void setDisableJoinReorder(boolean disableJoinReorder) {
         this.disableJoinReorder = disableJoinReorder;
     }
@@ -1250,4 +1277,28 @@ public class SessionVariable implements Serializable, Writable {
         return queryOptions;
     }
 
+    /**
+     * The sessionContext is as follows:
+     * "k1:v1;k2:v2;..."
+     * Here we want to get value with key named "trace_id",
+     * Return empty string is not found.
+     *
+     * @return
+     */
+    public String getTraceId() {
+        if (Strings.isNullOrEmpty(sessionContext)) {
+            return "";
+        }
+        String[] parts = sessionContext.split(";");
+        for (String part : parts) {
+            String[] innerParts = part.split(":");
+            if (innerParts.length != 2) {
+                continue;
+            }
+            if (innerParts[0].equals("trace_id")) {
+                return innerParts[1];
+            }
+        }
+        return "";
+    }
 }

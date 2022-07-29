@@ -1669,6 +1669,9 @@ std::size_t hash_value(VecDateTimeValue const& value) {
 template <typename T>
 bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
                                 uint8_t minute, uint8_t second, uint32_t microsecond) {
+    if (hour > 24 || minute >= 60 || second >= 60 || microsecond > 999999) {
+        return true;
+    }
     if (month == 2 && day == 29 && doris::is_leap(year)) return false;
     if (year < MIN_YEAR || year > MAX_YEAR || month == 0 || month > 12 ||
         day > s_days_in_month[month] || day == 0) {
@@ -1681,7 +1684,7 @@ bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uin
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, int len) {
+bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a sapce
@@ -1729,6 +1732,11 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len) {
         if (field_idx == 6) {
             // Microsecond
             temp_val *= std::pow(10, 6 - (end - start));
+            if constexpr (is_datetime) {
+                if (scale >= 0) {
+                    temp_val /= std::pow(10, 6 - scale);
+                }
+            }
         }
         // Imposible
         if (temp_val > 999999L) {
@@ -1773,9 +1781,6 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len) {
         field_idx++;
     }
     int num_field = field_idx;
-    if constexpr (!is_datetime) {
-        DCHECK(num_field == 3);
-    }
     if (!is_interval_format) {
         year_len = date_len[0];
     }
@@ -2193,9 +2198,15 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
     // 3. if both are true, means all part of date_time be set, no need check_range_and_set_time
     bool already_set_date_part = yearday > 0 || (week_num >= 0 && weekday > 0);
     if (already_set_date_part && already_set_time_part) return true;
-    if (already_set_date_part)
-        return check_range_and_set_time(date_v2_value_.year_, date_v2_value_.month_,
-                                        date_v2_value_.day_, hour, minute, second, microsecond);
+    if (already_set_date_part) {
+        if constexpr (is_datetime) {
+            return check_range_and_set_time(date_v2_value_.year_, date_v2_value_.month_,
+                                            date_v2_value_.day_, hour, minute, second, microsecond);
+        } else {
+            return check_range_and_set_time(date_v2_value_.year_, date_v2_value_.month_,
+                                            date_v2_value_.day_, 0, 0, 0, 0);
+        }
+    }
     if (already_set_time_part) {
         if constexpr (is_datetime) {
             return check_range_and_set_time(year, month, day, date_v2_value_.hour_,
@@ -2205,7 +2216,11 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
             return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
         }
     }
-    return check_range_and_set_time(year, month, day, hour, minute, second, microsecond);
+    if constexpr (is_datetime) {
+        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond);
+    } else {
+        return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
+    }
 }
 
 template <typename T>
@@ -2245,15 +2260,15 @@ int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
         /* Second */
         *buffer++ = (char)('0' + (date_v2_value_.second_ / 10));
         *buffer++ = (char)('0' + (date_v2_value_.second_ % 10));
-        if (scale != 0) {
+        if (scale != 0 && date_v2_value_.microsecond_ > 0) {
             *buffer++ = '.';
-        }
-        /* Microsecond */
-        uint32_t ms = date_v2_value_.microsecond_;
-        int ms_width = scale == -1 ? 6 : std::min(6, scale);
-        for (int i = 0; i < ms_width; i++) {
-            *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
-            ms %= (uint32_t)std::pow(10, 5 - i);
+            /* Microsecond */
+            uint32_t ms = date_v2_value_.microsecond_;
+            int ms_width = scale == -1 ? 6 : std::min(6, scale);
+            for (int i = 0; i < ms_width; i++) {
+                *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
+                ms %= (uint32_t)std::pow(10, 5 - i);
+            }
         }
     }
     return buffer - start;
@@ -2315,7 +2330,8 @@ template <typename T>
 uint32_t DateV2Value<T>::year_week(uint8_t mode) const {
     uint16_t year = 0;
     // The range of the week in the year_week is 1-53, so the mode WEEK_YEAR is always true.
-    uint8_t week = calc_week(this->daynr(), this->year(), this->month(), this->day(), mode, &year);
+    uint8_t week =
+            calc_week(this->daynr(), this->year(), this->month(), this->day(), mode | 2, &year);
     // When the mode WEEK_FIRST_WEEKDAY is not set,
     // the week in which the last three days of the year fall may belong to the following year.
     if (week == 53 && day() >= 29 && !(mode & 4)) {
@@ -2360,10 +2376,11 @@ bool DateV2Value<T>::get_date_from_daynr(uint64_t daynr) {
     }
     day = days_of_year + leap_day;
 
-    if (is_invalid(year, month, day, 0, 0, 0, 0)) {
+    if (is_invalid(year, month, day, this->hour(), this->minute(), this->second(),
+                   this->microsecond())) {
         return false;
     }
-    set_time(year, month, day, 0, 0, 0, 0);
+    set_time(year, month, day, this->hour(), this->minute(), this->second(), this->microsecond());
     return true;
 }
 
@@ -2372,15 +2389,30 @@ template <TimeUnit unit, typename TO>
 bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value) {
     if (!is_valid_date()) return false;
 
+    int sign = interval.is_neg ? -1 : 1;
+
     if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR) ||
                   (unit == SECOND_MICROSECOND) || (unit == MINUTE_MICROSECOND) ||
                   (unit == MINUTE_SECOND) || (unit == HOUR_MICROSECOND) || (unit == HOUR_SECOND) ||
                   (unit == HOUR_MINUTE) || (unit == DAY_MICROSECOND) || (unit == DAY_SECOND) ||
                   (unit == DAY_MINUTE) || (unit == DAY_HOUR) || (unit == DAY) || (unit == WEEK)) {
-        uint32_t day_nr = daynr() + interval.day;
+        // This may change the day information
+
+        int64_t seconds = (this->day() - 1) * 86400L + this->hour() * 3600L + this->minute() * 60 +
+                          this->second() +
+                          sign * (interval.day * 86400 + interval.hour * 3600 +
+                                  interval.minute * 60 + interval.second);
+        int64_t days = seconds / 86400;
+        seconds %= 86400L;
+        if (seconds < 0) {
+            seconds += 86400L;
+            days--;
+        }
+        int64_t day_nr = doris::calc_daynr(this->year(), this->month(), 1) + days;
         if (!to_value.get_date_from_daynr(day_nr)) {
             return false;
         }
+        to_value.set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, 0);
     } else if constexpr (unit == YEAR) {
         // This only change year information
         to_value.template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ + interval.year);
@@ -2404,6 +2436,66 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value
             date_v2_value_.day_ = s_days_in_month[to_value.month()];
             if (to_value.month() == 2 && doris::is_leap(to_value.year())) {
                 to_value.template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1);
+            }
+        }
+    }
+    return true;
+}
+
+template <typename T>
+template <TimeUnit unit>
+bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
+    if (!is_valid_date()) return false;
+
+    int sign = interval.is_neg ? -1 : 1;
+
+    if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR) ||
+                  (unit == SECOND_MICROSECOND) || (unit == MINUTE_MICROSECOND) ||
+                  (unit == MINUTE_SECOND) || (unit == HOUR_MICROSECOND) || (unit == HOUR_SECOND) ||
+                  (unit == HOUR_MINUTE) || (unit == DAY_MICROSECOND) || (unit == DAY_SECOND) ||
+                  (unit == DAY_MINUTE) || (unit == DAY_HOUR) || (unit == DAY) || (unit == WEEK)) {
+        // This may change the day information
+
+        int64_t seconds = (this->day() - 1) * 86400L + this->hour() * 3600L + this->minute() * 60 +
+                          this->second() +
+                          sign * (interval.day * 86400 + interval.hour * 3600 +
+                                  interval.minute * 60 + interval.second);
+        int64_t days = seconds / 86400;
+        seconds %= 86400L;
+        if (seconds < 0) {
+            seconds += 86400L;
+            days--;
+        }
+        int64_t day_nr = doris::calc_daynr(this->year(), this->month(), 1) + days;
+        if (!this->get_date_from_daynr(day_nr)) {
+            return false;
+        }
+        if constexpr (is_datetime) {
+            this->set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, this->microsecond());
+        }
+    } else if constexpr (unit == YEAR) {
+        // This only change year information
+        this->template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ + interval.year);
+        if (this->year() > 9999) {
+            return false;
+        }
+        if (date_v2_value_.month_ == 2 && date_v2_value_.day_ == 29 &&
+            !doris::is_leap(this->year())) {
+            this->template set_time_unit<TimeUnit::DAY>(28);
+        }
+    } else if constexpr (unit == QUARTER || unit == MONTH || unit == YEAR_MONTH) {
+        // This will change month and year information, maybe date.
+        int64_t months = date_v2_value_.year_ * 12 + date_v2_value_.month_ - 1 +
+                         12 * interval.year + interval.month;
+        this->template set_time_unit<TimeUnit::YEAR>(months / 12);
+        if (this->year() > 9999) {
+            return false;
+        }
+        this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);
+        if (date_v2_value_.day_ > s_days_in_month[this->month()]) {
+            date_v2_value_.day_ = s_days_in_month[this->month()];
+            if (this->month() == 2 && doris::is_leap(this->year())) {
+                this->template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1);
             }
         }
     }
@@ -2581,7 +2673,7 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
         case 'h':
         case 'I':
             // Hour (01..12)
-            pos = int_to_str(12, buf);
+            int_to_str((this->hour() % 24 + 11) % 12 + 1, buf);
             to = append_with_prefix(buf, pos - buf, '0', 2, to);
             break;
         case 'H':
@@ -2627,9 +2719,21 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             break;
         case 'r': {
             // Time, 12-hour (hh:mm:ss followed by AM or PM)
-            std::string time12_str("12:00:00 AM");
-            memcpy(to, time12_str.data(), time12_str.size());
-            to += time12_str.size();
+            *to++ = (char)('0' + (((this->hour() + 11) % 12 + 1) / 10));
+            *to++ = (char)('0' + (((this->hour() + 11) % 12 + 1) % 10));
+            *to++ = ':';
+            // Minute
+            *to++ = (char)('0' + (this->minute() / 10));
+            *to++ = (char)('0' + (this->minute() % 10));
+            *to++ = ':';
+            /* Second */
+            *to++ = (char)('0' + (this->second() / 10));
+            *to++ = (char)('0' + (this->second() % 10));
+            if ((this->hour() % 24) >= 12) {
+                to = append_string(" PM", to);
+            } else {
+                to = append_string(" AM", to);
+            }
             break;
         }
         case 's':
@@ -2640,9 +2744,16 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             break;
         case 'T': {
             // Time, 24-hour (hh:mm:ss)
-            std::string time24_str("00:00:00");
-            memcpy(to, time24_str.data(), time24_str.size());
-            to += time24_str.size();
+            *to++ = (char)('0' + ((this->hour() % 24) / 10));
+            *to++ = (char)('0' + ((this->hour() % 24) % 10));
+            *to++ = ':';
+            // Minute
+            *to++ = (char)('0' + (this->minute() / 10));
+            *to++ = (char)('0' + (this->minute() % 10));
+            *to++ = ':';
+            /* Second */
+            *to++ = (char)('0' + (this->second() / 10));
+            *to++ = (char)('0' + (this->second() % 10));
             break;
         }
         case 'u':
@@ -2965,5 +3076,39 @@ template bool VecDateTimeValue::date_add_interval<TimeUnit::MONTH>(const TimeInt
 template bool VecDateTimeValue::date_add_interval<TimeUnit::YEAR>(const TimeInterval& interval);
 template bool VecDateTimeValue::date_add_interval<TimeUnit::QUARTER>(const TimeInterval& interval);
 template bool VecDateTimeValue::date_add_interval<TimeUnit::WEEK>(const TimeInterval& interval);
+
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::SECOND>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MINUTE>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::HOUR>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::DAY>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MONTH>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::YEAR>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::QUARTER>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::WEEK>(
+        const TimeInterval& interval);
+
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::SECOND>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MINUTE>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::HOUR>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MONTH>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::YEAR>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::QUARTER>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::WEEK>(
+        const TimeInterval& interval);
 
 } // namespace doris::vectorized

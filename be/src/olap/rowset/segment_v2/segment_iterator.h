@@ -57,6 +57,11 @@ public:
     Status next_batch(RowBlockV2* row_block) override;
     Status next_batch(vectorized::Block* block) override;
 
+    // Get current block row locations. This function should be called
+    // after the `next_batch` function.
+    // Only vectorized version is supported.
+    Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
+
     const Schema& schema() const override { return _schema; }
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
@@ -72,6 +77,11 @@ private:
     Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
     Status _lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
                            rowid_t* rowid);
+    // lookup the ordinal of given key from short key index
+    Status _lookup_ordinal_from_sk_index(const RowCursor& key, bool is_include, rowid_t upper_bound,
+                                         rowid_t* rowid);
+    // lookup the ordinal of given key from primary key index
+    Status _lookup_ordinal_from_pk_index(const RowCursor& key, bool is_include, rowid_t* rowid);
     Status _seek_and_peek(rowid_t rowid);
 
     // calculate row ranges that satisfy requested column conditions using various column index
@@ -213,6 +223,12 @@ private:
 
     // char_type columns cid
     std::vector<size_t> _char_type_idx;
+
+    // number of rows read in the current batch
+    uint32_t _current_batch_rows_read = 0;
+    // used for compaction, record selectd rowids of current batch
+    uint16_t _selected_size;
+    vector<uint16_t> _sel_rowid_idx;
 };
 
 } // namespace segment_v2

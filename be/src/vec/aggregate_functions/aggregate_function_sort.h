@@ -18,6 +18,7 @@
 #pragma once
 
 #include <string>
+#include <utility>
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/key_holder_helpers.h"
@@ -35,10 +36,17 @@
 
 namespace doris::vectorized {
 
-template <int sort_column_size>
 struct AggregateFunctionSortData {
+    const SortDescription sort_desc;
+    Block block;
+
+    // The construct only support the template compiler, useless
+    AggregateFunctionSortData() {};
+    AggregateFunctionSortData(SortDescription sort_desc, const Block& block)
+            : sort_desc(std::move(sort_desc)), block(block.clone_empty()) {}
+
     void merge(const AggregateFunctionSortData& rhs) {
-        if (block.is_empty_column()) {
+        if (block.rows() == 0) {
             block = rhs.block;
         } else {
             for (size_t i = 0; i < block.columns(); i++) {
@@ -78,45 +86,18 @@ struct AggregateFunctionSortData {
         }
     }
 
-    void sort() {
-        size_t sort_desc_idx = block.columns() - sort_column_size - 1;
-        StringRef desc_str =
-                block.get_by_position(sort_desc_idx).column->assume_mutable()->get_data_at(0);
-        DCHECK(sort_column_size == desc_str.size);
-
-        SortDescription sort_description(sort_column_size);
-        for (size_t i = 0; i < sort_column_size; i++) {
-            sort_description[i].column_number = sort_desc_idx + 1 + i;
-            sort_description[i].direction = (desc_str.data[i] == '0') ? 1 : -1;
-            sort_description[i].nulls_direction = sort_description[i].direction;
-        }
-
-        sort_block(block, sort_description, block.rows());
-    }
-
-    void try_init(const DataTypes& _arguments) {
-        if (!block.is_empty_column()) {
-            return;
-        }
-
-        for (auto type : _arguments) {
-            block.insert({type, ""});
-        }
-    }
-
-    Block block;
+    void sort() { sort_block(block, sort_desc, block.rows()); }
 };
 
-template <int sort_column_size, template <int> typename Data>
+template <typename Data>
 class AggregateFunctionSort
-        : public IAggregateFunctionDataHelper<Data<sort_column_size>,
-                                              AggregateFunctionSort<sort_column_size, Data>> {
-    using DataReal = Data<sort_column_size>;
-
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSort<Data>> {
 private:
-    static constexpr auto prefix_size = sizeof(DataReal);
+    static constexpr auto prefix_size = sizeof(Data);
     AggregateFunctionPtr _nested_func;
     DataTypes _arguments;
+    const SortDescription& _sort_desc;
+    Block _block;
 
     AggregateDataPtr get_nested_place(AggregateDataPtr __restrict place) const noexcept {
         return place + prefix_size;
@@ -127,15 +108,20 @@ private:
     }
 
 public:
-    AggregateFunctionSort(AggregateFunctionPtr nested_func, const DataTypes& arguments)
-            : IAggregateFunctionDataHelper<DataReal, AggregateFunctionSort>(
+    AggregateFunctionSort(const AggregateFunctionPtr& nested_func, const DataTypes& arguments,
+                          const SortDescription& sort_desc)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionSort>(
                       arguments, nested_func->get_parameters()),
               _nested_func(nested_func),
-              _arguments(arguments) {}
+              _arguments(arguments),
+              _sort_desc(sort_desc) {
+        for (const auto& type : _arguments) {
+            _block.insert({type, ""});
+        }
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena* arena) const override {
-        this->data(place).try_init(_arguments);
         this->data(place).add(columns, _arguments.size(), row_num);
     }
 
@@ -159,7 +145,7 @@ public:
             this->data(place).sort();
 
             ColumnRawPtrs arguments_nested;
-            for (int i = 0; i < _arguments.size() - 1 - sort_column_size; i++) {
+            for (int i = 0; i < _arguments.size() - _sort_desc.size(); i++) {
                 arguments_nested.emplace_back(
                         this->data(place).block.get_by_position(i).column.get());
             }
@@ -176,12 +162,12 @@ public:
     size_t align_of_data() const override { return _nested_func->align_of_data(); }
 
     void create(AggregateDataPtr __restrict place) const override {
-        new (place) DataReal;
+        new (place) Data(_sort_desc, _block);
         _nested_func->create(get_nested_place(place));
     }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override {
-        this->data(place).~DataReal();
+        this->data(place).~Data();
         _nested_func->destroy(get_nested_place(place));
     }
 
@@ -190,4 +176,7 @@ public:
     DataTypePtr get_return_type() const override { return _nested_func->get_return_type(); }
 };
 
+AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& nested_function,
+                                                    const DataTypes& arguments,
+                                                    const SortDescription& sort_desc);
 } // namespace doris::vectorized

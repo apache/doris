@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ImmutableList;
@@ -45,7 +45,7 @@ public class ClusterHealthProcDir implements ProcDirInterface {
     @Override
     public ProcNodeInterface lookup(String itemStr) {
         if (itemStr.equalsIgnoreCase("tablet_health")) {
-            return new TabletHealthProcDir(Catalog.getCurrentCatalog());
+            return new TabletHealthProcDir(Env.getCurrentEnv());
         }
         return null;
     }

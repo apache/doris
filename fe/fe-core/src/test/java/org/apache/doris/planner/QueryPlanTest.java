@@ -27,13 +27,14 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -682,7 +683,7 @@ public class QueryPlanTest extends TestWithFeService {
         String castSql = "select * from test.baseall where k11 < cast('2020-03-26' as date)";
         SelectStmt selectStmt = (SelectStmt) parseAndAnalyzeStmt(castSql);
         Expr rightExpr = selectStmt.getWhereClause().getChildren().get(1);
-        Assert.assertTrue(rightExpr.getType().equals(Type.DATETIME));
+        Assert.assertTrue(rightExpr.getType().equals(ScalarType.getDefaultDateType(Type.DATETIME)));
 
         String castSql2 = "select str_to_date('11/09/2011', '%m/%d/%Y');";
         String explainString = getSQLPlanOrErrorMsg("explain " + castSql2);
@@ -701,7 +702,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "(event_date = default_value('2020-03-06'))) \n"
                 + "PROPERTIES ( 'max_filter_ratio'='0.0001' );\n";
         LoadStmt loadStmt = (LoadStmt) parseAndAnalyzeStmt(loadStr);
-        Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
+        Env.getCurrentEnv().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
                 System.currentTimeMillis());
     }
 
@@ -1105,7 +1106,7 @@ public class QueryPlanTest extends TestWithFeService {
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", true);
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle1");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1119,7 +1120,7 @@ public class QueryPlanTest extends TestWithFeService {
             }
         }
 
-        db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle2");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1197,7 +1198,7 @@ public class QueryPlanTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1247,7 +1248,7 @@ public class QueryPlanTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersion(2);
@@ -1543,7 +1544,7 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testInformationFunctions() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        Analyzer analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
+        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
         InformationFunction infoFunc = new InformationFunction("database");
         infoFunc.analyze(analyzer);
         Assert.assertEquals("test", infoFunc.getStrValue());
@@ -1740,7 +1741,11 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date contains micro second
         sql = "select day from tbl_int_date where day = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01'"));
+        if (Config.enable_date_conversion) {
+            Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01.111111'"));
+        } else {
+            Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01'"));
+        }
         //invalid date
 
         sql = "select day from tbl_int_date where day = '2020-10-32'";
@@ -1794,7 +1799,11 @@ public class QueryPlanTest extends TestWithFeService {
         //valid datetime contains micro second
         sql = "select day from tbl_int_date where date = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01'"));
+        if (Config.enable_date_conversion) {
+            Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01.111111'"));
+        } else {
+            Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01'"));
+        }
         //invalid datetime
         sql = "select day from tbl_int_date where date = '2020-10-32'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
@@ -1936,7 +1945,7 @@ public class QueryPlanTest extends TestWithFeService {
         // create database
         String createDbStmtStr = "create database issue7929;";
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         createTable(" CREATE TABLE issue7929.`t1` (\n"
                 + "  `k1` int(11) NULL COMMENT \"\",\n"
                 + "  `k2` int(11) NULL COMMENT \"\"\n"
@@ -1973,7 +1982,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testGroupingSetOutOfBoundError() throws Exception {
         String createDbStmtStr = "create database issue1111;";
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         createTable("CREATE TABLE issue1111.`test1` (\n"
                 + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
                 + "  `k2` smallint(6) NULL COMMENT \"\"\n"
@@ -2012,10 +2021,10 @@ public class QueryPlanTest extends TestWithFeService {
         rewriteDateLiteralRuleTest.testWithIntFormatDate();
         rewriteDateLiteralRuleTest.testWithInvalidFormatDate();
         rewriteDateLiteralRuleTest.testWithStringFormatDate();
-        // rewriteDateLiteralRuleTest.testWithDoubleFormatDateV2();
-        // rewriteDateLiteralRuleTest.testWithIntFormatDateV2();
-        // rewriteDateLiteralRuleTest.testWithInvalidFormatDateV2();
-        // rewriteDateLiteralRuleTest.testWithStringFormatDateV2();
+        rewriteDateLiteralRuleTest.testWithDoubleFormatDateV2();
+        rewriteDateLiteralRuleTest.testWithIntFormatDateV2();
+        rewriteDateLiteralRuleTest.testWithInvalidFormatDateV2();
+        rewriteDateLiteralRuleTest.testWithStringFormatDateV2();
         rewriteDateLiteralRuleTest.after();
     }
     // --end--
@@ -2024,7 +2033,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testGroupingSets() throws Exception {
         String createDbStmtStr = "create database issue7971;";
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         createTable("CREATE TABLE issue7971.`t` (\n"
                 + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
                 + "  `k2` smallint(6) NULL COMMENT \"\",\n"

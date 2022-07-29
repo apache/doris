@@ -265,7 +265,7 @@ public class GroupExpressionMatchingTest {
                 case LEFT_OUTER_JOIN:
                     Assertions.assertTrue(context.parent instanceof LogicalJoin);
                     LogicalJoin parent = (LogicalJoin) context.parent;
-                    Assertions.assertEquals(parent.getJoinType(), JoinType.INNER_JOIN);
+                    Assertions.assertEquals(JoinType.INNER_JOIN, parent.getJoinType());
                     break;
                 default:
                     notExpectedPlan(join, context);
@@ -287,13 +287,13 @@ public class GroupExpressionMatchingTest {
                 case "b": {
                     Assertions.assertTrue(context.parent instanceof LogicalJoin);
                     LogicalJoin parent = (LogicalJoin) context.parent;
-                    Assertions.assertEquals(parent.getJoinType(), JoinType.LEFT_OUTER_JOIN);
+                    Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, parent.getJoinType());
                     break;
                 }
                 case "c": {
                     Assertions.assertTrue(context.parent instanceof LogicalJoin);
                     LogicalJoin parent = (LogicalJoin) context.parent;
-                    Assertions.assertEquals(parent.getJoinType(), JoinType.INNER_JOIN);
+                    Assertions.assertEquals(JoinType.INNER_JOIN, parent.getJoinType());
                     break;
                 }
                 default:

@@ -29,6 +29,7 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(const std::string& cancel_msg,
                                                  const TUniqueId& fragment_instance_id,
                                                  MemTrackerLimiter* mem_tracker) {
     DCHECK(mem_tracker);
+    flush_untracked_mem<false>();
     _task_id = task_id;
     _fragment_instance_id = fragment_instance_id;
     _exceed_cb.cancel_msg = cancel_msg;
@@ -36,7 +37,8 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(const std::string& cancel_msg,
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker() {
-    flush_untracked_mem<false>();
+    // Do not flush untracked mem, instance executor thread may exit after instance fragment executor thread,
+    // `instance_mem_tracker` will be null pointer, which is not a graceful exit.
     _task_id = "";
     _fragment_instance_id = TUniqueId();
     _exceed_cb.cancel_msg = "";

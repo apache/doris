@@ -111,6 +111,7 @@ public:
     // Note that 'f' must be valid for the lifetime of this tracker limiter.
     void add_gc_function(GcFunction f) { _gc_functions.push_back(f); }
 
+    // TODO Should be managed in a separate process_mem_mgr, not in MemTracker
     // If consumption is higher than max_consumption, attempts to free memory by calling
     // any added GC functions.  Returns true if max_consumption is still exceeded. Takes gc_lock.
     // Note: If the cache of segment/chunk is released due to insufficient query memory at a certain moment,
@@ -119,7 +120,13 @@ public:
     Status try_gc_memory(int64_t bytes);
 
 public:
-    void consumption_revise(int64_t bytes) { _consumption->add(bytes); }
+    // It is used for revise mem tracker consumption.
+    // If the location of memory alloc and free is different, the consumption value of mem tracker will be inaccurate.
+    // But the consumption value of the process mem tracker is not affecte
+    void consumption_revise(int64_t bytes) {
+        DCHECK(_label != "Process");
+        _consumption->add(bytes);
+    }
 
     // Logs the usage of this tracker limiter and optionally its children (recursively).
     // If 'logged_consumption' is non-nullptr, sets the consumption value logged.

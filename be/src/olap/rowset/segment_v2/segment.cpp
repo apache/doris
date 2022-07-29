@@ -78,7 +78,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
         }
     }
 
-    RETURN_IF_ERROR(_load_index());
+    RETURN_IF_ERROR(load_index());
     iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     iter->get()->init(read_options);
     return Status::OK();
@@ -134,7 +134,7 @@ Status Segment::_parse_footer() {
     return Status::OK();
 }
 
-Status Segment::_load_index() {
+Status Segment::load_index() {
     return _load_index_once.call([this] {
         // read and parse short key index page
         PageReadOptions opts;
@@ -225,7 +225,7 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
-    RETURN_IF_ERROR(_load_index());
+    RETURN_IF_ERROR(load_index());
     DCHECK(_pk_index_reader != nullptr);
     if (!_pk_index_reader->check_present(key)) {
         return Status::NotFound("Can't find key in the segment");

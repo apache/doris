@@ -711,6 +711,13 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
             res = _env->storage_engine()->execute_task(&engine_task);
             if (res.ok()) {
                 break;
+            } else if (res.precise_code() == OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS) {
+                // version not continuous, put to queue and wait pre version publish
+                // task execute
+                std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+                _tasks.push_back(agent_task_req);
+                _worker_thread_condition_variable.notify_one();
+                break;
             } else {
                 LOG(WARNING) << "publish version error, retry. [transaction_id="
                              << publish_version_req.transaction_id
@@ -718,6 +725,9 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                 ++retry_time;
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
+        }
+        if (res.precise_code() == OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS) {
+            continue;
         }
 
         TFinishTaskRequest finish_task_request;

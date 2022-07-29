@@ -24,8 +24,8 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -111,7 +111,7 @@ public abstract class BulkLoadJob extends LoadJob {
     public static BulkLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
         // get db id
         String dbName = stmt.getLabel().getDbName();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         // create job
         BulkLoadJob bulkLoadJob;
@@ -163,13 +163,13 @@ public abstract class BulkLoadJob extends LoadJob {
     }
 
     private AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());
     }
 
     @Override
     public Set<String> getTableNamesForShow() {
-        Optional<Database> db = Catalog.getCurrentInternalCatalog().getDb(dbId);
+        Optional<Database> db = Env.getCurrentInternalCatalog().getDb(dbId);
         return fileGroupAggInfo.getAllTableIds().stream()
                 .map(tableId -> db.flatMap(d -> d.getTable(tableId)).map(TableIf::getName)
                         .orElse(String.valueOf(tableId)))
@@ -179,7 +179,7 @@ public abstract class BulkLoadJob extends LoadJob {
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
         Set<String> result = Sets.newHashSet();
-        Database database = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         // The database will not be locked in here.
         // The getTable is a thread-safe method called without read lock of database
         for (long tableId : fileGroupAggInfo.getAllTableIds()) {
@@ -229,9 +229,9 @@ public abstract class BulkLoadJob extends LoadJob {
         for (LoadTask loadTask : retriedTasks) {
             try {
                 if (loadTask.getTaskType() == LoadTask.TaskType.PENDING) {
-                    Catalog.getCurrentCatalog().getPendingLoadTaskScheduler().submit(loadTask);
+                    Env.getCurrentEnv().getPendingLoadTaskScheduler().submit(loadTask);
                 } else if (loadTask.getTaskType() == LoadTask.TaskType.LOADING) {
-                    Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().submit(loadTask);
+                    Env.getCurrentEnv().getLoadingLoadTaskScheduler().submit(loadTask);
                 }
             } catch (RejectedExecutionException e) {
                 writeLock();
@@ -260,7 +260,7 @@ public abstract class BulkLoadJob extends LoadJob {
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         LoadStmt stmt;
         try {
-            Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbId);
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
             stmt = (LoadStmt) SqlParserUtils.getStmt(parser, originStmt.idx);
             for (DataDescription dataDescription : stmt.getDataDescriptions()) {
                 dataDescription.analyzeWithoutCheckPriv(db.getFullName());
@@ -345,7 +345,7 @@ public abstract class BulkLoadJob extends LoadJob {
                     .setScanRows(loadStatistic.getScannedRows()).setScanBytes(loadStatistic.totalFileSizeB)
                     .setFileNumber(loadStatistic.fileNum)
                     .build();
-            Catalog.getCurrentCatalog().getAuditEventProcessor().handleAuditEvent(auditEvent);
+            Env.getCurrentEnv().getAuditEventProcessor().handleAuditEvent(auditEvent);
         } catch (Exception e) {
             LOG.warn("audit finished load job info failed", e);
         }

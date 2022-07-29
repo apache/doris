@@ -166,7 +166,7 @@ static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::
 static constexpr uint8_t TIME_PART_LENGTH = 37;
 
 static constexpr uint32_t MAX_DATE_V2 = 31 | (12 << 5) | (9999 << 9);
-static constexpr uint32_t MIN_DATE_V2 = 1 | (1 << 5) | (1000 << 9);
+static constexpr uint32_t MIN_DATE_V2 = 1 | (1 << 5);
 
 static constexpr uint64_t MAX_DATETIME_V2 = ((uint64_t)MAX_DATE_V2 << TIME_PART_LENGTH) |
                                             ((uint64_t)23 << 32) | ((uint64_t)59 << 26) |
@@ -174,7 +174,7 @@ static constexpr uint64_t MAX_DATETIME_V2 = ((uint64_t)MAX_DATE_V2 << TIME_PART_
 static constexpr uint64_t MIN_DATETIME_V2 = (uint64_t)MIN_DATE_V2 << TIME_PART_LENGTH;
 
 static constexpr uint32_t MAX_YEAR = 9999;
-static constexpr uint32_t MIN_YEAR = 1000;
+static constexpr uint32_t MIN_YEAR = 0;
 
 static constexpr uint32_t DATEV2_YEAR_WIDTH = 23;
 static constexpr uint32_t DATETIMEV2_YEAR_WIDTH = 18;
@@ -237,7 +237,7 @@ public:
     // olap storage layer date data format:
     // 64 bits binary data [year(remaining bits), month(4 bits), day(5 bits)]
     // execute layer date/datetime and olap storage layer datetime data format:
-    // 8 bytes interger data [year(remaining digits), month(2 digits), day(2 digits), hour(2 digits), minute(2 digits) ,second(2 digits)]
+    // 8 bytes integer data [year(remaining digits), month(2 digits), day(2 digits), hour(2 digits), minute(2 digits) ,second(2 digits)]
 
     static VecDateTimeValue create_from_olap_date(uint64_t value) {
         VecDateTimeValue date;
@@ -801,7 +801,7 @@ public:
     // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, int len);
+    bool from_date_str(const char* str, int len, int scale = -1);
 
     // Convert this value to string
     // this will check type to decide which format to convert
@@ -829,7 +829,7 @@ public:
         return calc_daynr(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_);
     }
 
-    int hour() const {
+    uint8_t hour() const {
         if constexpr (is_datetime) {
             return date_v2_value_.hour_;
         } else {
@@ -837,7 +837,7 @@ public:
         }
     }
 
-    int minute() const {
+    uint8_t minute() const {
         if constexpr (is_datetime) {
             return date_v2_value_.minute_;
         } else {
@@ -845,7 +845,7 @@ public:
         }
     }
 
-    int second() const {
+    uint8_t second() const {
         if constexpr (is_datetime) {
             return date_v2_value_.second_;
         } else {
@@ -853,7 +853,7 @@ public:
         }
     }
 
-    int microsecond() const {
+    uint32_t microsecond() const {
         if constexpr (is_datetime) {
             return date_v2_value_.microsecond_;
         } else {
@@ -912,9 +912,7 @@ public:
     bool date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value);
 
     template <TimeUnit unit>
-    bool date_add_interval(const TimeInterval& interval) {
-        return this->date_add_interval<unit>(interval, *this);
-    }
+    bool date_add_interval(const TimeInterval& interval);
 
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC

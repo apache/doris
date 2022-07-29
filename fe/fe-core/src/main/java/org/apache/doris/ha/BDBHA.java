@@ -17,7 +17,7 @@
 
 package org.apache.doris.ha;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.journal.bdbje.BDBEnvironment;
 
 import com.google.common.collect.Lists;
@@ -89,7 +89,7 @@ public class BDBHA implements HAProtocol {
                 DatabaseEntry theData = new DatabaseEntry(new byte[1]);
                 OperationStatus status = epochDb.putNoOverwrite(null, theKey, theData);
                 if (status == OperationStatus.SUCCESS) {
-                    Catalog.getCurrentCatalog().setEpoch(myEpoch);
+                    Env.getCurrentEnv().setEpoch(myEpoch);
                     return true;
                 } else if (status == OperationStatus.KEYEXIST) {
                     return false;

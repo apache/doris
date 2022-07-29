@@ -17,18 +17,17 @@
 
 #pragma once
 
-#include <gen_cpp/PaloInternalService_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
-#include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
+#include "util/date_func.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -81,6 +80,9 @@ public:
         std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
         std::vector<FunctionFilter> function_filters;
 
+        // For primary-key table
+        DeleteBitmap* delete_bitmap {nullptr};
+
         std::vector<RowsetReaderSharedPtr> rs_readers;
         std::vector<uint32_t> return_columns;
         RuntimeProfile* profile = nullptr;
@@ -90,6 +92,9 @@ public:
         std::vector<uint32_t>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
 
+        // used for comapction to record row ids
+        bool record_rowids = false;
+
         void check_validation() const;
 
         std::string to_string() const;
@@ -98,6 +103,9 @@ public:
     TabletReader() = default;
 
     virtual ~TabletReader();
+
+    TabletReader(const TabletReader&) = delete;
+    void operator=(const TabletReader&) = delete;
 
     // Initialize TabletReader with tablet, data version and fetch range.
     virtual Status init(const ReaderParams& read_params);
@@ -122,8 +130,9 @@ public:
     uint64_t merged_rows() const { return _merged_rows; }
 
     uint64_t filtered_rows() const {
-        return _stats.rows_del_filtered + _stats.rows_conditions_filtered +
-               _stats.rows_vec_del_cond_filtered + _stats.rows_vec_cond_filtered;
+        return _stats.rows_del_filtered + _stats.rows_del_by_bitmap +
+               _stats.rows_conditions_filtered + _stats.rows_vec_del_cond_filtered +
+               _stats.rows_vec_cond_filtered;
     }
 
     void set_batch_size(int batch_size) { _batch_size = batch_size; }
@@ -146,19 +155,6 @@ protected:
     Status _init_keys_param(const ReaderParams& read_params);
 
     void _init_conditions_param(const ReaderParams& read_params);
-
-    ColumnPredicate* _new_eq_pred(const TabletColumn& column, int index, const std::string& cond,
-                                  bool opposite) const;
-    ColumnPredicate* _new_ne_pred(const TabletColumn& column, int index, const std::string& cond,
-                                  bool opposite) const;
-    ColumnPredicate* _new_lt_pred(const TabletColumn& column, int index, const std::string& cond,
-                                  bool opposite) const;
-    ColumnPredicate* _new_le_pred(const TabletColumn& column, int index, const std::string& cond,
-                                  bool opposite) const;
-    ColumnPredicate* _new_gt_pred(const TabletColumn& column, int index, const std::string& cond,
-                                  bool opposite) const;
-    ColumnPredicate* _new_ge_pred(const TabletColumn& column, int index, const std::string& cond,
-                                  bool opposite) const;
 
     ColumnPredicate* _parse_to_predicate(const TCondition& condition, bool opposite = false) const;
 
@@ -218,8 +214,6 @@ protected:
 
     uint64_t _merged_rows = 0;
     OlapReaderStatistics _stats;
-
-    DISALLOW_COPY_AND_ASSIGN(TabletReader);
 };
 
 } // namespace doris

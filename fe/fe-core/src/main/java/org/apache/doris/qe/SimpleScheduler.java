@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -218,7 +218,7 @@ public class SimpleScheduler {
             while (true) {
                 try {
                     Thread.sleep(1000L);
-                    SystemInfoService clusterInfoService = Catalog.getCurrentSystemInfo();
+                    SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
                     LOG.debug("UpdateBlacklistThread retry begin");
 
                     Iterator<Map.Entry<Long, Pair<Integer, String>>> iterator = blacklistBackends.entrySet().iterator();
