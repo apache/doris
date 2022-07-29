@@ -554,7 +554,7 @@ public class NodeAction extends RestBaseController {
     }
 
     private String concatFeSetConfigUrl(NodeConfigs nodeConfigs, boolean isPersist) {
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
         Pair<String, Integer> hostPort = nodeConfigs.getHostPort();
         sb.append("http://").append(hostPort.first).append(":").append(hostPort.second).append("/api/_set_config");
         Map<String, String> configs = nodeConfigs.getConfigs(isPersist);

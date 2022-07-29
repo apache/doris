@@ -164,6 +164,9 @@ under the License.
             <property name="customImportOrderRules" value="SAME_PACKAGE(3)###THIRD_PARTY_PACKAGE###STANDARD_JAVA_PACKAGE"/>
             <property name="tokens" value="IMPORT, STATIC_IMPORT, PACKAGE_DEF"/>
         </module>
+        <module name="ImportControl">
+            <property name="file" value="check/checkstyle/import-control.xml"/>
+        </module>
         <module name="RedundantImport"/>
         <module name="UnusedImports"/>
         <module name="EmptyStatement"/>

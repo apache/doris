@@ -52,9 +52,8 @@ Status S3FileReader::close() {
 Status S3FileReader::read_at(size_t offset, Slice result, size_t* bytes_read) {
     DCHECK(!closed());
     if (offset > _file_size) {
-        return Status::IOError(
-                fmt::format("offset exceeds file size(offset: {), file size: {}, path: {})", offset,
-                            _file_size, _path.native()));
+        return Status::IOError("offset exceeds file size(offset: {), file size: {}, path: {})",
+                               offset, _file_size, _path.native());
     }
     size_t bytes_req = result.size;
     char* to = result.data;
@@ -75,13 +74,13 @@ Status S3FileReader::read_at(size_t offset, Slice result, size_t* bytes_read) {
     }
     auto outcome = client->GetObject(request);
     if (!outcome.IsSuccess()) {
-        return Status::IOError(fmt::format("failed to read from {}: {}", _path.native(),
-                                           outcome.GetError().GetMessage()));
+        return Status::IOError("failed to read from {}: {}", _path.native(),
+                               outcome.GetError().GetMessage());
     }
     *bytes_read = outcome.GetResult().GetContentLength();
     if (*bytes_read != bytes_req) {
-        return Status::IOError(fmt::format("failed to read from {}(bytes read: {}, bytes req: {})",
-                                           _path.native(), *bytes_read, bytes_req));
+        return Status::IOError("failed to read from {}(bytes read: {}, bytes req: {})",
+                               _path.native(), *bytes_read, bytes_req);
     }
     DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
     return Status::OK();
