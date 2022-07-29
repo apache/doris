@@ -120,6 +120,22 @@ PROPERTIES
 );
 ```
 
+6. 创建名为 minio_repo 的仓库，直接通过 s3 协议链接 minio.
+
+```sql
+CREATE REPOSITORY `minio_repo`
+WITH S3
+ON LOCATION "s3://minio_repo"
+PROPERTIES
+(
+    "AWS_ENDPOINT" = "http://minio.com",
+    "AWS_ACCESS_KEY" = "MINIO_USER",
+    "AWS_SECRET_KEY"="MINIO_PASSWORD",
+    "AWS_REGION" = "REGION",
+    "use_path_style" = "true"
+);
+```
+
 ### Keywords
 
     CREATE, REPOSITORY

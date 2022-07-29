@@ -118,6 +118,23 @@ PROPERTIES
     "fs.defaultFS"="hdfs://hadoop-name-node:54310",
     "hadoop.username"="user"
 );
+```
+
+6. Create a repository named minio_repo to link minio storage directly through the s3 protocol.
+
+```sql
+CREATE REPOSITORY `minio_repo`
+WITH S3
+ON LOCATION "s3://minio_repo"
+PROPERTIES
+(
+    "AWS_ENDPOINT" = "http://minio.com",
+    "AWS_ACCESS_KEY" = "MINIO_USER",
+    "AWS_SECRET_KEY"="MINIO_PASSWORD",
+    "AWS_REGION" = "REGION",
+    "use_path_style" = "true"
+);
+```
 
 ### Keywords
 
