@@ -68,11 +68,18 @@ if [ -f $pidfile ]; then
         exit 1
     fi
 
-    # kill
+    #kill pid process and check it
     if kill -${signum} $pid >/dev/null 2>&1; then
-        echo "stop $pidcomm, and remove pid file. "
-        rm $pidfile
-        exit 0
+        while true; do
+            if kill -0 $pid >/dev/null; then
+                echo "waiting be to stop, pid: $pid"
+                sleep 2
+            else
+                echo "stop $pidcomm, and remove pid file. "
+                if [ -f $pidfile ]; then rm $pidfile; fi
+                exit 0
+            fi
+        done
     else
         echo "ERROR: failed to stop $pid"
         exit 1

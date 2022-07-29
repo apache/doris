@@ -66,7 +66,7 @@ if [ -f $pidfile ]; then
     #kill pid process and check it
     if kill $pid >/dev/null 2>&1; then
         while true; do
-            if ps -p $pid >/dev/null; then
+            if kill -0 $pid >/dev/null; then
                 echo "waiting fe to stop, pid: $pid"
                 sleep 2
             else
