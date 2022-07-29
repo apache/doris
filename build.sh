@@ -285,6 +285,8 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     fi
     MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
     echo "-- Make program: ${MAKE_PROGRAM}"
+    echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
+
     mkdir -p ${CMAKE_BUILD_DIR}
     cd ${CMAKE_BUILD_DIR}
     ${CMAKE_CMD} -G "${GENERATOR}"  \

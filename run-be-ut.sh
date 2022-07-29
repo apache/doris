@@ -124,6 +124,7 @@ fi
 
 MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
+echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
 
 cd ${CMAKE_BUILD_DIR}
 ${CMAKE_CMD} -G "${GENERATOR}" \
