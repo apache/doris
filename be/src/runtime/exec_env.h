@@ -120,6 +120,7 @@ public:
     MemTrackerTaskPool* task_pool_mem_tracker_registry() { return _task_pool_mem_tracker_registry; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
+    PriorityThreadPool* remote_scan_thread_pool() { return _remote_scan_thread_pool; }
     ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
     PriorityThreadPool* etl_thread_pool() { return _etl_thread_pool; }
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
@@ -201,6 +202,7 @@ private:
 
     // TODO(cmy): find a better way to unify these 2 pools.
     PriorityThreadPool* _scan_thread_pool = nullptr;
+    PriorityThreadPool* _remote_scan_thread_pool = nullptr;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
