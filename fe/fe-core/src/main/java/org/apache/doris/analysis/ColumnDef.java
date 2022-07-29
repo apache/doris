@@ -342,12 +342,12 @@ public class ColumnDef {
                 break;
             case DATE:
             case DATEV2:
-                new DateLiteral(defaultValue, DateLiteral.getDefaultDateType(type));
+                new DateLiteral(defaultValue, ScalarType.getDefaultDateType(type));
                 break;
             case DATETIME:
             case DATETIMEV2:
                 if (defaultValueExprDef == null) {
-                    new DateLiteral(defaultValue, DateLiteral.getDefaultDateType(type));
+                    new DateLiteral(defaultValue, ScalarType.getDefaultDateType(type));
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
                         break;

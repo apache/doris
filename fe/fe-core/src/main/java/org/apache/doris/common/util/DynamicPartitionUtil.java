@@ -669,9 +669,10 @@ public class DynamicPartitionUtil {
     }
 
     public static String getPartitionFormat(Column column) throws DdlException {
-        if (column.getDataType().equals(PrimitiveType.DATE)) {
+        if (column.getDataType().equals(PrimitiveType.DATE) || column.getDataType().equals(PrimitiveType.DATEV2)) {
             return DATE_FORMAT;
-        } else if (column.getDataType().equals(PrimitiveType.DATETIME)) {
+        } else if (column.getDataType().equals(PrimitiveType.DATETIME)
+                || column.getDataType().equals(PrimitiveType.DATETIMEV2)) {
             return DATETIME_FORMAT;
         } else if (PrimitiveType.getIntegerTypes().contains(column.getDataType())) {
             // TODO: For Integer Type, only support format it as yyyyMMdd now

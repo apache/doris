@@ -260,7 +260,7 @@ public class DateLiteral extends LiteralExpr {
         this.year = year;
         this.month = month;
         this.day = day;
-        this.type = DateLiteral.getDefaultDateType(Type.DATE);
+        this.type = ScalarType.getDefaultDateType(Type.DATE);
     }
 
     public DateLiteral(long year, long month, long day, Type type) {
@@ -279,7 +279,7 @@ public class DateLiteral extends LiteralExpr {
         this.year = year;
         this.month = month;
         this.day = day;
-        this.type = DateLiteral.getDefaultDateType(Type.DATETIME);
+        this.type = ScalarType.getDefaultDateType(Type.DATETIME);
     }
 
     public DateLiteral(long year, long month, long day, long hour, long minute, long second, long microsecond) {
@@ -606,7 +606,7 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public void castToDate() {
-        if (Config.use_date_v2_by_default) {
+        if (Config.enable_date_conversion) {
             this.type = Type.DATEV2;
         } else {
             this.type = Type.DATE;
@@ -669,24 +669,6 @@ public class DateLiteral extends LiteralExpr {
         this.type = Type.DATETIME;
     }
 
-    private void fromPackedDatetimeV2(long packedTime) {
-        microsecond = (packedTime % (1L << 24));
-        long ymdhms = (packedTime >> 24);
-        long ymd = ymdhms >> 17;
-        day = ymd % (1 << 5);
-        long ym = ymd >> 5;
-        month = ym % (1 << 4);
-        year = ym >> 4;
-
-        long hms = ymdhms % (1 << 17);
-        second = hms % (1 << 6);
-        minute = (hms >> 6) % (1 << 6);
-        hour = (hms >> 12);
-        // set default date literal type to DATETIME
-        // date literal read from meta will set type by flag bit;
-        this.type = Type.DATETIMEV2;
-    }
-
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         short dateLiteralType = in.readShort();
@@ -696,10 +678,8 @@ public class DateLiteral extends LiteralExpr {
         } else if (dateLiteralType == DateLiteralType.DATE.value()) {
             this.type = Type.DATE;
         } else if (dateLiteralType == DateLiteralType.DATETIMEV2.value()) {
-            fromPackedDatetime(in.readLong());
             this.type = ScalarType.createDatetimeV2Type(in.readInt());
         } else if (dateLiteralType == DateLiteralType.DATEV2.value()) {
-            fromPackedDatetime(in.readLong());
             this.type = Type.DATEV2;
         } else {
             throw new IOException("Error date literal type : " + type);
@@ -1273,9 +1253,9 @@ public class DateLiteral extends LiteralExpr {
             if (microSecondPartUsed) {
                 this.type = Type.DATETIMEV2;
             } else if (timePartUsed) {
-                this.type = getDefaultDateType(Type.DATETIME);
+                this.type = ScalarType.getDefaultDateType(Type.DATETIME);
             } else {
-                this.type = getDefaultDateType(Type.DATE);
+                this.type = ScalarType.getDefaultDateType(Type.DATE);
             }
         }
 
@@ -1531,34 +1511,13 @@ public class DateLiteral extends LiteralExpr {
         microsecond = dateVal[6];
 
         if (numField == 3) {
-            type = getDefaultDateType(Type.DATE);
+            type = ScalarType.getDefaultDateType(Type.DATE);
         } else {
-            type = getDefaultDateType(Type.DATETIME);
+            type = ScalarType.getDefaultDateType(Type.DATETIME);
         }
 
         if (checkRange() || checkDate()) {
             throw new AnalysisException("Datetime value is out of range: " + dateStr);
-        }
-    }
-
-    public static Type getDefaultDateType(Type type) {
-        switch (type.getPrimitiveType()) {
-            case DATE:
-                if (Config.use_date_v2_by_default) {
-                    return Type.DATEV2;
-                } else {
-                    return Type.DATE;
-                }
-            case DATETIME:
-                if (Config.use_date_v2_by_default) {
-                    return Type.DATETIMEV2;
-                } else {
-                    return Type.DATETIME;
-                }
-            case DATEV2:
-            case DATETIMEV2:
-            default:
-                return type;
         }
     }
 }

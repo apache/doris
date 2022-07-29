@@ -18,6 +18,7 @@
 package org.apache.doris.rewrite;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.DorisAssert;
@@ -76,7 +77,11 @@ public class RewriteDateLiteralRuleTest {
     public void testWithStringFormatDate() throws Exception {
         String query = "select * from " + DB_NAME + ".tb1 where k1 > '2021030112334455'";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 12:33:44'"));
+        if (Config.enable_date_conversion) {
+            Assert.assertTrue(planString.contains("`k1` > '2021-03-01 12:33:44.550000'"));
+        } else {
+            Assert.assertTrue(planString.contains("`k1` > '2021-03-01 12:33:44'"));
+        }
 
         query = "select k1 > '20210301' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
@@ -84,7 +89,11 @@ public class RewriteDateLiteralRuleTest {
 
         query = "select k1 > '20210301233234.34' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 23:32:34'"));
+        if (Config.enable_date_conversion) {
+            Assert.assertTrue(planString.contains("`k1` > '2021-03-01 23:32:34.340000'"));
+        } else {
+            Assert.assertTrue(planString.contains("`k1` > '2021-03-01 23:32:34'"));
+        }
 
         query = "select * from " + DB_NAME + ".tb1 where k1 > '2021-03-01'";
         planString = dorisAssert.query(query).explainQuery();

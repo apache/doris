@@ -1063,9 +1063,9 @@ public class FunctionCallExpr extends Expr {
                 for (int i = 0; i < argTypes.length - orderByElements.size(); ++i) {
                     // For varargs, we must compare with the last type in callArgs.argTypes.
                     int ix = Math.min(args.length - 1, i);
-                    if (!argTypes[i].matchesType(args[ix]) && Config.use_date_v2_by_default
+                    if (!argTypes[i].matchesType(args[ix]) && Config.enable_date_conversion
                             && !argTypes[i].isDateType() && (args[ix].isDate() || args[ix].isDatetime())) {
-                        uncheckedCastChild(DateLiteral.getDefaultDateType(args[ix]), i);
+                        uncheckedCastChild(ScalarType.getDefaultDateType(args[ix]), i);
                     } else if (!argTypes[i].matchesType(args[ix]) && !(
                             argTypes[i].isDateType() && args[ix].isDateType())) {
                         uncheckedCastChild(args[ix], i);
@@ -1103,19 +1103,19 @@ public class FunctionCallExpr extends Expr {
             Expr child1Result = getChild(1).getResultValue();
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(((StringLiteral) child1Result).getStringValue())) {
-                    this.type = DateLiteral.getDefaultDateType(Type.DATETIME);
+                    this.type = ScalarType.getDefaultDateType(Type.DATETIME);
                 } else {
-                    this.type = DateLiteral.getDefaultDateType(Type.DATE);
+                    this.type = ScalarType.getDefaultDateType(Type.DATE);
                 }
             } else {
-                this.type = DateLiteral.getDefaultDateType(Type.DATETIME);
+                this.type = ScalarType.getDefaultDateType(Type.DATETIME);
             }
         } else {
             this.type = fn.getReturnType();
         }
 
         Type[] childTypes = collectChildReturnTypes();
-        if ((this.type.isDate() || this.type.isDatetime()) && Config.use_date_v2_by_default
+        if ((this.type.isDate() || this.type.isDatetime()) && Config.enable_date_conversion
                 && fn.getArgs().length == childTypes.length) {
             boolean implicitCastToDate = false;
             for (int i = 0; i < fn.getArgs().length; i++) {
@@ -1125,8 +1125,8 @@ public class FunctionCallExpr extends Expr {
                 }
             }
             if (implicitCastToDate) {
-                this.type = DateLiteral.getDefaultDateType(fn.getReturnType());
-                fn.setReturnType(DateLiteral.getDefaultDateType(fn.getReturnType()));
+                this.type = ScalarType.getDefaultDateType(fn.getReturnType());
+                fn.setReturnType(ScalarType.getDefaultDateType(fn.getReturnType()));
             }
         }
 

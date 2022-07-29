@@ -139,7 +139,7 @@ public class FloatLiteral extends LiteralExpr {
     public static Type getDefaultTimeType(Type type) throws AnalysisException {
         switch (type.getPrimitiveType()) {
             case TIME:
-                if (Config.use_date_v2_by_default) {
+                if (Config.enable_date_conversion) {
                     return Type.TIMEV2;
                 } else {
                     return Type.TIME;

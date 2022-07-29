@@ -1688,8 +1688,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static boolean be_rebalancer_fuzzy_test = false;
 
+    /**
+     * If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically.
+     */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean use_date_v2_by_default = false;
+    public static boolean enable_date_conversion = false;
 
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_tags = false;

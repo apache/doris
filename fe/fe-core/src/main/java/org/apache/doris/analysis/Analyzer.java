@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition.PartitionState;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -1835,7 +1836,7 @@ public class Analyzer {
         }
         if (compatibleType.equals(Type.VARCHAR)) {
             if (exprs.get(0).getType().isDateType()) {
-                compatibleType = DateLiteral.getDefaultDateType(Type.DATETIME);
+                compatibleType = ScalarType.getDefaultDateType(Type.DATETIME);
             }
         }
         // Add implicit casts if necessary.

@@ -17,7 +17,6 @@
 
 package org.apache.doris.external.iceberg.util;
 
-import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
@@ -79,9 +78,9 @@ public class TypeToDorisType extends TypeUtil.SchemaVisitor<Type> {
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
                 return ScalarType.createDecimalType(decimal.precision(), decimal.scale());
             case DATE:
-                return DateLiteral.getDefaultDateType(Type.DATE);
+                return ScalarType.getDefaultDateType(Type.DATE);
             case TIMESTAMP:
-                return DateLiteral.getDefaultDateType(Type.DATETIME);
+                return ScalarType.getDefaultDateType(Type.DATETIME);
             case STRING:
                 return Type.STRING;
             // use varchar

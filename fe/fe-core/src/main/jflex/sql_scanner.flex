@@ -160,6 +160,8 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("databases", new Integer(SqlParserSymbols.KW_DATABASES));
         keywordMap.put("date", new Integer(SqlParserSymbols.KW_DATE));
         keywordMap.put("datetime", new Integer(SqlParserSymbols.KW_DATETIME));
+        keywordMap.put("datev2", new Integer(SqlParserSymbols.KW_DATEV2));
+        keywordMap.put("datetimev2", new Integer(SqlParserSymbols.KW_DATETIMEV2));
         keywordMap.put("time", new Integer(SqlParserSymbols.KW_TIME));
         keywordMap.put("day", new Integer(SqlParserSymbols.KW_DAY));
         keywordMap.put("decimal", new Integer(SqlParserSymbols.KW_DECIMAL));

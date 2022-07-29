@@ -25,6 +25,7 @@ import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 
 import mockit.Expectations;
@@ -39,6 +40,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
+import java.time.temporal.ChronoField;
 import java.util.Locale;
 import java.util.TimeZone;
 
@@ -743,9 +745,17 @@ public class FEFunctionsTest {
         String currentTimestampString = FEFunctions.currentTimestamp().toSqlImpl().replace("'", "");
 
         ZonedDateTime zonedDateTime = ZonedDateTime.now(TimeUtils.getTimeZone().toZoneId());
-        DateTimeFormatter formatter = new DateTimeFormatterBuilder()
-                .appendPattern("uuuu-MM-dd HH:mm:ss")
-                .toFormatter();
+        DateTimeFormatter formatter = null;
+        if (Config.enable_date_conversion) {
+            formatter = new DateTimeFormatterBuilder()
+                    .appendPattern("uuuu-MM-dd HH:mm:ss")
+                    .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                    .toFormatter();
+        } else {
+            formatter = new DateTimeFormatterBuilder()
+                    .appendPattern("uuuu-MM-dd HH:mm:ss")
+                    .toFormatter();
+        }
 
         Assert.assertTrue(formatter.format(zonedDateTime).compareTo(currentTimestampString) >= 0);
         String nowTimeString = formatter.format(zonedDateTime).substring(

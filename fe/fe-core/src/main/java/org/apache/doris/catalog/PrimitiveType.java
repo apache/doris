@@ -1156,9 +1156,9 @@ public enum PrimitiveType {
     public static PrimitiveType getDatePrimitiveType(PrimitiveType type) {
         switch (type) {
             case DATE:
-                return Config.use_date_v2_by_default ? DATEV2 : DATE;
+                return Config.enable_date_conversion ? DATEV2 : DATE;
             case DATETIME:
-                return Config.use_date_v2_by_default ? DATETIMEV2 : DATETIME;
+                return Config.enable_date_conversion ? DATETIMEV2 : DATETIME;
             default:
                 return type;
         }

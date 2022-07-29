@@ -116,17 +116,31 @@ public enum ExpressionFunctions {
             return null;
         }
         for (FEFunctionInvoker invoker : functionInvokers) {
-            if (!invoker.getSignature().returnType.equals(signature.getReturnType())) {
+            // Make functions for date/datetime applicable to datev2/datetimev2
+            if (!(invoker.getSignature().returnType.isDate() && signature.getReturnType().isDateV2())
+                    && !(invoker.getSignature().returnType.isDatetime() && signature.getReturnType().isDatetimeV2())
+                    && !invoker.getSignature().returnType.equals(signature.getReturnType())) {
                 continue;
             }
 
             Type[] argTypes1 = invoker.getSignature().getArgTypes();
             Type[] argTypes2 = signature.getArgTypes();
 
-            if (!Arrays.equals(argTypes1, argTypes2)) {
+            if (argTypes1.length != argTypes2.length) {
                 continue;
             }
-            return invoker;
+            boolean match = true;
+            for (int i = 0; i < argTypes1.length; i++) {
+                if (!(argTypes1[i].isDate() && argTypes2[i].isDateV2())
+                        && !(argTypes1[i].isDatetime() && argTypes2[i].isDatetimeV2())
+                        && !argTypes1[i].equals(argTypes2[i])) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                return invoker;
+            }
         }
         return null;
     }
