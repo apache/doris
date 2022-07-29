@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ALTER-TABLE-RENAME",
+    "title": "ALTER-TABLE-COMMENT",
     "language": "zh-CN"
 }
 ---
