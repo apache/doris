@@ -113,6 +113,26 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
   用于兼容 MySQL 客户端。无实际作用。
 
+- `auto_broadcast_join_threshold`
+
+  执行连接时将向所有节点广播的表的最大字节大小，通过将此值设置为 -1 可以禁用广播。
+
+  系统提供了两种 Join 的实现方式，`broadcast join` 和 `shuffle join`。
+
+  `broadcast join` 是指将小表进行条件过滤后，将其广播到大表所在的各个节点上，形成一个内存 Hash 表，然后流式读出大表的数据进行 Hash Join。
+
+  `shuffle join` 是指将小表和大表都按照 Join 的 key 进行 Hash，然后进行分布式的 Join。
+
+  当小表的数据量较小时，`broadcast join` 拥有更好的性能。反之，则shuffle join拥有更好的性能。
+
+  系统会自动尝试进行 Broadcast Join，也可以显式指定每个join算子的实现方式。系统提供了可配置的参数 `auto_broadcast_join_threshold`，指定使用 `broadcast join` 时，hash table 使用的内存占整体执行内存比例的上限，取值范围为0到1，默认值为0.8。当系统计算hash table使用的内存会超过此限制时，会自动转换为使用 `shuffle join`
+
+  这里的整体执行内存是：查询优化器做估算的一个比例
+
+  >注意：
+  >
+  >不建议用这个参数来调整，如果必须要使用某一种join，建议使用hint，比如 join[shuffle]
+
 - `batch_size`
 
   用于指定在查询执行过程中，各个节点传输的单个数据包的行数。默认一个数据包的行数为 1024 行，即源端节点每产生 1024 行数据后，打包发给目的节点。

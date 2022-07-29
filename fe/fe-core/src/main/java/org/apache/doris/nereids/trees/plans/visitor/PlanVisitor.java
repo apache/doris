@@ -21,6 +21,9 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCorrelatedJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEnforceSingleRow;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -85,6 +88,18 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitGroupPlan(GroupPlan groupPlan, C context) {
         return visit(groupPlan, context);
+    }
+
+    public R visitLogicalApply(LogicalApply<Plan, Plan> apply, C context) {
+        return visit(apply, context);
+    }
+
+    public R visitLogicalCorrelated(LogicalCorrelatedJoin<Plan, Plan> correlatedJoin, C context) {
+        return visit(correlatedJoin, context);
+    }
+
+    public R visitLogicalEnforceSingleRow(LogicalEnforceSingleRow<Plan> enforceSingleRow, C context) {
+        return visit(enforceSingleRow, context);
     }
 
     // *******************************
