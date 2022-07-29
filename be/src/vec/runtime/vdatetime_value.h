@@ -1119,6 +1119,19 @@ public:
             }
         }
     }
+    operator int64_t() const { return to_int64(); }
+
+    int64_t to_int64() const {
+        if constexpr (is_datetime) {
+            return (date_v2_value_.year_ * 10000L + date_v2_value_.month_ * 100 +
+                    date_v2_value_.day_) *
+                           1000000L +
+                   date_v2_value_.hour_ * 10000 + date_v2_value_.minute_ * 100 +
+                   date_v2_value_.second_;
+        } else {
+            return date_v2_value_.year_ * 10000 + date_v2_value_.month_ * 100 + date_v2_value_.day_;
+        }
+    };
 
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
