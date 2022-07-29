@@ -397,7 +397,7 @@ int main(int argc, char** argv) {
     // SHOULD be called after exec env is initialized.
     EXIT_IF_ERROR(engine->start_bg_threads());
 
-    doris::telemetry::initTracer();
+    doris::telemetry::init_tracer();
 
     // begin to start services
     doris::ThriftRpcHelper::setup(exec_env);
