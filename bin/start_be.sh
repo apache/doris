@@ -16,6 +16,13 @@
 # specific language governing permissions and limitations
 # under the License.
 
+#check max_map_count
+MAX_MAP_COUNT=`sysctl -n vm.max_map_count`
+if [ $MAX_MAP_COUNT -lt 2000000 ]; then
+    echo "Please set vm.max_map_count to be 2000000. sysctl -w vm.max_map_count=2000000"
+    exit 1
+fi
+
 # resolve links - $0 may be a softlink
 PRG="$0"
 
@@ -51,10 +58,15 @@ OPTS=$(getopt \
 eval set -- "$OPTS"
 
 RUN_DAEMON=0
+RUN_IN_AWS=0
 while true; do
     case "$1" in
     --daemon)
         RUN_DAEMON=1
+        shift
+        ;;
+    --aws)
+        RUN_IN_AWS=1
         shift
         ;;
     --)
@@ -162,6 +174,11 @@ if [ ! -f /bin/limit3 ]; then
     LIMIT=
 else
     LIMIT="/bin/limit3 -c 0 -n 65536"
+fi
+
+## If you are not running in aws cloud, disable this env since https://github.com/aws/aws-sdk-cpp/issues/1410.
+if [ ${RUN_IN_AWS} -eq 0 ]; then
+    export AWS_EC2_METADATA_DISABLED=true
 fi
 
 if [ ${RUN_DAEMON} -eq 1 ]; then
