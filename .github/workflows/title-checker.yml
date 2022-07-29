@@ -20,14 +20,20 @@ name: 'Check PR title'
 
 on:
   pull_request:
-    types: [opened, edited]
+    types: [ opened, edited ]
 
 jobs:
   PR-title-checker:
     name: "PR title checker"
     runs-on: ubuntu-latest
     steps:
-      - uses: ./.github/actions/action-pr-title
+      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+        uses: actions/checkout@v2
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Check Title
+        uses: ./.github/actions/action-pr-title
         with:
           regex: '\[([a-zA-Z0-9])+\]\(([a-zA-Z0-9])+\)(.*)'
           github_token: ${{ github.token }}
