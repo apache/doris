@@ -626,7 +626,8 @@ public class HashJoinNode extends PlanNode {
         vIntermediateRightTupleDesc.computeMemLayout();
         // 3. replace srcExpr by intermediate tuple
         Preconditions.checkState(vSrcToOutputSMap != null);
-        vSrcToOutputSMap.substituteLhs(originToIntermediateSmap, analyzer);
+        // Set `preserveRootTypes` to true because we should keep the consistent for types. See Issue-11314.
+        vSrcToOutputSMap.substituteLhs(originToIntermediateSmap, analyzer, true);
         // 4. replace other conjuncts and conjuncts
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
         if (votherJoinConjunct != null) {
