@@ -28,8 +28,7 @@ VRepeatNode::VRepeatNode(ObjectPool* pool, const TPlanNode& tnode, const Descrip
 
 Status VRepeatNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    RETURN_IF_ERROR(
-            VExpr::create_expr_trees(_pool, tnode.repeat_node.exprs, &_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, tnode.repeat_node.exprs, &_expr_ctxs));
     return Status::OK();
 }
 
