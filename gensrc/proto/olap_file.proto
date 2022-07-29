@@ -115,6 +115,13 @@ message RowsetMetaPB {
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
 }
 
+// unused remote rowsets garbage collection kv value
+message RemoteRowsetGcPB {
+    required string resource_id = 1;
+    required int64 tablet_id = 2;
+    required int64 num_segments = 3;
+}
+
 message AlphaRowsetExtraMetaPB {
     repeated SegmentGroupPB segment_groups = 1;
 }

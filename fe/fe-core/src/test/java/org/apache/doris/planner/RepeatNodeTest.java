@@ -81,7 +81,7 @@ public class RepeatNodeTest {
     }
 
     @Test
-    public void testNornal() {
+    public void testNormal() {
         try {
             TPlanNode msg = new TPlanNode();
             node.toThrift(msg);

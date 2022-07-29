@@ -17,9 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.tpch.AnalyzeCheckTestBase;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import org.junit.jupiter.api.Test;
 
@@ -43,20 +41,58 @@ public class SubqueryTest extends AnalyzeCheckTestBase {
                 + "v2 int)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1');";
-        createTables(t0, t1);
+
+        String t2 = "create table t2("
+                + "id int, \n"
+                + "k1 int, \n"
+                + "v2 int)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');";
+        createTables(t0, t1, t2);
     }
 
     @Test
-    public void test() {
+    public void inTest() {
         String sql = "select t0.k1\n"
                 + "from t0\n"
                 + "where t0.k2 in\n"
                 + "    (select id\n"
                 + "     from t1\n"
                 + "     where t0.k2=t1.k1)";
-        NereidsParser parser = new NereidsParser();
-        LogicalPlan parsed = parser.parseSingle(sql);
-        assert parsed != null;
-        //checkAnalyze(sql);
+        checkAnalyze(sql);
+    }
+
+    @Test
+    public void existTest() {
+        String sql1 = "select * from t0 where exists (select * from t1 where t0.k1 = t1.k1);";
+        checkAnalyze(sql1);
+    }
+
+    @Test
+    public void existAndExistTest() {
+        String sql1 = "select * from t0 where exists (select * from t1 where t0.k1 = t1.k1) "
+                + "and not exists (select * from t2 where t0.id != t2.id);";
+        checkAnalyze(sql1);
+
+        // This type of sql cannot be parsed and cannot recognize t1.id.
+        // Other systems also cannot resolve such as presto.
+        String sql2 = "select * from t0 where exists (select * from t1 where t0.k1 = t1.k1) "
+                + "and not exists (select * from t2 where t1.id != t2.id);";
+        assert sql2 != null;
+    }
+
+    @Test
+    public void scalarTest() {
+        String sql = "select * from t0 where t0.id = "
+                + "(select min(t1.id) from t1 where t0.k1 = t1.k1)";
+        checkAnalyze(sql);
+    }
+
+    @Test
+    public void inScalarTest() {
+        String sql = "select * from t0 where t0.id in "
+                + "(select * from t1 where t1.k1 = "
+                + "(select * from t2 where t0.id = t2.id));";
+        checkAnalyze(sql);
     }
 }
