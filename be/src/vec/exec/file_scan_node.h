@@ -33,6 +33,7 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/descriptors.h"
 #include "vec/exec/file_scanner.h"
+#include "vec/exprs/vin_predicate.h"
 namespace doris {
 
 class RuntimeState;
@@ -90,6 +91,22 @@ private:
     Status scanner_scan(const TFileScanRange& scan_range, ScannerCounter* counter);
 
     Status _acquire_and_build_runtime_filter(RuntimeState* state);
+    void eval_const_conjuncts();
+    Status _push_down_conjuncts();
+    Status _push_down_conjuncts_for_slot(SlotDescriptor* slot);
+
+    Status _push_down_in_and_eq_predicate(SlotDescriptor* slot);
+    Status _push_down_not_in_and_not_eq_predicate(SlotDescriptor* slot);
+    Status _push_down_noneq_binary_predicate(SlotDescriptor* slot);
+    Status _push_down_bloom_filter_predicate(SlotDescriptor* slot);
+
+    bool _should_push_down_in_predicate(SlotDescriptor* slot, VInPredicate* in_pred);
+    bool _should_push_down_eq_predicate(SlotDescriptor* slot, VExpr* pred, int child_idx);
+
+    void _tranverse_vconjunct_ctx_ptr(VExpr* root_pred, SlotDescriptor* slot, std::function<void(SlotDescriptor*, VExpr*)>& func);
+    Expr* _cast_vexpr_to_expr(VExpr* vexpr);
+
+    int32_t _max_pushdown_conditions_per_column = 1024;
 
     TupleId _tuple_id;
     RuntimeState* _runtime_state;

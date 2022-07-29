@@ -88,6 +88,9 @@ public:
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
+    // bool is_in_predicate() const {return _node_type == TExprOpcode::FILTER_IN; }
+    bool is_in_predicate() const {return true; }
+
     TExprNodeType::type node_type() const { return _node_type; }
 
     void add_child(VExpr* expr) { _children.push_back(expr); }

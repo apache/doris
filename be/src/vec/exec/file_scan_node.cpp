@@ -117,6 +117,12 @@ Status FileScanNode::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(_acquire_and_build_runtime_filter(state));
 
+    // Eval const conjuncts to find whether eos = true
+    eval_const_conjuncts();
+
+    // Find the conjuncts that could be pushed down to scanner and store them in _conjunct_ctxs
+    RETURN_IF_ERROR(_push_down_conjuncts());
+
     RETURN_IF_ERROR(start_scanners());
 
     return Status::OK();
@@ -201,6 +207,139 @@ Status FileScanNode::_acquire_and_build_runtime_filter(RuntimeState* state) {
         _runtime_filter_ready_flag[i] = true;
     }
     return Status::OK();
+}
+
+void FileScanNode::eval_const_conjuncts() {
+}
+
+Status FileScanNode::_push_down_conjuncts() {
+    std::vector<SlotDescriptor*> slots = _tuple_desc->slots();
+
+    for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
+        RETURN_IF_ERROR(_push_down_conjuncts_for_slot(slots[slot_idx]));
+    }
+    return Status::OK();
+}
+
+Status FileScanNode::_push_down_conjuncts_for_slot(SlotDescriptor* slot) {
+    RETURN_IF_ERROR(_push_down_in_and_eq_predicate(slot));
+    RETURN_IF_ERROR(_push_down_not_in_and_not_eq_predicate(slot));
+    RETURN_IF_ERROR(_push_down_noneq_binary_predicate(slot));
+    RETURN_IF_ERROR(_push_down_bloom_filter_predicate(slot));
+    return Status::OK();
+}
+
+Status FileScanNode::_push_down_in_and_eq_predicate(SlotDescriptor* slot) {
+    auto push_func = [&](SlotDescriptor* slot, VExpr* vexpr) { 
+        if (vexpr->is_in_predicate() && this->_should_push_down_in_predicate(slot, nullptr)) {
+            // Push down to scanner
+            return;
+        }
+    };
+
+    _tranverse_vconjunct_ctx_ptr((*_vconjunct_ctx_ptr)->root(), slot, push_func);
+
+    return Status::OK();
+}
+Status FileScanNode::_push_down_not_in_and_not_eq_predicate(SlotDescriptor* slot) {
+    return Status::OK();
+}
+Status FileScanNode::_push_down_noneq_binary_predicate(SlotDescriptor* slot) {
+    return Status::OK();
+}
+Status FileScanNode::_push_down_bloom_filter_predicate(SlotDescriptor* slot) {
+    return Status::OK();
+}
+
+bool FileScanNode::_should_push_down_in_predicate(SlotDescriptor* slot, VInPredicate* in_pred) {
+    // if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
+    //     return false;
+    // }
+    if (!in_pred->children()[0]->is_slot_ref()) {
+        return false;
+    }
+
+    // std::vector<SlotId> slot_ids;
+    // if (pred->get_child(0)->get_slot_ids(&slot_ids) != 1) {
+    //     // not a single column predicate
+    //     return false;
+    // }
+
+    // if (slot_ids[0] != slot->id()) {
+    //     // predicate not related to current column
+    //     return false;
+    // }
+
+    // if (pred->get_child(0)->type().type != slot->type().type) {
+    //     if (!ignore_cast(slot, pred->get_child(0))) {
+    //         // the type of predicate not match the slot's type
+    //         return false;
+    //     }
+    // }
+
+    // if (pred->hybrid_set()->size() > _max_pushdown_conditions_per_column) {
+    //     VLOG_NOTICE << "Predicate value num " << pred->hybrid_set()->size() << " exceed limit "
+    //                 << _max_pushdown_conditions_per_column;
+    //     return false;
+    // }
+
+    return true;
+}
+
+bool FileScanNode::_should_push_down_eq_predicate(SlotDescriptor* slot, VExpr* pred, int child_idx) {
+
+    // Do not get slot_ref of column, should not push_down to Storage Engine
+    // if (Expr::type_without_cast(pred->get_child(child_idx)) != TExprNodeType::SLOT_REF) {
+    //     return result_pair;
+    // }
+    if (!pred->children()[child_idx]->is_slot_ref()) {
+        return false;
+    }
+
+    // std::vector<SlotId> slot_ids;
+    // if (pred->get_child(child_idx)->get_slot_ids(&slot_ids) != 1) {
+    //     // not a single column predicate
+    //     return result_pair;
+    // }
+
+    // if (slot_ids[0] != slot->id()) {
+    //     // predicate not related to current column
+    //     return result_pair;
+    // }
+
+    // if (pred->get_child(child_idx)->type().type != slot->type().type) {
+    //     if (!ignore_cast(slot, pred->get_child(child_idx))) {
+    //         // the type of predicate not match the slot's type
+    //         return result_pair;
+    //     }
+    // }
+
+    // Expr* expr = pred->get_child(1 - child_idx);
+    // if (!expr->is_constant()) {
+    //     // only handle constant value
+    //     return result_pair;
+    // }
+
+    // // get value in result pair
+    // result_pair = std::make_pair(
+    //         true, _conjunct_ctxs[conj_idx]->get_value(expr, nullptr, slot->type().precision,
+    //                                                   slot->type().scale));
+
+    // return result_pair;
+    return true;
+}
+
+void FileScanNode::_tranverse_vconjunct_ctx_ptr(VExpr* root_pred, SlotDescriptor* slot, std::function<void(SlotDescriptor*, VExpr*)>& func) {
+    // VExpr* vexpr = (*_vconjunct_ctx_ptr) -> root();
+    func(slot, root_pred);
+    std::vector<VExpr*> children = root_pred -> children();
+    for (int i = 0; i < children.size(); i++) {
+        _tranverse_vconjunct_ctx_ptr(children[i], slot, func);
+    }
+}
+
+Expr* FileScanNode::_cast_vexpr_to_expr(VExpr* vexpr) {
+    return NULL;
 }
 
 Status FileScanNode::start_scanners() {
