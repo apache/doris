@@ -16,6 +16,7 @@
 // under the License.
 
 #include "olap/tablet_meta.h"
+#include "testutil/mock_rowset.h"
 
 #include <gtest/gtest.h>
 
@@ -59,7 +60,7 @@ TEST(TabletMetaTest, TestReviseMeta) {
         meta_ptr->init_from_pb(rs_meta_pb);
         RowsetSharedPtr rowset_ptr;
         TabletSchema schema;
-        MockRowset::create_rowset(&schema, FilePathDesc(), meta_ptr, &rowset_ptr, false);
+        MockRowset::create_rowset(&schema, "", meta_ptr, &rowset_ptr, false);
         src_rowsets.push_back(rowset_ptr);
         tablet_meta.add_rs_meta(rowset_ptr->rowset_meta());
     }
