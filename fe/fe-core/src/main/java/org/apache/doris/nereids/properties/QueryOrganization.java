@@ -21,6 +21,7 @@ import java.util.List;
 /**
  * Represents order keys and limit and offset
  */
+
 public class QueryOrganization {
 
     private List<OrderKey> orderKeys;

@@ -36,7 +36,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     protected StatsDeriveResult statsDeriveResult;
     protected long limit = -1;
-
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;
     protected final LogicalProperties logicalProperties;
@@ -113,14 +112,13 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             return false;
         }
         AbstractPlan that = (AbstractPlan) o;
-        return limit == that.limit
-                && Objects.equals(statsDeriveResult, that.statsDeriveResult)
+        return Objects.equals(statsDeriveResult, that.statsDeriveResult)
                 && Objects.equals(logicalProperties, that.logicalProperties);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(statsDeriveResult, limit, logicalProperties);
+        return Objects.hash(statsDeriveResult, logicalProperties);
     }
 
     public long getLimit() {
