@@ -246,10 +246,9 @@ build_libbacktrace() {
     check_if_source_exist $LIBBACKTRACE_SOURCE
     cd $TP_SOURCE_DIR/$LIBBACKTRACE_SOURCE
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
-        CXXFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        CFLAGS="-fPIC" \
         ./configure --prefix=$TP_INSTALL_DIR
     make -j $PARALLEL
     make install
@@ -261,7 +260,7 @@ build_libevent() {
     cd "${TP_SOURCE_DIR}/${LIBEVENT_SOURCE}"
     mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
 
-    CFLAGS="-std=c99 -fPIC -D_BSD_SOURCE -fno-omit-frame-pointer -g -ggdb -O2 -I${TP_INCLUDE_DIR}" \
+    CFLAGS="-std=c99 -D_BSD_SOURCE -fno-omit-frame-pointer -g -ggdb -O2 -I${TP_INCLUDE_DIR}" \
         CPPLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DEVENT__DISABLE_TESTS=ON \
@@ -282,10 +281,9 @@ build_openssl() {
     check_if_source_exist "${OPENSSL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${OPENSSL_SOURCE}"
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
-        CXXFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        CFLAGS="-fPIC" \
         LIBDIR="lib" \
         ./Configure --prefix="${TP_INSTALL_DIR}" --with-rand-seed=devrandom -shared "${OPENSSL_PLATFORM}"
     # NOTE(amos): Never use '&&' to concat commands as it will eat error code
@@ -317,7 +315,7 @@ build_thrift() {
     fi
 
     # NOTE(amos): libtool discard -static. --static works.
-    ./configure CPPFLAGS="${cppflags}" LDFLAGS="${ldflags}" LIBS="-lcrypto -ldl -lssl" CFLAGS="-fPIC" \
+    ./configure CPPFLAGS="${cppflags}" LDFLAGS="${ldflags}" LIBS="-lcrypto -ldl -lssl" \
         --prefix="${TP_INSTALL_DIR}" --docdir="${TP_INSTALL_DIR}/doc" --enable-static --disable-shared --disable-tests \
         --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs --without-nodets --without-swift \
         --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby --without-cl \
@@ -347,7 +345,7 @@ build_protobuf() {
         ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create"
     fi
 
-    CXXFLAGS="-fPIC -O2 -I${TP_INCLUDE_DIR}" \
+    CXXFLAGS="-O2 -I${TP_INCLUDE_DIR}" \
         LDFLAGS="${ldflags}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static --with-zlib="${TP_INSTALL_DIR}/include"
 
@@ -387,9 +385,8 @@ build_glog() {
     rm -rf config.*
     autoreconf -i
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -fpermissive -fPIC" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR} -fpermissive" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        CFLAGS="-fPIC" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-frame-pointers --disable-shared --enable-static
     make -j "${PARALLEL}" && make install
 }
@@ -448,10 +445,8 @@ build_gperftools() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         LD_LIBRARY_PATH="${TP_LIB_DIR}" \
-        CFLAGS="-fPIC" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         LD_LIBRARY_PATH="${TP_LIB_DIR}" \
-        CFLAGS="-fPIC" \
         ./configure --prefix="${TP_INSTALL_DIR}/gperftools" --disable-shared --enable-static --disable-libunwind --with-pic --enable-frame-pointers
     make -j "${PARALLEL}" && make install
 }
@@ -463,7 +458,6 @@ build_zlib() {
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        CFLAGS="-fPIC" \
         ./configure --prefix="${TP_INSTALL_DIR}" --static
     make -j "${PARALLEL}" && make install
 
@@ -503,8 +497,7 @@ build_bzip() {
     check_if_source_exist "${BZIP_SOURCE}"
     cd "${TP_SOURCE_DIR}/${BZIP_SOURCE}"
 
-    CFLAGS="-fPIC" \
-        make -j "${PARALLEL}" install PREFIX="${TP_INSTALL_DIR}"
+    make -j "${PARALLEL}" install PREFIX="${TP_INSTALL_DIR}"
 }
 
 # lzo2
@@ -512,9 +505,8 @@ build_lzo2() {
     check_if_source_exist "${LZO2_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LZO2_SOURCE}"
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        CFLAGS="-fPIC" \
         ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
     make -j "${PARALLEL}" && make install
 }
@@ -532,7 +524,6 @@ build_curl() {
 
     CPPFLAGS="-I${TP_INCLUDE_DIR} -DNGHTTP2_STATICLIB" \
         LDFLAGS="-L${TP_LIB_DIR}" LIBS="${libs}" \
-        CFLAGS="-fPIC" \
         PKG_CONFIG="pkg-config --static" \
         ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
         --without-librtmp --with-ssl="${TP_INSTALL_DIR}" --without-libidn2 --disable-ldap --enable-ipv6 \
@@ -577,7 +568,7 @@ build_boost() {
     CXXFLAGS="${cxxflags}" \
         ./bootstrap.sh --prefix="${TP_INSTALL_DIR}" --with-toolset="${boost_toolset}"
     # -q: Fail at first error
-    ./b2 -q link=static runtime-link=static -j "${PARALLEL}" --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -g -fPIC -I${TP_INCLUDE_DIR} -L${TP_LIB_DIR}" install
+    ./b2 -q link=static runtime-link=static -j "${PARALLEL}" --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -g -I${TP_INCLUDE_DIR} -L${TP_LIB_DIR}" install
 }
 
 # mysql
@@ -630,7 +621,7 @@ build_leveldb() {
     mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
     rm -rf CMakeCache.txt CMakeFiles/
 
-    CXXFLAGS="-fPIC" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DLEVELDB_BUILD_BENCHMARKS=OFF \
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DLEVELDB_BUILD_BENCHMARKS=OFF \
         -DLEVELDB_BUILD_TESTS=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
 }
@@ -672,7 +663,7 @@ build_rocksdb() {
 
     # -Wno-range-loop-construct gcc-11
     CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" \
-        CXXFLAGS="-fPIC -Wno-deprecated-copy ${warning_stringop_truncation} ${warning_shadow} ${warning_dangling_gsl} \
+        CXXFLAGS="-Wno-deprecated-copy ${warning_stringop_truncation} ${warning_shadow} ${warning_dangling_gsl} \
     ${warning_defaulted_function_deleted} ${warning_unused_but_set_variable} -Wno-pessimizing-move -Wno-range-loop-construct" \
         LDFLAGS="${ldflags}" \
         PORTABLE=1 make USE_RTTI=1 -j "${PARALLEL}" static_lib
@@ -686,7 +677,6 @@ build_cyrus_sasl() {
     cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        CFLAGS="-fPIC" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-shared=no --with-openssl="${TP_INSTALL_DIR}" --with-pic
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         make -j "${PARALLEL}" && make install
@@ -703,7 +693,6 @@ build_librdkafka() {
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        CFLAGS="-fPIC" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-sasl --disable-c11threads
     make -j "${PARALLEL}" && make install
     remove_all_dylib
@@ -723,7 +712,6 @@ build_libunixodbc() {
 
     CPPFLAGS="${cppflags}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        CFLAGS="-fPIC" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
     make -j "${PARALLEL}" && make install
 }
@@ -741,7 +729,7 @@ build_flatbuffers() {
         ldflags=''
     fi
 
-    CXXFLAGS="-fPIC ${warning_class_memaccess}" \
+    CXXFLAGS="${warning_class_memaccess}" \
         LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DFLATBUFFERS_BUILD_TESTS=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -859,7 +847,7 @@ build_bitshuffle() {
         fi
         tmp_obj="bitshuffle_${arch}_tmp.o"
         dst_obj="bitshuffle_${arch}.o"
-        "${CC}" ${EXTRA_CFLAGS} ${arch_flag} -std=c99 "-I${PREFIX}/include/lz4" -O3 -DNDEBUG -fPIC -c \
+        "${CC}" ${EXTRA_CFLAGS} ${arch_flag} -std=c99 "-I${PREFIX}/include/lz4" -O3 -DNDEBUG -c \
             "src/bitshuffle_core.c" \
             "src/bitshuffle.c" \
             "src/iochain.c"
@@ -1084,7 +1072,7 @@ build_krb5() {
         with_crypto_impl='--with-crypto-impl=openssl'
     fi
 
-    CFLAGS="-fcommon -fPIC -I${TP_INSTALL_DIR}/include" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
+    CFLAGS="-fcommon -I${TP_INSTALL_DIR}/include" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
         ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static ${with_crypto_impl}
     make -j "${PARALLEL}" && make install
 }
@@ -1095,7 +1083,7 @@ build_hdfs3() {
     cd "${TP_SOURCE_DIR}/${HDFS3_SOURCE}"
     mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}" && rm -rf ./*
     # build libhdfs3 with kerberos support
-    CPPLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+    CPPLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ../bootstrap --dependency="${TP_INSTALL_DIR}" --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
     make CXXFLAGS="${libhdfs_cxx17}" -j "${PARALLEL}"
