@@ -17,7 +17,7 @@
 
 package org.apache.doris.journal.bdbje;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.meta.MetaContext;
 
@@ -64,7 +64,7 @@ public class BDBTool {
             env = new Environment(new File(metaPath), envConfig);
         } catch (DatabaseException e) {
             e.printStackTrace();
-            System.err.println("Failed to open BDBJE env: " + Catalog.getCurrentCatalog().getBdbDir() + ". exit");
+            System.err.println("Failed to open BDBJE env: " + Env.getCurrentEnv().getBdbDir() + ". exit");
             return false;
         }
         Preconditions.checkNotNull(env);

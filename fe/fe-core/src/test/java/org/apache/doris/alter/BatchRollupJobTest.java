@@ -21,8 +21,8 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -54,14 +54,14 @@ public class BatchRollupJobTest {
 
     @Before
     public void before() throws Exception {
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         alterJobs.clear();
 
         // create database db1
         String createDbStmtStr = "create database if not exists db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        System.out.println(Catalog.getCurrentInternalCatalog().getDbNames());
+        Env.getCurrentEnv().createDb(createDbStmt);
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
     }
 
     @Test
@@ -69,17 +69,17 @@ public class BatchRollupJobTest {
         // create table tbl1
         String createTblStmtStr1 = "create table db1.tbl1(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
         // batch add 3 rollups
         String stmtStr = "alter table db1.tbl1 add rollup r1(k1) duplicate key(k1), r2(k1, k2) duplicate key(k1), r3(k2) duplicate key(k2);";
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
 
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         Assert.assertEquals(3, alterJobs.size());
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
         Assert.assertNotNull(tbl);
@@ -119,18 +119,18 @@ public class BatchRollupJobTest {
         // create table tbl2
         String createTblStmtStr1 = "create table db1.tbl2(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
         // batch add 3 rollups
         String stmtStr = "alter table db1.tbl2 add rollup r1(k1) duplicate key(k1), r2(k1, k2) duplicate key(k1), r3(k2) duplicate key(k2);";
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
 
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         Assert.assertEquals(3, alterJobs.size());
         List<Long> jobIds = Lists.newArrayList(alterJobs.keySet());
 
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl2");
         Assert.assertNotNull(tbl);
@@ -151,7 +151,7 @@ public class BatchRollupJobTest {
             // cancel rest of rollup jobs
             stmtStr = "cancel alter table rollup from db1.tbl2 (" + Joiner.on(",").join(jobIds) + ")";
             CancelAlterTableStmt cancelStmt = (CancelAlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
-            Catalog.getCurrentCatalog().cancelAlter(cancelStmt);
+            Env.getCurrentEnv().cancelAlter(cancelStmt);
 
             int i = 3;
             while (tbl.getState() != OlapTableState.NORMAL && i > 0) {

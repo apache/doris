@@ -17,7 +17,7 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.ExportJob.JobState;
@@ -85,7 +85,7 @@ public final class ExportChecker extends MasterDaemon {
     }
 
     private void runPendingJobs() {
-        ExportMgr exportMgr = Catalog.getCurrentCatalog().getExportMgr();
+        ExportMgr exportMgr = Env.getCurrentEnv().getExportMgr();
         List<ExportJob> pendingJobs = exportMgr.getExportJobs(JobState.PENDING);
 
         // check to limit running etl job num
@@ -120,7 +120,7 @@ public final class ExportChecker extends MasterDaemon {
     }
 
     private void runExportingJobs() {
-        List<ExportJob> jobs = Catalog.getCurrentCatalog().getExportMgr().getExportJobs(JobState.EXPORTING);
+        List<ExportJob> jobs = Env.getCurrentEnv().getExportMgr().getExportJobs(JobState.EXPORTING);
         LOG.debug("exporting export job num: {}", jobs.size());
         for (ExportJob job : jobs) {
             try {

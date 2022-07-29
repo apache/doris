@@ -191,6 +191,7 @@ Status ExecEnv::_init_mem_tracker() {
     }
     _process_mem_tracker = new MemTrackerLimiter(global_memory_limit_bytes, "Process");
     thread_context()->_thread_mem_tracker_mgr->init();
+    thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     if (doris::config::enable_tcmalloc_hook) {
@@ -361,6 +362,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_query_pool_mem_tracker);
     SAFE_DELETE(_load_pool_mem_tracker);
     SAFE_DELETE(_task_pool_mem_tracker_registry);
+    SAFE_DELETE(_buffer_reservation);
 
     DEREGISTER_HOOK_METRIC(query_mem_consumption);
     DEREGISTER_HOOK_METRIC(load_mem_consumption);

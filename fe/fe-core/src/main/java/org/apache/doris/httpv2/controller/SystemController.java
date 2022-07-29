@@ -18,7 +18,7 @@
 package org.apache.doris.httpv2.controller;
 
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.proc.ProcDirInterface;
 import org.apache.doris.common.proc.ProcNodeInterface;
@@ -96,7 +96,7 @@ public class SystemController extends BaseController {
 
         List<String> columnNames = null;
         List<List<String>> rows = null;
-        if (!Catalog.getCurrentCatalog().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster()) {
             // forward to master
             String showProcStmt = "SHOW PROC \"" + procPath + "\"";
 

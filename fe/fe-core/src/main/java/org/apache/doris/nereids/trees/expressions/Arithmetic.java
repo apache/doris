@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * All arithmetic operator.
@@ -107,37 +108,12 @@ public abstract class Arithmetic extends Expression {
     private final ArithmeticOperator op;
 
     public Arithmetic(ArithmeticOperator op, Expression... children) {
-        super(genNodeType(op), children);
+        super(children);
         this.op = op;
     }
 
     public ArithmeticOperator getArithmeticOperator() {
         return op;
-    }
-
-    private static ExpressionType genNodeType(ArithmeticOperator op) {
-        switch (op) {
-            case MULTIPLY:
-                return ExpressionType.MULTIPLY;
-            case DIVIDE:
-                return ExpressionType.DIVIDE;
-            case MOD:
-                return ExpressionType.MOD;
-            case ADD:
-                return ExpressionType.ADD;
-            case SUBTRACT:
-                return ExpressionType.SUBTRACT;
-            case BITAND:
-                return ExpressionType.BITAND;
-            case BITOR:
-                return ExpressionType.BITOR;
-            case BITXOR:
-                return ExpressionType.BITXOR;
-            case BITNOT:
-                return ExpressionType.NOT;
-            default:
-                throw new RuntimeException("Not support arithmetic type: " + op.getName());
-        }
     }
 
     @Override
@@ -189,6 +165,24 @@ public abstract class Arithmetic extends Expression {
 
     @Override
     public String toString() {
-        return toSql();
+        return stringBuilder(Object::toString);
+    }
+
+    @Override
+    public String toSql() {
+        return stringBuilder(Expression::toSql);
+    }
+
+    private String stringBuilder(Function<Expression, String> stringMapper) {
+        switch (op.getPos()) {
+            case BINARY_INFIX:
+                return stringMapper.apply(children.get(0)) + " " + op + " " + stringMapper.apply(children.get(1));
+            case UNARY_PREFIX:
+                return op + stringMapper.apply(children.get(0));
+            case UNARY_POSTFIX:
+                return stringMapper.apply(children.get(0)) + op;
+            default:
+                throw new IllegalStateException("Not supported operator: " + op);
+        }
     }
 }

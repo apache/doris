@@ -1,5 +1,5 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the notICE file
+// or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
@@ -26,8 +26,8 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRu
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 /**
  * all expr rewrite rule test case.
@@ -64,11 +64,12 @@ public class ExpressionRewriteTest {
     public void testNormalizeExpressionRewrite() {
         executor = new ExpressionRuleExecutor(NormalizeBinaryPredicatesRule.INSTANCE);
 
+        assertRewrite("1 = 1", "1 = 1");
         assertRewrite("2 > x", "x < 2");
-        assertRewrite("2 >= x", "x <= 2");
-        assertRewrite("2 < x", "x > 2");
-        assertRewrite("2 <= x", "x >= 2");
-        assertRewrite("2 = x", "x = 2");
+        assertRewrite("y > x", "y > x");
+        assertRewrite("1 + 2 > x", "x < 1 + 2");
+        assertRewrite("1 + 2 > x + 1", "x + 1 < 1 + 2");
+        assertRewrite("y + 2 > x + 1", "y + 2 > x + 1");
     }
 
     @Test
@@ -152,6 +153,6 @@ public class ExpressionRewriteTest {
         Expression needRewriteExpression = PARSER.parseExpression(expression);
         Expression expectedExpression = PARSER.parseExpression(expected);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
-        Assert.assertEquals(expectedExpression, rewrittenExpression);
+        Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
 }

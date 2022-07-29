@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.clone.RebalancerTestUtil;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -50,7 +50,7 @@ public class AdminCancelRebalanceDiskStmtTest {
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
 
         List<Long> beIds = Lists.newArrayList(10001L, 10002L, 10003L, 10004L);
-        beIds.forEach(id -> Catalog.getCurrentSystemInfo().addBackend(RebalancerTestUtil.createBackend(id, 2048, 0)));
+        beIds.forEach(id -> Env.getCurrentSystemInfo().addBackend(RebalancerTestUtil.createBackend(id, 2048, 0)));
     }
 
     @Test

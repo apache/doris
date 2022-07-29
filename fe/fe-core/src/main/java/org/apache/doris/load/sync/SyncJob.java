@@ -20,8 +20,8 @@ package org.apache.doris.load.sync;
 import org.apache.doris.analysis.BinlogDesc;
 import org.apache.doris.analysis.ChannelDescription;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -117,7 +117,7 @@ public abstract class SyncJob implements Writable {
 
     public static SyncJob fromStmt(long jobId, CreateDataSyncJobStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         SyncJob syncJob;
         try {
             switch (stmt.getDataSyncJobType()) {
@@ -183,7 +183,7 @@ public abstract class SyncJob implements Writable {
         if (!isReplay) {
             SyncJobUpdateStateInfo info = new SyncJobUpdateStateInfo(id, jobState, lastStartTimeMs, lastStopTimeMs,
                     finishTimeMs, failMsg);
-            Catalog.getCurrentCatalog().getEditLog().logUpdateSyncJobState(info);
+            Env.getCurrentEnv().getEditLog().logUpdateSyncJobState(info);
         }
     }
 
@@ -207,7 +207,7 @@ public abstract class SyncJob implements Writable {
     }
 
     public void checkAndDoUpdate() throws UserException {
-        Database database = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+        Database database = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (database == null) {
             if (!isCompleted()) {
                 String msg = "The database has been deleted. Change job state to cancelled";
@@ -429,7 +429,7 @@ public abstract class SyncJob implements Writable {
         }
         // set channel id
         for (ChannelDescription channelDescription : channelDescriptions) {
-            channelDescription.setChannelId(Catalog.getCurrentCatalog().getNextId());
+            channelDescription.setChannelId(Env.getCurrentEnv().getNextId());
         }
     }
 

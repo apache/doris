@@ -20,7 +20,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
@@ -1629,7 +1629,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
                 VectorizedUtil.isVectorized());
-        Function f = Catalog.getCurrentCatalog().getFunction(searchDesc, mode);
+        Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
         if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
             if (this.children.size() == 1
                     && !(this.children.get(0) instanceof LiteralExpr)) {
@@ -1643,7 +1643,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
                 VectorizedUtil.isVectorized());
-        Function f = Catalog.getCurrentCatalog().getTableFunction(searchDesc, mode);
+        Function f = Env.getCurrentEnv().getTableFunction(searchDesc, mode);
         return f;
     }
 

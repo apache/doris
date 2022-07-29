@@ -86,9 +86,9 @@ public class PhysicalHashJoin<
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("PhysicalHashJoin ([").append(joinType).append("]");
-        if (condition.isPresent()) {
-            sb.append(", [").append(condition.get()).append("]");
-        }
+        condition.ifPresent(
+                expression -> sb.append(", [").append(expression).append("]")
+        );
         sb.append(")");
         return sb.toString();
     }

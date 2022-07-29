@@ -33,6 +33,7 @@
 #include "http/http_handler.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
+#include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "util/debug_util.h"
 #include "util/threadpool.h"
@@ -98,6 +99,7 @@ void EvHttpServer::start() {
     _event_bases.resize(_num_workers);
     for (int i = 0; i < _num_workers; ++i) {
         CHECK(_workers->submit_func([this, i]() {
+                          thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
                           std::shared_ptr<event_base> base(event_base_new(), [](event_base* base) {
                               event_base_free(base);
                           });

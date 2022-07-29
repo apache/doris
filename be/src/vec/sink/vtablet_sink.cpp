@@ -141,6 +141,7 @@ Status VNodeChannel::open_wait() {
 }
 
 Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
@@ -572,8 +573,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
 
                     if (dec_val.greater_than_scale(desc->type().scale)) {
                         auto code = dec_val.round(&dec_val, desc->type().scale, HALF_UP);
-                        column_decimal->get_data()[j] =
-                                binary_cast<DecimalV2Value, vectorized::Int128>(dec_val);
+                        column_decimal->get_data()[j] = dec_val.value();
 
                         if (code != E_DEC_OK) {
                             fmt::format_to(error_msg, "round one decimal failed.value={}; ",

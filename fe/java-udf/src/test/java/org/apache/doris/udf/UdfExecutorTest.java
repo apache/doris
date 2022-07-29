@@ -218,8 +218,8 @@ public class UdfExecutorTest {
             assert (UdfUtils.UNSAFE.getByte(outputNull + i) == 0);
             UdfUtils.copyMemory(null, outputBuffer + 16 * i, bytes, UdfUtils.BYTE_ARRAY_OFFSET, bytes.length);
 
-            BigInteger interger = new BigInteger(convertByteOrder(bytes));
-            BigDecimal result = new BigDecimal(interger, 9);
+            BigInteger integer = new BigInteger(convertByteOrder(bytes));
+            BigDecimal result = new BigDecimal(integer, 9);
             assert (result.equals(decimalArray[i]));
         }
     }

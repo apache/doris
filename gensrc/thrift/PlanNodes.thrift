@@ -472,6 +472,12 @@ struct THashJoinNode {
 
   // hash output column
   6: optional list<Types.TSlotId> hash_output_slot_ids
+
+  7: optional list<Exprs.TExpr> srcExprList
+
+  8: optional Types.TTupleId voutput_tuple_id
+
+  9: optional list<Types.TTupleId> vintermediate_tuple_id_list
 }
 
 struct TMergeJoinNode {
@@ -537,6 +543,7 @@ struct TAggregationNode {
   // rows have been aggregated, and this node is not an intermediate node.
   5: required bool need_finalize
   6: optional bool use_streaming_preaggregation
+  7: optional list<TSortInfo> agg_sort_infos
 }
 
 struct TRepeatNode {

@@ -19,7 +19,7 @@ package org.apache.doris.utframe;
 
 import org.apache.doris.PaloFe;
 import org.apache.doris.PaloFe.StartupOptions;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.PrintableMap;
 
 import com.google.common.base.Strings;
@@ -36,7 +36,6 @@ import java.util.Map;
 
 /*
  * This class is used to start a Frontend process locally, for unit test.
- * This is a singleton class. There can be only one instance of this class globally.
  * Usage:
  *      MockedFrontend mockedFrontend = MockedFrontend.getInstance();
  *      mockedFrontend.init(confMap);
@@ -85,16 +84,8 @@ public class MockedFrontend {
         MIN_FE_CONF.put("sys_log_verbose_modules", "org");
     }
 
-    private static class SingletonHolder {
-        private static final MockedFrontend INSTANCE = new MockedFrontend();
-    }
-
-    public static MockedFrontend getInstance() {
-        return SingletonHolder.INSTANCE;
-    }
-
     public int getRpcPort() {
-        return Integer.valueOf(finalFeConf.get("rpc_port"));
+        return Integer.parseInt(finalFeConf.get("rpc_port"));
     }
 
     private boolean isInit = false;
@@ -206,7 +197,7 @@ public class MockedFrontend {
 
     private void waitForCatalogReady(long timeoutMs) throws FeStartException {
         long left = timeoutMs;
-        while (!Catalog.getCurrentCatalog().isReady() && left > 0) {
+        while (!Env.getCurrentEnv().isReady() && left > 0) {
             System.out.println("catalog is not ready");
             try {
                 Thread.sleep(100);
@@ -216,7 +207,7 @@ public class MockedFrontend {
             left -= 100;
         }
 
-        if (left <= 0 && !Catalog.getCurrentCatalog().isReady()) {
+        if (left <= 0 && !Env.getCurrentEnv().isReady()) {
             throw new FeStartException("fe start failed");
         }
     }

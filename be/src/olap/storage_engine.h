@@ -192,6 +192,10 @@ public:
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
     Status submit_quick_compaction_task(TabletSharedPtr tablet);
 
+    std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
+        return _tablet_publish_txn_thread_pool;
+    }
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -342,6 +346,8 @@ private:
     std::unique_ptr<MemTrackerLimiter> _batch_load_mem_tracker;
     // Count the memory consumption of all EngineChecksumTask.
     std::unique_ptr<MemTrackerLimiter> _consistency_mem_tracker;
+    // StorageEngine oneself
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;
@@ -381,6 +387,8 @@ private:
     std::unique_ptr<ThreadPool> _quick_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+
+    std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
 

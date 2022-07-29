@@ -17,8 +17,8 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.resource.Tag;
@@ -41,7 +41,7 @@ import java.util.Map;
 public class SystemInfoServiceTest {
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private EditLog editLog;
 
@@ -51,16 +51,16 @@ public class SystemInfoServiceTest {
     public void setUp() {
         new Expectations() {
             {
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
                 editLog.logAddBackend((Backend) any);
                 minTimes = 0;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
 

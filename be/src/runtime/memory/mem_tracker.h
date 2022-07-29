@@ -30,9 +30,9 @@ class MemTrackerLimiter;
 // MemTracker can be consumed manually by consume()/release(), or put into SCOPED_CONSUME_MEM_TRACKER,
 // which will automatically track all memory usage of the code segment where it is located.
 //
-// MemTracker's father can only be MemTrackerLimiter, which is only used to print tree-like statistics.
-// Consuming MemTracker will not consume its father synchronously.
-// Usually, it is not necessary to specify the father. by default, the MemTrackerLimiter in the thread context
+// MemTracker's parent can only be MemTrackerLimiter, which is only used to print tree-like statistics.
+// Consuming MemTracker will not consume its parent synchronously.
+// Usually, it is not necessary to specify the parent. by default, the MemTrackerLimiter in the thread context
 // is used as the parent, which is specified when the thread starts.
 //
 // This class is thread-safe.
@@ -73,8 +73,9 @@ public:
 
 public:
     bool limit_exceeded(int64_t limit) const { return limit >= 0 && limit < consumption(); }
+    // Return true, no exceeded limit
     bool check_limit(int64_t limit, int64_t bytes) const {
-        return limit >= 0 && limit < consumption() + bytes;
+        return limit >= 0 && limit > consumption() + bytes;
     }
 
     // Usually, a negative values means that the statistics are not accurate,

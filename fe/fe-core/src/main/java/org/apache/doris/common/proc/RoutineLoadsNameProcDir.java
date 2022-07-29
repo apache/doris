@@ -18,7 +18,7 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.analysis.ShowRoutineLoadStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
@@ -67,7 +67,7 @@ public class RoutineLoadsNameProcDir implements ProcDirInterface {
         baseProcResult.setNames(ShowRoutineLoadStmt.getTitleNames());
 
         // find all of job named routine load
-        RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+        RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
         List<RoutineLoadJob> routineLoadJobList = routineLoadManager.getJobByName(jobName);
         for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
             baseProcResult.addRow(routineLoadJob.getShowInfo());

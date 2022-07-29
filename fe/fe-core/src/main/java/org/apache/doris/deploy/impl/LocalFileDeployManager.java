@@ -17,7 +17,7 @@
 
 package org.apache.doris.deploy.impl;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.deploy.DeployManager;
@@ -59,8 +59,8 @@ public class LocalFileDeployManager extends DeployManager {
 
     private String clusterInfoFile;
 
-    public LocalFileDeployManager(Catalog catalog, long intervalMs) {
-        super(catalog, intervalMs);
+    public LocalFileDeployManager(Env env, long intervalMs) {
+        super(env, intervalMs);
         initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE);
     }
 

@@ -32,12 +32,12 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
 public class ColumnTypeTest {
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
 
     @Before
     public void setUp() {
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        fakeEnv = new FakeEnv();
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test

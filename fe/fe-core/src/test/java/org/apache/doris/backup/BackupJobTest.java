@@ -22,8 +22,8 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.BackupJob.BackupJobState;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
@@ -84,7 +84,7 @@ public class BackupJobTest {
     private AtomicLong id = new AtomicLong(50000);
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private InternalDataSource ds;
 
@@ -94,8 +94,8 @@ public class BackupJobTest {
 
     // Thread is not mockable in Jmockit, use subclass instead
     private final class MockBackupHandler extends BackupHandler {
-        public MockBackupHandler(Catalog catalog) {
-            super(catalog);
+        public MockBackupHandler(Env env) {
+            super(env);
         }
 
         @Override
@@ -143,16 +143,16 @@ public class BackupJobTest {
     public void setUp() {
 
         repoMgr = new MockRepositoryMgr();
-        backupHandler = new MockBackupHandler(catalog);
+        backupHandler = new MockBackupHandler(env);
 
         // Thread is unmockable after Jmockit version 1.48, so use reflection to set field instead.
-        Deencapsulation.setField(catalog, "backupHandler", backupHandler);
+        Deencapsulation.setField(env, "backupHandler", backupHandler);
 
         db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version);
         ds = Deencapsulation.newInstance(InternalDataSource.class);
-        new Expectations(catalog) {
+        new Expectations(env) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
@@ -160,15 +160,15 @@ public class BackupJobTest {
                 minTimes = 0;
                 result = db;
 
-                Catalog.getCurrentCatalogJournalVersion();
+                Env.getCurrentEnvJournalVersion();
                 minTimes = 0;
                 result = FeConstants.meta_version;
 
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = id.getAndIncrement();
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
             }
@@ -200,16 +200,18 @@ public class BackupJobTest {
             }
 
             @Mock
-            Status getBrokerAddress(Long beId, Catalog catalog, List<FsBroker> brokerAddrs) {
+            Status getBrokerAddress(Long beId, Env env, List<FsBroker> brokerAddrs) {
                 brokerAddrs.add(new FsBroker());
                 return Status.OK;
             }
         };
 
         List<TableRef> tableRefs = Lists.newArrayList();
-        tableRefs.add(new TableRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME), null));
+        tableRefs.add(new TableRef(
+                new TableName(InternalDataSource.INTERNAL_DS_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
+                null));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
-                catalog, repo.getId());
+                env, repo.getId());
     }
 
     @Test
@@ -341,9 +343,11 @@ public class BackupJobTest {
         AgentTaskQueue.clearAllTasks();
 
         List<TableRef> tableRefs = Lists.newArrayList();
-        tableRefs.add(new TableRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"), null));
+        tableRefs.add(
+                new TableRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"),
+                        null));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
-                catalog, repo.getId());
+                env, repo.getId());
         job.run();
         Assert.assertEquals(Status.ErrCode.NOT_FOUND, job.getStatus().getErrCode());
         Assert.assertEquals(BackupJobState.CANCELLED, job.getState());

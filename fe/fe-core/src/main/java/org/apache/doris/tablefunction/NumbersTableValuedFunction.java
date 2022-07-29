@@ -17,8 +17,8 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -90,7 +90,7 @@ public class NumbersTableValuedFunction extends TableValuedFunctionInf {
     @Override
     public List<TableValuedFunctionTask> getTasks() throws AnalysisException {
         List<Backend> backendList = Lists.newArrayList();
-        for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isAlive()) {
                 backendList.add(be);
             }

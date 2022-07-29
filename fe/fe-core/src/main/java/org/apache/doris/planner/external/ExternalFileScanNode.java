@@ -21,8 +21,8 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -102,7 +102,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             Set<Tag> tags = Sets.newHashSet();
             if (ConnectContext.get().getCurrentUserIdentity() != null) {
                 String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-                tags = Catalog.getCurrentCatalog().getAuth().getResourceTags(qualifiedUser);
+                tags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
                 if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
                     throw new UserException("No valid resource tag for user: " + qualifiedUser);
                 }
@@ -116,7 +116,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                     .needLoadAvailable()
                     .addTags(tags)
                     .build();
-            for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
+            for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
                 if (policy.isMatch(be)) {
                     backends.add(be);
                 }
@@ -317,7 +317,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
             LOG.info("Assign to backend " + curLocations.getLocations().get(0).getBackendId() + " with table split: "
                     + fileSplit.getPath() + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")"
                     + " loaction: " + Joiner.on("|").join(split.getLocations()));
-
 
             fileSplitStrategy.update(fileSplit);
             // Add a new location when it's can be split
