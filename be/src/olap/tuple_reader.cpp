@@ -48,6 +48,11 @@ Status TupleReader::_init_collect_iter(const ReaderParams& read_params,
         return res;
     }
 
+    if (config::enable_rowblockv2_reuse) {
+        Schema schema(_reader_context.tablet_schema->columns(), *(_reader_context.return_columns));
+        _reader_context.reuse_block = std::make_shared<RowBlockV2>(schema, 1024);
+    }
+
     for (auto& rs_reader : rs_readers) {
         RETURN_NOT_OK(rs_reader->init(&_reader_context));
         Status res = _collect_iter.add_child(rs_reader);

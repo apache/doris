@@ -171,7 +171,11 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _iterator.reset(final_iterator);
 
     // init input block
-    _input_block.reset(new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));
+    if (read_context->reuse_block != nullptr) {
+        _input_block = read_context->reuse_block;
+    } else {
+        _input_block.reset(new RowBlockV2(*_input_schema, std::min(1024, read_context->batch_size)));
+    }
 
     if (!read_context->is_vec) {
         // init input/output block and row

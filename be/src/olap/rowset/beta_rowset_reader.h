@@ -75,7 +75,7 @@ private:
 
     std::unique_ptr<RowwiseIterator> _iterator;
 
-    std::unique_ptr<RowBlockV2> _input_block;
+    std::shared_ptr<RowBlockV2> _input_block;
     std::unique_ptr<RowBlock> _output_block;
     std::unique_ptr<RowCursor> _row;
 
