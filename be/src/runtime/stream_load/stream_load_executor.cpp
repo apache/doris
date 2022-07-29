@@ -37,7 +37,6 @@ Status k_stream_load_plan_status;
 #endif
 
 Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
-    DorisMetrics::instance()->txn_exec_plan_total->increment(1);
 // submit this params
 #ifndef BE_TEST
     ctx->ref();

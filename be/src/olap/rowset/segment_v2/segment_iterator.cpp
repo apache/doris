@@ -195,7 +195,6 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     size_t pre_size = _row_bitmap.cardinality();
     _row_bitmap = RowRanges::ranges_to_roaring(result_ranges);
     _opts.stats->rows_key_range_filtered += (pre_size - _row_bitmap.cardinality());
-    DorisMetrics::instance()->segment_rows_by_short_key->increment(_row_bitmap.cardinality());
 
     return Status::OK();
 }

@@ -24,12 +24,12 @@ using std::stringstream;
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(usage, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(usage_ratio, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lookup_count, MetricUnit::OPERATIONS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(hit_count, MetricUnit::OPERATIONS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(hit_ratio, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_usage, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_usage_ratio, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_lookup_count, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_hit_count, MetricUnit::OPERATIONS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_hit_ratio, MetricUnit::NOUNIT);
 
 uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
     // Similar to murmur hash
@@ -535,13 +535,13 @@ void ShardedLRUCache::update_cache_metrics() const {
         total_hit_count += _shards[i]->get_hit_count();
     }
 
-    capacity->set_value(total_capacity);
-    usage->set_value(total_usage);
-    lookup_count->set_value(total_lookup_count);
-    hit_count->set_value(total_hit_count);
-    usage_ratio->set_value(total_capacity == 0 ? 0 : ((double)total_usage / total_capacity));
-    hit_ratio->set_value(total_lookup_count == 0 ? 0
-                                                 : ((double)total_hit_count / total_lookup_count));
+    cache_capacity->set_value(total_capacity);
+    cache_usage->set_value(total_usage);
+    cache_lookup_count->set_value(total_lookup_count);
+    cache_hit_count->set_value(total_hit_count);
+    cache_usage_ratio->set_value(total_capacity == 0 ? 0 : ((double)total_usage / total_capacity));
+    cache_hit_ratio->set_value(
+            total_lookup_count == 0 ? 0 : ((double)total_hit_count / total_lookup_count));
 }
 
 Cache* new_lru_cache(const std::string& name, size_t capacity, LRUCacheType type,

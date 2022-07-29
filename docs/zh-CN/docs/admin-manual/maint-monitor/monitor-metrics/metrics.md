@@ -303,35 +303,3 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_snmp_tcp_in_segs`| | Num | tcp包发送的个数。 采集自 `/proc/net/snmp`。| |
 |`doris_be_snmp_tcp_out_segs`| | Num | tcp包发送的个数。采集自 `/proc/net/snmp`。| |
 |`doris_be_snmp_tcp_retrans_segs`| | Num | tcp包重传的个数。采集自 `/proc/net/snmp`。| |
-
-|``| | | | |
-|``| | | | |
-|``| | | | |
-|``| | | | |
-|``| | | | |
-|``| | | | |
-|``| | | | |
-|``| | | | |
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
