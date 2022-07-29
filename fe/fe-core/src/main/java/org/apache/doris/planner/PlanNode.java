@@ -526,8 +526,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             msg.addToRowTuples(tid.asInt());
             msg.addToNullableTuples(nullableTupleIds.contains(tid));
         }
-        for (Expr e : conjuncts) {
-            msg.addToConjuncts(e.treeToThrift());
+        if (this instanceof ScanNode || !VectorizedUtil.isVectorized()) {
+            for (Expr e : conjuncts) {
+                msg.addToConjuncts(e.treeToThrift());
+            }
         }
 
         // Serialize any runtime filters
