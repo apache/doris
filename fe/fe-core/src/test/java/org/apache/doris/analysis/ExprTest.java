@@ -96,7 +96,7 @@ public class ExprTest {
         // uncheckedCastTo should return new object
 
         // date
-        DateLiteral dateLiteral = new DateLiteral(2020, 4, 5, 12, 0, 5);
+        DateLiteral dateLiteral = new DateLiteral(2020, 4, 5, 12, 0, 5, Type.DATETIME);
         Assert.assertTrue(dateLiteral.getType().equals(Type.DATETIME));
         DateLiteral castLiteral = (DateLiteral) dateLiteral.uncheckedCastTo(Type.DATE);
         Assert.assertFalse(dateLiteral == castLiteral);
@@ -111,7 +111,7 @@ public class ExprTest {
         Assert.assertEquals(0, dateLiteral.getMinute());
         Assert.assertEquals(5, dateLiteral.getSecond());
 
-        DateLiteral dateLiteral2 = new DateLiteral(2020, 4, 5);
+        DateLiteral dateLiteral2 = new DateLiteral(2020, 4, 5, Type.DATE);
         Assert.assertTrue(dateLiteral2.getType().equals(Type.DATE));
         castLiteral = (DateLiteral) dateLiteral2.uncheckedCastTo(Type.DATETIME);
         Assert.assertFalse(dateLiteral2 == castLiteral);
