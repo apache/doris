@@ -39,6 +39,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.planner.PlanNode;
@@ -800,8 +801,13 @@ public class Analyzer {
         }
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
-        // TODO: need to remove this outer join'
-        result.setIsNullable(col.isAllowNull() || isOuterJoined(d.getId()));
+        boolean isNullable;
+        if (VectorizedUtil.isVectorized()) {
+            isNullable = col.isAllowNull();
+        } else {
+            isNullable = col.isAllowNull() || isOuterJoined(d.getId());
+        }
+        result.setIsNullable(isNullable);
 
         slotRefMap.put(key, result);
         return result;
