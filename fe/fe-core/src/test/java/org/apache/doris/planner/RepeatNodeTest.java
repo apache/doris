@@ -52,7 +52,7 @@ public class RepeatNodeTest {
     @Before
     public void setUp() throws Exception {
         Analyzer analyzerBase = AccessTestUtil.fetchTableAnalyzer();
-        analyzer = new Analyzer(analyzerBase.getCatalog(), analyzerBase.getContext());
+        analyzer = new Analyzer(analyzerBase.getEnv(), analyzerBase.getContext());
         String[] cols = {"k1", "k2", "k3"};
         List<SlotRef> slots = new ArrayList<>();
         for (String col : cols) {

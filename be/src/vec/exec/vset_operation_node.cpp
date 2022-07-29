@@ -167,6 +167,7 @@ void VSetOperationNode::hash_table_init() {
         case TYPE_DATETIME:
         case TYPE_DATE:
         case TYPE_DECIMAL64:
+        case TYPE_DATETIMEV2:
             _hash_table_variants.emplace<I64HashTableContext>();
             break;
         case TYPE_LARGEINT:

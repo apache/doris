@@ -17,8 +17,8 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -36,13 +36,13 @@ import java.util.Set;
 public class InsertLoadJobTest {
 
     @Test
-    public void testGetTableNames(@Mocked Catalog catalog, @Mocked InternalDataSource ds, @Injectable Database database,
+    public void testGetTableNames(@Mocked Env env, @Mocked InternalDataSource ds, @Injectable Database database,
             @Injectable Table table) throws MetaNotFoundException {
         InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1L, 1000, "", "");
         String tableName = "table1";
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
                 ds.getDb(anyLong);

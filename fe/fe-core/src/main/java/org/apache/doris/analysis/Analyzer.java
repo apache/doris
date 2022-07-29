@@ -20,12 +20,13 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition.PartitionState;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -58,6 +59,7 @@ import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.RewriteImplicitCastRule;
 import org.apache.doris.rewrite.RewriteInPredicateRule;
+import org.apache.doris.rewrite.RoundLiteralInBinaryPredicatesRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
@@ -226,7 +228,7 @@ public class Analyzer {
     // them properties of the tuple descriptor itself.
     private static class GlobalState {
         private final DescriptorTable descTbl = new DescriptorTable();
-        private final Catalog catalog;
+        private final Env env;
         private final IdGenerator<ExprId> conjunctIdGenerator = ExprId.createGenerator();
         private final ConnectContext context;
 
@@ -340,8 +342,8 @@ public class Analyzer {
 
         private final long autoBroadcastJoinThreshold;
 
-        public GlobalState(Catalog catalog, ConnectContext context) {
-            this.catalog = catalog;
+        public GlobalState(Env env, ConnectContext context) {
+            this.env = env;
             this.context = context;
             List<ExprRewriteRule> rules = Lists.newArrayList();
             // BetweenPredicates must be rewritten to be executable. Other non-essential
@@ -354,6 +356,7 @@ public class Analyzer {
             // Put it after NormalizeBinaryPredicatesRule, make sure slotRef is on the left and Literal is on the right.
             rules.add(RewriteBinaryPredicatesRule.INSTANCE);
             rules.add(RewriteImplicitCastRule.INSTANCE);
+            rules.add(RoundLiteralInBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
             rules.add(CompoundPredicateWriteRule.INSTANCE);
@@ -428,9 +431,9 @@ public class Analyzer {
     // conjunct evaluating to false.
     private boolean hasEmptySpjResultSet = false;
 
-    public Analyzer(Catalog catalog, ConnectContext context) {
+    public Analyzer(Env env, ConnectContext context) {
         ancestors = Lists.newArrayList();
-        globalState = new GlobalState(catalog, context);
+        globalState = new GlobalState(env, context);
     }
 
     /**
@@ -460,7 +463,7 @@ public class Analyzer {
      * global state.
      */
     public static Analyzer createWithNewGlobalState(Analyzer parentAnalyzer) {
-        GlobalState globalState = new GlobalState(parentAnalyzer.globalState.catalog, parentAnalyzer.getContext());
+        GlobalState globalState = new GlobalState(parentAnalyzer.globalState.env, parentAnalyzer.getContext());
         return new Analyzer(parentAnalyzer, globalState);
     }
 
@@ -651,7 +654,7 @@ public class Analyzer {
         // to replace it with.
         tableName.analyze(this);
 
-        DatabaseIf database = globalState.catalog.getDataSourceMgr().getCatalogOrAnalysisException(tableName.getCtl())
+        DatabaseIf database = globalState.env.getDataSourceMgr().getCatalogOrAnalysisException(tableName.getCtl())
                 .getDbOrAnalysisException(tableName.getDb());
         TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
@@ -700,7 +703,7 @@ public class Analyzer {
     }
 
     public TableIf getTableOrAnalysisException(TableName tblName) throws AnalysisException {
-        DatabaseIf db = globalState.catalog.getDataSourceMgr().getCatalogOrAnalysisException(tblName.getCtl())
+        DatabaseIf db = globalState.env.getDataSourceMgr().getCatalogOrAnalysisException(tblName.getCtl())
                 .getDbOrAnalysisException(tblName.getDb());
         return db.getTableOrAnalysisException(tblName.getTbl());
     }
@@ -1392,8 +1395,8 @@ public class Analyzer {
         return globalState.descTbl;
     }
 
-    public Catalog getCatalog() {
-        return globalState.catalog;
+    public Env getEnv() {
+        return globalState.env;
     }
 
     public Set<String> getAliases() {
@@ -1833,7 +1836,7 @@ public class Analyzer {
         }
         if (compatibleType.equals(Type.VARCHAR)) {
             if (exprs.get(0).getType().isDateType()) {
-                compatibleType = DateLiteral.getDefaultDateType(Type.DATETIME);
+                compatibleType = ScalarType.getDefaultDateType(Type.DATETIME);
             }
         }
         // Add implicit casts if necessary.

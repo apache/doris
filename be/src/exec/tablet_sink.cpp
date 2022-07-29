@@ -600,7 +600,6 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
 
 void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
                                   int64_t tablet_id) {
-    SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
     const auto& it = _tablets_by_channel.find(node_id);
     if (it == _tablets_by_channel.end()) {
         return;
@@ -778,6 +777,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         case TYPE_DATE:
         case TYPE_DATETIME:
         case TYPE_DATEV2:
+        case TYPE_DATETIMEV2:
         case TYPE_HLL:
         case TYPE_OBJECT:
         case TYPE_STRING:

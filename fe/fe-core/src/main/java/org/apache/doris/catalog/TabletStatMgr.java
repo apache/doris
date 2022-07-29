@@ -48,7 +48,7 @@ public class TabletStatMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        ImmutableMap<Long, Backend> backends = Catalog.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getIdToBackend();
         long start = System.currentTimeMillis();
         backends.values().parallelStream().forEach(backend -> {
             BackendService.Client client = null;
@@ -76,9 +76,9 @@ public class TabletStatMgr extends MasterDaemon {
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
-        List<Long> dbIds = Catalog.getCurrentInternalCatalog().getDbIds();
+        List<Long> dbIds = Env.getCurrentInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
-            Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -121,7 +121,7 @@ public class TabletStatMgr extends MasterDaemon {
     }
 
     private void updateTabletStat(Long beId, TTabletStatResult result) {
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         if (result.isSetTabletStatList()) {
             for (TTabletStat stat : result.getTabletStatList()) {
                 if (invertedIndex.getTabletMeta(stat.getTabletId()) != null) {

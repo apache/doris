@@ -116,7 +116,7 @@ public class TableStats {
 
     public void updateColumnStats(String columnName, Type columnType, Map<StatsType, String> statsTypeToValue)
             throws AnalysisException {
-        ColumnStats columnStats = getNotNullColumnStats(columnName);
+        ColumnStats columnStats = getColumnStats(columnName);
         columnStats.updateStats(columnType, statsTypeToValue);
     }
 
@@ -141,7 +141,7 @@ public class TableStats {
      * @param columnName column name
      * @return @ColumnStats
      */
-    public ColumnStats getNotNullColumnStats(String columnName) {
+    public ColumnStats getColumnStats(String columnName) {
         ColumnStats columnStats = nameToColumnStats.get(columnName);
         if (columnStats == null) {
             columnStats = new ColumnStats();
@@ -246,5 +246,12 @@ public class TableStats {
                 leftStats.setMaxValue(maxValue);
             }
         }
+    }
+
+    /**
+     * This method is for unit test.
+     */
+    public void putColumnStats(String name, ColumnStats columnStats) {
+        nameToColumnStats.put(name, columnStats);
     }
 }

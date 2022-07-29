@@ -95,6 +95,7 @@ protected:
 
     int64_t _oldest_write_timestamp;
     int64_t _newest_write_timestamp;
+    RowIdConversion _rowid_conversion;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };

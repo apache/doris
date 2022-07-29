@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
@@ -49,7 +49,7 @@ public class CancelLoadStmtTest extends TestWithFeService {
         useDatabase(dbName);
         createTable("create table " + tblName + "\n" + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
-        analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
+        analyzer = new Analyzer(connectContext.getEnv(), connectContext);
     }
 
     @Test
@@ -98,7 +98,7 @@ public class CancelLoadStmtTest extends TestWithFeService {
 
         // test match
         List<LoadJob> loadJobs = new ArrayList<>();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:testDb");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:testDb");
         long dbId = db.getId();
         Table tbl = db.getTableNullable(tblName);
         long tblId = tbl.getId();

@@ -1,0 +1,244 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.stats;
+
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Sum;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsManager;
+import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.TableStats;
+
+import com.google.common.base.Supplier;
+import mockit.Expectations;
+import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+public class StatsCalculatorTest {
+
+    @Mocked
+    ConnectContext context;
+    @Mocked
+    Env env;
+    @Mocked
+    StatisticsManager statisticsManager;
+
+    @Test
+    public void testAgg() {
+        List<String> qualifier = new ArrayList<>();
+        qualifier.add("test");
+        qualifier.add("t");
+        SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
+        SlotReference slot2 = new SlotReference("c2", IntegerType.INSTANCE, true, qualifier);
+        ColumnStats columnStats1 = new ColumnStats();
+        columnStats1.setNdv(10);
+        columnStats1.setNumNulls(5);
+        ColumnStats columnStats2 = new ColumnStats();
+        columnStats2.setNdv(20);
+        columnStats1.setNumNulls(10);
+        Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1, columnStats1);
+        slotColumnStatsMap.put(slot2, columnStats2);
+        List<Expression> groupByExprList = new ArrayList<>();
+        groupByExprList.add(slot1);
+        AggregateFunction sum = new Sum(slot2);
+        StatsDeriveResult childStats = new StatsDeriveResult(20, slotColumnStatsMap);
+        Alias alias = new Alias(sum, "a");
+        Group childGroup = new Group();
+        childGroup.setLogicalProperties(new LogicalProperties(new Supplier<List<Slot>>() {
+            @Override
+            public List<Slot> get() {
+                return Collections.emptyList();
+            }
+        }));
+        GroupPlan groupPlan = new GroupPlan(childGroup);
+        childGroup.setStatistics(childStats);
+        LogicalAggregate logicalAggregate = new LogicalAggregate(groupByExprList, Arrays.asList(alias), groupPlan);
+        GroupExpression groupExpression = new GroupExpression(logicalAggregate, Arrays.asList(childGroup));
+        Group ownerGroup = new Group();
+        groupExpression.setOwnerGroup(ownerGroup);
+        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
+        statsCalculator.estimate();
+        Assert.assertEquals(groupExpression.getOwnerGroup().getStatistics().getRowCount(), 10);
+    }
+
+    @Test
+    public void testFilter() {
+        List<String> qualifier = new ArrayList<>();
+        qualifier.add("test");
+        qualifier.add("t");
+        SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
+        SlotReference slot2 = new SlotReference("c2", IntegerType.INSTANCE, true, qualifier);
+        ColumnStats columnStats1 = new ColumnStats();
+        columnStats1.setNdv(10);
+        columnStats1.setNumNulls(5);
+        ColumnStats columnStats2 = new ColumnStats();
+        columnStats2.setNdv(20);
+        columnStats1.setNumNulls(10);
+        Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1, columnStats1);
+        slotColumnStatsMap.put(slot2, columnStats2);
+        StatsDeriveResult childStats = new StatsDeriveResult(10000, slotColumnStatsMap);
+
+        EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(1));
+        EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(2));
+
+        And and = new And(eq1, eq2);
+        Or or = new Or(eq1, eq2);
+
+        Group childGroup = new Group();
+        childGroup.setLogicalProperties(new LogicalProperties(new Supplier<List<Slot>>() {
+            @Override
+            public List<Slot> get() {
+                return Collections.emptyList();
+            }
+        }));
+        GroupPlan groupPlan = new GroupPlan(childGroup);
+        childGroup.setStatistics(childStats);
+
+        LogicalFilter logicalFilter = new LogicalFilter(and, groupPlan);
+        GroupExpression groupExpression = new GroupExpression(logicalFilter);
+        groupExpression.addChild(childGroup);
+        Group ownerGroup = new Group();
+        groupExpression.setOwnerGroup(ownerGroup);
+        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
+        statsCalculator.estimate();
+        Assert.assertEquals((long) (10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
+
+        LogicalFilter logicalFilterOr = new LogicalFilter(or, groupPlan);
+        GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr);
+        groupExpressionOr.addChild(childGroup);
+        Group ownerGroupOr = new Group();
+        groupExpressionOr.setOwnerGroup(ownerGroupOr);
+        StatsCalculator statsCalculator2 = new StatsCalculator(groupExpressionOr);
+        statsCalculator2.estimate();
+        Assert.assertEquals((long) (10000 * (0.1 + 0.05 - 0.1 * 0.05)),
+                ownerGroupOr.getStatistics().getRowCount(), 0.001);
+    }
+
+    @Test
+    public void testHashJoin() {
+        List<String> qualifier = new ArrayList<>();
+        qualifier.add("test");
+        qualifier.add("t");
+        SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
+        SlotReference slot2 = new SlotReference("c2", IntegerType.INSTANCE, true, qualifier);
+        ColumnStats columnStats1 = new ColumnStats();
+        columnStats1.setNdv(10);
+        columnStats1.setNumNulls(5);
+        ColumnStats columnStats2 = new ColumnStats();
+        columnStats2.setNdv(20);
+        columnStats1.setNumNulls(10);
+        Map<Slot, ColumnStats> slotColumnStatsMap1 = new HashMap<>();
+        slotColumnStatsMap1.put(slot1, columnStats1);
+
+        Map<Slot, ColumnStats> slotColumnStatsMap2 = new HashMap<>();
+        slotColumnStatsMap2.put(slot2, columnStats2);
+
+        final long leftRowCount = 5000;
+        StatsDeriveResult leftStats = new StatsDeriveResult(leftRowCount, slotColumnStatsMap1);
+
+        final long rightRowCount = 10000;
+        StatsDeriveResult rightStats = new StatsDeriveResult(rightRowCount, slotColumnStatsMap2);
+
+        EqualTo equalTo = new EqualTo(slot1, slot2);
+        StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats,
+                rightStats, equalTo, JoinType.LEFT_SEMI_JOIN);
+        Assert.assertEquals(leftRowCount, semiJoinStats.getRowCount());
+        StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats,
+                rightStats, equalTo, JoinType.INNER_JOIN);
+        Assert.assertEquals(2500000, innerJoinStats.getRowCount());
+    }
+
+    @Test
+    public void testOlapScan() {
+        ColumnStats columnStats1 = new ColumnStats();
+        columnStats1.setNdv(10);
+        columnStats1.setNumNulls(5);
+        long tableId1 = 0;
+        String tableName1 = "t1";
+        TableStats tableStats1 = new TableStats();
+        tableStats1.putColumnStats("c1", columnStats1);
+        Statistics statistics = new Statistics();
+        statistics.putTableStats(tableId1, tableStats1);
+        List<String> qualifier = new ArrayList<>();
+        qualifier.add("test");
+        qualifier.add("t");
+        SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
+        new Expectations() {{
+                ConnectContext.get();
+                result = context;
+                context.getEnv();
+                result = env;
+                env.getStatisticsManager();
+                result = statisticsManager;
+                statisticsManager.getStatistics();
+                result = statistics;
+            }};
+
+        Table table1 = new Table(tableId1, tableName1, TableType.OLAP, Collections.emptyList());
+        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(table1, Collections.emptyList()).withLogicalProperties(
+                Optional.of(new LogicalProperties(new Supplier<List<Slot>>() {
+                    @Override
+                    public List<Slot> get() {
+                        return Arrays.asList(slot1);
+                    }
+                })));
+        Group childGroup = new Group();
+        GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, Arrays.asList(childGroup));
+        Group ownerGroup = new Group();
+        groupExpression.setOwnerGroup(ownerGroup);
+        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
+        statsCalculator.estimate();
+        StatsDeriveResult stats = ownerGroup.getStatistics();
+        Assert.assertEquals(1, stats.getSlotToColumnStats().size());
+        Assert.assertNotNull(stats.getSlotToColumnStats().get(slot1));
+    }
+
+}

@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import org.antlr.v4.runtime.CharStreams;
@@ -46,14 +49,25 @@ public class NereidsParser {
      * a single packet.
      * https://dev.mysql.com/doc/internals/en/com-set-option.html
      */
-    public List<StatementBase> parseSQL(String originStr) throws Exception {
-        List<LogicalPlan> logicalPlanList = parseMultiple(originStr);
-        List<StatementBase> statementBaseList = new ArrayList<>();
-        for (LogicalPlan logicalPlan : logicalPlanList) {
-            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan);
-            statementBaseList.add(logicalPlanAdapter);
+    public List<StatementBase> parseSQL(String originStr) {
+        List<LogicalPlan> logicalPlans = parseMultiple(originStr);
+        List<StatementBase> statementBases = new ArrayList<>();
+        for (LogicalPlan logicalPlan : logicalPlans) {
+            // TODO: this is a trick to support explain. Since we do not support any other command in a short time.
+            //     It is acceptable. In the future, we need to refactor this.
+            if (logicalPlan instanceof ExplainCommand) {
+                ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
+                LogicalPlan innerPlan = explainCommand.getLogicalPlan();
+                LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(innerPlan);
+                logicalPlanAdapter.setIsExplain(new ExplainOptions(
+                        explainCommand.getLevel() == ExplainLevel.VERBOSE,
+                        explainCommand.getLevel() == ExplainLevel.GRAPH));
+                statementBases.add(logicalPlanAdapter);
+            } else {
+                statementBases.add(new LogicalPlanAdapter(logicalPlan));
+            }
         }
-        return statementBaseList;
+        return statementBases;
     }
 
     /**

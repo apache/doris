@@ -123,6 +123,7 @@ Expr::Expr(const TypeDescriptor& type)
     case TYPE_FLOAT:
     case TYPE_DOUBLE:
     case TYPE_TIME:
+    case TYPE_TIMEV2:
         _node_type = (TExprNodeType::FLOAT_LITERAL);
         break;
 
@@ -185,6 +186,7 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref)
         case TYPE_FLOAT:
         case TYPE_DOUBLE:
         case TYPE_TIME:
+        case TYPE_TIMEV2:
             _node_type = (TExprNodeType::FLOAT_LITERAL);
             break;
 
@@ -682,7 +684,8 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         break;
     }
     case TYPE_DOUBLE:
-    case TYPE_TIME: {
+    case TYPE_TIME:
+    case TYPE_TIMEV2: {
         _constant_val.reset(new DoubleVal(get_double_val(context, nullptr)));
         break;
     }
@@ -696,14 +699,18 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         break;
     }
     case TYPE_DATE:
-    case TYPE_DATETIME:
-    case TYPE_DATETIMEV2: {
+    case TYPE_DATETIME: {
         _constant_val.reset(new DateTimeVal(get_datetime_val(context, nullptr)));
         break;
     }
 
     case TYPE_DATEV2: {
         _constant_val.reset(new DateV2Val(get_datev2_val(context, nullptr)));
+        break;
+    }
+
+    case TYPE_DATETIMEV2: {
+        _constant_val.reset(new DateTimeV2Val(get_datetimev2_val(context, nullptr)));
         break;
     }
 
@@ -818,6 +825,11 @@ DateTimeVal Expr::get_datetime_val(ExprContext* context, TupleRow* row) {
 
 DateV2Val Expr::get_datev2_val(ExprContext* context, TupleRow* row) {
     DateV2Val val;
+    return val;
+}
+
+DateTimeV2Val Expr::get_datetimev2_val(ExprContext* context, TupleRow* row) {
+    DateTimeV2Val val;
     return val;
 }
 

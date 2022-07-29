@@ -29,11 +29,12 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DomainResolver;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.persist.EditLog;
@@ -57,7 +58,7 @@ public class AuthTest {
 
     private PaloAuth auth;
     @Mocked
-    public Catalog catalog;
+    public Env env;
     @Mocked
     private Analyzer analyzer;
     @Mocked
@@ -107,15 +108,15 @@ public class AuthTest {
                 minTimes = 0;
                 result = InternalDataSource.INTERNAL_DS_NAME;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
@@ -1591,15 +1592,14 @@ public class AuthTest {
 
         // 2. grant resource priv to db table
         TablePattern tablePattern = new TablePattern("db1", "*");
-        grantStmt = new GrantStmt(userIdentity, null, tablePattern, usagePrivileges);
-        hasException = false;
-        try {
-            grantStmt.analyze(analyzer);
-            auth.grant(grantStmt);
-        } catch (UserException e) {
-            e.printStackTrace();
-            hasException = true;
-        }
-        Assert.assertTrue(hasException);
+        GrantStmt grantStmt2 = new GrantStmt(userIdentity, null, tablePattern, usagePrivileges);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt2.analyze(analyzer));
+
+        // 3. grant resource prov to role on db.table
+        tablePattern = new TablePattern("db1", "*");
+        GrantStmt grantStmt3 = new GrantStmt(userIdentity, "test_role", tablePattern, usagePrivileges);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt3.analyze(analyzer));
     }
 }

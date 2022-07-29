@@ -39,5 +39,7 @@ public interface QeProcessor {
 
     Map<String, QueryStatisticsItem> getQueryStatistics();
 
+    String getCurrentQueryByQueryId(TUniqueId queryId);
+
     Coordinator getCoordinator(TUniqueId queryId);
 }

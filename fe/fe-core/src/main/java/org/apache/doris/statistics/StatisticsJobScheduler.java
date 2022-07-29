@@ -17,9 +17,9 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -90,7 +90,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
                     divide(pendingJob);
                 }
                 List<StatisticsTask> tasks = pendingJob.getTasks();
-                Catalog.getCurrentCatalog().getStatisticsTaskScheduler().addTasks(tasks);
+                Env.getCurrentEnv().getStatisticsTaskScheduler().addTasks(tasks);
                 pendingJob.updateJobState(StatisticsJob.JobState.SCHEDULING);
                 pendingJobQueue.remove();
             } catch (IllegalStateException e) {
@@ -141,7 +141,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
      * @see SQLStatisticsTask
      */
     private void divide(StatisticsJob job) throws DdlException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(job.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(job.getDbId());
         Set<Long> tblIds = job.getTblIds();
 
         for (Long tblId : tblIds) {
@@ -167,13 +167,13 @@ public class StatisticsJobScheduler extends MasterDaemon {
      * @throws DdlException exception
      */
     private void getStatsTaskByTable(StatisticsJob job, long tableId) throws DdlException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(job.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(job.getDbId());
         OlapTable table = (OlapTable) db.getTableOrDdlException(tableId);
 
         Map<Long, List<String>> tblIdToColName = job.getTableIdToColumnName();
         List<String> colNames = tblIdToColName.get(tableId);
 
-        List<Long> backendIds = Catalog.getCurrentSystemInfo().getBackendIds(true);
+        List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
 
         // step1: collect statistics by metadata
         List<StatisticsDesc> descs = Lists.newArrayList();
@@ -307,7 +307,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
      * @throws DdlException exception
      */
     private void getStatsTaskByPartition(StatisticsJob job, long tableId) throws DdlException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(job.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(job.getDbId());
         OlapTable table = (OlapTable) db.getTableOrDdlException(tableId);
 
         Map<Long, List<String>> tblIdToColName = job.getTableIdToColumnName();
@@ -316,7 +316,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
         Map<Long, List<String>> tblIdToPartitionName = job.getTableIdToPartitionName();
         List<String> partitionNames = tblIdToPartitionName.get(tableId);
 
-        List<Long> backendIds = Catalog.getCurrentSystemInfo().getBackendIds(true);
+        List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
 
         for (String partitionName : partitionNames) {
             Partition partition = table.getPartition(partitionName);

@@ -19,9 +19,9 @@ package org.apache.doris.task;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -89,7 +89,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
         Preconditions.checkNotNull(etlTaskConf);
 
         // add table indexes to transaction state
-        TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr()
+        TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                 .getTransactionState(job.getDbId(), job.getTransactionId());
         if (txnState == null) {
             throw new LoadException("txn does not exist: " + job.getTransactionId());

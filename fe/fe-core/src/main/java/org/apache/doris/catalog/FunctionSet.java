@@ -1389,7 +1389,7 @@ public class FunctionSet<T> {
                 "",
                 true, false, true, true));
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
-                Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATEV2, Type.BOOLEAN),
+                Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATETIMEV2, Type.BOOLEAN),
                 Type.INT,
                 Type.VARCHAR,
                 true,
@@ -2501,20 +2501,10 @@ public class FunctionSet<T> {
                         false, false));
         // Group_concat(string) vectorized
         addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
-                        Type.VARCHAR, initNullString,
-                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                        stringValSerializeOrFinalize,
-                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
-                        true, false, true));
+                Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
         // Group_concat(string, string) vectorized
         addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
-                        Type.VARCHAR, Type.VARCHAR, initNullString,
-                        prefix + "20string_concat_updateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_PS4_",
-                        prefix + "19string_concat_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                        stringValSerializeOrFinalize,
-                        prefix + "22string_concat_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE", false,
-                        true, false, true));
+                Type.VARCHAR, Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
 
         // analytic functions
         // Rank

@@ -25,7 +25,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -836,7 +836,7 @@ public class LoadJob implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        long version = Catalog.getCurrentCatalogJournalVersion();
+        long version = Env.getCurrentEnvJournalVersion();
 
         id = in.readLong();
         dbId = in.readLong();

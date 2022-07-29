@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Version;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -58,7 +58,7 @@ public class BootstrapFinishAction {
 
     @RequestMapping(path = "/api/bootstrap", method = RequestMethod.GET)
     public ResponseEntity execute(HttpServletRequest request, HttpServletResponse response) {
-        boolean isReady = Catalog.getCurrentCatalog().isReady();
+        boolean isReady = Env.getCurrentEnv().isReady();
 
         // to json response
         BootstrapResult result = new BootstrapResult();
@@ -74,16 +74,16 @@ public class BootstrapFinishAction {
                     return ResponseEntityBuilder.badRequest("invalid cluster id format: " + clusterIdStr);
                 }
 
-                if (clusterId != Catalog.getCurrentCatalog().getClusterId()) {
+                if (clusterId != Env.getCurrentEnv().getClusterId()) {
                     return ResponseEntityBuilder.okWithCommonError("invalid cluster id: " + clusterId);
                 }
 
-                if (!token.equals(Catalog.getCurrentCatalog().getToken())) {
+                if (!token.equals(Env.getCurrentEnv().getToken())) {
                     return ResponseEntityBuilder.okWithCommonError("invalid token: " + token);
                 }
 
                 // cluster id and token are valid, return replayed journal id
-                long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
+                long replayedJournalId = Env.getCurrentEnv().getReplayedJournalId();
                 result.setReplayedJournalId(replayedJournalId);
                 result.setQueryPort(Config.query_port);
                 result.setRpcPort(Config.rpc_port);

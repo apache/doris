@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.backup.CatalogMocker;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -45,7 +45,7 @@ public class ShowDataStmtTest {
     @Mocked
     private Analyzer analyzer;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private InternalDataSource ds;
     @Mocked
@@ -60,7 +60,7 @@ public class ShowDataStmtTest {
         auth = new PaloAuth();
         new Expectations() {
             {
-                Catalog.getCurrentInvertedIndex();
+                Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
             }
@@ -79,23 +79,23 @@ public class ShowDataStmtTest {
                 minTimes = 0;
                 result = "testCluster:testDb";
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentInvertedIndex();
+                Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
 
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 

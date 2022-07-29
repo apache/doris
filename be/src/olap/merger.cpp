@@ -103,12 +103,25 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.rs_readers = src_rowset_readers;
     reader_params.version = dst_rowset_writer->version();
     reader_params.tablet_schema = cur_tablet_schema;
+    if (stats_output && stats_output->rowid_conversion) {
+        reader_params.record_rowids = true;
+    }
 
     const auto& schema = *cur_tablet_schema;
     reader_params.return_columns.resize(schema.num_columns());
     std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_NOT_OK(reader.init(reader_params));
+
+    // init segment map for rowid conversion
+    if (reader_params.record_rowids) {
+        std::vector<uint32_t> segment_num_rows;
+        for (auto& rs_reader : reader_params.rs_readers) {
+            RETURN_NOT_OK(rs_reader->get_segment_num_rows(&segment_num_rows));
+            stats_output->rowid_conversion->init_segment_map(rs_reader->rowset()->rowset_id(),
+                                                             segment_num_rows);
+        }
+    }
 
     vectorized::Block block = schema.create_block(reader_params.return_columns);
     size_t output_rows = 0;
@@ -121,6 +134,11 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         RETURN_NOT_OK_LOG(
                 dst_rowset_writer->add_block(&block),
                 "failed to write block when merging rowsets of tablet " + tablet->full_name());
+
+        if (reader_params.record_rowids && block.rows() > 0) {
+            stats_output->rowid_conversion->add(reader.current_block_row_locations());
+        }
+
         output_rows += block.rows();
         block.clear_column_data();
     }
@@ -134,6 +152,14 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     RETURN_NOT_OK_LOG(
             dst_rowset_writer->flush(),
             "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
+
+    if (reader_params.record_rowids) {
+        // rowid_conversion set segment rows number of destination rowset
+        std::vector<uint32_t> segment_num_rows;
+        RETURN_NOT_OK(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
+        stats_output->rowid_conversion->set_dst_segment_num_rows(dst_rowset_writer->rowset_id(),
+                                                                 segment_num_rows);
+    }
 
     return Status::OK();
 }

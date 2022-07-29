@@ -39,7 +39,7 @@ public class LogicalProperties {
      */
     public LogicalProperties(Supplier<List<Slot>> outputSupplier) {
         this.outputSupplier = Suppliers.memoize(
-            Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
+                Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
         );
     }
 

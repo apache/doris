@@ -81,6 +81,8 @@ CONF_Int32(push_worker_count_normal_priority, "3");
 CONF_Int32(push_worker_count_high_priority, "3");
 // the count of thread to publish version
 CONF_Int32(publish_version_worker_count, "8");
+// the count of tablet thread to publish version
+CONF_Int32(tablet_publish_txn_max_thread, "32");
 // the count of thread to clear transaction task
 CONF_Int32(clear_transaction_task_worker_count, "1");
 // the count of thread to delete
@@ -651,7 +653,7 @@ CONF_Bool(memory_verbose_track, "false");
 // smaller than this value will continue to accumulate. specified as number of bytes.
 // Decreasing this value will increase the frequency of consume/release.
 // Increasing this value will cause MemTracker statistics to be inaccurate.
-CONF_mInt32(mem_tracker_consume_min_size_bytes, "4194304");
+CONF_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 
 // The version information of the tablet will be stored in the memory
 // in an adjacency graph data structure.
@@ -687,7 +689,7 @@ CONF_Int32(send_batch_thread_pool_queue_size, "102400");
 CONF_mInt32(max_segment_num_per_rowset, "200");
 
 // The connection timeout when connecting to external table such as odbc table.
-CONF_mInt32(external_table_connect_timeout_sec, "5");
+CONF_mInt32(external_table_connect_timeout_sec, "30");
 
 // The capacity of lur cache in segment loader.
 // Althought it is called "segment cache", but it caches segments in rowset granularity.

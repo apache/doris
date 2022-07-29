@@ -24,9 +24,9 @@ import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -161,10 +161,9 @@ public class RestoreJob extends AbstractJob {
         super(JobType.RESTORE);
     }
 
-    public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo,
-                      boolean allowLoad, ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion,
-                      Catalog catalog, long repoId) {
-        super(JobType.RESTORE, label, dbId, dbName, timeoutMs, catalog, repoId);
+    public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
+            ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, Env env, long repoId) {
+        super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
         this.allowLoad = allowLoad;
@@ -313,7 +312,7 @@ public class RestoreJob extends AbstractJob {
 
         // get repo if not set
         if (repo == null) {
-            repo = catalog.getBackupHandler().getRepoMgr().getRepo(repoId);
+            repo = env.getBackupHandler().getRepoMgr().getRepo(repoId);
             if (repo == null) {
                 status = new Status(ErrCode.COMMON_ERROR, "failed to get repository: " + repoId);
                 cancelInternal(false);
@@ -363,7 +362,7 @@ public class RestoreJob extends AbstractJob {
             return;
         }
 
-        Database db = catalog.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalDataSource().getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " has been dropped");
             return;
@@ -418,14 +417,14 @@ public class RestoreJob extends AbstractJob {
      * 6. make snapshot for all replicas for incremental download later.
      */
     private void checkAndPrepareMeta() {
-        Database db = catalog.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalDataSource().getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
             return;
         }
 
         // generate job id
-        jobId = catalog.getNextId();
+        jobId = env.getNextId();
 
         // deserialize meta
         if (!downloadAndDeserializeMetaInfo()) {
@@ -463,7 +462,7 @@ public class RestoreJob extends AbstractJob {
                 }
 
                 for (Partition partition : olapTbl.getPartitions()) {
-                    if (!catalog.getLoadInstance().checkPartitionLoadFinished(partition.getId(), null)) {
+                    if (!env.getLoadInstance().checkPartitionLoadFinished(partition.getId(), null)) {
                         status = new Status(ErrCode.COMMON_ERROR,
                                 "Table " + tbl.getName() + "'s has unfinished load job");
                         return;
@@ -511,7 +510,7 @@ public class RestoreJob extends AbstractJob {
             }
         }
         for (BackupJobInfo.BackupOdbcResourceInfo backupOdbcResourceInfo : jobInfo.newBackupObjects.odbcResources) {
-            Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(backupOdbcResourceInfo.name);
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(backupOdbcResourceInfo.name);
             if (resource == null) {
                 continue;
             }
@@ -643,7 +642,7 @@ public class RestoreJob extends AbstractJob {
                     }
 
                     // reset all ids in this table
-                    Status st = remoteOlapTbl.resetIdsForRestore(catalog, db, replicaAlloc);
+                    Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc);
                     if (!st.ok()) {
                         status = st;
                         return;
@@ -676,7 +675,7 @@ public class RestoreJob extends AbstractJob {
                         return;
                     }
                 } else {
-                    remoteView.resetIdsForRestore(catalog);
+                    remoteView.resetIdsForRestore(env);
                     restoredTbls.add(remoteView);
                 }
             }
@@ -697,7 +696,7 @@ public class RestoreJob extends AbstractJob {
                         return;
                     }
                 } else {
-                    remoteOdbcTable.resetIdsForRestore(catalog);
+                    remoteOdbcTable.resetIdsForRestore(env);
                     restoredTbls.add(remoteOdbcTable);
                 }
             }
@@ -864,13 +863,10 @@ public class RestoreJob extends AbstractJob {
                     MaterializedIndex index = part.getIndex(idChain.getIdxId());
                     Tablet tablet = index.getTablet(idChain.getTabletId());
                     Replica replica = tablet.getReplicaById(idChain.getReplicaId());
-                    long signature = catalog.getNextId();
-                    SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), signature,
-                            jobId, db.getId(),
-                            tbl.getId(), part.getId(), index.getId(), tablet.getId(),
-                            part.getVisibleVersion(),
-                            tbl.getSchemaHashByIndexId(index.getId()), timeoutMs,
-                            true /* is restore task*/);
+                    long signature = env.getNextId();
+                    SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), signature, jobId, db.getId(),
+                            tbl.getId(), part.getId(), index.getId(), tablet.getId(), part.getVisibleVersion(),
+                            tbl.getSchemaHashByIndexId(index.getId()), timeoutMs, true /* is restore task*/);
                     batchTask.addTask(task);
                     unfinishedSignatureToId.put(signature, tablet.getId());
                     bePathsMap.put(replica.getBackendId(), replica.getPathHash());
@@ -883,8 +879,7 @@ public class RestoreJob extends AbstractJob {
         }
 
         // check disk capacity
-        org.apache.doris.common.Status st = Catalog.getCurrentSystemInfo()
-                .checkExceedDiskCapacityLimit(bePathsMap, true);
+        org.apache.doris.common.Status st = Env.getCurrentSystemInfo().checkExceedDiskCapacityLimit(bePathsMap, true);
         if (!st.ok()) {
             status = new Status(ErrCode.COMMON_ERROR, st.getErrorMsg());
             return;
@@ -899,7 +894,7 @@ public class RestoreJob extends AbstractJob {
     }
 
     private void checkAndRestoreResources() {
-        ResourceMgr resourceMgr = Catalog.getCurrentCatalog().getResourceMgr();
+        ResourceMgr resourceMgr = Env.getCurrentEnv().getResourceMgr();
         for (BackupJobInfo.BackupOdbcResourceInfo backupOdbcResourceInfo : jobInfo.newBackupObjects.odbcResources) {
             String backupResourceName = backupOdbcResourceInfo.name;
             Resource localResource = resourceMgr.getResource(backupResourceName);
@@ -960,9 +955,9 @@ public class RestoreJob extends AbstractJob {
             TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                     restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
-                Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
+                Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
-                    Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
+                    Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
                     CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), dbId,
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                             restoreTablet.getId(), restoreReplica.getId(), indexMeta.getShortKeyColumnCount(),
@@ -996,7 +991,7 @@ public class RestoreJob extends AbstractJob {
                 || localPartitionInfo.getType() == PartitionType.LIST);
 
         // generate new partition id
-        long newPartId = catalog.getNextId();
+        long newPartId = env.getNextId();
         remotePart.setIdForRestore(newPartId);
 
         // indexes
@@ -1024,20 +1019,20 @@ public class RestoreJob extends AbstractJob {
             remoteIdx.clearTabletsForRestore();
             for (int i = 0; i < remotetabletSize; i++) {
                 // generate new tablet id
-                long newTabletId = catalog.getNextId();
+                long newTabletId = env.getNextId();
                 Tablet newTablet = new Tablet(newTabletId);
                 // add tablet to index, but not add to TabletInvertedIndex
                 remoteIdx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
 
                 // replicas
                 try {
-                    Map<Tag, List<Long>> beIds = Catalog.getCurrentSystemInfo()
+                    Map<Tag, List<Long>> beIds = Env.getCurrentSystemInfo()
                             .selectBackendIdsForReplicaCreation(replicaAlloc, clusterName, null);
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {
-                            long newReplicaId = catalog.getNextId();
-                            Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                                    visibleVersion, schemaHash);
+                            long newReplicaId = env.getNextId();
+                            Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL, visibleVersion,
+                                    schemaHash);
                             newTablet.addReplica(newReplica, true /* is restore */);
                         }
                     }
@@ -1089,7 +1084,7 @@ public class RestoreJob extends AbstractJob {
     private void replayCheckAndPrepareMeta() {
         Database db;
         try {
-            db = catalog.getInternalDataSource().getDbOrMetaException(dbId);
+            db = env.getInternalDataSource().getDbOrMetaException(dbId);
         } catch (MetaNotFoundException e) {
             LOG.warn("[INCONSISTENT META] replayCheckAndPrepareMeta failed", e);
             return;
@@ -1142,9 +1137,9 @@ public class RestoreJob extends AbstractJob {
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                         restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
                 for (Tablet restoreTablet : restoreIdx.getTablets()) {
-                    Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
+                    Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                     for (Replica restoreReplica : restoreTablet.getReplicas()) {
-                        Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
+                        Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
                     }
                 }
             }
@@ -1174,9 +1169,9 @@ public class RestoreJob extends AbstractJob {
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
                                 restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
                         for (Tablet restoreTablet : restoreIdx.getTablets()) {
-                            Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
+                            Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                             for (Replica restoreReplica : restoreTablet.getReplicas()) {
-                                Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
+                                Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
                             }
                         }
                     }
@@ -1187,7 +1182,7 @@ public class RestoreJob extends AbstractJob {
         }
 
         // restored resource
-        ResourceMgr resourceMgr = Catalog.getCurrentCatalog().getResourceMgr();
+        ResourceMgr resourceMgr = Env.getCurrentEnv().getResourceMgr();
         for (Resource resource : restoredResources) {
             resourceMgr.replayCreateResource(resource);
         }
@@ -1200,7 +1195,7 @@ public class RestoreJob extends AbstractJob {
             snapshotFinishedTime = System.currentTimeMillis();
             state = RestoreJobState.DOWNLOAD;
 
-            catalog.getEditLog().logRestoreJob(this);
+            env.getEditLog().logRestoreJob(this);
             LOG.info("finished making snapshots. {}", this);
             return;
         }
@@ -1225,7 +1220,7 @@ public class RestoreJob extends AbstractJob {
         for (long dbId : dbToSnapshotInfos.keySet()) {
             List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
 
-            Database db = catalog.getInternalDataSource().getDbNullable(dbId);
+            Database db = env.getInternalDataSource().getDbNullable(dbId);
             if (db == null) {
                 status = new Status(ErrCode.NOT_FOUND, "db " + dbId + " does not exist");
                 return;
@@ -1250,7 +1245,7 @@ public class RestoreJob extends AbstractJob {
                               beId, batchNum, totalNum, this);
 
                     List<FsBroker> brokerAddrs = Lists.newArrayList();
-                    Status st = repo.getBrokerAddress(beId, catalog, brokerAddrs);
+                    Status st = repo.getBrokerAddress(beId, env, brokerAddrs);
                     if (!st.ok()) {
                         status = st;
                         return;
@@ -1336,9 +1331,9 @@ public class RestoreJob extends AbstractJob {
                                 olapTbl.readUnlock();
                             }
                         }
-                        long signature = catalog.getNextId();
-                        DownloadTask task = new DownloadTask(null, beId, signature, jobId, dbId,
-                                srcToDest, brokerAddrs.get(0), repo.getStorage().getProperties(),
+                        long signature = env.getNextId();
+                        DownloadTask task = new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
+                                brokerAddrs.get(0), repo.getStorage().getProperties(),
                                 repo.getStorage().getStorageType());
                         batchTask.addTask(task);
                         unfinishedSignatureToId.put(signature, beId);
@@ -1369,7 +1364,7 @@ public class RestoreJob extends AbstractJob {
             // backupMeta is useless now
             backupMeta = null;
 
-            catalog.getEditLog().logRestoreJob(this);
+            env.getEditLog().logRestoreJob(this);
             LOG.info("finished to download. {}", this);
         }
 
@@ -1385,11 +1380,10 @@ public class RestoreJob extends AbstractJob {
         // tablet id->(be id -> download info)
         for (Cell<Long, Long, SnapshotInfo> cell : snapshotInfos.cellSet()) {
             SnapshotInfo info = cell.getValue();
-            long signature = catalog.getNextId();
-            DirMoveTask task = new DirMoveTask(null, cell.getColumnKey(), signature, jobId, dbId,
-                    info.getTblId(), info.getPartitionId(), info.getTabletId(),
-                    cell.getRowKey(), info.getTabletPath(), info.getSchemaHash(),
-                    true /* need reload tablet header */);
+            long signature = env.getNextId();
+            DirMoveTask task = new DirMoveTask(null, cell.getColumnKey(), signature, jobId, dbId, info.getTblId(),
+                    info.getPartitionId(), info.getTabletId(), cell.getRowKey(), info.getTabletPath(),
+                    info.getSchemaHash(), true /* need reload tablet header */);
             batchTask.addTask(task);
             unfinishedSignatureToId.put(signature, info.getTabletId());
         }
@@ -1420,7 +1414,7 @@ public class RestoreJob extends AbstractJob {
     }
 
     private Status allTabletCommitted(boolean isReplay) {
-        Database db = catalog.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalDataSource().getDbNullable(dbId);
         if (db == null) {
             return new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
         }
@@ -1482,7 +1476,7 @@ public class RestoreJob extends AbstractJob {
             finishedTime = System.currentTimeMillis();
             state = RestoreJobState.FINISHED;
 
-            catalog.getEditLog().logRestoreJob(this);
+            env.getEditLog().logRestoreJob(this);
         }
 
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
@@ -1590,7 +1584,7 @@ public class RestoreJob extends AbstractJob {
         }
 
         // clean restored objs
-        Database db = catalog.getInternalDataSource().getDbNullable(dbId);
+        Database db = env.getInternalDataSource().getDbNullable(dbId);
         if (db != null) {
             // rollback table's state to NORMAL
             setTableStateToNormal(db);
@@ -1607,7 +1601,7 @@ public class RestoreJob extends AbstractJob {
                                 for (Partition part : restoreOlapTable.getPartitions()) {
                                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
                                         for (Tablet tablet : idx.getTablets()) {
-                                            Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
+                                            Env.getCurrentInvertedIndex().deleteTablet(tablet.getId());
                                         }
                                     }
                                 }
@@ -1642,7 +1636,7 @@ public class RestoreJob extends AbstractJob {
             }
 
             // remove restored resource
-            ResourceMgr resourceMgr = Catalog.getCurrentCatalog().getResourceMgr();
+            ResourceMgr resourceMgr = Env.getCurrentEnv().getResourceMgr();
             for (Resource resource : restoredResources) {
                 LOG.info("remove restored resource when cancelled: {}", resource.getName());
                 resourceMgr.dropResource(resource);
@@ -1660,7 +1654,7 @@ public class RestoreJob extends AbstractJob {
             finishedTime = System.currentTimeMillis();
             state = RestoreJobState.CANCELLED;
             // log
-            catalog.getEditLog().logRestoreJob(this);
+            env.getEditLog().logRestoreJob(this);
 
             LOG.info("finished to cancel restore job. current state: {}. is replay: {}. {}",
                      curState.name(), isReplay, this);
@@ -1807,7 +1801,7 @@ public class RestoreJob extends AbstractJob {
         snapshotFinishedTime = in.readLong();
         downloadFinishedTime = in.readLong();
 
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             int restoreReplicationNum = in.readInt();
             replicaAlloc = new ReplicaAllocation((short) restoreReplicationNum);
         } else {

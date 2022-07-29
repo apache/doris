@@ -24,8 +24,8 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UpdateStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
@@ -53,8 +53,8 @@ public class UpdateStmtExecutorTest {
         Cluster testCluster = new Cluster("test_cluster", 0);
         Database testDb = new Database(1, "test_db");
         testDb.setClusterName("test_cluster");
-        Catalog.getCurrentCatalog().addCluster(testCluster);
-        Catalog.getCurrentCatalog().unprotectCreateDb(testDb);
+        Env.getCurrentEnv().addCluster(testCluster);
+        Env.getCurrentEnv().unprotectCreateDb(testDb);
         UpdateStmtExecutor updateStmtExecutor = new UpdateStmtExecutor();
         Deencapsulation.setField(updateStmtExecutor, "dbId", 1);
         Deencapsulation.setField(updateStmtExecutor, "effectRows", 0);
@@ -65,7 +65,7 @@ public class UpdateStmtExecutorTest {
 
     @Test
     public void testFromUpdateStmt(@Injectable OlapTable olapTable,
-                                   @Mocked Catalog catalog,
+                                   @Mocked Env env,
                                    @Injectable Database db,
                                    @Injectable Analyzer analyzer) throws AnalysisException {
         TableName tableName = new TableName(InternalDataSource.INTERNAL_DS_NAME, "db", "test");

@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.StreamLoadRecordMgr;
 
@@ -45,7 +45,7 @@ public class StreamLoadProcNode implements ProcNodeInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult baseProcResult = new BaseProcResult();
         baseProcResult.setNames(TITLE_NAMES);
-        StreamLoadRecordMgr streamLoadRecordMgr = Catalog.getCurrentCatalog().getStreamLoadRecordMgr();
+        StreamLoadRecordMgr streamLoadRecordMgr = Env.getCurrentEnv().getStreamLoadRecordMgr();
         try {
             List<StreamLoadRecordMgr.StreamLoadItem> streamLoadJobList = streamLoadRecordMgr.getStreamLoadRecords();
             for (StreamLoadRecordMgr.StreamLoadItem streamLoadItem : streamLoadJobList) {
