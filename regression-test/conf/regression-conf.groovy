@@ -20,13 +20,15 @@
 // **Note**: default db will be create if not exist
 defaultDb = "regression_test"
 
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9038/?"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "127.0.0.1:8038"
 feHttpUser = "root"
 feHttpPassword = ""
+
+beHttpAddress = "127.0.0.1:8048"
 
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./
@@ -60,3 +62,9 @@ hdfsFs = "hdfs://127.0.0.1:9000"
 hdfsUser = "doris-test"
 hdfsPasswd = ""
 brokerName = "broker_name"
+
+
+s3Endpoint = "cos.ap-beijing.myqcloud.com"
+s3BucketName = "doris-build-1308700295"
+ak = "AKIDUnqc7LIzPZS4QVJq65nGSN1OUJsABwQd"
+sk = "yf5E6h14qKXU9XeU3nGSN1NSGn31jALE"
