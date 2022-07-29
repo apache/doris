@@ -52,7 +52,7 @@ struct AggregateFunctionSortData {
             for (size_t i = 0; i < block.columns(); i++) {
                 auto column = block.get_by_position(i).column->assume_mutable();
                 auto column_rhs = rhs.block.get_by_position(i).column;
-                column->insert_many_from(*column_rhs, 0, rhs.block.rows());
+                column->insert_range_from(*column_rhs, 0, rhs.block.rows());
             }
         }
     }
