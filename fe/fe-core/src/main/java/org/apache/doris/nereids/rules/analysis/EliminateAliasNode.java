@@ -41,18 +41,30 @@ public class EliminateAliasNode implements AnalysisRuleFactory {
         return ImmutableList.of(
                 RuleType.PROJECT_ELIMINATE_ALIAS_NODE.build(
                         logicalProject(logicalSubQueryAlias())
-                                .then(project -> eliminateSubQueryAliasNode(project, project.children()))
+                                .then(project -> project.withChildren(ImmutableList.of(project.child().child())))//.then(project -> eliminateSubQueryAliasNode(project, project.children()))
                 ),
                 RuleType.FILTER_ELIMINATE_ALIAS_NODE.build(
                         logicalFilter(logicalSubQueryAlias())
-                                .then(filter -> eliminateSubQueryAliasNode(filter, filter.children()))
+                                .then(filter -> filter.withChildren(ImmutableList.of(filter.child().child())))
                 ),
                 RuleType.AGGREGATE_ELIMINATE_ALIAS_NODE.build(
                         logicalAggregate(logicalSubQueryAlias())
-                                .then(agg -> eliminateSubQueryAliasNode(agg, agg.children()))
+                                .then(agg -> agg.withChildren(ImmutableList.of(agg.child().child())))
                 ),
                 RuleType.JOIN_ELIMINATE_ALIAS_NODE.build(
-                        logicalJoin().then(join -> joinEliminateSubQueryAliasNode(join, join.children()))
+                        logicalJoin(logicalSubQueryAlias(), logicalSubQueryAlias())
+                                .then(join -> join.withChildren(
+                                        ImmutableList.of(join.left().child(), join.right().child())))
+                ),
+                RuleType.JOIN_LEFT_CHILD_ELIMINATE_ALIAS_NODE.build(
+                        logicalJoin(logicalSubQueryAlias(), groupPlan())
+                                .then(join -> join.withChildren(
+                                        ImmutableList.of(join.left().child(), join.right())))
+                ),
+                RuleType.JOIN_RIGHT_CHILD_ELIMINATE_ALIAS_NODE.build(
+                        logicalJoin(groupPlan(), logicalSubQueryAlias())
+                                .then(join -> join.withChildren(
+                                        ImmutableList.of(join.left(), join.right().child())))
                 )
         );
     }
