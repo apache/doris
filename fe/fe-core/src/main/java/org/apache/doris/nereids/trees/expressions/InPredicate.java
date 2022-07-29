@@ -54,8 +54,7 @@ public class InPredicate extends Expression {
 
     @Override
     public boolean nullable() throws UnboundException {
-        return optionsList.stream().map(Expression::nullable)
-            .reduce((a, b) -> a || b).get();
+        return children().stream().anyMatch(Expression::nullable);
     }
 
     @Override
