@@ -50,13 +50,14 @@ SHOW STREAM LOAD
 
 说明：
 
-1. 如果不指定 db_name，使用当前默认db
-2. 如果使用 LABEL LIKE，则会匹配Stream Load任务的 label 包含 label_matcher 的任务
-3. 如果使用 LABEL = ，则精确匹配指定的 label
-4. 如果指定了 STATUS，则匹配 STREAM LOAD 状态
-5. 可以使用 ORDER BY 对任意列组合进行排序
-6. 如果指定了 LIMIT，则显示 limit 条匹配记录。否则全部显示
-7. 如果指定了 OFFSET，则从偏移量offset开始显示查询结果。默认情况下偏移量为0。
+1.默认 BE 是不记录 Stream Load 的记录，如果你要查看需要在 BE 上启用记录，配置参数是：`enable_stream_load_record=true` ，具体怎么配置请参照 [BE 配置项](https://doris.apache.org/zh-CN/docs/admin-manual/config/be-config)
+2.  如果不指定 db_name，使用当前默认db
+3. 如果使用 LABEL LIKE，则会匹配Stream Load任务的 label 包含 label_matcher 的任务
+4. 如果使用 LABEL = ，则精确匹配指定的 label
+5. 如果指定了 STATUS，则匹配 STREAM LOAD 状态
+6. 可以使用 ORDER BY 对任意列组合进行排序
+7. 如果指定了 LIMIT，则显示 limit 条匹配记录。否则全部显示
+8. 如果指定了 OFFSET，则从偏移量offset开始显示查询结果。默认情况下偏移量为0。
 
 ### Example
 

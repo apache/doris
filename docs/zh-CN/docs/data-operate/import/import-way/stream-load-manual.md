@@ -59,7 +59,7 @@ Stream load 主要适用于导入本地文件，或通过程序导入数据流�
 
 Stream load 中，Doris 会选定一个节点作为 Coordinator 节点。该节点负责接数据并分发数据到其他数据节点。
 
-用户通过 HTTP 协议提交导入命令。如果提交到 FE，则 FE 会通过 HTTP redirect 指令将请求转发给某一个 BE。用户也可以直接提交导入命令给某一指定 BE。所以Stream load命令提交到FE则需要加"--location-trusted"，而直接提交到BE则不需要。
+用户通过 HTTP 协议提交导入命令。如果提交到 FE，则 FE 会通过 HTTP redirect 指令将请求转发给某一个 BE。用户也可以直接提交导入命令给某一指定 BE。
 
 导入的最终结果由 Coordinator BE 返回给用户。
 
@@ -309,6 +309,12 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 ### 取消导入
 
 用户无法手动取消 Stream Load，Stream Load 在超时或者导入错误后会被系统自动取消。
+
+### 查看 Stream Load
+
+用户可以通过 `show stream load` 来查看已经完成的 stream load 任务。
+
+默认 BE 是不记录 Stream Load 的记录，如果你要查看需要在 BE 上启用记录，配置参数是：`enable_stream_load_record=true` ，具体怎么配置请参照 [BE 配置项](https://doris.apache.org/zh-CN/docs/admin-manual/config/be-config)
 
 ## 相关系统配置
 
