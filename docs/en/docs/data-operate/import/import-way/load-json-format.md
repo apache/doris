@@ -66,18 +66,31 @@ Currently only the following two Json formats are supported:
    This method must be used with the setting `strip_outer_array=true`. Doris will expand the array when parsing, and then parse each Object in turn as a row of data.
 
 2. A single row of data represented by Object
-
    Json format with Object as root node. The entire Object represents a row of data to be imported. An example is as follows:
 
    ````json
    { "id": 123, "city" : "beijing"}
    ````
-
+   
    ````json
    { "id": 123, "city" : { "name" : "beijing", "region" : "haidian" }}
    ````
-
+   
    This method is usually used for the Routine Load import method, such as representing a message in Kafka, that is, a row of data.
+
+3. Multiple lines of Object data separated by a fixed delimiter
+   
+   A row of data represented by Object represents a row of data to be imported. The example is as follows:
+   
+   ````json
+   { "id": 123, "city" : "beijing"}
+   { "id": 456, "city" : "shanghai"}
+   ...
+   ````
+   
+   This method is typically used for Stream Load import methods to represent multiple rows of data in a batch of imported data.
+   
+   This method must be used with the setting `read_json_by_line=true`, the special delimiter also needs to specify the `line_delimiter` parameter, the default is `\n`. When Doris parses, it will be separated according to the delimiter, and then parse each line of Object as a line of data.
 
 ### fuzzy_parse parameters
 
@@ -380,7 +393,7 @@ code INT NULL
      100 beijing 1
      ````
 
-3. Import multiple rows of data
+3. Import multiple rows of data as Array
 
    ````json
    [
@@ -416,24 +429,45 @@ code INT NULL
      105 {"order1":["guangzhou"]} 6
      ````
 
-4. Transform the imported data
+4. Import multi-line data as multi-line Object
 
-   The data is still the multi-line data in Example 3, and now it is necessary to add 1 to the `code` column in the imported data before importing.
+      ```json
+      {"id": 100, "city": "beijing", "code" : 1}
+      {"id": 101, "city": "shanghai"}
+      {"id": 102, "city": "tianjin", "code" : 3}
+      {"id": 103, "city": "chongqing", "code" : 4}
+      ```
 
-   ```bash
-   curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" - H "strip_outer_array: true" -H "columns: id, city, tmpc, code=tmpc+1" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
-   ````
+ 	 StreamLoad import：
 
-   Import result:
+```bash
+curl --location-trusted -u user:passwd -H "format: json" -H "read_json_by_line: true" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
+```
+​	   Import result:
 
-   ````text
-   100 beijing 2
-   101 shanghai NULL
-   102 tianjin 4
-   103 chongqing 5
-   104 ["zhejiang","guangzhou"] 6
-   105 {"order1":["guangzhou"]} 7
-   ````
+    100     beijing                     1
+    101     shanghai                    NULL
+    102     tianjin                     3
+    103     chongqing                   4
+
+5. Transform the imported data
+
+The data is still the multi-line data in Example 3, and now it is necessary to add 1 to the `code` column in the imported data before importing.
+
+```bash
+curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" - H "strip_outer_array: true" -H "columns: id, city, tmpc, code=tmpc+1" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
+````
+
+Import result:
+
+````text
+100 beijing 2
+101 shanghai NULL
+102 tianjin 4
+103 chongqing 5
+104 ["zhejiang","guangzhou"] 6
+105 {"order1":["guangzhou"]} 7
+````
 
 ### Routine Load
 
