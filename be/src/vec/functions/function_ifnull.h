@@ -40,11 +40,21 @@ public:
 
     bool use_default_implementation_for_constants() const override { return false; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (!arguments[0]->is_nullable() && arguments[1]->is_nullable()) {
-            return reinterpret_cast<const DataTypeNullable*>(arguments[1].get())->get_nested_type();
+    // be compatible with fe code
+    /* 
+        if (fn.functionName().equalsIgnoreCase("ifnull") || fn.functionName().equalsIgnoreCase("nvl")) {
+            Preconditions.checkState(children.size() == 2);
+            if (children.get(0).isNullable()) {
+                return children.get(1).isNullable();
+            }
+            return false;
         }
-        return arguments[1];
+    */
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments[0]->is_nullable()) {
+            return arguments[1];
+        }
+        return arguments[0];
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
@@ -75,10 +85,16 @@ public:
         const ColumnsWithTypeAndName if_columns {
                 null_column_arg0, block.get_by_position(arguments[1]), nested_column_arg0};
 
+        // see get_return_type_impl
+        // if result is nullable, means both then and else column are nullable, we use original col_left to keep nullable info
+        // if result is not nullable, means both then and else column are not nullable, we use nested_column_arg0 to remove nullable info
+        bool result_nullable = block.get_by_position(result).type->is_nullable();
         Block temporary_block({
                 null_column_arg0,
                 block.get_by_position(arguments[1]),
-                nested_column_arg0,
+                result_nullable
+                        ? col_left
+                        : nested_column_arg0, // if result is nullable, we need pass the original col_left else pass nested_column_arg0
                 block.get_by_position(result),
         });
 
