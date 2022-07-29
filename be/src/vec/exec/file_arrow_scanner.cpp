@@ -194,7 +194,7 @@ Status FileArrowScanner::_append_batch_to_block(Block* block) {
     }
     _rows += num_elements;
     _arrow_batch_cur_idx += num_elements;
-    return Status::OK();
+    return _fill_columns_from_path(block, num_elements);
 }
 
 void VFileParquetScanner::_update_profile(std::shared_ptr<Statistics>& statistics) {

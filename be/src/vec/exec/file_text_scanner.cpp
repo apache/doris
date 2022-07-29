@@ -91,6 +91,7 @@ Status FileTextScanner::get_next(Block* block, bool* eof) {
 
     const int batch_size = _state->batch_size();
 
+    int current_rows = _rows;
     while (_rows < batch_size && !_scanner_eof) {
         if (_cur_line_reader == nullptr || _cur_line_reader_eof) {
             RETURN_IF_ERROR(_open_next_reader());
@@ -113,6 +114,10 @@ Status FileTextScanner::get_next(Block* block, bool* eof) {
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             RETURN_IF_ERROR(_fill_file_columns(Slice(ptr, size), block));
+        }
+        if (_cur_line_reader_eof) {
+            RETURN_IF_ERROR(_fill_columns_from_path(block, _rows - current_rows));
+            current_rows = _rows;
         }
     }
 

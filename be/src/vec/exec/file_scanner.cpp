@@ -164,7 +164,6 @@ Status FileScanner::_filter_block(vectorized::Block* _block) {
 Status FileScanner::finalize_block(vectorized::Block* _block, bool* eof) {
     *eof = _scanner_eof;
     _read_row_counter += _block->rows();
-    RETURN_IF_ERROR(_fill_columns_from_path(_block));
     if (LIKELY(_rows > 0)) {
         RETURN_IF_ERROR(_filter_block(_block));
     }
@@ -172,11 +171,9 @@ Status FileScanner::finalize_block(vectorized::Block* _block, bool* eof) {
     return Status::OK();
 }
 
-Status FileScanner::_fill_columns_from_path(vectorized::Block* _block) {
+Status FileScanner::_fill_columns_from_path(vectorized::Block* _block, size_t rows) {
     const TFileRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
-        size_t rows = _rows;
-
         for (const auto& slot_desc : _partition_slot_descs) {
             if (slot_desc == nullptr) continue;
             auto it = _partition_slot_index_map.find(slot_desc->id());
