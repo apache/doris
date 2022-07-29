@@ -114,6 +114,27 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Used for compatibility with MySQL clients. No practical effect.
     
+* `auto_broadcast_join_threshold`
+
+    The maximum size in bytes of the table that will be broadcast to all nodes when a join is performed, broadcast can be disabled by setting this value to -1.
+
+    The system provides two join implementation methods, `broadcast join` and `shuffle join`.
+
+    `broadcast join` means that after conditional filtering the small table, broadcast it to each node where the large table is located to form an in-memory Hash table, and then stream the data of the large table for Hash Join.
+
+    `shuffle join` refers to hashing both small and large tables according to the join key, and then performing distributed join.
+
+    `broadcast join` has better performance when the data volume of the small table is small. On the contrary, shuffle join has better performance.
+
+    The system will automatically try to perform a Broadcast Join, or you can explicitly specify the implementation of each join operator. The system provides a configurable parameter `auto_broadcast_join_threshold`, which specifies the upper limit of the memory used by the hash table to the overall execution memory when `broadcast join` is used. The value ranges from 0 to 1, and the default value is 0.8. When the memory used by the system to calculate the hash table exceeds this limit, it will automatically switch to using `shuffle join`
+
+    The overall execution memory here is: a fraction of what the query optimizer estimates
+
+    > Note:
+    >
+    > It is not recommended to use this parameter to adjust, if you must use a certain join, it is recommended to use hint, such as join[shuffle]
+
+
 * `batch_size`
 
     Used to specify the number of rows of a single packet transmitted by each node during query execution. By default, the number of rows of a packet is 1024 rows. That is, after the source node generates 1024 rows of data, it is packaged and sent to the destination node.
