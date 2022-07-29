@@ -827,9 +827,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     if (ctx.query() == null) {
                         outExpression = new InPredicate(
                             valueExpression,
-                            getExpression(ctx.expression)
+                            withInList(ctx)
                         );
-                        throw new IllegalStateException("Unsupported predicate type: " + ctx.kind.getText());
                     } else {
                         outExpression = new InSubquery(
                                 valueExpression,
@@ -866,5 +865,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitExist(ExistContext context) {
         return ParserUtils.withOrigin(context, () -> new Exists(typedVisit(context.query())));
+    }
+
+    public List<Expression> withInList(PredicateContext ctx) {
+        List<Expression> expressions = ctx.expression().stream()
+                .map(expr -> getExpression(expr)).collect(ImmutableList.toImmutableList());
+        return expressions;
     }
 }
