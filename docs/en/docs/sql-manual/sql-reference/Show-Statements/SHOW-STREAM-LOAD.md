@@ -50,13 +50,14 @@ SHOW STREAM LOAD
 
 illustrate:
 
-1. If db_name is not specified, the current default db is used
-2. If LABEL LIKE is used, it will match the tasks whose label of the Stream Load task contains label_matcher
-3. If LABEL = is used, it will match the specified label exactly
-4. If STATUS is specified, matches STREAM LOAD status
-5. You can use ORDER BY to sort on any combination of columns
-6. If LIMIT is specified, limit matching records are displayed. Otherwise show all
-7. If OFFSET is specified, the query results are displayed starting at offset offset. By default the offset is 0.
+1. By default, BE does not record Stream Load records. If you want to view records that need to be enabled on BE, the configuration parameter is: `enable_stream_load_record=true`. For details, please refer to [BE Configuration Items](https://doris.apache. org/zh-CN/docs/admin-manual/config/be-config)
+2. If db_name is not specified, the current default db is used
+3. If LABEL LIKE is used, it will match the tasks whose label of the Stream Load task contains label_matcher
+4. If LABEL = is used, it will match the specified label exactly
+5. If STATUS is specified, matches STREAM LOAD status
+6. You can use ORDER BY to sort on any combination of columns
+7. If LIMIT is specified, limit matching records are displayed. Otherwise show all
+8. If OFFSET is specified, the query results are displayed starting at offset offset. By default the offset is 0.
 
 ### Example
 
