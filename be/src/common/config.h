@@ -789,6 +789,17 @@ CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 CONF_Bool(enable_time_lut, "true");
 
+#ifdef BE_TEST
+// test s3
+CONF_String(test_s3_resource, "resource");
+CONF_String(test_s3_ak, "ak");
+CONF_String(test_s3_sk, "sk");
+CONF_String(test_s3_endpoint, "endpoint");
+CONF_String(test_s3_region, "region");
+CONF_String(test_s3_bucket, "bucket");
+CONF_String(test_s3_prefix, "prefix");
+#endif
+
 } // namespace config
 
 } // namespace doris

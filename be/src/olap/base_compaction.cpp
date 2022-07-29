@@ -92,6 +92,26 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     RETURN_NOT_OK(check_version_continuity(_input_rowsets));
     RETURN_NOT_OK(_check_rowset_overlapping(_input_rowsets));
 
+    // If there are delete predicate rowsets in tablet, start_version > 0 implies some rowsets before
+    // delete version cannot apply these delete predicates, which can cause incorrect query result.
+    // So we must abort this base compaction.
+    // A typical scenario is that some rowsets before cumulative point are on remote storage.
+    if (_input_rowsets.front()->start_version() > 0) {
+        bool has_delete_predicate = false;
+        for (const auto& rs : _input_rowsets) {
+            if (rs->rowset_meta()->has_delete_predicate()) {
+                has_delete_predicate = true;
+                break;
+            }
+        }
+        if (has_delete_predicate) {
+            LOG(WARNING)
+                    << "Some rowsets cannot apply delete predicates in base compaction. tablet_id="
+                    << _tablet->tablet_id();
+            return Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION);
+        }
+    }
+
     if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
         // the tablet is with rowset: [0-1], [2-y]
         // and [0-1] has no data. in this situation, no need to do base compaction.

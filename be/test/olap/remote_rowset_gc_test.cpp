@@ -19,11 +19,12 @@
 
 #include <memory>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "io/fs/file_system_map.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/delta_writer.h"
-#include "olap/snapshot_manager.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/descriptor_helper.h"
@@ -35,47 +36,39 @@ namespace doris {
 
 static StorageEngine* k_engine = nullptr;
 
-static const std::string kTestDir = "./ut_dir/tablet_clone_test";
-static std::string kSnapshotDir = "./ut_dir/tablet_clone_test/snapshot";
-static const std::string kResourceId = "TabletCloneTest";
-static const int64_t kTabletId = 10005;
-static const int32_t KSchemaHash = 270068377;
-
-static const std::string AK = "ak";
-static const std::string SK = "sk";
-static const std::string ENDPOINT = "endpoint";
-static const std::string REGION = "region";
-static const std::string BUCKET = "bucket";
-static const std::string PREFIX = "prefix";
+static const std::string kTestDir = "./ut_dir/remote_rowset_gc_test";
+static const std::string kResourceId = "RemoteRowsetGcTest";
 
 // remove DISABLED_ when need run this test
-#define TabletCloneTest DISABLED_TabletCloneTest
-#define private public
-class TabletCloneTest : public testing::Test {
+#define RemoteRowsetGcTest DISABLED_RemoteRowsetGcTest
+class RemoteRowsetGcTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
         S3Conf s3_conf;
-        s3_conf.ak = AK;
-        s3_conf.sk = SK;
-        s3_conf.endpoint = ENDPOINT;
-        s3_conf.region = REGION;
-        s3_conf.bucket = BUCKET;
-        s3_conf.prefix = PREFIX;
+        s3_conf.ak = config::test_s3_ak;
+        s3_conf.sk = config::test_s3_sk;
+        s3_conf.endpoint = config::test_s3_endpoint;
+        s3_conf.region = config::test_s3_region;
+        s3_conf.bucket = config::test_s3_bucket;
+        s3_conf.prefix = "remote_rowset_gc_test";
         auto s3_fs = std::make_shared<io::S3FileSystem>(std::move(s3_conf), kResourceId);
         ASSERT_TRUE(s3_fs->connect().ok());
         io::FileSystemMap::instance()->insert(kResourceId, s3_fs);
 
-        config::storage_root_path = kTestDir;
+        constexpr uint32_t MAX_PATH_LEN = 1024;
+        char buffer[MAX_PATH_LEN];
+        EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
+        config::storage_root_path = std::string(buffer) + "/" + kTestDir;
         config::min_file_descriptor_number = 1000;
-        FileUtils::remove_all(kTestDir);
-        FileUtils::create_dir(kTestDir);
 
-        std::vector<StorePath> paths {{kTestDir, -1}};
+        FileUtils::remove_all(config::storage_root_path);
+        FileUtils::create_dir(config::storage_root_path);
+
+        std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
         EngineOptions options;
         options.store_paths = paths;
         doris::StorageEngine::open(options, &k_engine);
-        k_engine->start_bg_threads();
     }
 
     static void TearDownTestSuite() {
@@ -145,9 +138,9 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
     return desc_tbl_builder.desc_tbl();
 }
 
-TEST_F(TabletCloneTest, convert_rowset_ids_has_file_in_s3) {
+TEST_F(RemoteRowsetGcTest, normal) {
     TCreateTabletReq request;
-    create_tablet_request_with_sequence_col(kTabletId, KSchemaHash, &request);
+    create_tablet_request_with_sequence_col(10005, 270068377, &request);
     Status st = k_engine->create_tablet(request);
     ASSERT_EQ(Status::OK(), st);
 
@@ -161,13 +154,14 @@ TEST_F(TabletCloneTest, convert_rowset_ids_has_file_in_s3) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {kTabletId, KSchemaHash, WriteType::LOAD, 20003,
-                              30003,     load_id,     tuple_desc,      &(tuple_desc->slots())};
+    WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
+                              30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
 
-    MemPool pool;
+    MemTracker tracker;
+    MemPool pool(&tracker);
     // Tuple 1
     {
         Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
@@ -199,27 +193,39 @@ TEST_F(TabletCloneTest, convert_rowset_ids_has_file_in_s3) {
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
-        rowset->rowset_meta()->set_resource_id(kResourceId);
         st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                  tablet->tablet_id(), tablet->schema_hash(),
-                                                  tablet->tablet_uid(), version);
+                                                  write_req.tablet_id, write_req.schema_hash,
+                                                  tablet_rs.first.tablet_uid, version);
         ASSERT_EQ(Status::OK(), st);
         st = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);
     }
     EXPECT_EQ(1, tablet->num_rows());
 
-    TSnapshotRequest snapshot_req;
-    snapshot_req.tablet_id = kTabletId;
-    snapshot_req.schema_hash = KSchemaHash;
-    bool allow_incremental_clone = false;
-    st = SnapshotManager::instance()->_create_snapshot_files(tablet, snapshot_req, &kSnapshotDir,
-                                                             &allow_incremental_clone);
+    tablet->set_storage_policy(kResourceId);
+    st = tablet->cooldown(); // rowset [0-1]
     ASSERT_EQ(Status::OK(), st);
-    st = SnapshotManager::instance()->convert_rowset_ids(kTestDir, kTabletId, request.replica_id,
-                                                         KSchemaHash);
-    ASSERT_NE(Status::OK(), st);
+    st = tablet->cooldown(); // rowset [2-2]
+    ASSERT_EQ(Status::OK(), st);
+    ASSERT_EQ(DorisMetrics::instance()->upload_rowset_count->value(), 1);
+
     delete delta_writer;
+
+    auto fs = io::FileSystemMap::instance()->get(kResourceId);
+    auto rowset = tablet->get_rowset_by_version({2, 2});
+    ASSERT_TRUE(rowset);
+    auto seg_path = BetaRowset::remote_segment_path(10005, rowset->rowset_id(), 0);
+    bool exists = false;
+    st = fs->exists(seg_path, &exists);
+    ASSERT_EQ(Status::OK(), st);
+    ASSERT_TRUE(exists);
+
+    st = k_engine->tablet_manager()->drop_tablet(10005, 0, true);
+    ASSERT_EQ(Status::OK(), st);
+    tablet->data_dir()->perform_remote_tablet_gc();
+    st = fs->exists(seg_path, &exists);
+    ASSERT_EQ(Status::OK(), st);
+    ASSERT_FALSE(exists);
 }
 
 } // namespace doris

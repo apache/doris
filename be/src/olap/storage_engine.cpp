@@ -329,7 +329,7 @@ std::vector<DataDir*> StorageEngine::get_stores() {
     stores.reserve(_store_map.size());
 
     std::lock_guard<std::mutex> l(_store_lock);
-    if (include_unused) {
+    if constexpr (include_unused) {
         for (auto& it : _store_map) {
             stores.push_back(it.second);
         }
@@ -719,6 +719,12 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     // clean unused rowset metas in OlapMeta
     _clean_unused_rowset_metas();
+
+    // clean unused rowsets in remote storage backends
+    for (auto data_dir : get_stores()) {
+        data_dir->perform_remote_rowset_gc();
+        data_dir->perform_remote_tablet_gc();
+    }
 
     return res;
 }

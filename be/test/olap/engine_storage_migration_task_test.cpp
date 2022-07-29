@@ -259,7 +259,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     EXPECT_NE(tablet3, tablet);
     // test case 2 end
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }

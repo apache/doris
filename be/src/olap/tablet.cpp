@@ -18,6 +18,7 @@
 #include "olap/tablet.h"
 
 #include <ctype.h>
+#include <fmt/core.h>
 #include <glog/logging.h>
 #include <pthread.h>
 #include <rapidjson/prettywriter.h>
@@ -1145,10 +1146,8 @@ void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
 
 void Tablet::pick_candidate_rowsets_to_base_compaction(vector<RowsetSharedPtr>* candidate_rowsets) {
     std::shared_lock rdlock(_meta_lock);
-    // FIXME(cyx): If there are delete predicate rowsets in tablet,
-    // remote rowsets cannot apply these delete predicate, which can cause
-    // incorrect query result.
     for (auto& it : _rs_version_map) {
+        // Do compaction on local rowsets only.
         if (it.first.first < _cumulative_point && it.second->is_local()) {
             candidate_rowsets->push_back(it.second);
         }
@@ -1702,7 +1701,7 @@ Status Tablet::cooldown() {
         LOG(WARNING) << "Failed to own cumu_compaction_lock. tablet=" << tablet_id();
         return Status::OLAPInternalError(OLAP_ERR_BE_TRY_BE_LOCK_ERROR);
     }
-    auto dest_fs = io::FileSystemMap::instance()->get(cooldown_resource());
+    auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
     if (!dest_fs) {
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
     }
@@ -1716,8 +1715,13 @@ Status Tablet::cooldown() {
 
     auto start = std::chrono::steady_clock::now();
 
-    RETURN_IF_ERROR(old_rowset->upload_to(reinterpret_cast<io::RemoteFileSystem*>(dest_fs.get()),
-                                          new_rowset_id));
+    auto st = old_rowset->upload_to(reinterpret_cast<io::RemoteFileSystem*>(dest_fs.get()),
+                                    new_rowset_id);
+    if (!st.ok()) {
+        record_unused_remote_rowset(new_rowset_id, dest_fs->resource_id(),
+                                    old_rowset->num_segments());
+        return st;
+    }
 
     auto duration = std::chrono::duration<float>(std::chrono::steady_clock::now() - start);
     LOG(INFO) << "Upload rowset " << old_rowset->version() << " " << new_rowset_id.to_string()
@@ -1732,14 +1736,30 @@ Status Tablet::cooldown() {
     new_rowset_meta->set_fs(dest_fs);
     new_rowset_meta->set_creation_time(time(nullptr));
     RowsetSharedPtr new_rowset;
-    RowsetFactory::create_rowset(&_schema, _tablet_path, std::move(new_rowset_meta), &new_rowset);
+    RowsetFactory::create_rowset(&_schema, _tablet_path, new_rowset_meta, &new_rowset);
 
     std::vector to_add {std::move(new_rowset)};
     std::vector to_delete {std::move(old_rowset)};
 
-    std::unique_lock meta_wlock(_meta_lock);
-    modify_rowsets(to_add, to_delete);
-    save_meta();
+    bool has_shutdown = false;
+    {
+        std::unique_lock meta_wlock(_meta_lock);
+        has_shutdown = tablet_state() == TABLET_SHUTDOWN;
+        if (!has_shutdown) {
+            modify_rowsets(to_add, to_delete);
+            if (new_rowset_meta->has_delete_predicate()) {
+                add_delete_predicate(new_rowset_meta->delete_predicate(),
+                                     new_rowset_meta->start_version());
+            }
+            _self_owned_remote_rowsets.insert(to_add.front());
+            save_meta();
+        }
+    }
+    if (has_shutdown) {
+        record_unused_remote_rowset(new_rowset_id, dest_fs->resource_id(),
+                                    to_add.front()->num_segments());
+        return Status::Aborted("tablet {} has shutdown", tablet_id());
+    }
     return Status::OK();
 }
 
@@ -1763,13 +1783,13 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
 
 bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
     // std::shared_lock meta_rlock(_meta_lock);
-    if (cooldown_resource().empty()) {
+    if (storage_policy().empty()) {
         VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id();
         return false;
     }
-    auto policy = ExecEnv::GetInstance()->storage_policy_mgr()->get(cooldown_resource());
+    auto policy = ExecEnv::GetInstance()->storage_policy_mgr()->get(storage_policy());
     if (!policy) {
-        LOG(WARNING) << "Cannot get storage policy: " << cooldown_resource();
+        LOG(WARNING) << "Cannot get storage policy: " << storage_policy();
         return false;
     }
     auto cooldown_ttl_sec = policy->cooldown_ttl;
@@ -1817,28 +1837,26 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
     return false;
 }
 
-void Tablet::remove_all_remote_rowsets() {
-    std::unique_lock meta_wlock(_meta_lock);
-    DCHECK(_state == TabletState::TABLET_SHUTDOWN);
-    Status st;
-    for (auto& it : _rs_version_map) {
-        auto& rs = it.second;
-        if (!rs->is_local()) {
-            st = rs->remove();
-            LOG_IF(WARNING, !st.ok()) << "Failed to remove rowset " << rs->version() << " "
-                                      << rs->rowset_id().to_string() << " in tablet " << tablet_id()
-                                      << ": " << st.to_string();
-        }
+void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const io::ResourceId& resource,
+                                         int64_t num_segments) {
+    auto gc_key = REMOTE_ROWSET_GC_PREFIX + rowset_id.to_string();
+    RemoteRowsetGcPB gc_pb;
+    gc_pb.set_resource_id(resource);
+    gc_pb.set_tablet_id(tablet_id());
+    gc_pb.set_num_segments(num_segments);
+    WARN_IF_ERROR(
+            _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, gc_key, gc_pb.SerializeAsString()),
+            fmt::format("Failed to record unused remote rowset(tablet id: {}, rowset id: {})",
+                        tablet_id(), rowset_id.to_string()));
+}
+
+Status Tablet::remove_all_remote_rowsets() {
+    DCHECK(_state == TABLET_SHUTDOWN);
+    if (storage_policy().empty()) {
+        return Status::OK();
     }
-    for (auto& it : _stale_rs_version_map) {
-        auto& rs = it.second;
-        if (!rs->is_local()) {
-            st = rs->remove();
-            LOG_IF(WARNING, !st.ok()) << "Failed to remove rowset " << rs->version() << " "
-                                      << rs->rowset_id().to_string() << " in tablet " << tablet_id()
-                                      << ": " << st.to_string();
-        }
-    }
+    auto tablet_gc_key = REMOTE_TABLET_GC_PREFIX + std::to_string(tablet_id());
+    return _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, tablet_gc_key, storage_policy());
 }
 
 const TabletSchema& Tablet::tablet_schema() const {
@@ -1885,6 +1903,30 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, RowLocation* row_locatio
         return s;
     }
     return Status::NotFound("can't find key in all rowsets");
+}
+
+void Tablet::remove_self_owned_remote_rowsets() {
+    DCHECK(_state == TABLET_SHUTDOWN);
+    for (const auto& rs : _self_owned_remote_rowsets) {
+        DCHECK(!rs->is_local());
+        record_unused_remote_rowset(rs->rowset_id(), rs->rowset_meta()->resource_id(),
+                                    rs->num_segments());
+    }
+}
+
+void Tablet::update_self_owned_remote_rowsets(
+        const std::vector<RowsetSharedPtr>& rowsets_in_snapshot) {
+    if (_self_owned_remote_rowsets.empty()) {
+        return;
+    }
+    for (const auto& rs : rowsets_in_snapshot) {
+        if (!rs->is_local()) {
+            auto it = _self_owned_remote_rowsets.find(rs);
+            if (it != _self_owned_remote_rowsets.end()) {
+                _self_owned_remote_rowsets.erase(it);
+            }
+        }
+    }
 }
 
 } // namespace doris

@@ -283,10 +283,12 @@ public class BackendLoadStatistic {
         // Else if capacity used percent > 75%, set capacityCoefficient to 1.
         // Else, capacityCoefficient changed smoothly from 0.5 to 1 with used capacity increasing
         // Function: (2 * usedCapacityPercent - 0.5)
-        loadScore.capacityCoefficient = usedCapacityPercent < 0.5 ? 0.5
-                : (usedCapacityPercent > Config.capacity_used_percent_high_water ? 1.0
-                        : (2 * usedCapacityPercent - 0.5));
-        loadScore.replicaNumCoefficient = 1 - loadScore.capacityCoefficient;
+        if (!Config.be_rebalancer_fuzzy_test) {
+            loadScore.capacityCoefficient = usedCapacityPercent < 0.5 ? 0.5
+                    : (usedCapacityPercent > Config.capacity_used_percent_high_water ? 1.0
+                            : (2 * usedCapacityPercent - 0.5));
+            loadScore.replicaNumCoefficient = 1 - loadScore.capacityCoefficient;
+        }
         loadScore.score = capacityProportion * loadScore.capacityCoefficient
                 + replicaNumProportion * loadScore.replicaNumCoefficient;
 

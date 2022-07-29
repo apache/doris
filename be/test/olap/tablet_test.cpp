@@ -281,7 +281,7 @@ TEST_F(TestTablet, cooldown_policy) {
 
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
     _tablet->init();
-    _tablet->set_cooldown_resource("test_policy_name");
+    _tablet->set_storage_policy("test_policy_name");
 
     _tablet->_rs_version_map[ptr1->version()] = rowset1;
     _tablet->_rs_version_map[ptr2->version()] = rowset2;

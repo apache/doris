@@ -20,7 +20,9 @@
 #include <aws/core/utils/threading/Executor.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
+#include <aws/s3/model/DeleteObjectsRequest.h>
 #include <aws/s3/model/HeadObjectRequest.h>
+#include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/transfer/TransferManager.h>
 
@@ -153,12 +155,13 @@ Status S3FileSystem::delete_file(const Path& path) {
     request.WithBucket(_s3_conf.bucket).WithKey(key);
 
     auto outcome = client->DeleteObject(request);
-    if (!outcome.IsSuccess()) {
-        return Status::IOError("failed to delete object(endpoint={}, bucket={}, key={}): {}",
-                               _s3_conf.endpoint, _s3_conf.bucket, key,
-                               outcome.GetError().GetMessage());
+    if (outcome.IsSuccess() ||
+        outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
+        return Status::OK();
     }
-    return Status::OK();
+    return Status::IOError("failed to delete object(endpoint={}, bucket={}, key={}): {}",
+                           _s3_conf.endpoint, _s3_conf.bucket, key,
+                           outcome.GetError().GetMessage());
 }
 
 Status S3FileSystem::create_directory(const Path& path) {
@@ -166,7 +169,54 @@ Status S3FileSystem::create_directory(const Path& path) {
 }
 
 Status S3FileSystem::delete_directory(const Path& path) {
-    return Status::NotSupported("not support");
+    auto client = get_client();
+    CHECK_S3_CLIENT(client);
+
+    Aws::S3::Model::ListObjectsV2Request request;
+    auto prefix = get_key(path);
+    request.WithBucket(_s3_conf.bucket).WithPrefix(prefix);
+
+    Aws::S3::Model::DeleteObjectsRequest delete_request;
+    delete_request.SetBucket(_s3_conf.bucket);
+    bool is_trucated = false;
+    do {
+        auto outcome = client->ListObjectsV2(request);
+        if (!outcome.IsSuccess()) {
+            return Status::IOError("failed to list objects(endpoint={}, bucket={}, prefix={}): {}",
+                                   _s3_conf.endpoint, _s3_conf.bucket, prefix,
+                                   outcome.GetError().GetMessage());
+        }
+        const auto& result = outcome.GetResult();
+        Aws::Vector<Aws::S3::Model::ObjectIdentifier> objects;
+        objects.reserve(result.GetContents().size());
+        for (const auto& obj : result.GetContents()) {
+            objects.emplace_back().SetKey(obj.GetKey());
+        }
+        if (!objects.empty()) {
+            Aws::S3::Model::Delete del;
+            del.WithObjects(std::move(objects)).SetQuiet(true);
+            delete_request.SetDelete(std::move(del));
+            auto delete_outcome = client->DeleteObjects(delete_request);
+            if (!delete_outcome.IsSuccess()) {
+                return Status::IOError(
+                        "failed to delete objects(endpoint={}, bucket={}, prefix={}): {}",
+                        _s3_conf.endpoint, _s3_conf.bucket, prefix,
+                        delete_outcome.GetError().GetMessage());
+            }
+            if (!delete_outcome.GetResult().GetErrors().empty()) {
+                const auto& e = delete_outcome.GetResult().GetErrors().front();
+                return Status::IOError("fail to delete object(endpoint={}, bucket={}, key={}): {}",
+                                       _s3_conf.endpoint, _s3_conf.bucket, e.GetKey(),
+                                       e.GetMessage());
+            }
+            VLOG_TRACE << "delete " << objects.size()
+                       << " s3 objects, endpoint: " << _s3_conf.endpoint
+                       << ", bucket: " << _s3_conf.bucket << ", prefix: " << _s3_conf.prefix;
+        }
+        is_trucated = result.GetIsTruncated();
+        request.SetContinuationToken(result.GetNextContinuationToken());
+    } while (is_trucated);
+    return Status::OK();
 }
 
 Status S3FileSystem::link_file(const Path& src, const Path& dest) {
@@ -181,7 +231,7 @@ Status S3FileSystem::exists(const Path& path, bool* res) const {
     auto key = get_key(path);
     request.WithBucket(_s3_conf.bucket).WithKey(key);
 
-    auto outcome = _client->HeadObject(request);
+    auto outcome = client->HeadObject(request);
     if (outcome.IsSuccess()) {
         *res = true;
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
@@ -202,7 +252,7 @@ Status S3FileSystem::file_size(const Path& path, size_t* file_size) const {
     auto key = get_key(path);
     request.WithBucket(_s3_conf.bucket).WithKey(key);
 
-    auto outcome = _client->HeadObject(request);
+    auto outcome = client->HeadObject(request);
     if (outcome.IsSuccess()) {
         *file_size = outcome.GetResult().GetContentLength();
     } else {

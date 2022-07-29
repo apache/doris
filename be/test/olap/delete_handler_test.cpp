@@ -278,7 +278,7 @@ protected:
         tablet.reset();
         dup_tablet.reset();
         StorageEngine::instance()->tablet_manager()->drop_tablet(_create_tablet.tablet_id,
-                                                                 _create_tablet.replica_id);
+                                                                 _create_tablet.replica_id, false);
         EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
@@ -443,8 +443,8 @@ protected:
     void TearDown() {
         // Remove all dir.
         tablet.reset();
-        k_engine->tablet_manager()->drop_tablet(_create_tablet.tablet_id,
-                                                _create_tablet.replica_id);
+        k_engine->tablet_manager()->drop_tablet(_create_tablet.tablet_id, _create_tablet.replica_id,
+                                                false);
         EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
@@ -820,7 +820,7 @@ protected:
         tablet.reset();
         _delete_handler.finalize();
         StorageEngine::instance()->tablet_manager()->drop_tablet(_create_tablet.tablet_id,
-                                                                 _create_tablet.replica_id);
+                                                                 _create_tablet.replica_id, false);
         EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 

@@ -40,8 +40,7 @@ Status LocalFileSystem::create_file(const Path& path, FileWriterPtr* writer) {
     auto fs_path = absolute_path(path);
     int fd = ::open(fs_path.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
     if (-1 == fd) {
-        return Status::IOError(
-                fmt::format("cannot open {}: {}", fs_path.native(), std::strerror(errno)));
+        return Status::IOError("cannot open {}: {}", fs_path.native(), std::strerror(errno));
     }
     *writer = std::make_unique<LocalFileWriter>(std::move(fs_path), fd);
     return Status::OK();
@@ -62,14 +61,16 @@ Status LocalFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
 
 Status LocalFileSystem::delete_file(const Path& path) {
     auto fs_path = absolute_path(path);
+    if (!std::filesystem::exists(fs_path)) {
+        return Status::OK();
+    }
     if (!std::filesystem::is_regular_file(fs_path)) {
-        return Status::IOError(fmt::format("{} is not a file", fs_path.native()));
+        return Status::IOError("{} is not a file", fs_path.native());
     }
     std::error_code ec;
     std::filesystem::remove(fs_path, ec);
     if (ec) {
-        return Status::IOError(
-                fmt::format("cannot delete {}: {}", fs_path.native(), std::strerror(ec.value())));
+        return Status::IOError("cannot delete {}: {}", fs_path.native(), std::strerror(ec.value()));
     }
     return Status::OK();
 }
@@ -77,35 +78,36 @@ Status LocalFileSystem::delete_file(const Path& path) {
 Status LocalFileSystem::create_directory(const Path& path) {
     auto fs_path = absolute_path(path);
     if (std::filesystem::exists(fs_path)) {
-        return Status::IOError(fmt::format("{} exists", fs_path.native()));
+        return Status::IOError("{} exists", fs_path.native());
     }
     std::error_code ec;
     std::filesystem::create_directories(fs_path, ec);
     if (ec) {
-        return Status::IOError(
-                fmt::format("cannot create {}: {}", fs_path.native(), std::strerror(ec.value())));
+        return Status::IOError("cannot create {}: {}", fs_path.native(), std::strerror(ec.value()));
     }
     return Status::OK();
 }
 
 Status LocalFileSystem::delete_directory(const Path& path) {
     auto fs_path = absolute_path(path);
+    if (!std::filesystem::exists(fs_path)) {
+        return Status::OK();
+    }
     if (!std::filesystem::is_directory(fs_path)) {
-        return Status::IOError(fmt::format("{} is not a directory", fs_path.native()));
+        return Status::IOError("{} is not a directory", fs_path.native());
     }
     std::error_code ec;
     std::filesystem::remove_all(fs_path, ec);
     if (ec) {
-        return Status::IOError(
-                fmt::format("cannot delete {}: {}", fs_path.native(), std::strerror(ec.value())));
+        return Status::IOError("cannot delete {}: {}", fs_path.native(), std::strerror(ec.value()));
     }
     return Status::OK();
 }
 
 Status LocalFileSystem::link_file(const Path& src, const Path& dest) {
     if (::link(src.c_str(), dest.c_str()) != 0) {
-        return Status::IOError(fmt::format("fail to create hard link: {}. from {} to {}",
-                                           std::strerror(errno), src.native(), dest.native()));
+        return Status::IOError("fail to create hard link: {}. from {} to {}", std::strerror(errno),
+                               src.native(), dest.native());
     }
     return Status::OK();
 }
@@ -121,8 +123,8 @@ Status LocalFileSystem::file_size(const Path& path, size_t* file_size) const {
     std::error_code ec;
     *file_size = std::filesystem::file_size(fs_path, ec);
     if (ec) {
-        return Status::IOError(fmt::format("cannot get file size {}: {}", fs_path.native(),
-                                           std::strerror(ec.value())));
+        return Status::IOError("cannot get file size {}: {}", fs_path.native(),
+                               std::strerror(ec.value()));
     }
     return Status::OK();
 }
@@ -135,8 +137,7 @@ Status LocalFileSystem::list(const Path& path, std::vector<Path>* files) {
         files->push_back(entry.path().filename());
     }
     if (ec) {
-        return Status::IOError(
-                fmt::format("cannot list {}: {}", fs_path.native(), std::strerror(ec.value())));
+        return Status::IOError("cannot list {}: {}", fs_path.native(), std::strerror(ec.value()));
     }
     return Status::OK();
 }

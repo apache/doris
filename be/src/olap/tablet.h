@@ -22,6 +22,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "gen_cpp/AgentService_types.h"
@@ -30,6 +31,7 @@
 #include "olap/base_tablet.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
@@ -298,13 +300,21 @@ public:
 
     bool need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
 
-    // Physically remove remote rowsets.
-    void remove_all_remote_rowsets();
+    Status remove_all_remote_rowsets();
 
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
     Status lookup_row_key(const Slice& encoded_key, RowLocation* row_location, uint32_t version);
+
+    void remove_self_owned_remote_rowsets();
+
+    // Erase entries in `_self_owned_remote_rowsets` iff they are in `rowsets_in_snapshot`.
+    // REQUIRES: held _meta_lock
+    void update_self_owned_remote_rowsets(const std::vector<RowsetSharedPtr>& rowsets_in_snapshot);
+
+    void record_unused_remote_rowset(const RowsetId& rowset_id, const io::ResourceId& resource,
+                                     int64_t num_segments);
 
 private:
     Status _init_once_action();
@@ -396,6 +406,9 @@ private:
 
     int64_t _last_missed_version;
     int64_t _last_missed_time_s;
+
+    // Remote rowsets not shared by other BE. We can delete them when drop tablet.
+    std::unordered_set<RowsetSharedPtr> _self_owned_remote_rowsets; // guarded by _meta_lock
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

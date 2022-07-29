@@ -206,7 +206,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _del_predicates(b._del_predicates),
           _in_restore_mode(b._in_restore_mode),
           _preferred_rowset_type(b._preferred_rowset_type),
-          _cooldown_resource(b._cooldown_resource),
+          _storage_policy(b._storage_policy),
           _delete_bitmap(b._delete_bitmap) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
@@ -461,7 +461,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _preferred_rowset_type = tablet_meta_pb.preferred_rowset_type();
     }
 
-    _cooldown_resource = tablet_meta_pb.storage_policy();
+    _storage_policy = tablet_meta_pb.storage_policy();
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
     }
@@ -528,7 +528,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
         tablet_meta_pb->set_preferred_rowset_type(_preferred_rowset_type);
     }
 
-    tablet_meta_pb->set_storage_policy(_cooldown_resource);
+    tablet_meta_pb->set_storage_policy(_storage_policy);
     tablet_meta_pb->set_enable_unique_key_merge_on_write(_enable_unique_key_merge_on_write);
 
     {
@@ -753,7 +753,7 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     }
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
-    if (a._cooldown_resource != b._cooldown_resource) return false;
+    if (a._storage_policy != b._storage_policy) return false;
     return true;
 }
 
