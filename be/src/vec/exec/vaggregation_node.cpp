@@ -618,18 +618,10 @@ Status AggregationNode::_merge_without_key(Block* block) {
 
             for (int j = 0; j < rows; ++j) {
                 VectorBufferReader buffer_reader(((ColumnString*)(column.get()))->get_data_at(j));
-                _create_agg_status(deserialize_buffer.get());
 
-                _aggregate_evaluators[i]->function()->deserialize(
-                        deserialize_buffer.get() + _offsets_of_aggregate_states[i], buffer_reader,
+                _aggregate_evaluators[i]->function()->deserialize_and_merge(
+                        _agg_data.without_key + _offsets_of_aggregate_states[i], buffer_reader,
                         &_agg_arena_pool);
-
-                _aggregate_evaluators[i]->function()->merge(
-                        _agg_data.without_key + _offsets_of_aggregate_states[i],
-                        deserialize_buffer.get() + _offsets_of_aggregate_states[i],
-                        &_agg_arena_pool);
-
-                _destroy_agg_status(deserialize_buffer.get());
             }
         } else {
             _aggregate_evaluators[i]->execute_single_add(

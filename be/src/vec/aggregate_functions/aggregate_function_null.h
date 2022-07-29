@@ -151,6 +151,18 @@ public:
         }
     }
 
+    void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
+                               Arena* arena) const override {
+        bool flag = true;
+        if (result_is_nullable) {
+            read_binary(flag, buf);
+        }
+        if (flag) {
+            set_flag(place);
+            nested_function->deserialize_and_merge(nested_place(place), buf, arena);
+        }
+    }
+
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         if constexpr (result_is_nullable) {
             ColumnNullable& to_concrete = assert_cast<ColumnNullable&>(to);

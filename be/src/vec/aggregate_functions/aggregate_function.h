@@ -107,6 +107,10 @@ public:
     virtual void deserialize_vec(AggregateDataPtr places, ColumnString* column, Arena* arena,
                                  size_t num_rows) const = 0;
 
+    /// Deserializes state and merge it with current aggregation function.
+    virtual void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
+                                       Arena* arena) const = 0;
+
     /// Returns true if a function requires Arena to handle own states (see add(), merge(), deserialize()).
     virtual bool allocates_memory_in_arena() const { return false; }
 
@@ -253,6 +257,17 @@ public:
     size_t align_of_data() const override { return alignof(Data); }
 
     void reset(AggregateDataPtr place) const override {}
+
+    void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
+                               Arena* arena) const override {
+        Data deserialized_data;
+        AggregateDataPtr deserialized_place = (AggregateDataPtr)&deserialized_data;
+
+        auto derived = static_cast<const Derived*>(this);
+        derived->create(deserialized_place);
+        derived->deserialize(deserialized_place, buf, arena);
+        derived->merge(place, deserialized_place, arena);
+    }
 };
 
 using AggregateFunctionPtr = std::shared_ptr<IAggregateFunction>;
