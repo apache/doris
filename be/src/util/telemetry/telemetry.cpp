@@ -20,6 +20,7 @@
 #include "common/config.h"
 #include "opentelemetry/context/propagation/global_propagator.h"
 #include "opentelemetry/context/propagation/text_map_propagator.h"
+#include "opentelemetry/exporters/otlp/otlp_http_exporter.h"
 #include "opentelemetry/exporters/zipkin/zipkin_exporter.h"
 #include "opentelemetry/nostd/shared_ptr.h"
 #include "opentelemetry/sdk/trace/batch_span_processor.h"
@@ -34,16 +35,28 @@ namespace trace_sdk = opentelemetry::sdk::trace;
 namespace zipkin = opentelemetry::exporter::zipkin;
 namespace resource = opentelemetry::sdk::resource;
 namespace propagation = opentelemetry::context::propagation;
+namespace otlp = opentelemetry::exporter::otlp;
 
-void doris::telemetry::initTracer() {
+void doris::telemetry::init_tracer() {
     if (!doris::config::enable_tracing) {
         return;
     }
 
-    // ZipkinExporter converts span to zipkin's format and exports span to zipkin.
-    zipkin::ZipkinExporterOptions opts;
-    opts.endpoint = doris::config::trace_export_url;
-    auto exporter = std::unique_ptr<trace_sdk::SpanExporter>(new zipkin::ZipkinExporter(opts));
+    std::unique_ptr<trace_sdk::SpanExporter> exporter = nullptr;
+    std::string trace_exporter = config::trace_exporter;
+    boost::to_lower(trace_exporter);
+    if (trace_exporter.compare("collector") == 0) {
+        otlp::OtlpHttpExporterOptions opts {};
+        opts.url = doris::config::trace_export_url;
+        exporter = std::make_unique<otlp::OtlpHttpExporter>(opts);
+    } else if (trace_exporter.compare("zipkin") == 0) {
+        // ZipkinExporter converts span to zipkin's format and exports span to zipkin.
+        zipkin::ZipkinExporterOptions opts {};
+        opts.endpoint = doris::config::trace_export_url;
+        exporter = std::make_unique<zipkin::ZipkinExporter>(opts);
+    } else {
+        LOG(FATAL) << "unknown value " << trace_exporter << " of trace_exporter in be.conf";
+    }
 
     // BatchSpanProcessor exports span by batch.
     trace_sdk::BatchSpanProcessorOptions batchOptions;

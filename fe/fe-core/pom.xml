@@ -608,9 +608,10 @@ under the License.
             <version>1.14.0</version>
         </dependency>
 
+        <!-- https://mvnrepository.com/artifact/io.opentelemetry/opentelemetry-exporter-otlp-http-trace -->
         <dependency>
             <groupId>io.opentelemetry</groupId>
-            <artifactId>opentelemetry-exporter-otlp-trace</artifactId>
+            <artifactId>opentelemetry-exporter-otlp-http-trace</artifactId>
             <version>1.14.0</version>
         </dependency>
 
