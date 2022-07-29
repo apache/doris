@@ -121,6 +121,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
+import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
@@ -575,14 +576,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 orderKeys = ImmutableList.of();
             }
-            long limit = Long.MAX_VALUE;
-            long offset = 0;
-            if (ctx.limitClause().LIMIT() != null) {
-                limit = Long.parseLong(ctx.limitClause().limit.getText());
-                if (ctx.limitClause().OFFSET() != null || ctx.limitClause().COMMA() != null) {
-                    offset = Long.parseLong(ctx.limitClause().offset.getText());
-                }
-            }
+            Token token = ctx.limitClause().limit;
+            long limit = (token == null) ? Long.MAX_VALUE : Long.parseLong(token.getText());
+            token = ctx.limitClause().offset;
+            long offset = (token == null) ? 0 : Long.parseLong(token.getText());
             return new QueryOrganization(orderKeys, limit, offset);
         });
     }

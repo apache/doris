@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class LimitClauseTest {
@@ -31,63 +31,69 @@ public class LimitClauseTest {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "SELECT b FROM test order by a limit 3 offset 100";
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        System.out.println(logicalPlan.treeString());
-        Assert.assertTrue(logicalPlan instanceof LogicalLimit);
+        Assertions.assertTrue(logicalPlan instanceof LogicalLimit);
         LogicalLimit limit = (LogicalLimit) logicalPlan;
-        Assert.assertEquals(3, limit.getLimit());
-        Assert.assertEquals(100, limit.getOffset());
-        Assert.assertEquals(1, limit.children().size());
-        Assert.assertTrue(limit.child(0) instanceof  LogicalSort);
+        Assertions.assertEquals(3, limit.getLimit());
+        Assertions.assertEquals(100, limit.getOffset());
+        Assertions.assertEquals(1, limit.children().size());
+        Assertions.assertTrue(limit.child(0) instanceof  LogicalSort);
 
         sql = "SELECT b FROM test order by a limit 100, 3";
         logicalPlan = nereidsParser.parseSingle(sql);
-        System.out.println(logicalPlan.treeString());
-        Assert.assertTrue(logicalPlan instanceof LogicalLimit);
+        Assertions.assertTrue(logicalPlan instanceof LogicalLimit);
         limit = (LogicalLimit) logicalPlan;
-        Assert.assertEquals(3, limit.getLimit());
-        Assert.assertEquals(100, limit.getOffset());
-        Assert.assertEquals(1, limit.children().size());
-        Assert.assertTrue(limit.child(0) instanceof LogicalSort);
+        Assertions.assertEquals(3, limit.getLimit());
+        Assertions.assertEquals(100, limit.getOffset());
+        Assertions.assertEquals(1, limit.children().size());
+        Assertions.assertTrue(limit.child(0) instanceof LogicalSort);
 
         sql = "SELECT b FROM test limit 3";
         logicalPlan = nereidsParser.parseSingle(sql);
-        System.out.println(logicalPlan.treeString());
-        Assert.assertTrue(logicalPlan instanceof LogicalLimit);
+        Assertions.assertTrue(logicalPlan instanceof LogicalLimit);
         limit = (LogicalLimit) logicalPlan;
-        Assert.assertEquals(3, limit.getLimit());
-        Assert.assertEquals(0, limit.getOffset());
-        Assert.assertEquals(1, limit.children().size());
-        Assert.assertTrue(limit.child(0) instanceof LogicalProject);
+        Assertions.assertEquals(3, limit.getLimit());
+        Assertions.assertEquals(0, limit.getOffset());
+        Assertions.assertEquals(1, limit.children().size());
+        Assertions.assertTrue(limit.child(0) instanceof LogicalProject);
 
         sql = "SELECT b FROM test order by a limit 3";
         logicalPlan = nereidsParser.parseSingle(sql);
-        System.out.println(logicalPlan.treeString());
-        Assert.assertTrue(logicalPlan instanceof LogicalLimit);
+        Assertions.assertTrue(logicalPlan instanceof LogicalLimit);
         limit = (LogicalLimit) logicalPlan;
-        Assert.assertEquals(3, limit.getLimit());
-        Assert.assertEquals(0, limit.getOffset());
-        Assert.assertEquals(1, limit.children().size());
-        Assert.assertTrue(limit.child(0) instanceof LogicalSort);
+        Assertions.assertEquals(3, limit.getLimit());
+        Assertions.assertEquals(0, limit.getOffset());
+        Assertions.assertEquals(1, limit.children().size());
+        Assertions.assertTrue(limit.child(0) instanceof LogicalSort);
     }
 
     @Test
     public void testLimitExceptionCase() {
         NereidsParser nereidsParser = new NereidsParser();
-        String sql = "SELECT b FROM test limit 3 offset 100";
-        try {
-            LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-            System.out.println(logicalPlan.treeString());
-        } catch (IllegalStateException e) {
-            Assert.assertEquals("OFFSET requires an ORDER BY clause",
-                    e.getMessage());
-        }
-        sql = "SELECT b FROM test limit 100, 3";
-        try {
-            LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-            System.out.println(logicalPlan.treeString());
-        } catch (IllegalStateException e) {
-            Assert.assertEquals("OFFSET requires an ORDER BY clause",
-                    e.getMessage());
-        }
+        IllegalStateException exception = Assertions.assertThrows(
+                IllegalStateException.class,
+                () -> {
+                    String sql = "SELECT b FROM test limit 3 offset 100";
+                    nereidsParser.parseSingle(sql);
+                });
+        Assertions.assertEquals("OFFSET requires an ORDER BY clause",
+                    exception.getMessage());
+
+        exception = Assertions.assertThrows(
+                IllegalStateException.class,
+                () -> {
+                    String sql = "SELECT b FROM test limit 100, 3";
+                    nereidsParser.parseSingle(sql);
+                });
+        Assertions.assertEquals("OFFSET requires an ORDER BY clause",
+                    exception.getMessage());
+
+    }
+
+    @Test
+    public void testNoLimit() {
+        //no exception means the limit-clause feature does not affect existing parser functions.
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "select a from tbl order by x";
+        nereidsParser.parseSingle(sql);
     }
 }

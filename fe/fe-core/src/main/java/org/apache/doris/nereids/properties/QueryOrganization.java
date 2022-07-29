@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.properties;
 
 import java.util.List;
-
 /**
  * Represents order keys and limit and offset
  */
