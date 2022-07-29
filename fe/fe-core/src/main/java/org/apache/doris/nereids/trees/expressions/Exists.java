@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.Objects;
@@ -35,10 +36,7 @@ public class Exists extends SubqueryExpr implements LeafExpression {
 
     @Override
     public DataType getDataType() throws UnboundException {
-        // TODO:
-        // For multiple lines, struct type is returned, in the form of splicing,
-        // but it seems that struct type is not currently supported
-        throw new UnboundException("not support");
+        return BooleanType.INSTANCE;
     }
 
     @Override
