@@ -101,8 +101,8 @@ public:
 
 protected:
     virtual Status column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs);
-    virtual void readBatches(arrow::RecordBatchVector& batches, int current_group) = 0;
-    virtual bool filterRowGroup(int current_group) = 0;
+    virtual void read_batches(arrow::RecordBatchVector& batches, int current_group) = 0;
+    virtual bool filter_row_group(int current_group) = 0;
 
 protected:
     const int64_t _batch_size;

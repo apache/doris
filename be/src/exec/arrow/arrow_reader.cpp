@@ -121,13 +121,13 @@ void ArrowReaderWrap::prefetch_batch() {
             _queue_reader_cond.notify_one();
             return;
         }
-        if (filterRowGroup(current_group)) {
+        if (filter_row_group(current_group)) {
             current_group++;
             continue;
         }
 
         arrow::RecordBatchVector batches;
-        readBatches(batches, current_group);
+        read_batches(batches, current_group);
         if (!_status.ok()) {
             _closed = true;
             return;

@@ -139,7 +139,7 @@ Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
     return Status::OK();
 }
 
-void ORCReaderWrap::readBatches(arrow::RecordBatchVector& batches, int current_group) {
+void ORCReaderWrap::read_batches(arrow::RecordBatchVector& batches, int current_group) {
     bool eof = false;
     Status status = _next_stripe_reader(&eof);
     if (!status.ok()) {
@@ -154,7 +154,7 @@ void ORCReaderWrap::readBatches(arrow::RecordBatchVector& batches, int current_g
     _status = _rb_reader->ReadAll(&batches);
 }
 
-bool ORCReaderWrap::filterRowGroup(int current_group) {
+bool ORCReaderWrap::filter_row_group(int current_group) {
     return false;
 }
 

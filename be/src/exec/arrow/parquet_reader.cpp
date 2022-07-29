@@ -537,7 +537,7 @@ Status ParquetReaderWrap::read_next_batch() {
     return Status::OK();
 }
 
-void ParquetReaderWrap::readBatches(arrow::RecordBatchVector& batches, int current_group) {
+void ParquetReaderWrap::read_batches(arrow::RecordBatchVector& batches, int current_group) {
     _status = _reader->GetRecordBatchReader({current_group}, _include_column_ids, &_rb_reader);
     if (!_status.ok()) {
         _closed = true;
@@ -546,7 +546,7 @@ void ParquetReaderWrap::readBatches(arrow::RecordBatchVector& batches, int curre
     _status = _rb_reader->ReadAll(&batches);
 }
 
-bool ParquetReaderWrap::filterRowGroup(int current_group) {
+bool ParquetReaderWrap::filter_row_group(int current_group) {
     if (config::parquet_predicate_push_down) {
         auto filter_group_set = _row_group_reader->filter_groups();
         if (filter_group_set.end() != filter_group_set.find(current_group)) {

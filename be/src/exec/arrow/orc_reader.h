@@ -44,8 +44,8 @@ public:
 private:
     Status _next_stripe_reader(bool* eof);
     Status _seek_start_stripe();
-    void readBatches(arrow::RecordBatchVector& batches, int current_group) override;
-    bool filterRowGroup(int current_group) override;
+    void read_batches(arrow::RecordBatchVector& batches, int current_group) override;
+    bool filter_row_group(int current_group) override;
 
 private:
     // orc file reader object
