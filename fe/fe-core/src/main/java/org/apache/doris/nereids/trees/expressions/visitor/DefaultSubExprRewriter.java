@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.Scope;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.ListQuery;
+import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -44,7 +47,17 @@ public class DefaultSubExprRewriter<C> extends DefaultExpressionRewriter<C> {
 
     @Override
     public Expression visitInSubquery(InSubquery expr, C context) {
-        return new InSubquery(expr.getCompareExpr(), analyzeSubquery(expr));
+        return new InSubquery(expr.getCompareExpr(), new ListQuery(analyzeSubquery(expr)));
+    }
+
+    @Override
+    public Expression visitScalarSubquery(ScalarSubquery scalar, C context) {
+        LogicalPlan analyzed = analyzeSubquery(scalar);
+        if (analyzed.getOutput().size() != 1) {
+            throw new AnalysisException("Multiple columns returned by subquery are not yet supported. Found "
+                    + analyzed.getOutput().size());
+        }
+        return new ScalarSubquery(analyzed);
     }
 
     private LogicalPlan analyzeSubquery(SubqueryExpr expr) {

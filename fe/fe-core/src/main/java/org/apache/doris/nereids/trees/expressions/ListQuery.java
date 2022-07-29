@@ -20,36 +20,38 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.Objects;
 
 /**
- * Exists subquery expression.
+ * Encapsulate LogicalPlan as Expression.
+ * just for subquery.
  */
-public class Exists extends SubqueryExpr implements LeafExpression {
-
-    public Exists(LogicalPlan subquery) {
+public class ListQuery extends SubqueryExpr implements LeafExpression {
+    public ListQuery(LogicalPlan subquery) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"));
     }
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return BooleanType.INSTANCE;
+        // TODO:
+        // For multiple lines, struct type is returned, in the form of splicing,
+        // but it seems that struct type is not currently supported
+        throw new UnboundException("not support");
     }
 
     @Override
     public String toSql() {
-        return "EXISTS (SUBQUERY) " + super.toSql();
+        return " (LISTQUERY) " + super.toSql();
     }
 
     @Override
     public String toString() {
-        return "EXISTS (SUBQUERY) " + super.toString();
+        return " (LISTQUERY) " + super.toString();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitExistsSubquery(this, context);
+        return visitor.visitListQuery(this, context);
     }
 }

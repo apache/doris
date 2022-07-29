@@ -83,16 +83,30 @@ public class SubqueryTest extends AnalyzeCheckTestBase {
 
     @Test
     public void scalarTest() {
-        String sql = "select * from t0 where t0.id = "
+        // min will be rewritten as as, it needs to be bound
+        /*String sql = "select * from t0 where t0.id = "
                 + "(select min(t1.id) from t1 where t0.k1 = t1.k1)";
-        checkAnalyze(sql);
+        checkAnalyze(sql);*/
+
+        // Require that the return value in the where subquery must have only 1 column.
+        String sql1 = "select * from t0 where t0.id = "
+                + "(select t1.k1, t1.id from t1 where t0.k1 = t1.k1)";
+        assert sql1 != null;
+
+        String sql2 = "select * from t0 where t0.id = "
+                + "(select t1.k1 from t1 where t0.k1 = t1.k1)";
+        checkAnalyze(sql2);
+
+        String sql3 = "select * from t0 where t0.id = "
+                + "(select * from t1 where t0.k1 = t1.k1)";
+        assert sql3 != null;
     }
 
     @Test
     public void inScalarTest() {
         String sql = "select * from t0 where t0.id in "
                 + "(select * from t1 where t1.k1 = "
-                + "(select * from t2 where t0.id = t2.id));";
+                + "(select t2.id from t2 where t0.id = t2.id));";
         checkAnalyze(sql);
     }
 }

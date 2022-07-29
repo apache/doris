@@ -39,10 +39,6 @@ public class SubqueryExpr extends Expression {
 
     @Override
     public DataType getDataType() throws UnboundException {
-        // TODO:
-        // Returns the data type of the row on a single line
-        // For multiple lines, struct type is returned, in the form of splicing,
-        // but it seems that struct type is not currently supported
         throw new UnboundException("not support");
     }
 
@@ -95,7 +91,7 @@ public class SubqueryExpr extends Expression {
      * @param o compared query.
      * @return equal ? true : false;
      */
-    private boolean checkEquals(Object i, Object o) {
+    protected boolean checkEquals(Object i, Object o) {
         if (!(i instanceof LogicalPlan) || !(o instanceof LogicalPlan)) {
             return false;
         }
