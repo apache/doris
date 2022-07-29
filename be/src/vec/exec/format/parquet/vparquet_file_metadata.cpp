@@ -21,32 +21,32 @@
 
 namespace doris::vectorized {
 
-FileMetaData::FileMetaData(tparquet::FileMetaData& metadata) : _metadata(metadata) {
-    _num_rows = metadata.num_rows;
-    _num_groups = metadata.row_groups.size();
-    if (_num_groups != 0) {
-        _num_columns = metadata.row_groups[0].columns.size();
+    FileMetaData::FileMetaData(tparquet::FileMetaData &metadata) : _metadata(metadata) {
+        _num_rows = metadata.num_rows;
+        _num_groups = metadata.row_groups.size();
+        if (_num_groups != 0) {
+            _num_columns = metadata.row_groups[0].columns.size();
+        }
+        if (metadata.schema[0].num_children <= 0) {
+        }
     }
-    if (metadata.schema[0].num_children <= 0) {
+
+    Status FileMetaData::init_schema() {
+        return Status();
     }
-}
 
-Status FileMetaData::init_schema() {
-    return Status();
-}
+    const tparquet::FileMetaData &FileMetaData::to_thrift_metadata() {
+        return _metadata;
+    }
 
-const tparquet::FileMetaData& FileMetaData::to_thrift_metadata() {
-    return _metadata;
-}
-
-std::string FileMetaData::debug_string() const {
-    std::stringstream out;
-    out << "Parquet Metadata(";
-    out << "; version=" << _metadata.version;
-    out << "; num row groups=" << _num_groups;
-    out << "; num rows=" << _num_rows;
-    out << ")";
-    return out.str();
-}
+    std::string FileMetaData::debug_string() const {
+        std::stringstream out;
+        out << "Parquet Metadata(";
+        out << "; version=" << _metadata.version;
+        out << "; num row groups=" << _num_groups;
+        out << "; num rows=" << _num_rows;
+        out << ")";
+        return out.str();
+    }
 
 } // namespace doris::vectorized
