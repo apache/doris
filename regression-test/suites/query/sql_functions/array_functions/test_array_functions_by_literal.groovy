@@ -102,4 +102,14 @@ suite("test_array_functions_by_literal", "all") {
     qt_sql "select array_union([1,2,3], [2,3,4,null])"
     qt_sql "select array_except([1,2,3], [2,3,4,null])"
     qt_sql "select array_intersect([1,2,3], [2,3,4,null])"
+
+    // arrat_slice function
+    qt_sql "select [1,2,3][1:1]"
+    qt_sql "select [1,2,3][1:3]"
+    qt_sql "select [1,2,3][1:5]"
+    qt_sql "select [1,2,3][2:]"
+    qt_sql "select [1,2,3][-2:]"
+    qt_sql "select [1,2,3][2:-1]"
+    qt_sql "select [1,2,3][0:]"
+    qt_sql "select [1,2,3][-5:]"
 }
