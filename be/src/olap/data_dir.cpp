@@ -469,8 +469,8 @@ Status DataDir::load() {
         if (!create_status) {
             LOG(WARNING) << "could not create rowset from rowsetmeta: "
                          << " rowset_id: " << rowset_meta->rowset_id()
-                         << " rowset_type: " << rowset_meta->rowset_type()
-                         << " rowset_state: " << rowset_meta->rowset_state();
+                         << ", rowset_type: " << rowset_meta->rowset_type()
+                         << ", rowset_state: " << rowset_meta->rowset_state();
             continue;
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED &&

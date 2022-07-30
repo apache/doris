@@ -25,6 +25,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/olap_file.pb.h"
@@ -280,6 +281,18 @@ public:
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->all_beta();
+    }
+
+    Status check_valid() {
+        if (_tablet_meta->all_rs_metas().empty()) {
+            return Status::Corruption("tablet_schema.all_rs_metas is empty.");
+        }
+        for (auto meta : _tablet_meta->all_rs_metas()) {
+            if (!meta.get() || !meta->tablet_schema()) {
+                return Status::Corruption("tablet_schema have null meta.");
+            }
+        }
+        return Status::OK();
     }
 
     const TabletSchema& tablet_schema() const override;

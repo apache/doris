@@ -1681,6 +1681,7 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
 }
 
 Status Tablet::create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
+    RETURN_IF_ERROR(check_valid());
     return RowsetFactory::create_rowset(&tablet_schema(), tablet_path(), rowset_meta, rowset);
 }
 
