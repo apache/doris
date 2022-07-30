@@ -89,7 +89,11 @@ public:
         auto right_data_type = remove_nullable(arguments[1]);
         DCHECK(is_array(left_data_type)) << arguments[0]->get_name();
         DCHECK(is_array(right_data_type)) << arguments[1]->get_name();
-        DCHECK(left_data_type->equals(*right_data_type))
+        auto left_nested_type = remove_nullable(
+                assert_cast<const DataTypeArray&>(*left_data_type).get_nested_type());
+        auto right_nested_type = remove_nullable(
+                assert_cast<const DataTypeArray&>(*right_data_type).get_nested_type());
+        DCHECK(left_nested_type->equals(*right_nested_type))
                 << "data type " << arguments[0]->get_name() << " not equal with "
                 << arguments[1]->get_name();
         return make_nullable(std::make_shared<DataTypeUInt8>());
