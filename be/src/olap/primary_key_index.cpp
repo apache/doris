@@ -17,6 +17,7 @@
 
 #include "olap/primary_key_index.h"
 
+#include "common/config.h"
 #include "io/fs/file_reader.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 
@@ -67,13 +68,13 @@ Status PrimaryKeyIndexReader::parse(io::FileReaderSPtr file_reader,
                                     const segment_v2::PrimaryKeyIndexMetaPB& meta) {
     // parse primary key index
     _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
-    RETURN_IF_ERROR(_index_reader->load(_use_page_cache, _kept_in_memory));
+    RETURN_IF_ERROR(_index_reader->load(!config::disable_storage_page_cache, false));
 
     // parse bloom filter
     segment_v2::ColumnIndexMetaPB column_index_meta = meta.bloom_filter_index();
     segment_v2::BloomFilterIndexReader bf_index_reader(std::move(file_reader),
                                                        &column_index_meta.bloom_filter_index());
-    RETURN_IF_ERROR(bf_index_reader.load(_use_page_cache, _kept_in_memory));
+    RETURN_IF_ERROR(bf_index_reader.load(!config::disable_storage_page_cache, false));
     std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter));
     RETURN_IF_ERROR(bf_iter->read_bloom_filter(0, &_bf));

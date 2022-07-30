@@ -147,7 +147,10 @@ Status Segment::load_index() {
 
         if (_tablet_schema.keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta()) {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());
-            return _pk_index_reader->parse(_file_reader, _footer.primary_key_index_meta());
+            RETURN_IF_ERROR(
+                    _pk_index_reader->parse(_file_reader, _footer.primary_key_index_meta()));
+            _meta_mem_usage += _pk_index_reader->get_memory_size();
+            return Status::OK();
         } else {
             Slice body;
             PageFooterPB footer;

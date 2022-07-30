@@ -63,6 +63,7 @@ public:
     bool support_value_seek() const { return _meta.has_value_index_meta(); }
 
     CompressionTypePB get_compression() const { return _meta.compression(); }
+    uint64_t get_memory_size() const { return _mem_size; }
 
 private:
     Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader);
@@ -88,6 +89,7 @@ private:
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
     const KeyCoder* _value_key_coder = nullptr;
+    uint64_t _mem_size = 0;
 };
 
 class IndexedColumnIterator {
