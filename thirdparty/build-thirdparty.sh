@@ -265,7 +265,8 @@ build_libevent() {
         LDFLAGS="-L${TP_LIB_DIR}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DEVENT__DISABLE_TESTS=ON \
         -DEVENT__DISABLE_OPENSSL=ON -DEVENT__DISABLE_SAMPLES=ON -DEVENT__DISABLE_REGRESS=ON ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
     remove_all_dylib
 }
 
@@ -373,7 +374,8 @@ build_gflags() {
     rm -rf CMakeCache.txt CMakeFiles/
     "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_POSITION_INDEPENDENT_CODE=On ../
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 # glog
@@ -387,7 +389,6 @@ build_glog() {
 
     CPPFLAGS="-I${TP_INCLUDE_DIR} -fpermissive -fPIC" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        CFLAGS="-fPIC" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-frame-pointers --disable-shared --enable-static
     make -j "${PARALLEL}" && make install
 }
@@ -401,7 +402,8 @@ build_gtest() {
     rm -rf CMakeCache.txt CMakeFiles/
     "${CMAKE_CMD}" ../ -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_POSITION_INDEPENDENT_CODE=On
     # -DCMAKE_CXX_FLAGS="$warning_uninitialized"
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 # rapidjson
@@ -426,7 +428,8 @@ build_snappy() {
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_INSTALL_INCLUDEDIR="${TP_INCLUDE_DIR}"/snappy \
         -DSNAPPY_BUILD_TESTS=0 ../
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 
     #build for libarrow.a
     cp "${TP_INCLUDE_DIR}/snappy/snappy-c.h" "${TP_INCLUDE_DIR}/snappy-c.h" &&
@@ -457,9 +460,9 @@ build_zlib() {
     check_if_source_exist "${ZLIB_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ZLIB_SOURCE}"
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+    CFLAGS="-fPIC" \
+        CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        CFLAGS="-fPIC" \
         ./configure --prefix="${TP_INSTALL_DIR}" --static
     make -j "${PARALLEL}" && make install
 
@@ -552,7 +555,7 @@ build_hyperscan() {
     cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     PATH=$TP_INSTALL_DIR/bin:$PATH ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
-         -DBOOST_ROOT=$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DBUILD_EXAMPLES=OFF ..
+        -DBOOST_ROOT=$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DBUILD_EXAMPLES=OFF ..
     ${BUILD_SYSTEM} -j $PARALLEL install
 }
 
@@ -646,7 +649,8 @@ build_brpc() {
         "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
         -DPROTOBUF_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 
     remove_all_dylib
 }
@@ -788,7 +792,8 @@ build_arrow() {
         -DBOOST_ROOT="${TP_INSTALL_DIR}" --no-warn-unused-cli \
         -DThrift_ROOT="${TP_INSTALL_DIR}" ..
 
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 
     #copy dep libs
     cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a "${TP_INSTALL_DIR}/lib64/libjemalloc.a"
@@ -821,7 +826,8 @@ build_s2() {
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" \
         -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}/include" \
         -DWITH_GLOG=ON ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 # bitshuffle
@@ -898,7 +904,8 @@ build_croaringbitmap() {
         LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" ${avx_flag} -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DENABLE_ROARING_TESTS=OFF ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 # fmt
@@ -908,7 +915,8 @@ build_fmt() {
     mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
     rm -rf CMakeCache.txt CMakeFiles/
     "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=FALSE -DFMT_TEST=OFF -DFMT_DOC=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
-    "${BUILD_SYSTEM}" -j"${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j"${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 # parallel_hashmap
@@ -951,7 +959,8 @@ build_orc() {
         -DBUILD_CPP_TESTS=OFF \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
 
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 #cctz
@@ -1003,7 +1012,8 @@ build_aws_sdk() {
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
         -DBUILD_ONLY="core;s3;s3-crt;transfer" -DCMAKE_CXX_FLAGS="-Wno-nonnull" -DCPP_STANDARD=17
     cd "${BUILD_DIR}"
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 # lzma
@@ -1139,7 +1149,8 @@ build_nlohmann_json() {
     mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
 
     "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DJSON_BuildTests=OFF ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 # opentelemetry
@@ -1150,7 +1161,8 @@ build_opentelemetry() {
 
     "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_TESTING=OFF \
         -DWITH_OTLP=ON -DWITH_OTLP_GRPC=OFF -DWITH_OTLP_HTTP=ON -DWITH_ZIPKIN=ON -DWITH_EXAMPLES=OFF ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" && "${BUILD_SYSTEM}" install
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 # sse2neon
