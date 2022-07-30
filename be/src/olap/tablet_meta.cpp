@@ -670,6 +670,8 @@ void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
     while (it != _stale_rs_metas.end()) {
         if ((*it)->version() == version) {
             it = _stale_rs_metas.erase(it);
+            // remove rowset delete bitmap
+            delete_bitmap().remove({(*it)->rowset_id(), 0, 0}, {(*it)->rowset_id(), UINT32_MAX, 0});
         } else {
             it++;
         }
@@ -753,6 +755,44 @@ Status TabletMeta::set_partition_id(int64_t partition_id) {
     }
     _partition_id = partition_id;
     return Status::OK();
+}
+
+// We take a delete bitmap's snapshot of origin rowset at the beginning of
+// compaction, some keys of origin rowsets might be deleted during compaction,
+// but exist in dest rowset. so we need to update the bitmap of dest rowset
+// after compaction.
+// ANNT: should take a tablet lock before calling the function
+void TabletMeta::update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_rowsets,
+                                      const Version& version,
+                                      const RowIdConversion& rowid_conversion) {
+    RowLocation src;
+    RowLocation dst;
+    DeleteBitmap output_rowset_delete_bitmap(_tablet_id);
+    for (auto& rowset : input_rowsets) {
+        src.rowset_id = rowset->rowset_id();
+        for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
+            src.segment_id = seg_id;
+            DeleteBitmap upper_map(_tablet_id);
+            delete_bitmap().subset({rowset->rowset_id(), seg_id, version.second},
+                                   {rowset->rowset_id(), seg_id, INT64_MAX}, &upper_map);
+            // traverse all versions and convert rowid
+            for (auto iter = upper_map.delete_bitmap.begin(); iter != upper_map.delete_bitmap.end();
+                 ++iter) {
+                auto cur_version = std::get<2>(iter->first);
+                for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
+                    src.row_id = *index;
+                    if (rowid_conversion.get(src, &dst) != 0) {
+                        LOG(WARNING) << "Can't find rowid, may be deleted by the delete_handler.";
+                        continue;
+                    }
+                    output_rowset_delete_bitmap.add({dst.rowset_id, dst.segment_id, cur_version},
+                                                    dst.row_id);
+                }
+            }
+        }
+    }
+    // update output rowset delete bitmap
+    delete_bitmap().merge(output_rowset_delete_bitmap);
 }
 
 bool operator==(const TabletMeta& a, const TabletMeta& b) {
