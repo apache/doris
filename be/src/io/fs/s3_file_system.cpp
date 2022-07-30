@@ -174,6 +174,9 @@ Status S3FileSystem::delete_directory(const Path& path) {
 
     Aws::S3::Model::ListObjectsV2Request request;
     auto prefix = get_key(path);
+    if (!prefix.empty() && prefix.back() != '/') {
+        prefix.push_back('/');
+    }
     request.WithBucket(_s3_conf.bucket).WithPrefix(prefix);
 
     Aws::S3::Model::DeleteObjectsRequest delete_request;
