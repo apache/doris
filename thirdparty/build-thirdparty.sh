@@ -645,6 +645,8 @@ build_brpc() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
+    # Currently, BRPC can't be built for static libraries only (without .so). Therefore, we should add `-fPIC`
+    # to the dependencies which are required by BRPC. Dependencies: zlib, glog, protobuf, leveldb
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \

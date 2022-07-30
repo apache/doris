@@ -160,7 +160,7 @@ MACHINE_TYPE=$(uname -m)
 if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
     echo "use vectorscan instead of hyperscan on aarch64"
     HYPERSCAN_DOWNLOAD="https://github.com/VectorCamp/vectorscan/archive/refs/tags/vectorscan/5.4.7.tar.gz"
-    HYPERSCAN_NAME=vectorscan-vectorscan-5.4.7.tar.gz
+    HYPERSCAN_NAME=vectorscan-5.4.7.tar.gz
     HYPERSCAN_SOURCE=vectorscan-vectorscan-5.4.7
     HYPERSCAN_MD5SUM="ae924ccce79ef9bf6bf118693ae14fe5"
 fi
