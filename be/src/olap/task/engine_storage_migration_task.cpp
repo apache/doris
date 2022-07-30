@@ -116,7 +116,7 @@ Status EngineStorageMigrationTask::_check_running_txns_until_timeout(
 
 Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
         uint64_t shard, const std::string& full_path,
-        const std::vector<RowsetSharedPtr>& consistent_rowsets) {
+        const std::vector<RowsetSharedPtr>& consistent_rowsets, int64_t end_version) {
     // need hold migration lock and push lock outside
     Status res = Status::OK();
     int64_t tablet_id = _tablet->tablet_id();
@@ -124,7 +124,7 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
     TabletMetaSharedPtr new_tablet_meta(new (std::nothrow) TabletMeta());
     {
         std::shared_lock rdlock(_tablet->get_header_lock());
-        _generate_new_header(shard, consistent_rowsets, new_tablet_meta);
+        _generate_new_header(shard, consistent_rowsets, new_tablet_meta, end_version);
     }
     std::string new_meta_file = full_path + "/" + std::to_string(tablet_id) + ".hdr";
     res = new_tablet_meta->save(new_meta_file);
@@ -299,7 +299,7 @@ Status EngineStorageMigrationTask::_migrate() {
         }
 
         // generate new tablet meta and write to hdr file
-        res = _gen_and_write_header_to_hdr_file(shard, full_path, consistent_rowsets);
+        res = _gen_and_write_header_to_hdr_file(shard, full_path, consistent_rowsets, end_version);
         if (!res.ok()) {
             break;
         }
@@ -321,7 +321,7 @@ Status EngineStorageMigrationTask::_migrate() {
 // TODO(ygl): lost some information here, such as cumulative layer point
 void EngineStorageMigrationTask::_generate_new_header(
         uint64_t new_shard, const std::vector<RowsetSharedPtr>& consistent_rowsets,
-        TabletMetaSharedPtr new_tablet_meta) {
+        TabletMetaSharedPtr new_tablet_meta, int64_t end_version) {
     _tablet->generate_tablet_meta_copy_unlocked(new_tablet_meta);
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
@@ -329,6 +329,10 @@ void EngineStorageMigrationTask::_generate_new_header(
         rs_metas.push_back(rs->rowset_meta());
     }
     new_tablet_meta->revise_rs_metas(std::move(rs_metas));
+    if (_tablet->keys_type() == UNIQUE_KEYS && _tablet->enable_unique_key_merge_on_write()) {
+        DeleteBitmap bm = _tablet->tablet_meta()->delete_bitmap().snapshot(end_version);
+        new_tablet_meta->revise_delete_bitmap_unlocked(bm);
+    }
     new_tablet_meta->set_shard_id(new_shard);
     // should not save new meta here, because new tablet may failed
     // should not remove the old meta here, because the new header maybe not valid

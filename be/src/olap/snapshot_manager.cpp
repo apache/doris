@@ -152,6 +152,7 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     tablet_schema.init_from_pb(new_tablet_meta_pb.schema());
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
+    std::unordered_map<RowsetId, RowsetId, HashOfRowsetId> rowset_id_mapping;
     for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
 
@@ -160,6 +161,13 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
             RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
             RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir, tablet_schema, rowset_id,
                                             rowset_meta));
+            RowsetId src_rs_id;
+            if (visible_rowset.rowset_id() > 0) {
+                src_rs_id.init(visible_rowset.rowset_id());
+            } else {
+                src_rs_id.init(visible_rowset.rowset_id_v2());
+            }
+            rowset_id_mapping[src_rs_id] = rowset_id;
         } else {
             // remote rowset
             *rowset_meta = visible_rowset;
@@ -184,6 +192,13 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
             RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
             RETURN_NOT_OK(_rename_rowset_id(stale_rowset, clone_dir, tablet_schema, rowset_id,
                                             rowset_meta));
+            RowsetId src_rs_id;
+            if (stale_rowset.rowset_id() > 0) {
+                src_rs_id.init(stale_rowset.rowset_id());
+            } else {
+                src_rs_id.init(stale_rowset.rowset_id_v2());
+            }
+            rowset_id_mapping[src_rs_id] = rowset_id;
         } else {
             // remote rowset
             *rowset_meta = stale_rowset;
@@ -191,6 +206,21 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         // FIXME(cyx): Redundant?
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
+    }
+
+    if (!rowset_id_mapping.empty() && cloned_tablet_meta_pb.has_delete_bitmap()) {
+        auto& cloned_del_bitmap_pb = cloned_tablet_meta_pb.delete_bitmap();
+        DeleteBitmapPB* new_del_bitmap_pb = new_tablet_meta_pb.mutable_delete_bitmap();
+        int rst_ids_size = cloned_del_bitmap_pb.rowset_ids_size();
+        for (size_t i = 0; i < rst_ids_size; ++i) {
+            RowsetId rst_id;
+            rst_id.init(cloned_del_bitmap_pb.rowset_ids(i));
+            // It should not happen, if we can't convert some rowid in delete bitmap, the
+            // data might be inconsist.
+            CHECK(rowset_id_mapping.find(rst_id) != rowset_id_mapping.end())
+                    << "can't find rowset_id " << rst_id.to_string() << " in convert_rowset_ids";
+            new_del_bitmap_pb->set_rowset_ids(i, rowset_id_mapping[rst_id].to_string());
+        }
     }
 
     res = TabletMeta::save(cloned_meta_file, new_tablet_meta_pb);
@@ -356,6 +386,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             break;
         }
         std::vector<RowsetSharedPtr> consistent_rowsets;
+        DeleteBitmap delete_bitmap_snapshot(new_tablet_meta->tablet_id());
 
         /// If set missing_version, try to get all missing version.
         /// If some of them not exist in tablet, we will fall back to
@@ -381,14 +412,21 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                         break;
                     }
                 }
+
+                // Take a full snapshot, will revise according to missed rowset later.
+                if (ref_tablet->keys_type() == UNIQUE_KEYS &&
+                    ref_tablet->enable_unique_key_merge_on_write()) {
+                    delete_bitmap_snapshot = ref_tablet->tablet_meta()->delete_bitmap().snapshot(
+                            ref_tablet->max_version().second);
+                }
             }
 
+            int64_t version = -1;
             if (!res.ok() || !request.__isset.missing_version) {
                 /// not all missing versions are found, fall back to full snapshot.
                 res = Status::OK();         // reset res
                 consistent_rowsets.clear(); // reset vector
 
-                std::shared_lock rdlock(ref_tablet->get_header_lock());
                 // get latest version
                 const RowsetSharedPtr last_version = ref_tablet->rowset_with_max_version();
                 if (last_version == nullptr) {
@@ -398,7 +436,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     break;
                 }
                 // get snapshot version, use request.version if specified
-                int32_t version = last_version->end_version();
+                version = last_version->end_version();
                 if (request.__isset.version) {
                     if (last_version->end_version() < request.version) {
                         LOG(WARNING) << "invalid make snapshot request. "
@@ -420,12 +458,21 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
                 *allow_incremental_clone = false;
             } else {
+                version = ref_tablet->max_version().second;
                 *allow_incremental_clone = true;
             }
 
             // copy the tablet meta to new_tablet_meta inside header lock
             CHECK(res.ok()) << res;
             ref_tablet->generate_tablet_meta_copy_unlocked(new_tablet_meta);
+            // The delete bitmap update operation and the add_inc_rowset operation is not atomic,
+            // so delete bitmap may contains some data generated by invisible rowset, we should
+            // get rid of these useless bitmaps when doing snapshot.
+            if (ref_tablet->keys_type() == UNIQUE_KEYS &&
+                ref_tablet->enable_unique_key_merge_on_write()) {
+                delete_bitmap_snapshot =
+                        ref_tablet->tablet_meta()->delete_bitmap().snapshot(version);
+            }
         }
         {
             std::unique_lock wlock(ref_tablet->get_header_lock());
@@ -459,6 +506,10 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         // Clear it for safety reason.
         // Whether it is incremental or full snapshot, rowset information is stored in rs_meta.
         new_tablet_meta->revise_rs_metas(std::move(rs_metas));
+        if (ref_tablet->keys_type() == UNIQUE_KEYS &&
+            ref_tablet->enable_unique_key_merge_on_write()) {
+            new_tablet_meta->revise_delete_bitmap_unlocked(delete_bitmap_snapshot);
+        }
 
         if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION2) {
             res = new_tablet_meta->save(header_path);

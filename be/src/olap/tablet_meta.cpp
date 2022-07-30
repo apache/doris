@@ -644,6 +644,27 @@ void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     _stale_rs_metas.clear();
 }
 
+// This method should call after revise_rs_metas, since new rs_metas might be a subset
+// of original tablet, we should revise the delete_bitmap according to current rowset.
+//
+// Delete bitmap is protected by Tablet::_meta_lock, we don't need to acquire the
+// TabletMeta's _meta_lock
+void TabletMeta::revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap) {
+    _delete_bitmap = std::make_unique<DeleteBitmap>(tablet_id());
+    for (auto rs : _rs_metas) {
+        DeleteBitmap rs_bm(tablet_id());
+        delete_bitmap.subset({rs->rowset_id(), 0, 0}, {rs->rowset_id(), UINT32_MAX, INT64_MAX},
+                             &rs_bm);
+        _delete_bitmap->merge(rs_bm);
+    }
+    for (auto rs : _stale_rs_metas) {
+        DeleteBitmap rs_bm(tablet_id());
+        delete_bitmap.subset({rs->rowset_id(), 0, 0}, {rs->rowset_id(), UINT32_MAX, INT64_MAX},
+                             &rs_bm);
+        _delete_bitmap->merge(rs_bm);
+    }
+}
+
 void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
     auto it = _stale_rs_metas.begin();
     while (it != _stale_rs_metas.end()) {
@@ -790,6 +811,20 @@ DeleteBitmap& DeleteBitmap::operator=(DeleteBitmap&& o) {
 DeleteBitmap DeleteBitmap::snapshot() const {
     std::shared_lock l(lock);
     return DeleteBitmap(*this);
+}
+
+DeleteBitmap DeleteBitmap::snapshot(Version version) const {
+    // Take snapshot first, then remove keys greater than given version.
+    DeleteBitmap snapshot = this->snapshot();
+    auto it = snapshot.delete_bitmap.begin();
+    while (it != snapshot.delete_bitmap.end()) {
+        if (std::get<2>(it->first) > version) {
+            it = snapshot.delete_bitmap.erase(it);
+        } else {
+            it++;
+        }
+    }
+    return snapshot;
 }
 
 void DeleteBitmap::add(const BitmapKey& bmk, uint32_t row_id) {

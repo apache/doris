@@ -159,6 +159,7 @@ public:
                          const std::vector<RowsetMetaSharedPtr>& to_delete,
                          bool same_version = false);
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
+    void revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap);
 
     const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
@@ -272,7 +273,7 @@ class DeleteBitmap {
 public:
     mutable std::shared_mutex lock;
     using SegmentId = uint32_t;
-    using Version = uint32_t;
+    using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
 
@@ -298,6 +299,12 @@ public:
      * process
      */
     DeleteBitmap snapshot() const;
+
+    /**
+     * Makes a snapshot of delete bimap on given version, read lock will be
+     * acquired temporary in this process
+     */
+    DeleteBitmap snapshot(Version version) const;
 
     /**
      * Marks the specific row deleted
