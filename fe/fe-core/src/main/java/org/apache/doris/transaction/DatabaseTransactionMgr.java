@@ -1726,7 +1726,7 @@ public class DatabaseTransactionMgr {
     }
 
     public void cleanLabel(String label) {
-        long counter = 0;
+        Set<Long> removedTxnIds = Sets.newHashSet();
         writeLock();
         try {
             if (Strings.isNullOrEmpty(label)) {
@@ -1738,7 +1738,7 @@ public class DatabaseTransactionMgr {
                         long txnId = innerIter.next();
                         if (idToFinalStatusTransactionState.remove(txnId) != null) {
                             innerIter.remove();
-                            ++counter;
+                            removedTxnIds.add(txnId);
                         }
                     }
                     if (txnIds.isEmpty()) {
@@ -1755,16 +1755,21 @@ public class DatabaseTransactionMgr {
                     long txnId = iter.next();
                     if (idToFinalStatusTransactionState.remove(txnId) != null) {
                         iter.remove();
-                        ++counter;
+                        removedTxnIds.add(txnId);
                     }
                 }
                 if (txnIds.isEmpty()) {
                     labelToTxnIds.remove(label);
                 }
             }
+            // remove from finalStatusTransactionStateDequeShort and finalStatusTransactionStateDequeLong
+            // So that we can keep consistency in meta image
+            finalStatusTransactionStateDequeShort.removeIf(txn -> removedTxnIds.contains(txn.getTransactionId()));
+            finalStatusTransactionStateDequeLong.removeIf(txn -> removedTxnIds.contains(txn.getTransactionId()));
         } finally {
             writeUnlock();
         }
-        LOG.info("clean {} labels on db {} with label '{}' in database transaction mgr.", counter, dbId, label);
+        LOG.info("clean {} labels on db {} with label '{}' in database transaction mgr.", removedTxnIds.size(), dbId,
+                label);
     }
 }
