@@ -30,10 +30,14 @@ namespace doris {
 
 MemTrackerLimiter::MemTrackerLimiter(int64_t byte_limit, const std::string& label,
                                      MemTrackerLimiter* parent, RuntimeProfile* profile)
-        : MemTracker(label, parent, profile, true) {
-    // Walks the MemTrackerLimiter hierarchy and populates _all_ancestors and _limited_ancestors
+        : MemTracker(label, profile, true) {
     DCHECK_GE(byte_limit, -1);
     _limit = byte_limit;
+    _group_num = GetCurrentTimeMicros() % 1000;
+    _parent = parent ? parent : thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker();
+    DCHECK(_parent || label == "Process");
+
+    // Walks the MemTrackerLimiter hierarchy and populates _all_ancestors and _limited_ancestors
     MemTrackerLimiter* tracker = this;
     while (tracker != nullptr) {
         _all_ancestors.push_back(tracker);
@@ -59,12 +63,6 @@ void MemTrackerLimiter::add_child(MemTrackerLimiter* tracker) {
     _had_child_count++;
 }
 
-void MemTrackerLimiter::add_child(MemTracker* tracker) {
-    std::lock_guard<std::mutex> l(_child_tracker_lock);
-    tracker->_child_tracker_it = _child_trackers.insert(_child_trackers.end(), tracker);
-    _had_child_count++;
-}
-
 void MemTrackerLimiter::remove_child(MemTrackerLimiter* tracker) {
     std::lock_guard<std::mutex> l(_child_tracker_limiter_lock);
     if (tracker->_child_tracker_it != _child_tracker_limiters.end()) {
@@ -73,19 +71,21 @@ void MemTrackerLimiter::remove_child(MemTrackerLimiter* tracker) {
     }
 }
 
-void MemTrackerLimiter::remove_child(MemTracker* tracker) {
-    std::lock_guard<std::mutex> l(_child_tracker_lock);
-    if (tracker->_child_tracker_it != _child_trackers.end()) {
-        _child_trackers.erase(tracker->_child_tracker_it);
-        tracker->_child_tracker_it = _child_trackers.end();
-    }
+MemTracker::Snapshot MemTrackerLimiter::make_snapshot(size_t level) const {
+    Snapshot snapshot;
+    snapshot.label = _label;
+    snapshot.parent = _parent != nullptr ? _parent->label() : "Root";
+    snapshot.level = level;
+    snapshot.limit = _limit;
+    snapshot.cur_consumption = _consumption->current_value();
+    snapshot.peak_consumption = _consumption->value();
+    snapshot.child_count = remain_child_count();
+    return snapshot;
 }
 
 void MemTrackerLimiter::make_snapshot(std::vector<MemTracker::Snapshot>* snapshots,
                                       size_t cur_level, size_t upper_level) const {
-    Snapshot snapshot = MemTracker::make_snapshot(cur_level);
-    snapshot.limit = _limit;
-    snapshot.child_count = remain_child_count();
+    Snapshot snapshot = MemTrackerLimiter::make_snapshot(cur_level);
     (*snapshots).emplace_back(snapshot);
     if (cur_level < upper_level) {
         {
@@ -94,12 +94,7 @@ void MemTrackerLimiter::make_snapshot(std::vector<MemTracker::Snapshot>* snapsho
                 child->make_snapshot(snapshots, cur_level + 1, upper_level);
             }
         }
-        {
-            std::lock_guard<std::mutex> l(_child_tracker_lock);
-            for (const auto& child : _child_trackers) {
-                (*snapshots).emplace_back(child->make_snapshot(cur_level + 1));
-            }
-        }
+        MemTracker::make_group_snapshot(snapshots, cur_level + 1, _group_num, _label);
     }
 }
 
@@ -183,8 +178,7 @@ std::string MemTrackerLimiter::log_usage(int max_recursive_depth, int64_t* logge
     int64_t peak_consumption = _consumption->value();
     if (logged_consumption != nullptr) *logged_consumption = curr_consumption;
 
-    std::string detail =
-            "MemTrackerLimiter log_usage Label={}, Limit={}, Total={}, Peak={}, Exceeded={}";
+    std::string detail = "MemTrackerLimiter Label={}, Limit={}, Used={}, Peak={}, Exceeded={}";
     detail = fmt::format(detail, _label, PrettyPrinter::print(_limit, TUnit::BYTES),
                          PrettyPrinter::print(curr_consumption, TUnit::BYTES),
                          PrettyPrinter::print(peak_consumption, TUnit::BYTES),
@@ -201,11 +195,10 @@ std::string MemTrackerLimiter::log_usage(int max_recursive_depth, int64_t* logge
         child_trackers_usage =
                 log_usage(max_recursive_depth - 1, _child_tracker_limiters, &child_consumption);
     }
-    {
-        std::lock_guard<std::mutex> l(_child_tracker_lock);
-        for (const auto& child : _child_trackers) {
-            child_trackers_usage += "\n" + child->log_usage();
-        }
+    std::vector<MemTracker::Snapshot> snapshots;
+    MemTracker::make_group_snapshot(&snapshots, 0, _group_num, _label);
+    for (const auto& snapshot : snapshots) {
+        child_trackers_usage += MemTracker::log_usage(snapshot);
     }
     if (!child_trackers_usage.empty()) detail += "\n" + child_trackers_usage;
     return detail;

@@ -21,37 +21,28 @@
 #include "runtime/memory/mem_tracker.h"
 
 #include <fmt/format.h>
-#include <parallel_hashmap/phmap.h>
 
-#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/pretty_printer.h"
+#include "util/string_util.h"
 #include "util/time.h"
 
 namespace doris {
 
 const std::string MemTracker::COUNTER_NAME = "PeakMemoryUsage";
 
-using StaticTrackersMap = phmap::parallel_flat_hash_map<
-        std::string, MemTracker*, phmap::priv::hash_default_hash<std::string>,
-        phmap::priv::hash_default_eq<std::string>,
-        std::allocator<std::pair<const std::string, MemTracker*>>, 12, std::mutex>;
+struct TrackerGroup {
+    std::list<MemTracker*> trackers;
+    std::mutex group_lock;
+};
 
-static StaticTrackersMap _static_mem_trackers;
+// Save all MemTrackers in use to maintain the weak relationship between MemTracker and MemTrackerLimiter.
+// When MemTrackerLimiter prints statistics, all MemTracker statistics with weak relationship will be printed together.
+// Each group corresponds to several MemTrackerLimiters and has a lock.
+// Multiple groups are used to reduce the impact of locks.
+static std::vector<TrackerGroup> mem_tracker_pool(1000);
 
-MemTracker::MemTracker(const std::string& label, MemTrackerLimiter* parent, RuntimeProfile* profile,
-                       bool is_limiter) {
-    // Do not check limit exceed when add_child_tracker, otherwise it will cause deadlock when log_usage is called.
-    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
-    _parent = parent ? parent : thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker();
-    DCHECK(_parent || label == "Process");
-    if (_parent && _parent->label().find("queryId=") != _parent->label().npos) {
-        // Add the queryId suffix to the tracker below the query.
-        _label = fmt::format("{}#{}", label,
-                             _parent->label().substr(_parent->label().find("queryId="), -1));
-    } else {
-        _label = label;
-    }
+MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, bool is_limiter) {
     if (profile == nullptr) {
         _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
     } else {
@@ -66,36 +57,43 @@ MemTracker::MemTracker(const std::string& label, MemTrackerLimiter* parent, Runt
         // release().
         _consumption = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
     }
+
     _is_limiter = is_limiter;
-    if (_parent && !_is_limiter) _parent->add_child(this);
+    if (!_is_limiter) {
+        if (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()) {
+            _label = fmt::format(
+                    "{} | {}", label,
+                    thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->label());
+        } else {
+            _label = label + " | ";
+        }
+
+        _bind_group_num =
+                thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->group_num();
+        {
+            std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
+            _tracker_group_it = mem_tracker_pool[_bind_group_num].trackers.insert(
+                    mem_tracker_pool[_bind_group_num].trackers.end(), this);
+        }
+    } else {
+        _label = label;
+    }
 }
 
 MemTracker::~MemTracker() {
-    if (_parent && !_is_limiter) _parent->remove_child(this);
-}
-
-// Count the memory in the scope to a temporary tracker with the specified label name.
-// This is very useful when debugging. You can find the position where the tracker statistics are
-// inaccurate through the temporary tracker layer by layer. As well as finding memory hotspots.
-MemTracker* MemTracker::get_static_mem_tracker(const std::string& label) {
-    // First time this label registered, make a new object, otherwise do nothing.
-    // Avoid using locks to resolve erase conflicts.
-    MemTracker* tracker;
-    _static_mem_trackers.lazy_emplace_l(
-            label, [&](MemTracker* v) { tracker = v; },
-            [&](const auto& ctor) {
-                tracker = new MemTracker(fmt::format("[Static]-{}", label));
-                ctor(label, tracker);
-            });
-    return tracker;
+    if (!_is_limiter) {
+        std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
+        if (_tracker_group_it != mem_tracker_pool[_bind_group_num].trackers.end()) {
+            mem_tracker_pool[_bind_group_num].trackers.erase(_tracker_group_it);
+            _tracker_group_it = mem_tracker_pool[_bind_group_num].trackers.end();
+        }
+    }
 }
 
 MemTracker::Snapshot MemTracker::make_snapshot(size_t level) const {
     Snapshot snapshot;
-    snapshot.label = _label;
-    if (_parent != nullptr) {
-        snapshot.parent = _parent->label();
-    }
+    snapshot.label = split(_label, " | ")[0];
+    snapshot.parent = split(_label, " | ")[1];
     snapshot.level = level;
     snapshot.limit = -1;
     snapshot.cur_consumption = _consumption->current_value();
@@ -104,15 +102,21 @@ MemTracker::Snapshot MemTracker::make_snapshot(size_t level) const {
     return snapshot;
 }
 
-std::string MemTracker::log_usage() {
-    // Make sure the consumption is up to date.
-    int64_t curr_consumption = consumption();
-    int64_t peak_consumption = _consumption->value();
-    if (curr_consumption == 0) return "";
-    std::string detail = "MemTracker Label={}, Total={}, Peak={}";
-    detail = fmt::format(detail, _label, PrettyPrinter::print(curr_consumption, TUnit::BYTES),
-                         PrettyPrinter::print(peak_consumption, TUnit::BYTES));
-    return detail;
+void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshots, size_t level,
+                                     int64_t group_num, std::string related_label) {
+    std::lock_guard<std::mutex> l(mem_tracker_pool[group_num].group_lock);
+    for (auto tracker : mem_tracker_pool[group_num].trackers) {
+        if (split(tracker->label(), " | ")[1] == related_label) {
+            snapshots->push_back(tracker->make_snapshot(level));
+        }
+    }
+}
+
+std::string MemTracker::log_usage(MemTracker::Snapshot snapshot) {
+    return fmt::format("MemTracker Label={}, Parent Label={}, Used={}, Peak={}", snapshot.label,
+                       snapshot.parent,
+                       PrettyPrinter::print(snapshot.cur_consumption, TUnit::BYTES),
+                       PrettyPrinter::print(snapshot.peak_consumption, TUnit::BYTES));
 }
 
 } // namespace doris

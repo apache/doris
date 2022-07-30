@@ -258,9 +258,6 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
         _instance_buffer_reservation->InitChildTracker(&_profile, _buffer_reservation,
                                                        std::numeric_limits<int64_t>::max());
     }
-
-    // filter manager depends _instance_mem_tracker
-    _runtime_filter_mgr->init(_instance_mem_tracker.get());
     return Status::OK();
 }
 

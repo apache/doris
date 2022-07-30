@@ -73,7 +73,7 @@ void ReservationTracker::InitChildTracker(RuntimeProfile* profile, ReservationTr
         MemTracker* parent_mem_tracker = GetParentMemTracker();
         if (parent_mem_tracker != nullptr) {
             // Make sure the parent links of the MemTrackers correspond to our parent links.
-            DCHECK_EQ(parent_mem_tracker, mem_tracker_->parent());
+            // DCHECK_EQ(parent_mem_tracker, mem_tracker_->parent());
         } else {
             // Make sure we didn't leave a gap in the links. E.g. this tracker's grandparent
             // shouldn't have a MemTracker.

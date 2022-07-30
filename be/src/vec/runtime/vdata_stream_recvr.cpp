@@ -263,10 +263,9 @@ VDataStreamRecvr::VDataStreamRecvr(
           _num_buffered_bytes(0),
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    // DataStreamRecvr may be destructed after the instance execution thread ends, `instance_mem_tracker`
-    // will be a null pointer, and remove_child fails when _mem_tracker is destructed.
+    // DataStreamRecvr may be destructed after the instance execution thread ends.
     _mem_tracker = std::make_unique<MemTracker>(
-            "VDataStreamRecvr:" + print_id(_fragment_instance_id), query_mem_tracker, _profile);
+            "VDataStreamRecvr:" + print_id(_fragment_instance_id), _profile);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     // Create one queue per sender if is_merging is true.
