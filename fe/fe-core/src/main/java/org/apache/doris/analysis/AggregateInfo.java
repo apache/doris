@@ -475,6 +475,23 @@ public final class AggregateInfo extends AggregateInfoBase {
         if (secondPhaseDistinctAggInfo != null) {
             secondPhaseDistinctAggInfo.substitute(smap, analyzer);
         }
+
+        for (SlotDescriptor slotDesc : getOutputTupleDesc().getSlots()) {
+            List<Expr> exprList = slotDesc.getSourceExprs();
+            if (exprList.size() > 1) {
+                continue;
+            }
+            Expr expr = exprList.get(0);
+            if (!(expr instanceof SlotRef)) {
+                continue;
+            }
+            SlotRef slotRef = (SlotRef) expr;
+            Expr right = smap.get(slotRef);
+            if (right == null) {
+                continue;
+            }
+            slotRef.getDesc().setIsNullable(right.isNullable());
+        }
     }
 
     /**
