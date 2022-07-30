@@ -161,6 +161,8 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
     _num_segment += rowset->num_segments();
+    // append key_bounds to current rowset
+    rowset->get_segments_key_bounds(&_segments_encoded_key_bounds);
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
