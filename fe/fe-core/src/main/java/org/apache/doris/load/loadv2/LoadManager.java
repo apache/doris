@@ -609,6 +609,7 @@ public class LoadManager implements Writable {
      */
     private void cleanLabelInternal(long dbId, String label, boolean isReplay) {
         // 1. Remove from LoadManager
+        int counter = 0;
         writeLock();
         try {
             if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
@@ -629,6 +630,7 @@ public class LoadManager implements Writable {
                         }
                         innerIter.remove();
                         idToLoadJob.remove(job.getId());
+                        ++counter;
                     }
                     if (jobs.isEmpty()) {
                         iter.remove();
@@ -648,6 +650,7 @@ public class LoadManager implements Writable {
                     }
                     iter.remove();
                     idToLoadJob.remove(job.getId());
+                    ++counter;
                 }
                 if (jobs.isEmpty()) {
                     labelToJob.remove(label);
@@ -656,6 +659,7 @@ public class LoadManager implements Writable {
         } finally {
             writeUnlock();
         }
+        LOG.info("clean {} labels on db {} with label '{}' in load mgr.", counter, dbId, label);
 
         // 2. Remove from DatabaseTransactionMgr
         try {
@@ -670,7 +674,7 @@ public class LoadManager implements Writable {
             CleanLabelOperationLog log = new CleanLabelOperationLog(dbId, label);
             Env.getCurrentEnv().getEditLog().logCleanLabel(log);
         }
-        LOG.info("finished to clean clean on db {} with label {}. is replay: {}", dbId, label, isReplay);
+        LOG.info("finished to clean label on db {} with label {}. is replay: {}", dbId, label, isReplay);
     }
 
     private void readLock() {

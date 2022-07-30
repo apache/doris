@@ -1726,6 +1726,7 @@ public class DatabaseTransactionMgr {
     }
 
     public void cleanLabel(String label) {
+        long counter = 0;
         writeLock();
         try {
             if (Strings.isNullOrEmpty(label)) {
@@ -1737,6 +1738,7 @@ public class DatabaseTransactionMgr {
                         long txnId = innerIter.next();
                         if (idToFinalStatusTransactionState.remove(txnId) != null) {
                             innerIter.remove();
+                            ++counter;
                         }
                     }
                     if (txnIds.isEmpty()) {
@@ -1753,6 +1755,7 @@ public class DatabaseTransactionMgr {
                     long txnId = iter.next();
                     if (idToFinalStatusTransactionState.remove(txnId) != null) {
                         iter.remove();
+                        ++counter;
                     }
                 }
                 if (txnIds.isEmpty()) {
@@ -1762,5 +1765,6 @@ public class DatabaseTransactionMgr {
         } finally {
             writeUnlock();
         }
+        LOG.info("clean {} labels on db {} with label '{}' in database transaction mgr.", counter, dbId, label);
     }
 }
