@@ -20,9 +20,9 @@
 #include "vec/aggregate_functions/aggregate_function_bitmap.h"
 #include "vec/aggregate_functions/aggregate_function_hll_union_agg.h"
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
+#include "vec/aggregate_functions/aggregate_function_reader_first_last.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_sum.h"
-#include "vec/aggregate_functions/aggregate_function_window.h"
 
 namespace doris::vectorized {
 

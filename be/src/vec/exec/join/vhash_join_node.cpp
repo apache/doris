@@ -31,14 +31,6 @@
 
 namespace doris::vectorized {
 
-std::variant<std::false_type, std::true_type> static inline make_bool_variant(bool condition) {
-    if (condition) {
-        return std::true_type {};
-    } else {
-        return std::false_type {};
-    }
-}
-
 using ProfileCounter = RuntimeProfile::Counter;
 template <class HashTableContext>
 struct ProcessHashTableBuild {
