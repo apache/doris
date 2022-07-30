@@ -154,7 +154,7 @@ template <typename Data>
 class AggregateFunctionDistinct
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionDistinct<Data>> {
 private:
-    static constexpr auto prefix_size = sizeof(Data);
+    size_t prefix_size;
     AggregateFunctionPtr nested_func;
     size_t arguments_num;
 
@@ -171,7 +171,11 @@ public:
             : IAggregateFunctionDataHelper<Data, AggregateFunctionDistinct>(
                       arguments, nested_func_->get_parameters()),
               nested_func(nested_func_),
-              arguments_num(arguments.size()) {}
+              arguments_num(arguments.size()) {
+        size_t nested_size = nested_func->align_of_data();
+        CHECK_GT(nested_size, 0);
+        prefix_size = (sizeof(Data) + nested_size - 1) / nested_size * nested_size;
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena* arena) const override {
