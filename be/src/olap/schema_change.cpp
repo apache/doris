@@ -1364,10 +1364,8 @@ VSchemaChangeWithSorting::VSchemaChangeWithSorting(const RowBlockChanger& row_bl
         : _changer(row_block_changer),
           _memory_limitation(memory_limitation),
           _temp_delta_versions(Version::mock()) {
-    _mem_tracker =
-            std::make_unique<MemTracker>(fmt::format("VSchemaChangeWithSorting:changer={}",
-                                                     std::to_string(int64(&row_block_changer))),
-                                         StorageEngine::instance()->schema_change_mem_tracker());
+    _mem_tracker = std::make_unique<MemTracker>(fmt::format(
+            "VSchemaChangeWithSorting:changer={}", std::to_string(int64(&row_block_changer))));
 }
 
 Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_reader,
