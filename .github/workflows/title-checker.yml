@@ -35,5 +35,5 @@ jobs:
       - name: Check Title
         uses: ./.github/actions/action-pr-title
         with:
-          regex: '\[([a-zA-Z0-9])+\]\(([a-zA-Z0-9])+\)(.*)'
+          regex: '\[([a-zA-Z0-9 \-_])+\]\(([a-zA-Z0-9 \-_])+\)(.*)'
           github_token: ${{ github.token }}
