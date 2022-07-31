@@ -53,5 +53,5 @@ under the License.
 
         ADMIN DIAGNOSE TABLET 10001;
 
-## keyword
+## keywords
     ADMIN,DIAGNOSE,TABLET
