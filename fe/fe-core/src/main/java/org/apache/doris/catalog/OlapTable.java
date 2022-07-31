@@ -1566,7 +1566,7 @@ public class OlapTable extends Table {
         if (tableProperty != null) {
             return tableProperty.getUseSchemaLightChange();
         }
-        return false;
+        return true;
     }
 
     public void setUseLightSchemaChange(boolean useLightSchemaChange) {
