@@ -89,7 +89,7 @@ public:
     const std::vector<SlotDescriptor*>& get_query_slots() const { return _query_slots; }
 
     TabletStorageType get_storage_type();
-    
+
     void set_batch_size(size_t batch_size) { _batch_size = batch_size; }
 
 protected:
