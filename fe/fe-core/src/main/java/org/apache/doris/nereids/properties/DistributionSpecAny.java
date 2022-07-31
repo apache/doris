@@ -17,25 +17,23 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.analysis.HashDistributionDesc;
-
 /**
- * Describe hash distribution.
+ * Data can be anywhere on the segments (required only).
  */
-public class HashDistributionSpec extends DistributionSpec {
+public class DistributionSpecAny extends DistributionSpec {
 
-    /**
-     * Enums for concrete shuffle type.
-     */
-    public enum ShuffleType {
-        COLOCATE,
-        BUCKET,
-        AGG,
-        NORMAL
+    private static DistributionSpecAny instance = new DistributionSpecAny();
+
+    private DistributionSpecAny() {
+        super();
     }
 
-    private ShuffleType shuffleType;
+    public static DistributionSpecAny getInstance() {
+        return instance;
+    }
 
-    private HashDistributionDesc hashDistributionDesc;
-
+    @Override
+    public boolean satisfy(DistributionSpec other) {
+        return other instanceof DistributionSpecAny;
+    }
 }

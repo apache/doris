@@ -18,11 +18,16 @@
 package org.apache.doris.nereids.properties;
 
 /**
- * Re-shuffle.
+ * Gather distribution which put all data into one node.
  */
-public class GatherDistributionSpec extends DistributionSpec {
+public class DistributionSpecGather extends DistributionSpec {
 
-    public GatherDistributionSpec() {
+    public DistributionSpecGather() {
         super();
+    }
+
+    @Override
+    public boolean satisfy(DistributionSpec other) {
+        return other instanceof DistributionSpecGather || other instanceof DistributionSpecAny;
     }
 }

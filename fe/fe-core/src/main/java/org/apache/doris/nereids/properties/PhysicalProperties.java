@@ -22,11 +22,23 @@ package org.apache.doris.nereids.properties;
  * TODO(wj): Do we need to `PhysicalPropertySpec` Interface like NoisePage?
  */
 public class PhysicalProperties {
-    private OrderSpec orderSpec;
+    private final OrderSpec orderSpec;
 
-    private DistributionSpec distributionSpec;
+    private final DistributionSpec distributionSpec;
 
     public PhysicalProperties() {
+        this.orderSpec = new OrderSpec();
+        this.distributionSpec = DistributionSpecAny.getInstance();
+    }
+
+    public PhysicalProperties(DistributionSpec distributionSpec) {
+        this.distributionSpec = distributionSpec;
+        this.orderSpec = new OrderSpec();
+    }
+
+    public PhysicalProperties(OrderSpec orderSpec) {
+        this.orderSpec = orderSpec;
+        this.distributionSpec = DistributionSpecAny.getInstance();
     }
 
     public PhysicalProperties(DistributionSpec distributionSpec, OrderSpec orderSpec) {
@@ -34,25 +46,29 @@ public class PhysicalProperties {
         this.orderSpec = orderSpec;
     }
 
+    // Current properties satisfies other properties.
     public boolean meet(PhysicalProperties other) {
-        // TODO: handle distributionSpec meet()
-        return orderSpec.meet(other.orderSpec) && distributionSpec.meet(other.distributionSpec);
+        return orderSpec.meet(other.orderSpec) && distributionSpec.satisfy(other.distributionSpec);
     }
-
 
     public OrderSpec getOrderSpec() {
         return orderSpec;
-    }
-
-    public void setOrderSpec(OrderSpec orderSpec) {
-        this.orderSpec = orderSpec;
     }
 
     public DistributionSpec getDistributionSpec() {
         return distributionSpec;
     }
 
-    public void setDistributionSpec(DistributionSpec distributionSpec) {
-        this.distributionSpec = distributionSpec;
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalProperties that = (PhysicalProperties) o;
+        return orderSpec.equals(that.orderSpec)
+                && distributionSpec.equals(that.distributionSpec);
     }
 }
