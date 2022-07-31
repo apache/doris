@@ -77,7 +77,7 @@ public:
     // After attach, the current thread TCMalloc Hook starts to consume/release task mem_tracker
     void attach_limiter_tracker(const std::string& cancel_msg, const std::string& task_id,
                                 const TUniqueId& fragment_instance_id,
-                                MemTrackerLimiter* mem_tracker);
+                                const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
 
     void detach_limiter_tracker();
 
@@ -116,7 +116,7 @@ public:
 
     bool is_attach_task() { return _task_id != ""; }
 
-    MemTrackerLimiter* limiter_mem_tracker() { return _limiter_tracker; }
+    std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() { return _limiter_tracker; }
 
     void set_check_limit(bool check_limit) { _check_limit = check_limit; }
     void set_check_attach(bool check_attach) { _check_attach = check_attach; }
@@ -145,7 +145,7 @@ private:
     // Frequent calls to unordered_map _untracked_mems[] in consume will degrade performance.
     int64_t _untracked_mem = 0;
 
-    MemTrackerLimiter* _limiter_tracker;
+    std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
     std::vector<MemTracker*> _consumer_tracker_stack;
 
     // If true, call memtracker try_consume, otherwise call consume.

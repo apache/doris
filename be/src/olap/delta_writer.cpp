@@ -30,14 +30,14 @@
 
 namespace doris {
 
-Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, MemTrackerLimiter* parent_tracker,
-                         bool is_vec) {
+Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer,
+                         const std::shared_ptr<MemTrackerLimiter>& parent_tracker, bool is_vec) {
     *writer = new DeltaWriter(req, StorageEngine::instance(), parent_tracker, is_vec);
     return Status::OK();
 }
 
 DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine,
-                         MemTrackerLimiter* parent_tracker, bool is_vec)
+                         const std::shared_ptr<MemTrackerLimiter>& parent_tracker, bool is_vec)
         : _req(*req),
           _tablet(nullptr),
           _cur_rowset(nullptr),
@@ -98,9 +98,9 @@ Status DeltaWriter::init() {
                      << ", schema_hash=" << _req.schema_hash;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
-    _mem_tracker = std::make_unique<MemTrackerLimiter>(
+    _mem_tracker = std::make_shared<MemTrackerLimiter>(
             -1, fmt::format("DeltaWriter:tabletId={}", _tablet->tablet_id()), _parent_tracker);
-    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
+    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         //trigger quick compaction
@@ -208,7 +208,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
+    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     _mem_table->insert(block, row_idxs);
 
     if (_mem_table->need_to_agg()) {
@@ -226,7 +226,7 @@ Status DeltaWriter::_flush_memtable_async() {
     if (++_segment_counter > config::max_segment_num_per_rowset) {
         return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_SEGMENTS);
     }
-    return _flush_token->submit(std::move(_mem_table), _mem_tracker.get());
+    return _flush_token->submit(std::move(_mem_table), _mem_tracker);
 }
 
 Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
@@ -243,7 +243,7 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
+    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     if (mem_consumption() == _mem_table->memory_usage()) {
         // equal means there is no memtable in flush queue, just flush this memtable
         VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
@@ -297,7 +297,7 @@ Status DeltaWriter::close() {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
+    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     RETURN_NOT_OK(_flush_memtable_async());
     _mem_table.reset();
     return Status::OK();
@@ -312,7 +312,7 @@ Status DeltaWriter::close_wait() {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
+    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
 

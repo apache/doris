@@ -29,7 +29,8 @@
 #include "util/mem_info.h"
 
 int main(int argc, char** argv) {
-    doris::MemTrackerLimiter* process_mem_tracker = new doris::MemTrackerLimiter(-1, "Process");
+    std::shared_ptr<doris::MemTrackerLimiter> process_mem_tracker =
+            std::make_shared<doris::MemTrackerLimiter>(-1, "Process");
     doris::ExecEnv::GetInstance()->set_process_mem_tracker(process_mem_tracker);
     doris::thread_context()->_thread_mem_tracker_mgr->init();
     doris::StoragePageCache::create_global_cache(1 << 30, 10);

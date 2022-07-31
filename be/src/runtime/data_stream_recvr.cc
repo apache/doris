@@ -447,9 +447,8 @@ void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {
 
 DataStreamRecvr::DataStreamRecvr(
         DataStreamMgr* stream_mgr, const RowDescriptor& row_desc,
-        MemTrackerLimiter* query_mem_tracker, const TUniqueId& fragment_instance_id,
-        PlanNodeId dest_node_id, int num_senders, bool is_merging, int total_buffer_limit,
-        RuntimeProfile* profile,
+        const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
+        bool is_merging, int total_buffer_limit, RuntimeProfile* profile,
         std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
         : _mgr(stream_mgr),
           _fragment_instance_id(fragment_instance_id),
