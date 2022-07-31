@@ -18,8 +18,12 @@
 package org.apache.doris.nereids.properties;
 
 /**
- * Describe random distribution.
+ * Data is replicated across all segments.
+ * Like: broadcast join.
  */
-public class RandomDistributionDesc extends DistributionSpec {
-
+public class DistributionSpecReplicated extends DistributionSpec {
+    @Override
+    public boolean satisfy(DistributionSpec other) {
+        return other instanceof DistributionSpecReplicated || other instanceof DistributionSpecAny;
+    }
 }
