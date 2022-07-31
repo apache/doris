@@ -345,7 +345,7 @@ build_protobuf() {
         ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create"
     fi
 
-    CXXFLAGS="-O2 -I${TP_INCLUDE_DIR}" \
+    CXXFLAGS="-fPIC -O2 -I${TP_INCLUDE_DIR}" \
         LDFLAGS="${ldflags}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static --with-zlib="${TP_INSTALL_DIR}/include"
 
@@ -385,8 +385,9 @@ build_glog() {
     rm -rf config.*
     autoreconf -i
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -fpermissive" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR} -fpermissive -fPIC" \
         LDFLAGS="-L${TP_LIB_DIR}" \
+        CFLAGS="-fPIC" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-frame-pointers --disable-shared --enable-static
     make -j "${PARALLEL}" && make install
 }
@@ -458,6 +459,7 @@ build_zlib() {
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
+        CFLAGS="-fPIC" \
         ./configure --prefix="${TP_INSTALL_DIR}" --static
     make -j "${PARALLEL}" && make install
 
@@ -550,7 +552,7 @@ build_hyperscan() {
     cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     PATH=$TP_INSTALL_DIR/bin:$PATH ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
-         -DBOOST_ROOT=$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
+         -DBOOST_ROOT=$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DBUILD_EXAMPLES=OFF ..
     ${BUILD_SYSTEM} -j $PARALLEL install
 }
 
@@ -621,7 +623,7 @@ build_leveldb() {
     mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
     rm -rf CMakeCache.txt CMakeFiles/
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DLEVELDB_BUILD_BENCHMARKS=OFF \
+    CXXFLAGS="-fPIC" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DLEVELDB_BUILD_BENCHMARKS=OFF \
         -DLEVELDB_BUILD_TESTS=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
 }
