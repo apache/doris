@@ -112,6 +112,7 @@ if [[ ! -f ${TP_DIR}/vars.sh ]]; then
     echo "vars.sh is missing".
     exit 1
 fi
+
 . "${TP_DIR}/vars.sh"
 
 cd "${TP_DIR}"
@@ -243,14 +244,15 @@ remove_all_dylib() {
 
 #libbacktrace
 build_libbacktrace() {
-    check_if_source_exist $LIBBACKTRACE_SOURCE
-    cd $TP_SOURCE_DIR/$LIBBACKTRACE_SOURCE
+    check_if_source_exist "${LIBBACKTRACE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${LIBBACKTRACE_SOURCE}"
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         CXXFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        ./configure --prefix=$TP_INSTALL_DIR
-    make -j $PARALLEL
+        ./configure --prefix="${TP_INSTALL_DIR}"
+
+    make -j "${PARALLEL}"
     make install
 }
 
@@ -258,15 +260,19 @@ build_libbacktrace() {
 build_libevent() {
     check_if_source_exist "${LIBEVENT_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LIBEVENT_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
 
     CFLAGS="-std=c99 -D_BSD_SOURCE -fno-omit-frame-pointer -g -ggdb -O2 -I${TP_INCLUDE_DIR}" \
         CPPLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DEVENT__DISABLE_TESTS=ON \
         -DEVENT__DISABLE_OPENSSL=ON -DEVENT__DISABLE_SAMPLES=ON -DEVENT__DISABLE_REGRESS=ON ..
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
+
     remove_all_dylib
 }
 
@@ -327,7 +333,8 @@ build_thrift() {
         mv compiler/cpp/thrifty.hh compiler/cpp/thrifty.h
     fi
 
-    make -j "${PARALLEL}" && make install
+    make -j "${PARALLEL}"
+    make install
 }
 
 # protobuf
@@ -335,10 +342,18 @@ build_protobuf() {
     check_if_source_exist "${PROTOBUF_SOURCE}"
     cd "${TP_SOURCE_DIR}/${PROTOBUF_SOURCE}"
     rm -fr gmock
+
     # NOTE(amos): -Wl,--undefined=pthread_create force searching for pthread symbols.
     # See https://stackoverflow.com/a/65348893/1329147 for detailed explanation.
-    mkdir gmock && cd gmock && tar xf "${TP_SOURCE_DIR}/${GTEST_NAME}" &&
-        mv "${GTEST_SOURCE}" gtest && cd "${TP_SOURCE_DIR}/${PROTOBUF_SOURCE}" && ./autogen.sh
+    mkdir gmock
+    cd gmock
+    tar xf "${TP_SOURCE_DIR}/${GTEST_NAME}"
+
+    mv "${GTEST_SOURCE}" gtest
+
+    cd "${TP_SOURCE_DIR}/${PROTOBUF_SOURCE}"
+
+    ./autogen.sh
 
     if [[ "${KERNEL}" == 'Darwin' ]]; then
         ldflags="-L${TP_LIB_DIR}"
@@ -362,7 +377,8 @@ build_protobuf() {
         cd -
     fi
 
-    make -j "${PARALLEL}" && make install
+    make -j "${PARALLEL}"
+    make install
 }
 
 # gflags
@@ -370,10 +386,15 @@ build_gflags() {
     check_if_source_exist "${GFLAGS_SOURCE}"
 
     cd "${TP_SOURCE_DIR}/${GFLAGS_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
+
     "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_POSITION_INDEPENDENT_CODE=On ../
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -390,7 +411,9 @@ build_glog() {
     CPPFLAGS="-I${TP_INCLUDE_DIR} -fpermissive -fPIC" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-frame-pointers --disable-shared --enable-static
-    make -j "${PARALLEL}" && make install
+
+    make -j "${PARALLEL}"
+    make install
 }
 
 # gtest
@@ -398,10 +421,14 @@ build_gtest() {
     check_if_source_exist "${GTEST_SOURCE}"
 
     cd "${TP_SOURCE_DIR}/${GTEST_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
     "${CMAKE_CMD}" ../ -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_POSITION_INDEPENDENT_CODE=On
     # -DCMAKE_CXX_FLAGS="$warning_uninitialized"
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -410,11 +437,17 @@ build_gtest() {
 build_rapidjson() {
     check_if_source_exist "${RAPIDJSON_SOURCE}"
     cd "${TP_SOURCE_DIR}/${RAPIDJSON_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
+
     "${CMAKE_CMD}" ../ -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DRAPIDJSON_BUILD_DOC=OFF \
         -DRAPIDJSON_BUILD_EXAMPLES=OFF -DRAPIDJSON_BUILD_TESTS=OFF
-    make -j "${PARALLEL}" && make install
+
+    make -j "${PARALLEL}"
+    make install
 }
 
 # snappy
@@ -422,20 +455,24 @@ build_snappy() {
     check_if_source_exist "${SNAPPY_SOURCE}"
     cd "${TP_SOURCE_DIR}/${SNAPPY_SOURCE}"
 
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
+
     CFLAGS="-O3" CXXFLAGS="-O3" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_INSTALL_INCLUDEDIR="${TP_INCLUDE_DIR}"/snappy \
         -DSNAPPY_BUILD_TESTS=0 ../
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 
     #build for libarrow.a
-    cp "${TP_INCLUDE_DIR}/snappy/snappy-c.h" "${TP_INCLUDE_DIR}/snappy-c.h" &&
-        cp "${TP_INCLUDE_DIR}/snappy/snappy-sinksource.h" "${TP_INCLUDE_DIR}/snappy-sinksource.h" &&
-        cp "${TP_INCLUDE_DIR}/snappy/snappy-stubs-public.h" "${TP_INCLUDE_DIR}/snappy-stubs-public.h" &&
-        cp "${TP_INCLUDE_DIR}/snappy/snappy.h" "${TP_INCLUDE_DIR}/snappy.h"
+    cp "${TP_INCLUDE_DIR}/snappy/snappy-c.h" "${TP_INCLUDE_DIR}/snappy-c.h"
+    cp "${TP_INCLUDE_DIR}/snappy/snappy-sinksource.h" "${TP_INCLUDE_DIR}/snappy-sinksource.h"
+    cp "${TP_INCLUDE_DIR}/snappy/snappy-stubs-public.h" "${TP_INCLUDE_DIR}/snappy-stubs-public.h"
+    cp "${TP_INCLUDE_DIR}/snappy/snappy.h" "${TP_INCLUDE_DIR}/snappy.h"
 }
 
 # gperftools
@@ -452,7 +489,9 @@ build_gperftools() {
         LDFLAGS="-L${TP_LIB_DIR}" \
         LD_LIBRARY_PATH="${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}/gperftools" --disable-shared --enable-static --disable-libunwind --with-pic --enable-frame-pointers
-    make -j "${PARALLEL}" && make install
+
+    make -j "${PARALLEL}"
+    make install
 }
 
 # zlib
@@ -464,13 +503,16 @@ build_zlib() {
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --static
-    make -j "${PARALLEL}" && make install
+
+    make -j "${PARALLEL}"
+    make install
 
     # minizip
     cd contrib/minizip
     autoreconf --force --install
     ./configure --prefix="${TP_INSTALL_DIR}" --enable-static=yes --enable-shared=no
-    make -j "${PARALLEL}" && make install
+    make -j "${PARALLEL}"
+    make install
 }
 
 # lz4
@@ -491,9 +533,13 @@ build_lz4() {
 build_zstd() {
     check_if_source_exist "${ZSTD_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ZSTD_SOURCE}/build/cmake"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_TESTING=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_STATIC=ON \
         -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
 }
 
@@ -513,7 +559,9 @@ build_lzo2() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
-    make -j "${PARALLEL}" && make install
+
+    make -j "${PARALLEL}"
+    make install
 }
 
 # curl
@@ -533,7 +581,9 @@ build_curl() {
         ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
         --without-librtmp --with-ssl="${TP_INSTALL_DIR}" --without-libidn2 --disable-ldap --enable-ipv6 \
         --without-libssh2 --without-brotli
-    make curl_LDFLAGS=-all-static -j "${PARALLEL}" && make curl_LDFLAGS=-all-static install
+
+    make curl_LDFLAGS=-all-static -j "${PARALLEL}"
+    make curl_LDFLAGS=-all-static install
 }
 
 # re2
@@ -547,16 +597,21 @@ build_re2() {
 
 # hyperscan
 build_hyperscan() {
-    check_if_source_exist $RAGEL_SOURCE
-    cd $TP_SOURCE_DIR/$RAGEL_SOURCE
-    ./configure --prefix=$TP_INSTALL_DIR && make install
+    check_if_source_exist "${RAGEL_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${RAGEL_SOURCE}"
 
-    check_if_source_exist $HYPERSCAN_SOURCE
-    cd $TP_SOURCE_DIR/$HYPERSCAN_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    PATH=$TP_INSTALL_DIR/bin:$PATH ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
-        -DBOOST_ROOT=$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DBUILD_EXAMPLES=OFF ..
-    ${BUILD_SYSTEM} -j $PARALLEL install
+    ./configure --prefix="${TP_INSTALL_DIR}"
+    make install
+
+    check_if_source_exist "${HYPERSCAN_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
+        -DBOOST_ROOT="${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}" install
 }
 
 # boost
@@ -583,8 +638,11 @@ build_mysql() {
 
     cd "${TP_SOURCE_DIR}/${MYSQL_SOURCE}"
 
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
+
     if [[ ! -d "${BOOST_SOURCE}" ]]; then
         cp -rf "${TP_SOURCE_DIR}/${BOOST_SOURCE}" ./
     fi
@@ -623,7 +681,9 @@ build_leveldb() {
     check_if_source_exist "${LEVELDB_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LEVELDB_SOURCE}"
 
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
 
     CXXFLAGS="-fPIC" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DLEVELDB_BUILD_BENCHMARKS=OFF \
@@ -636,7 +696,10 @@ build_brpc() {
     check_if_source_exist "${BRPC_SOURCE}"
 
     cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
@@ -651,6 +714,7 @@ build_brpc() {
         "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
         -DPROTOBUF_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" ..
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 
@@ -683,13 +747,17 @@ build_rocksdb() {
 build_cyrus_sasl() {
     check_if_source_exist "${CYRUS_SASL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
+
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-shared=no --with-openssl="${TP_INSTALL_DIR}" --with-pic
+
     if [[ "${KERNEL}" != 'Darwin' ]]; then
-        make -j "${PARALLEL}" && make install
+        make -j "${PARALLEL}"
+        make install
     else
-        make -j "${PARALLEL}" && make framedir="${TP_INCLUDE_DIR}/sasl" install
+        make -j "${PARALLEL}"
+        make framedir="${TP_INCLUDE_DIR}/sasl" install
     fi
 }
 
@@ -702,7 +770,10 @@ build_librdkafka() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-sasl --disable-c11threads
-    make -j "${PARALLEL}" && make install
+
+    make -j "${PARALLEL}"
+    make install
+
     remove_all_dylib
 }
 
@@ -721,14 +792,19 @@ build_libunixodbc() {
     CPPFLAGS="${cppflags}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
-    make -j "${PARALLEL}" && make install
+
+    make -j "${PARALLEL}"
+    make install
 }
 
 # flatbuffers
 build_flatbuffers() {
     check_if_source_exist "${FLATBUFFERS_SOURCE}"
     cd "${TP_SOURCE_DIR}/${FLATBUFFERS_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
@@ -740,7 +816,9 @@ build_flatbuffers() {
     CXXFLAGS="${warning_class_memaccess}" \
         LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DFLATBUFFERS_BUILD_TESTS=OFF ..
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
+
     cp flatc ../../../installed/bin/flatc
     cp -r ../include/flatbuffers ../../../installed/include/flatbuffers
     cp libflatbuffers.a ../../../installed/lib/libflatbuffers.a
@@ -749,7 +827,11 @@ build_flatbuffers() {
 # arrow
 build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp" && mkdir -p release && cd release
+    cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
+
+    mkdir -p release
+    cd release
+
     export ARROW_BROTLI_URL="${TP_SOURCE_DIR}/${BROTLI_NAME}"
     export ARROW_GLOG_URL="${TP_SOURCE_DIR}/${GLOG_NAME}"
     export ARROW_LZ4_URL="${TP_SOURCE_DIR}/${LZ4_NAME}"
@@ -808,7 +890,10 @@ build_arrow() {
 build_s2() {
     check_if_source_exist "${S2_SOURCE}"
     cd "${TP_SOURCE_DIR}/${S2_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
@@ -828,6 +913,7 @@ build_s2() {
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" \
         -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}/include" \
         -DWITH_GLOG=ON ..
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -893,7 +979,10 @@ build_croaringbitmap() {
 
     check_if_source_exist "${CROARINGBITMAP_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CROARINGBITMAP_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
@@ -906,6 +995,7 @@ build_croaringbitmap() {
         LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" ${avx_flag} -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DENABLE_ROARING_TESTS=OFF ..
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -914,8 +1004,12 @@ build_croaringbitmap() {
 build_fmt() {
     check_if_source_exist "${FMT_SOURCE}"
     cd "${TP_SOURCE_DIR}/${FMT_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
+
     "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=FALSE -DFMT_TEST=OFF -DFMT_DOC=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
     "${BUILD_SYSTEM}" -j"${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -946,8 +1040,12 @@ build_libdivide() {
 build_orc() {
     check_if_source_exist "${ORC_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ORC_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
+
     CXXFLAGS="-O3 -Wno-array-bounds ${warning_reserved_identifier} ${warning_suggest_override}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" ../ -DBUILD_JAVA=OFF \
         -DPROTOBUF_HOME="${TP_INSTALL_DIR}" \
@@ -970,7 +1068,9 @@ build_cctz() {
     check_if_source_exist "${CCTZ_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CCTZ_SOURCE}"
 
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     rm -rf CMakeCache.txt CMakeFiles/
 
     "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_TESTING=OFF ..
@@ -1007,13 +1107,17 @@ build_tsan_header() {
 build_aws_sdk() {
     check_if_source_exist "${AWS_SDK_SOURCE}"
     cd "${TP_SOURCE_DIR}/${AWS_SDK_SOURCE}"
+
     rm -rf "${BUILD_DIR}"
+
     # -Wno-nonnull gcc-11
     "${CMAKE_CMD}" -G "${GENERATOR}" -B"${BUILD_DIR}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
         -DBUILD_ONLY="core;s3;s3-crt;transfer" -DCMAKE_CXX_FLAGS="-Wno-nonnull" -DCPP_STANDARD=17
+
     cd "${BUILD_DIR}"
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1024,13 +1128,21 @@ build_lzma() {
         echo "autopoint is required by $0, install it first"
         return 255
     fi
+
     check_if_source_exist "${LZMA_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LZMA_SOURCE}"
+
     export ACLOCAL_PATH='/usr/share/aclocal'
+
     sh autogen.sh
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     ../configure --prefix="${TP_INSTALL_DIR}" --enable-shared=no --with-pic
-    make -j "${PARALLEL}" && make install
+
+    make -j "${PARALLEL}"
+    make install
 }
 
 # xml2
@@ -1039,32 +1151,47 @@ build_xml2() {
         echo "pkg-config is required by $0, install it first"
         return 255
     fi
+
     check_if_source_exist "${XML2_SOURCE}"
     cd "${TP_SOURCE_DIR}/${XML2_SOURCE}"
+
     export ACLOCAL_PATH='/usr/share/aclocal'
+
     sh autogen.sh
     make distclean
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     CPPLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ../configure --prefix="${TP_INSTALL_DIR}" --enable-shared=no --with-pic --with-python=no --with-lzma="${TP_INSTALL_DIR}"
-    make -j "${PARALLEL}" && make install
+
+    make -j "${PARALLEL}"
+    make install
 }
 
 # idn
 build_idn() {
     check_if_source_exist "${IDN_SOURCE}"
     cd "${TP_SOURCE_DIR}/${IDN_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     ../configure --prefix="${TP_INSTALL_DIR}" --enable-shared=no --with-pic
-    make -j "${PARALLEL}" && make install
+
+    make -j "${PARALLEL}"
+    make install
 }
 
 # gsasl
 build_gsasl() {
     check_if_source_exist "${GSASL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${GSASL_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cflags=''
@@ -1073,14 +1200,18 @@ build_gsasl() {
     fi
 
     CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix="${TP_INSTALL_DIR}"
-    make -j "${PARALLEL}" && make install
+
+    make -j "${PARALLEL}"
+    make install
 }
 
 # krb5
 build_krb5() {
     check_if_source_exist "${KRB5_SOURCE}"
     cd "${TP_SOURCE_DIR}/${KRB5_SOURCE}/src"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
 
     if [[ "${KERNEL}" == 'Darwin' ]]; then
         with_crypto_impl='--with-crypto-impl=openssl'
@@ -1088,18 +1219,25 @@ build_krb5() {
 
     CFLAGS="-fcommon -I${TP_INSTALL_DIR}/include" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
         ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static ${with_crypto_impl}
-    make -j "${PARALLEL}" && make install
+
+    make -j "${PARALLEL}"
+    make install
 }
 
 # hdfs3
 build_hdfs3() {
     check_if_source_exist "${HDFS3_SOURCE}"
     cd "${TP_SOURCE_DIR}/${HDFS3_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}" && rm -rf ./*
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+    rm -rf ./*
+
     # build libhdfs3 with kerberos support
     CPPLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ../bootstrap --dependency="${TP_INSTALL_DIR}" --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
+
     make CXXFLAGS="${libhdfs_cxx17}" -j "${PARALLEL}"
     make install
 }
@@ -1133,14 +1271,15 @@ build_simdjson() {
     check_if_source_exist "${SIMDJSON_SOURCE}"
     cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"
 
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     CXXFLAGS="-O3" \
         CFLAGS="-O3" \
         $CMAKE_CMD ..
     $CMAKE_CMD --build .
 
     cp "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}/${BUILD_DIR}/libsimdjson.a" "${TP_INSTALL_DIR}/lib64"
-
     cp -r "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}/include"/* "${TP_INCLUDE_DIR}/"
 }
 
@@ -1148,9 +1287,12 @@ build_simdjson() {
 build_nlohmann_json() {
     check_if_source_exist "${NLOHMANN_JSON_SOURCE}"
     cd "${TP_SOURCE_DIR}/${NLOHMANN_JSON_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
 
     "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DJSON_BuildTests=OFF ..
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1159,10 +1301,13 @@ build_nlohmann_json() {
 build_opentelemetry() {
     check_if_source_exist "${OPENTELEMETRY_SOURCE}"
     cd "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}"
-    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
 
     "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_TESTING=OFF \
         -DWITH_OTLP=ON -DWITH_OTLP_GRPC=OFF -DWITH_OTLP_HTTP=ON -DWITH_ZIPKIN=ON -DWITH_EXAMPLES=OFF ..
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
