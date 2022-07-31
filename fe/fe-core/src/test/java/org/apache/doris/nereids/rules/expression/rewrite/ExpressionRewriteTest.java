@@ -26,8 +26,8 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRu
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 /**
  * all expr rewrite rule test case.

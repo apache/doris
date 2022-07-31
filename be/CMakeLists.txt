@@ -352,6 +352,18 @@ set_target_properties(opentelemetry_trace PROPERTIES IMPORTED_LOCATION ${THIRDPA
 add_library(opentelemetry_http_client_curl STATIC IMPORTED)
 set_target_properties(opentelemetry_http_client_curl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_http_client_curl.a)
 
+add_library(opentelemetry_exporter_otlp_http STATIC IMPORTED)
+set_target_properties(opentelemetry_exporter_otlp_http PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_exporter_otlp_http.a)
+
+add_library(opentelemetry_exporter_otlp_http_client STATIC IMPORTED)
+set_target_properties(opentelemetry_exporter_otlp_http_client PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_exporter_otlp_http_client.a)
+
+add_library(opentelemetry_otlp_recordable STATIC IMPORTED)
+set_target_properties(opentelemetry_otlp_recordable PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_otlp_recordable.a)
+
+add_library(opentelemetry_proto STATIC IMPORTED)
+set_target_properties(opentelemetry_proto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_proto.a)
+
 add_library(xml2 STATIC IMPORTED)
 set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
 
@@ -678,6 +690,10 @@ set(COMMON_THIRDPARTY
     opentelemetry_exporter_ostream_span
     opentelemetry_trace
     opentelemetry_http_client_curl
+    opentelemetry_exporter_otlp_http
+    opentelemetry_exporter_otlp_http_client
+    opentelemetry_otlp_recordable
+    opentelemetry_proto
     ${AWS_LIBS}
     # put this after lz4 to avoid using lz4 lib in librdkafka
     librdkafka_cpp

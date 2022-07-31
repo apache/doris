@@ -23,23 +23,18 @@
 
 namespace doris {
 
-class MemTrackerLimiter;
-
 // Used to track memory usage.
 //
 // MemTracker can be consumed manually by consume()/release(), or put into SCOPED_CONSUME_MEM_TRACKER,
 // which will automatically track all memory usage of the code segment where it is located.
-//
-// MemTracker's parent can only be MemTrackerLimiter, which is only used to print tree-like statistics.
-// Consuming MemTracker will not consume its parent synchronously.
-// Usually, it is not necessary to specify the parent. by default, the MemTrackerLimiter in the thread context
-// is used as the parent, which is specified when the thread starts.
 //
 // This class is thread-safe.
 class MemTracker {
 public:
     struct Snapshot {
         std::string label;
+        // For MemTracker, it is only weakly related to parent through label, ensuring MemTracker Independence.
+        // For MemTrackerLimiter, it is strongly related to parent and saves pointer objects to each other.
         std::string parent = "";
         size_t level = 0;
         int64_t limit = 0;
@@ -48,24 +43,18 @@ public:
         size_t child_count = 0;
     };
 
-    // Creates and adds the tracker to the tree.
-    MemTracker(const std::string& label = std::string(), MemTrackerLimiter* parent = nullptr,
-               RuntimeProfile* profile = nullptr, bool is_limiter = false);
+    // Creates and adds the tracker to the mem_tracker_pool.
+    MemTracker(const std::string& label = std::string(), RuntimeProfile* profile = nullptr,
+               bool is_limiter = false);
 
     ~MemTracker();
 
-    // Get a temporary tracker with a specified label, and the tracker will be created when the label is first get.
-    // Temporary trackers are not automatically destructed, which is usually used for debugging.
-    static MemTracker* get_static_mem_tracker(const std::string& label);
-
 public:
     const std::string& label() const { return _label; }
-    MemTrackerLimiter* parent() const { return _parent; }
     // Returns the memory consumed in bytes.
     int64_t consumption() const { return _consumption->current_value(); }
     int64_t peak_consumption() const { return _consumption->value(); }
 
-public:
     void consume(int64_t bytes);
     void release(int64_t bytes) { consume(-bytes); }
     // Transfer 'bytes' of consumption from this tracker to 'dst'.
@@ -78,17 +67,12 @@ public:
         return limit >= 0 && limit > consumption() + bytes;
     }
 
-    // Usually, a negative values means that the statistics are not accurate,
-    // 1. The released memory is not consumed.
-    // 2. The same block of memory, tracker A calls consume, and tracker B calls release.
-    // 3. Repeated releases of MemTacker. When the consume is called on the child MemTracker,
-    //    after the release is called on the parent MemTracker,
-    //    the child ~MemTracker will cause repeated releases.
-    void memory_leak_check() { DCHECK_EQ(consumption(), 0) << std::endl << log_usage(); }
-
     Snapshot make_snapshot(size_t level) const;
-
-    std::string log_usage();
+    // Specify group_num from mem_tracker_pool to generate snapshot, requiring tracker.label to be related
+    // with parameter related_label
+    static void make_group_snapshot(std::vector<Snapshot>* snapshots, size_t level,
+                                    int64_t group_num, std::string related_label);
+    static std::string log_usage(MemTracker::Snapshot snapshot);
 
     std::string debug_string() {
         std::stringstream msg;
@@ -98,20 +82,22 @@ public:
         return msg.str();
     }
 
-    // Iterator into parent_->_child_trackers for this object. Stored to have O(1) remove.
-    std::list<MemTracker*>::iterator _child_tracker_it;
-
     static const std::string COUNTER_NAME;
 
 protected:
-    // label used in the usage string (log_usage())
+    // label used in the make snapshot, not guaranteed unique.
     std::string _label;
 
     std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> _consumption; // in bytes
 
-    MemTrackerLimiter* _parent; // The parent of this tracker.
+    // Tracker is located in group num in mem_tracker_pool
+    int64_t _bind_group_num;
 
+    // Whether is a MemTrackerLimiter
     bool _is_limiter;
+
+    // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
+    std::list<MemTracker*>::iterator _tracker_group_it;
 };
 
 inline void MemTracker::consume(int64_t bytes) {

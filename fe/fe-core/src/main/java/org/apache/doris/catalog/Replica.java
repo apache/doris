@@ -431,7 +431,7 @@ public class Replica implements Writable {
 
     @Override
     public String toString() {
-        StringBuffer strBuffer = new StringBuffer("[replicaId=");
+        StringBuilder strBuffer = new StringBuilder("[replicaId=");
         strBuffer.append(id);
         strBuffer.append(", BackendId=");
         strBuffer.append(backendId);

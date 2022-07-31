@@ -139,7 +139,7 @@ public class AlterPolicyStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
         sb.append("ALTER POLICY '").append(policyName).append("' ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();

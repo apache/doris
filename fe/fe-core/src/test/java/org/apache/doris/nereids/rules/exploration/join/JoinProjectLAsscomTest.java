@@ -38,9 +38,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
@@ -51,7 +51,7 @@ public class JoinProjectLAsscomTest {
     private static List<LogicalOlapScan> scans = Lists.newArrayList();
     private static List<List<SlotReference>> outputs = Lists.newArrayList();
 
-    @BeforeClass
+    @BeforeAll
     public static void init() {
         Table t1 = new Table(0L, "t1", Table.TableType.OLAP,
                 ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
@@ -94,7 +94,7 @@ public class JoinProjectLAsscomTest {
          *   A     B                   A     C
          */
 
-        Assert.assertEquals(3, scans.size());
+        Assertions.assertEquals(3, scans.size());
 
         List<SlotReference> t1 = outputs.get(0);
         List<SlotReference> t2 = outputs.get(1);
@@ -111,8 +111,8 @@ public class JoinProjectLAsscomTest {
 
         Rule rule = new JoinProjectLAsscom().build();
         List<Plan> transform = rule.transform(topJoin, plannerContext);
-        Assert.assertEquals(1, transform.size());
-        Assert.assertTrue(transform.get(0) instanceof LogicalJoin);
+        Assertions.assertEquals(1, transform.size());
+        Assertions.assertTrue(transform.get(0) instanceof LogicalJoin);
         LogicalJoin newTopJoin = (LogicalJoin) transform.get(0);
         return new Pair<>(topJoin, newTopJoin);
     }
@@ -134,14 +134,13 @@ public class JoinProjectLAsscomTest {
         LogicalJoin newTopJoin = pair.second;
 
         // Join reorder successfully.
-        Assert.assertNotEquals(oldJoin, newTopJoin);
-        Assert.assertEquals("t1.id",
-                ((Alias) ((LogicalProject) newTopJoin.left()).getProjects().get(0)).getName());
-        Assert.assertEquals("name",
+        Assertions.assertNotEquals(oldJoin, newTopJoin);
+        Assertions.assertEquals("t1.id", ((Alias) ((LogicalProject) newTopJoin.left()).getProjects().get(0)).getName());
+        Assertions.assertEquals("name",
                 ((SlotReference) ((LogicalProject) newTopJoin.left()).getProjects().get(1)).getName());
-        Assert.assertEquals("t2.id",
+        Assertions.assertEquals("t2.id",
                 ((Alias) ((LogicalProject) newTopJoin.right()).getProjects().get(0)).getName());
-        Assert.assertEquals("name",
+        Assertions.assertEquals("name",
                 ((SlotReference) ((LogicalProject) newTopJoin.left()).getProjects().get(1)).getName());
 
     }

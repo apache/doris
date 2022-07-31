@@ -68,11 +68,12 @@ MemTrackerLimiter* MemTrackerTaskPool::get_task_mem_tracker(const std::string& t
 }
 
 void MemTrackerTaskPool::logout_task_mem_tracker() {
-    for (auto it = _task_mem_trackers.begin(); it != _task_mem_trackers.end();) {
+    std::vector<std::string> expired_task_ids;
+    for (auto it = _task_mem_trackers.begin(); it != _task_mem_trackers.end(); it++) {
         if (!it->second) {
             // Unknown exception case with high concurrency, after _task_mem_trackers.erase,
             // the key still exists in _task_mem_trackers. https://github.com/apache/incubator-doris/issues/10006
-            _task_mem_trackers._erase(it++);
+            expired_task_ids.emplace_back(it->first);
         } else if (it->second->remain_child_count() == 0 && it->second->had_child_count() != 0) {
             // No RuntimeState uses this task MemTracker, it is only referenced by this map,
             // and tracker was not created soon, delete it.
@@ -90,7 +91,7 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
             // the negative number of the current value of consume.
             it->second->parent()->consumption_revise(-it->second->consumption());
             LOG(INFO) << "Deregister query/load memory tracker, queryId/loadId: " << it->first;
-            _task_mem_trackers._erase(it++);
+            expired_task_ids.emplace_back(it->first);
         } else {
             // Log limit exceeded query tracker.
             if (it->second->limit_exceeded()) {
@@ -99,8 +100,13 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
                         fmt::format("Task mem limit exceeded but no cancel, queryId:{}", it->first),
                         0, Status::OK());
             }
-            ++it;
         }
+    }
+    for (auto tid : expired_task_ids) {
+        // Verify the condition again to make sure the tracker is not being used again.
+        _task_mem_trackers.erase_if(tid, [&](std::shared_ptr<MemTrackerLimiter> v) {
+            return !v || v->remain_child_count() == 0;
+        });
     }
 }
 

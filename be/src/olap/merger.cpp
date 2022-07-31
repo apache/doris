@@ -103,6 +103,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.rs_readers = src_rowset_readers;
     reader_params.version = dst_rowset_writer->version();
     reader_params.tablet_schema = cur_tablet_schema;
+    reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
     if (stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
     }

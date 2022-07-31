@@ -38,7 +38,6 @@ import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
 import com.google.common.collect.Sets;
@@ -232,6 +231,21 @@ public final class MetricRepo {
         };
         PALO_METRIC_REGISTER.addPaloMetrics(scheduledTabletNum);
 
+        GaugeMetric<Long> maxInstanceNum = new GaugeMetric<Long>("max_instances_num_per_user",
+                MetricUnit.NOUNIT, "max instances num of all current users") {
+                @Override
+                public Long getValue() {
+                    try {
+                        return ((QeProcessorImpl) QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
+                            .reduce(-1, BinaryOperator.maxBy(Integer::compareTo)).longValue();
+                    } catch (Throwable ex) {
+                        LOG.warn("Get max_instances_num_per_user error", ex);
+                        return -2L;
+                    }
+                }
+        };
+        PALO_METRIC_REGISTER.addPaloMetrics(maxInstanceNum);
+
         // qps, rps and error rate
         // these metrics should be set an init value, in case that metric calculator is not running
         GAUGE_QUERY_PER_SECOND = new GaugeMetricImpl<>("qps", MetricUnit.NOUNIT,
@@ -376,18 +390,6 @@ public final class MetricRepo {
                 MetricRegistry.name("query", "latency", "ms"));
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("editlog", "write", "latency", "ms"));
-
-        METRIC_REGISTER.register(MetricRegistry.name("palo", "fe", "query", "max_instances_num_per_user"),
-                (Gauge<Integer>) () -> {
-                    try {
-                        return ((QeProcessorImpl) QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
-                                .reduce(-1, BinaryOperator.maxBy(Integer::compareTo));
-                    } catch (Throwable ex) {
-                        LOG.warn("Get max_instances_num_per_user error", ex);
-                        return -2;
-                    }
-            }
-        );
 
         // init system metrics
         initSystemMetrics();
