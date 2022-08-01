@@ -67,6 +67,8 @@ ChunkAllocator* ChunkAllocator::instance() {
 // Keep free chunk's ptr in size separated free list.
 // This class is thread-safe.
 class ChunkArena {
+    int TRY_LOCK_TIMES = 3;
+
 public:
     ChunkArena() : _chunk_lists(64) {}
 
@@ -86,14 +88,23 @@ public:
         int idx = BitUtil::Log2Ceiling64(size);
         auto& free_list = _chunk_lists[idx];
 
-        std::lock_guard<SpinLock> l(_lock);
-        if (free_list.empty()) {
-            return false;
+        if (free_list.empty()) return false;
+
+        for (int i = 0; i < TRY_LOCK_TIMES; ++i) {
+            if (_lock.try_lock()) {
+                if (free_list.empty()) {
+                    _lock.unlock();
+                    return false;
+                } else {
+                    *ptr = free_list.back();
+                    free_list.pop_back();
+                    ASAN_UNPOISON_MEMORY_REGION(*ptr, size);
+                    _lock.unlock();
+                    return true;
+                }
+            }
         }
-        *ptr = free_list.back();
-        free_list.pop_back();
-        ASAN_UNPOISON_MEMORY_REGION(*ptr, size);
-        return true;
+        return false;
     }
 
     void push_free_chunk(uint8_t* ptr, size_t size) {
