@@ -133,8 +133,7 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                             _remote_file_reader->path().native(), offset, req_size));
         if (bytes_read != req_size) {
             LOG(ERROR) << "read remote file failed: "
-                       << _remote_file_reader->path().native()
-                       << ", bytes read: " << bytes_read
+                       << _remote_file_reader->path().native() << ", bytes read: " << bytes_read
                        << " vs file size: " << _remote_file_reader->size();
             return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
         }

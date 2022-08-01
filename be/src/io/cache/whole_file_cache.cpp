@@ -67,7 +67,7 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                 "Check local cache file exist failed.");
         if (cache_file_exist) {
             RETURN_NOT_OK_STATUS_WITH_WARN(io::global_local_filesystem()->delete_file(cache_file),
-                    "Check local cache file exist failed.");
+                                           "Check local cache file exist failed.");
         }
         LOG(INFO) << "Download cache file from remote file: "
                   << _remote_file_reader->path().native() << " -> " << cache_file.native();

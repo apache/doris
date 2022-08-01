@@ -49,6 +49,5 @@ private:
     std::map<std::string, FileCachePtr> _file_cache_map;
 };
 
-
 } // namespace io
 } // namespace doris

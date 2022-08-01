@@ -35,8 +35,8 @@ void FileCacheManager::remove_file_cache(const Path& cache_path) {
 
 void FileCacheManager::clean_timeout_caches() {
     std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
-    for (std::map<std::string, FileCachePtr>::const_iterator iter
-         = _file_cache_map.cbegin(); iter != _file_cache_map.cend(); ++iter) {
+    for (std::map<std::string, FileCachePtr>::const_iterator iter = _file_cache_map.cbegin();
+         iter != _file_cache_map.cend(); ++iter) {
         iter->second->clean_timeout_cache();
     }
 }
