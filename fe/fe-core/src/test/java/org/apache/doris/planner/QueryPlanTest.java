@@ -421,7 +421,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testFunctionViewGroupingSet() throws Exception {
         String queryStr = "select query_id, client_ip, concat from test.function_view group by rollup("
                 + "query_id, client_ip, concat);";
-        assertSQLPlanOrErrorMsgContains(queryStr, "repeat: repeat 3 lines [[], [0], [0, 1], [0, 1, 2, 3]]");
+        assertSQLPlanOrErrorMsgContains(queryStr, "repeat: repeat 3 lines [[], [8], [8, 9], [8, 9, 10]]");
     }
 
     @Test

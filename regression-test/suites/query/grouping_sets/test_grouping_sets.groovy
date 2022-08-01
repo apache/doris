@@ -20,4 +20,26 @@ suite("test_grouping_sets", "query") {
                 SELECT k1, k2, SUM(k3) FROM test_query_db.test
                 GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ) ) order by k1, k2
               """
+
+    qt_select2 """
+                 select (k1 + 1) k1_, k2, sum(k3) from test_query_db.test group by
+                 rollup(k1_, k2) order by k1_, k2
+               """
+
+    qt_select3 "select 1 as k, k3, sum(k1) from test_query_db.test group by cube(k, k3) order by k, k3"
+
+    qt_select4 """
+                 select k2, concat(k7, k12) as k_concat, sum(k1) from test_query_db.test group by
+                 grouping sets((k2, k_concat),()) order by k2, k_concat
+               """
+
+    qt_select5 """
+                 select k1_, k2_, sum(k3_) from (select (k1 + 1) k1_, k2 k2_, k3 k3_ from test_query_db.test) as test
+                 group by grouping sets((k1_, k2_), (k2_)) order by k1_, k2_
+               """
+
+    qt_select6 """
+                 select if(k0 = 1, 2, k0) k_if, k1, sum(k2) k2_sum from test_query_db.baseall where k0 is null or k2 = 1991
+                 group by grouping sets((k_if, k1),()) order by k_if, k1, k2_sum
+               """
 }

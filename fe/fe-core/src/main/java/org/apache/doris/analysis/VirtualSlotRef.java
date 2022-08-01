@@ -29,6 +29,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * It like a SlotRef except that it is not a real column exist in table.
@@ -55,6 +57,10 @@ public class VirtualSlotRef extends SlotRef {
         tupleDescriptor = other.tupleDescriptor;
     }
 
+    public VirtualSlotRef(SlotDescriptor desc) {
+        super(desc);
+    }
+
     public static VirtualSlotRef read(DataInput in) throws IOException {
         VirtualSlotRef virtualSlotRef = new VirtualSlotRef(null, Type.BIGINT, null, new ArrayList<>());
         virtualSlotRef.readFields(in);
@@ -66,6 +72,10 @@ public class VirtualSlotRef extends SlotRef {
             return getColumnName().substring(GroupingInfo.GROUPING_PREFIX.length());
         }
         return getColumnName();
+    }
+
+    @Override
+    public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
     }
 
     @Override

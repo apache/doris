@@ -18,6 +18,8 @@
 #pragma once
 
 #include "exec/exec_node.h"
+#include "exprs/expr.h"
+#include "exprs/expr_context.h"
 
 namespace doris {
 
@@ -32,6 +34,7 @@ public:
     RepeatNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~RepeatNode();
 
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     virtual Status prepare(RuntimeState* state) override;
     virtual Status open(RuntimeState* state) override;
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
@@ -52,12 +55,17 @@ protected:
     std::vector<std::vector<int64_t>> _grouping_list;
     // Tuple id used for output, it has new slots.
     TupleId _output_tuple_id;
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _output_tuple_desc;
 
     std::unique_ptr<RowBatch> _child_row_batch;
     bool _child_eos;
     int _repeat_id_idx;
     RuntimeState* _runtime_state;
+
+    // Exprs used to evaluate input rows
+    std::vector<Expr*> _exprs;
+
+    std::vector<ExprContext*> _expr_evals;
 };
 
 } // namespace doris
