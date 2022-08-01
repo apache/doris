@@ -66,19 +66,12 @@ struct TS3StorageParam {
     9: optional string bucket
 }
 
-enum TFileCacheType {
-    NO_CACHE = 0,
-    WHOLE_FILE = 1,
-    SUB_FILE = 2
-}
-
 struct TGetStoragePolicy {
     1: required string policy_name
     2: required i64 cooldown_datetime
     3: required i64 cooldown_ttl
     4: required TS3StorageParam s3_storage_param
     5: required string md5_checksum
-    6: optional TFileCacheType file_cache_type = NO_CACHE
 }
 
 struct TGetStoragePolicyResult {
@@ -96,6 +89,7 @@ enum TCompressionType {
     ZLIB = 6,
     ZSTD = 7
 }
+
 
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
