@@ -67,7 +67,7 @@ MysqlRowBuffer::MysqlRowBuffer()
           _buf(_default_buf),
           _buf_size(sizeof(_default_buf)),
           _dynamic_mode(0),
-          _len_pos(nullptr) {}
+          _len_pos(0) {}
 
 MysqlRowBuffer::~MysqlRowBuffer() {
     if (_buf != _default_buf) {
@@ -79,7 +79,7 @@ void MysqlRowBuffer::open_dynamic_mode() {
     if (!_dynamic_mode) {
         *_pos++ = NEXT_EIGHT_BYTE;
         // write length when dynamic mode close
-        _len_pos = _pos;
+        _len_pos = (_pos - _buf);
         _pos = _pos + 8;
     }
     _dynamic_mode++;
@@ -88,9 +88,10 @@ void MysqlRowBuffer::open_dynamic_mode() {
 void MysqlRowBuffer::close_dynamic_mode() {
     _dynamic_mode--;
 
+    // _buf + _len_pos is the position to write length
     if (!_dynamic_mode) {
-        int8store(_len_pos, _pos - _len_pos - 8);
-        _len_pos = nullptr;
+        int8store((_buf + _len_pos), _pos - (_buf + _len_pos) - 8);
+        _len_pos = 0;
     }
 }
 
@@ -113,14 +114,14 @@ int MysqlRowBuffer::reserve(int64_t size) {
         LOG(ERROR) << "alloc memory failed. size = " << alloc_size;
         return -1;
     }
-
-    memcpy(new_buf, _buf, _pos - _buf);
+    size_t offset = _pos - _buf;
+    memcpy(new_buf, _buf, offset);
 
     if (_buf != _default_buf) {
         delete[] _buf;
     }
 
-    _pos = new_buf + (_pos - _buf);
+    _pos = new_buf + offset;
     _buf = new_buf;
     _buf_size = alloc_size;
 
