@@ -50,7 +50,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
-            .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
+            .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("RemoteUsedCapacity").add("UsedPct")
             .add("MaxDiskUsedPct").add("Tag").add("ErrMsg").add("Version").add("Status")
             .build();
 
@@ -153,6 +153,12 @@ public class BackendsProcDir implements ProcDirInterface {
             long totalB = backend.getTotalCapacityB();
             Pair<Double, String> totalCapacity = DebugUtil.getByteUint(totalB);
             backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalCapacity.first) + " " + totalCapacity.second);
+
+            // remote used capacity
+            long remoteB = backend.getRemoteUsedCapacityB();
+            Pair<Double, String> totalRemoteUsedCapacity = DebugUtil.getByteUint(remoteB);
+            backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteUsedCapacity.first) + " "
+                    + totalRemoteUsedCapacity.second);
 
             // used percent
             double used = 0.0;
