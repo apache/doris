@@ -270,11 +270,11 @@ struct TimeRound {
     static constexpr int8_t FLOOR = 0;
     static constexpr int8_t CEIL = 1;
 
-    static constexpr uint32_t MASK_YEAR_FOR_DATEV2 = -1 >> 23;
-    static constexpr uint32_t MASK_YEAR_MONTH_FOR_DATEV2 = -1 >> 27;
+    static constexpr uint32_t MASK_YEAR_FOR_DATEV2 = ((uint32_t)-1) >> 23;
+    static constexpr uint32_t MASK_YEAR_MONTH_FOR_DATEV2 = ((uint32_t)-1) >> 27;
 
-    static constexpr uint64_t MASK_YEAR_FOR_DATETIMEV2 = -1 >> 18;
-    static constexpr uint64_t MASK_YEAR_MONTH_FOR_DATETIMEV2 = -1 >> 22;
+    static constexpr uint64_t MASK_YEAR_FOR_DATETIMEV2 = ((uint64_t)-1) >> 18;
+    static constexpr uint64_t MASK_YEAR_MONTH_FOR_DATETIMEV2 = ((uint64_t)-1) >> 22;
 
     template <typename NativeType, typename DateValueType>
     static void time_round(const DateValueType& ts2, Int32 period, DateValueType& ts1,

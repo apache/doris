@@ -146,11 +146,13 @@ struct ConvertImpl {
                         }
                     } else if constexpr (IsDateV2Type<ToDataType>) {
                         auto date_v2 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(vec_to[i]);
-                        date_v2.from_date_int64(vec_from[i]);
+                        date_v2.from_date_int64(
+                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
                     } else if constexpr (IsDateTimeV2Type<ToDataType>) {
                         auto date_v2 =
                                 binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(vec_to[i]);
-                        date_v2.from_date_int64(vec_from[i]);
+                        date_v2.from_date_int64(
+                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
                     } else {
                         vec_to[i] =
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();
@@ -180,14 +182,14 @@ struct ConvertImpl {
                             DataTypeDateTimeV2::cast_to_date(vec_from[i], vec_to[i]);
                         }
                     } else {
-                        if constexpr (IsDateTimeV2Type<ToDataType>) {
+                        if constexpr (IsDateTimeV2Type<FromDataType>) {
                             vec_to[i] = reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
                                                 vec_from[i])
-                                                .to_date_int_val();
+                                                .to_int64();
                         } else {
                             vec_to[i] = reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
                                                 vec_from[i])
-                                                .to_date_int_val();
+                                                .to_int64();
                         }
                     }
                 } else {
