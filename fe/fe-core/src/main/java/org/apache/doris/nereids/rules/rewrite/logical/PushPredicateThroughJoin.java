@@ -79,7 +79,7 @@ public class PushPredicateThroughJoin extends OneRewriteRuleFactory {
             List<Slot> leftInput = join.left().getOutput();
             List<Slot> rightInput = join.right().getOutput();
 
-            ExpressionUtils.extractConjunctive(ExpressionUtils.and(onPredicates, wherePredicates))
+            ExpressionUtils.extractConjunction(ExpressionUtils.and(onPredicates, wherePredicates))
                     .forEach(predicate -> {
                         if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))) {
                             eqConditions.add(predicate);
