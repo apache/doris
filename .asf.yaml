@@ -16,24 +16,24 @@
 #
 
 github:
-  description: Apache Doris is an easy-to-use, high-performance and unified analytical database. It compatible with MySQL protocol, and using standard SQL. It has extremely fast performance in low-latency and high-throughput queries with columnar storage engine, modern MPP architecture, vectorized query engine, pre-aggregated materialized view and data index. It's a highly cohesive system that can support real-time data serving, interactive data analysis, offline data processing and federated quering for datalake scenarios, one for all.
-  homepage: https://doris.apache.org/
+  description: Apache Doris is an easy-to-use, high performance and unified analytics database. 
+  homepage: https://doris.apache.org
   labels:
     - data-warehousing
     - mpp
     - olap
     - dbms
-    - apache
-    - doris
     - database
-    - distributed-system
+    - sql
     - big-data
+    - real-time
+    - analytics
+    - distributed-database
     - iceberg
     - hudi
     - datalake
     - hive
     - hadoop
-    - analytics
     - tpch
     - ssb
     - vectorized
