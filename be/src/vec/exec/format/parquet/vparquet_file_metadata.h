@@ -31,7 +31,7 @@ public:
     int32_t num_row_groups() const { return _num_groups; }
     int32_t num_columns() const { return _num_columns; };
     int32_t num_rows() const { return _num_rows; };
-    SchemaDescriptor schema() const { return _schema; };
+    FieldDescriptor schema() const { return _schema; };
     std::string debug_string() const;
 
 private:
@@ -39,7 +39,7 @@ private:
     int32_t _num_groups = 0;
     int32_t _num_columns = 0;
     int64_t _num_rows = 0;
-    SchemaDescriptor _schema;
+    FieldDescriptor _schema;
 };
 
 } // namespace doris::vectorized

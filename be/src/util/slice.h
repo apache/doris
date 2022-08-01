@@ -141,6 +141,10 @@ public:
         return ((size >= x.size) && (mem_equal(data, x.data, x.size)));
     }
 
+    bool ends_with(const Slice& x) const {
+        return ((size >= x.size) && mem_equal(data + (size - x.size), x.data, x.size));
+    }
+
     /// @brief Comparator struct, useful for ordered collections (like STL maps).
     struct Comparator {
         /// Compare two slices using Slice::compare()
