@@ -15,27 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.expression.rewrite;
+package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
+import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.List;
-
 /**
- * normalize expression of plan rule set.
+ * Apply rules to normalize expressions.
  */
-public class NormalizeExpressionOfPlan extends ExpressionOfPlanRewrite {
+public class NormalizeExpressionRulesJob extends BatchRulesJob {
 
-    public static final List<ExpressionRewriteRule> NORMALIZE_REWRITE_RULES = ImmutableList.of(
-            NormalizeBinaryPredicatesRule.INSTANCE,
-            BetweenToCompoundRule.INSTANCE
-    );
-    private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES);
-
-    public NormalizeExpressionOfPlan() {
-        super(EXECUTOR);
+    /**
+     * Constructor.
+     * @param plannerContext context for applying rules.
+     */
+    public NormalizeExpressionRulesJob(PlannerContext plannerContext) {
+        super(plannerContext);
+        rulesJob.addAll(ImmutableList.of(
+                topDownBatch(ImmutableList.of(
+                        new ExpressionNormalization()
+                ))
+        ));
     }
 }
