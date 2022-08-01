@@ -332,7 +332,8 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
         while (true) {
             // Batch is full or reach raw_rows_threshold or raw_bytes_threshold, break
             if (batch->is_full() ||
-                batch->tuple_data_pool()->total_reserved_bytes() >= raw_bytes_threshold ||
+                (batch->tuple_data_pool()->total_allocated_bytes() >= raw_bytes_threshold &&
+                 batch->num_rows() > 0) ||
                 raw_rows_read() >= raw_rows_threshold) {
                 _update_realtime_counter();
                 break;
