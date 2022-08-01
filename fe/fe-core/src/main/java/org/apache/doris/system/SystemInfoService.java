@@ -18,9 +18,9 @@
 package org.apache.doris.system;
 
 import org.apache.doris.analysis.ModifyBackendClause;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
@@ -128,7 +128,7 @@ public class SystemInfoService {
     }
 
     private void setBackendOwner(Backend backend, String clusterName) {
-        final Cluster cluster = Catalog.getCurrentCatalog().getCluster(clusterName);
+        final Cluster cluster = Env.getCurrentEnv().getCluster(clusterName);
         Preconditions.checkState(cluster != null);
         cluster.addBackend(backend.getId());
         backend.setOwnerClusterName(clusterName);
@@ -138,7 +138,7 @@ public class SystemInfoService {
     // Final entry of adding backend
     private void addBackend(String host, int heartbeatPort, boolean isFree, String destCluster,
             Map<String, String> tagMap) {
-        Backend newBackend = new Backend(Catalog.getCurrentCatalog().getNextId(), host, heartbeatPort);
+        Backend newBackend = new Backend(Env.getCurrentEnv().getNextId(), host, heartbeatPort);
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.put(newBackend.getId(), newBackend);
@@ -165,7 +165,7 @@ public class SystemInfoService {
         newBackend.setTagMap(tagMap);
 
         // log
-        Catalog.getCurrentCatalog().getEditLog().logAddBackend(newBackend);
+        Env.getCurrentEnv().getEditLog().logAddBackend(newBackend);
         LOG.info("finished to add {} ", newBackend);
 
         // backends is changed, regenerated tablet number metrics
@@ -216,14 +216,14 @@ public class SystemInfoService {
         idToReportVersionRef = newIdToReportVersion;
 
         // update cluster
-        final Cluster cluster = Catalog.getCurrentCatalog().getCluster(droppedBackend.getOwnerClusterName());
+        final Cluster cluster = Env.getCurrentEnv().getCluster(droppedBackend.getOwnerClusterName());
         if (null != cluster) {
             cluster.removeBackend(droppedBackend.getId());
         } else {
             LOG.error("Cluster " + droppedBackend.getOwnerClusterName() + " no exist.");
         }
         // log
-        Catalog.getCurrentCatalog().getEditLog().logDropBackend(droppedBackend);
+        Env.getCurrentEnv().getEditLog().logDropBackend(droppedBackend);
         LOG.info("finished to drop {}", droppedBackend);
 
         // backends is changed, regenerated tablet number metrics
@@ -416,7 +416,7 @@ public class SystemInfoService {
                 backend.setBackendState(BackendState.free);
                 backend.clearClusterName();
                 if (!isReplay) {
-                    Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(backend);
+                    Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
                 }
             }
         }
@@ -591,7 +591,7 @@ public class SystemInfoService {
             final Backend backend = idToBackends.get(id);
             backend.setOwnerClusterName(clusterName);
             backend.setBackendState(BackendState.using);
-            Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(backend);
+            Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
         }
         return chosenBackendIds;
     }
@@ -860,7 +860,7 @@ public class SystemInfoService {
     public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId, long tableId) {
         AtomicLong atomicLong;
         if ((atomicLong = idToReportVersionRef.get(backendId)) != null) {
-            Database db = (Database) Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+            Database db = (Database) Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("failed to update backend report version, db {} does not exist", dbId);
                 return;
@@ -960,7 +960,7 @@ public class SystemInfoService {
 
         // to add be to DEFAULT_CLUSTER
         if (newBackend.getBackendState() == BackendState.using) {
-            final Cluster cluster = Catalog.getCurrentCatalog().getCluster(DEFAULT_CLUSTER);
+            final Cluster cluster = Env.getCurrentEnv().getCluster(DEFAULT_CLUSTER);
             if (null != cluster) {
                 // replay log
                 cluster.addBackend(newBackend.getId());
@@ -986,7 +986,7 @@ public class SystemInfoService {
         idToReportVersionRef = newIdToReportVersion;
 
         // update cluster
-        final Cluster cluster = Catalog.getCurrentCatalog().getCluster(backend.getOwnerClusterName());
+        final Cluster cluster = Env.getCurrentEnv().getCluster(backend.getOwnerClusterName());
         if (null != cluster) {
             cluster.removeBackend(backend.getId());
         } else {
@@ -1144,7 +1144,7 @@ public class SystemInfoService {
             }
 
             if (shouldModify) {
-                Catalog.getCurrentCatalog().getEditLog().logModifyBackend(be);
+                Env.getCurrentEnv().getEditLog().logModifyBackend(be);
                 LOG.info("finished to modify backend {} ", be);
             }
         }

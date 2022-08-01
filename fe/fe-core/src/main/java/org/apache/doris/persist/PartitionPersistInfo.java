@@ -17,8 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
@@ -122,7 +122,7 @@ public class PartitionPersistInfo implements Writable {
         range = RangeUtils.readRange(in);
         listPartitionItem = ListPartitionItem.read(in);
         dataProperty = DataProperty.read(in);
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             this.replicaAlloc = new ReplicaAllocation(in.readShort());
         } else {
             this.replicaAlloc = ReplicaAllocation.read(in);

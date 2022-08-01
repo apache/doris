@@ -23,7 +23,7 @@ import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SysVariableDesc;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -55,7 +55,7 @@ public class VariableMgrTest {
         ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
     }
 
     @Test
@@ -172,20 +172,20 @@ public class VariableMgrTest {
         Assert.assertEquals(7890, VariableMgr.newSessionVariable().getMaxExecMemByte());
 
         // Get currentCatalog first
-        Catalog currentCatalog = Catalog.getCurrentCatalog();
+        Env currentEnv = Env.getCurrentEnv();
         // Save real ckptThreadId
-        long ckptThreadId = currentCatalog.getCheckpointer().getId();
+        long ckptThreadId = currentEnv.getCheckpointer().getId();
         try {
             // set checkpointThreadId to current thread id, so that when do checkpoint manually here,
             // the Catalog.isCheckpointThread() will return true.
-            Deencapsulation.setField(Catalog.class, "checkpointThreadId", Thread.currentThread().getId());
-            currentCatalog.getCheckpointer().doCheckpoint();
+            Deencapsulation.setField(Env.class, "checkpointThreadId", Thread.currentThread().getId());
+            currentEnv.getCheckpointer().doCheckpoint();
         } catch (Throwable e) {
             e.printStackTrace();
             Assert.fail(e.getMessage());
         } finally {
             // Restore the ckptThreadId
-            Deencapsulation.setField(Catalog.class, "checkpointThreadId", ckptThreadId);
+            Deencapsulation.setField(Env.class, "checkpointThreadId", ckptThreadId);
         }
         Assert.assertEquals(7890, VariableMgr.newSessionVariable().getMaxExecMemByte());
     }

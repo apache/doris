@@ -22,6 +22,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "gen_cpp/AgentService_types.h"
@@ -30,6 +31,7 @@
 #include "olap/base_tablet.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
@@ -52,6 +54,8 @@ class RowsetWriter;
 struct RowsetWriterContext;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
+
+enum TabletStorageType { STORAGE_TYPE_LOCAL, STORAGE_TYPE_REMOTE, STORAGE_TYPE_REMOTE_AND_LOCAL };
 
 class Tablet : public BaseTablet {
 public:
@@ -121,7 +125,7 @@ public:
 
     const RowsetSharedPtr rowset_with_max_version() const;
 
-    static const RowsetMetaSharedPtr rowset_meta_with_max_schema_version(
+    static RowsetMetaSharedPtr rowset_meta_with_max_schema_version(
             const std::vector<RowsetMetaSharedPtr>& rowset_metas);
 
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
@@ -273,23 +277,21 @@ public:
         return _cumulative_compaction_policy;
     }
 
-    std::shared_ptr<MemTracker>& get_compaction_mem_tracker(CompactionType compaction_type);
-
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->all_beta();
     }
 
-    const TabletSchema& tablet_schema() const override;
+    TabletSchemaSPtr tablet_schema() const override;
 
     Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                const SegmentsOverlapPB& overlap, const TabletSchema* tablet_schema,
+                                const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,
                                 int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
                                 const RowsetStatePB& rowset_state, const SegmentsOverlapPB& overlap,
-                                const TabletSchema* tablet_schema,
+                                TabletSchemaSPtr tablet_schema,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
@@ -298,17 +300,23 @@ public:
 
     RowsetSharedPtr pick_cooldown_rowset();
 
-    bool need_cooldown();
-
     bool need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
 
-    // Physically remove remote rowsets.
-    void remove_all_remote_rowsets();
+    Status remove_all_remote_rowsets();
 
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
     Status lookup_row_key(const Slice& encoded_key, RowLocation* row_location, uint32_t version);
+
+    void remove_self_owned_remote_rowsets();
+
+    // Erase entries in `_self_owned_remote_rowsets` iff they are in `rowsets_in_snapshot`.
+    // REQUIRES: held _meta_lock
+    void update_self_owned_remote_rowsets(const std::vector<RowsetSharedPtr>& rowsets_in_snapshot);
+
+    void record_unused_remote_rowset(const RowsetId& rowset_id, const io::ResourceId& resource,
+                                     int64_t num_segments);
 
 private:
     Status _init_once_action();
@@ -401,6 +409,9 @@ private:
     int64_t _last_missed_version;
     int64_t _last_missed_time_s;
 
+    // Remote rowsets not shared by other BE. We can delete them when drop tablet.
+    std::unordered_set<RowsetSharedPtr> _self_owned_remote_rowsets; // guarded by _meta_lock
+
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 
 public:
@@ -442,6 +453,11 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
 }
 
 inline bool Tablet::enable_unique_key_merge_on_write() const {
+#ifdef BE_TEST
+    if (_tablet_meta == nullptr) {
+        return false;
+    }
+#endif
     return _tablet_meta->enable_unique_key_merge_on_write();
 }
 
@@ -478,55 +494,55 @@ inline Version Tablet::max_version() const {
 }
 
 inline KeysType Tablet::keys_type() const {
-    return _schema.keys_type();
+    return _schema->keys_type();
 }
 
 inline SortType Tablet::sort_type() const {
-    return _schema.sort_type();
+    return _schema->sort_type();
 }
 
 inline size_t Tablet::sort_col_num() const {
-    return _schema.sort_col_num();
+    return _schema->sort_col_num();
 }
 
 inline size_t Tablet::num_columns() const {
-    return _schema.num_columns();
+    return _schema->num_columns();
 }
 
 inline size_t Tablet::num_null_columns() const {
-    return _schema.num_null_columns();
+    return _schema->num_null_columns();
 }
 
 inline size_t Tablet::num_key_columns() const {
-    return _schema.num_key_columns();
+    return _schema->num_key_columns();
 }
 
 inline size_t Tablet::num_short_key_columns() const {
-    return _schema.num_short_key_columns();
+    return _schema->num_short_key_columns();
 }
 
 inline size_t Tablet::num_rows_per_row_block() const {
-    return _schema.num_rows_per_row_block();
+    return _schema->num_rows_per_row_block();
 }
 
 inline CompressKind Tablet::compress_kind() const {
-    return _schema.compress_kind();
+    return _schema->compress_kind();
 }
 
 inline double Tablet::bloom_filter_fpp() const {
-    return _schema.bloom_filter_fpp();
+    return _schema->bloom_filter_fpp();
 }
 
 inline size_t Tablet::next_unique_id() const {
-    return _schema.next_column_unique_id();
+    return _schema->next_column_unique_id();
 }
 
 inline int32_t Tablet::field_index(const std::string& field_name) const {
-    return _schema.field_index(field_name);
+    return _schema->field_index(field_name);
 }
 
 inline size_t Tablet::row_size() const {
-    return _schema.row_size();
+    return _schema->row_size();
 }
 
 } // namespace doris

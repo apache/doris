@@ -75,7 +75,7 @@ public class LogicalOlapScan extends LogicalRelation  {
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalOlapScan(table, qualifier, Optional.empty(), logicalProperties);
     }
 

@@ -81,6 +81,8 @@ CONF_Int32(push_worker_count_normal_priority, "3");
 CONF_Int32(push_worker_count_high_priority, "3");
 // the count of thread to publish version
 CONF_Int32(publish_version_worker_count, "8");
+// the count of tablet thread to publish version
+CONF_Int32(tablet_publish_txn_max_thread, "32");
 // the count of thread to clear transaction task
 CONF_Int32(clear_transaction_task_worker_count, "1");
 // the count of thread to delete
@@ -634,7 +636,7 @@ CONF_Int32(aws_log_level, "3");
 CONF_mInt32(remote_storage_read_buffer_mb, "16");
 
 // Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
-CONF_Bool(track_new_delete, "true");
+CONF_Bool(enable_tcmalloc_hook, "true");
 
 // If true, switch TLS MemTracker to count more detailed memory,
 // including caches such as ExecNode operators and TabletManager.
@@ -647,25 +649,11 @@ CONF_Bool(track_new_delete, "true");
 //       2. Consider using raw pointers for mem tracker in thread local
 CONF_Bool(memory_verbose_track, "false");
 
-// Default level of MemTracker to show in web page
-// now MemTracker support two level:
-//      OVERVIEW: 0
-//      TASK: 1
-//      INSTANCE: 2
-//      VERBOSE: 3
-// the level equal or lower than mem_tracker_level will show in web page
-CONF_mInt16(mem_tracker_level, "0");
-
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
 // Decreasing this value will increase the frequency of consume/release.
 // Increasing this value will cause MemTracker statistics to be inaccurate.
-CONF_mInt32(mem_tracker_consume_min_size_bytes, "4194304");
-
-// When MemTracker is a negative value, it is considered that a memory leak has occurred,
-// but the actual MemTracker records inaccurately will also cause a negative value,
-// so this feature is in the experimental stage.
-CONF_mBool(memory_leak_detection, "false");
+CONF_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 
 // The version information of the tablet will be stored in the memory
 // in an adjacency graph data structure.
@@ -701,12 +689,15 @@ CONF_Int32(send_batch_thread_pool_queue_size, "102400");
 CONF_mInt32(max_segment_num_per_rowset, "200");
 
 // The connection timeout when connecting to external table such as odbc table.
-CONF_mInt32(external_table_connect_timeout_sec, "5");
+CONF_mInt32(external_table_connect_timeout_sec, "30");
 
 // The capacity of lur cache in segment loader.
 // Althought it is called "segment cache", but it caches segments in rowset granularity.
 // So the value of this config should corresponding to the number of rowsets on this BE.
 CONF_mInt32(segment_cache_capacity, "1000000");
+
+// Global bitmap cache capacity for aggregation cache, size in bytes
+CONF_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 
 // s3 config
 CONF_mInt32(max_remote_storage_count, "10");
@@ -741,9 +732,25 @@ CONF_String(function_service_protocol, "h2:grpc");
 // use which load balancer to select server to connect
 CONF_String(rpc_load_balancer, "rr");
 
+// Enable tracing
+// If this configuration is enabled, you should also specify the trace_export_url.
 CONF_Bool(enable_tracing, "false");
 
+// Enable opentelemtry collector
+CONF_Bool(enable_otel_collector, "false");
+
+// Current support for exporting traces:
+// zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
+// collector: The collector can be used to receive and process traces and support export to a variety of
+//   third-party systems.
+CONF_mString(trace_exporter, "zipkin");
+CONF_Validator(trace_exporter, [](const std::string& config) -> bool {
+    return config == "zipkin" || config == "collector";
+});
+
 // The endpoint to export spans to.
+// export to zipkin like: http://127.0.0.1:9411/api/v2/spans
+// export to collector like: http://127.0.0.1:4318/v1/traces
 CONF_String(trace_export_url, "http://127.0.0.1:9411/api/v2/spans");
 
 // The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
@@ -797,6 +804,22 @@ CONF_mInt64(cooldown_lag_time_sec, "10800"); // 3h
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 CONF_Bool(enable_time_lut, "true");
+
+// number of s3 scanner thread pool size
+CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
+// number of s3 scanner thread pool queue size
+CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
+
+#ifdef BE_TEST
+// test s3
+CONF_String(test_s3_resource, "resource");
+CONF_String(test_s3_ak, "ak");
+CONF_String(test_s3_sk, "sk");
+CONF_String(test_s3_endpoint, "endpoint");
+CONF_String(test_s3_region, "region");
+CONF_String(test_s3_bucket, "bucket");
+CONF_String(test_s3_prefix, "prefix");
+#endif
 
 } // namespace config
 

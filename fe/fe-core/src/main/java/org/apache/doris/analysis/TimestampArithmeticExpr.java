@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -118,7 +119,7 @@ public class TimestampArithmeticExpr extends Expr {
         if (t1 == PrimitiveType.DATEV2) {
             return Type.DATEV2;
         }
-        if (Config.use_date_v2_by_default
+        if (Config.enable_date_conversion
                 && PrimitiveType.isImplicitCast(t1, PrimitiveType.DATETIMEV2)) {
             return Type.DATETIMEV2;
         }
@@ -140,7 +141,7 @@ public class TimestampArithmeticExpr extends Expr {
             }
             Type dateType = fixType();
             if (dateType.isDate() && timeUnit.isDateTime()) {
-                dateType = DateLiteral.getDefaultDateType(Type.DATETIME);
+                dateType = ScalarType.getDefaultDateType(Type.DATETIME);
             }
             // The first child must return a timestamp or null.
             if (!getChild(0).getType().isDateType() && !getChild(0).getType().isNull()) {
@@ -416,5 +417,16 @@ public class TimestampArithmeticExpr extends Expr {
         public String toString() {
             return description;
         }
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        if (StringUtils.isEmpty(funcName)) {
+            throw new AnalysisException("function name is null");
+        }
+        type = getChild(0).getType();
+        opcode = getOpCode();
+        fn = getBuiltinFunction(funcName.toLowerCase(), collectChildReturnTypes(),
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
     }
 }

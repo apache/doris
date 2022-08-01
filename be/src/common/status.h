@@ -231,7 +231,8 @@ namespace doris {
     M(OLAP_ERR_ROWSET_READ_FAILED, -3111, "", true)                      \
     M(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION, -3112, "", true)         \
     M(OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE, -3113, "", true)           \
-    M(OLAP_ERR_ROWSET_ADD_MIGRATION_V2, -3114, "", true)
+    M(OLAP_ERR_ROWSET_ADD_MIGRATION_V2, -3114, "", true)                 \
+    M(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS, -3115, "", false)
 
 enum ErrorCode {
 #define M(NAME, ERRORCODE, DESC, STACKTRACEENABLED) NAME = ERRORCODE,
@@ -282,10 +283,11 @@ public:
     template <typename... Args>
     static Status ErrorFmt(TStatusCode::type code, const std::string& fmt, Args&&... args) {
         // In some cases, fmt contains '{}' but there are no args.
-        if (sizeof...(args) == 0) {
+        if constexpr (sizeof...(args) == 0) {
             return Status(code, fmt);
+        } else {
+            return Status(code, fmt::format(fmt, std::forward<Args>(args)...));
         }
-        return Status(code, fmt::format(fmt, std::forward<Args>(args)...));
     }
 
     template <typename... Args>
@@ -505,12 +507,12 @@ public:
     // Used like if (res == Status::OK())
     // if the state is ok, then both code and precise code is not initialized properly, so that should check ok state
     // ignore error messages during comparison
-    bool operator==(const Status& st) {
+    bool operator==(const Status& st) const {
         return ok() ? st.ok() : code() == st.code() && precise_code() == st.precise_code();
     }
 
     // Used like if (res != Status::OK())
-    bool operator!=(const Status& st) {
+    bool operator!=(const Status& st) const {
         return ok() ? !st.ok() : code() != st.code() || precise_code() != st.precise_code();
     }
 

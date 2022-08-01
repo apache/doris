@@ -318,6 +318,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         tblRefIds = ids;
     }
 
+    public ArrayList<TupleId> getOutputTblRefIds() {
+        return tblRefIds;
+    }
+
+    public List<TupleId> getOutputTupleIds() {
+        return tupleIds;
+    }
+
     public Set<TupleId> getNullableTupleIds() {
         Preconditions.checkState(nullableTupleIds != null);
         return nullableTupleIds;
@@ -518,8 +526,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             msg.addToRowTuples(tid.asInt());
             msg.addToNullableTuples(nullableTupleIds.contains(tid));
         }
-        for (Expr e : conjuncts) {
-            msg.addToConjuncts(e.treeToThrift());
+        // `conjuncts` is never needed on vectorized engine except scan nodes which use them as push-down predicates.
+        if (this instanceof ScanNode || !VectorizedUtil.isVectorized()) {
+            for (Expr e : conjuncts) {
+                msg.addToConjuncts(e.treeToThrift());
+            }
         }
 
         // Serialize any runtime filters
@@ -955,6 +966,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         throw new NotImplementedException("The `initOutputSlotIds` hasn't been implemented in " + planNodeName);
     }
 
+    public void projectOutputTuple() throws NotImplementedException {
+        throw new NotImplementedException("The `projectOutputTuple` hasn't been implemented in " + planNodeName + ". "
+        + "But it does not affect the project optimizer");
+    }
+
     /**
      * If an plan node implements this method, its child plan node has the ability to implement the project.
      * The return value of this method will be used as
@@ -974,7 +990,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
      *         agg node
      *    (required slots: a.k1)
      */
-    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         throw new NotImplementedException("The `computeInputSlotIds` hasn't been implemented in " + planNodeName);
     }
 

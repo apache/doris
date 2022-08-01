@@ -32,6 +32,9 @@ public enum PlanType {
     LOGICAL_AGGREGATE,
     LOGICAL_SORT,
     LOGICAL_OLAP_SCAN,
+    LOGICAL_APPLY,
+    LOGICAL_CORRELATED_JOIN,
+    LOGICAL_ENFORCE_SINGLE_ROW,
     GROUP_PLAN,
 
     // physical plan

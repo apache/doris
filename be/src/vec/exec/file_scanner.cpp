@@ -27,7 +27,6 @@
 #include "exec/text_converter.hpp"
 #include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
@@ -43,15 +42,7 @@ FileScanner::FileScanner(RuntimeState* state, RuntimeProfile* profile,
           _ranges(ranges),
           _next_range(0),
           _counter(counter),
-#if BE_TEST
-          _mem_tracker(new MemTracker()),
-#else
-          _mem_tracker(MemTracker::create_tracker(
-                  -1, state->query_type() == TQueryType::LOAD
-                              ? "FileScanner:" + std::to_string(state->load_job_id())
-                              : "FileScanner:Select")),
-#endif
-          _mem_pool(std::make_unique<MemPool>(_mem_tracker.get())),
+          _mem_pool(std::make_unique<MemPool>()),
           _pre_filter_texprs(pre_filter_texprs),
           _profile(profile),
           _rows_read_counter(nullptr),
@@ -125,7 +116,7 @@ Status FileScanner::_init_expr_ctxes() {
         _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
                 _state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
-        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc, _mem_tracker));
+        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc));
         RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
     }
 
@@ -173,7 +164,6 @@ Status FileScanner::_filter_block(vectorized::Block* _block) {
 Status FileScanner::finalize_block(vectorized::Block* _block, bool* eof) {
     *eof = _scanner_eof;
     _read_row_counter += _block->rows();
-    RETURN_IF_ERROR(_fill_columns_from_path(_block));
     if (LIKELY(_rows > 0)) {
         RETURN_IF_ERROR(_filter_block(_block));
     }
@@ -181,11 +171,9 @@ Status FileScanner::finalize_block(vectorized::Block* _block, bool* eof) {
     return Status::OK();
 }
 
-Status FileScanner::_fill_columns_from_path(vectorized::Block* _block) {
+Status FileScanner::_fill_columns_from_path(vectorized::Block* _block, size_t rows) {
     const TFileRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
-        size_t rows = _rows;
-
         for (const auto& slot_desc : _partition_slot_descs) {
             if (slot_desc == nullptr) continue;
             auto it = _partition_slot_index_map.find(slot_desc->id());

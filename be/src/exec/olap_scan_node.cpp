@@ -95,7 +95,8 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
         _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
     }
-
+    _batch_size = _limit == -1 ? state->batch_size()
+                               : std::min(static_cast<int64_t>(state->batch_size()), _limit);
     return Status::OK();
 }
 
@@ -179,7 +180,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 Status OlapScanNode::prepare(RuntimeState* state) {
     init_scan_profile();
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // create scanner profile
     // create timer
     _tablet_counter = ADD_COUNTER(runtime_profile(), "TabletCount ", TUnit::UNIT);
@@ -190,8 +191,7 @@ Status OlapScanNode::prepare(RuntimeState* state) {
     _init_counter(state);
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
-    _scanner_mem_tracker = MemTracker::create_tracker(state->instance_mem_tracker()->limit(),
-                                                      "Scanners", mem_tracker());
+    _scanner_mem_tracker = std::make_unique<MemTracker>("Scanners");
 
     if (_tuple_desc == nullptr) {
         // TODO: make sure we print all available diagnostic output to our error log
@@ -230,9 +230,9 @@ Status OlapScanNode::prepare(RuntimeState* state) {
 Status OlapScanNode::open(RuntimeState* state) {
     VLOG_CRITICAL << "OlapScanNode::Open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     _resource_info = ResourceTls::get_resource_tls();
 
@@ -258,7 +258,7 @@ Status OlapScanNode::open(RuntimeState* state) {
             _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
 
             for (auto ctx : expr_context) {
-                ctx->prepare(state, row_desc(), _expr_mem_tracker);
+                ctx->prepare(state, row_desc());
                 ctx->open(state);
                 int index = _conjunct_ctxs.size();
                 _conjunct_ctxs.push_back(ctx);
@@ -273,8 +273,7 @@ Status OlapScanNode::open(RuntimeState* state) {
 
 Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
-
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // check if Canceled.
     if (state->is_cancelled()) {
         std::unique_lock<std::mutex> l(_row_batches_lock);
@@ -939,7 +938,8 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
             }
             OlapScanner* scanner =
                     new OlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                    _need_agg_finalize, *scan_range, _scanner_mem_tracker);
+                                    _need_agg_finalize, *scan_range, _scanner_mem_tracker.get());
+            scanner->set_batch_size(_batch_size);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
@@ -1479,7 +1479,7 @@ Status OlapScanNode::normalize_bloom_filter_predicate(SlotDescriptor* slot) {
 
 void OlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
-    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
+    SCOPED_ATTACH_TASK(state);
     Status status = Status::OK();
     for (auto scanner : _olap_scanners) {
         status = Expr::clone_if_not_exists(_conjunct_ctxs, state, scanner->conjunct_ctxs());
@@ -1490,7 +1490,12 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         }
     }
 
-    ThreadPoolToken* thread_token = state->get_query_fragments_ctx()->get_token();
+    ThreadPoolToken* thread_token = nullptr;
+    if (limit() != -1 && limit() < 1024) {
+        thread_token = state->get_query_fragments_ctx()->get_serial_token();
+    } else {
+        thread_token = state->get_query_fragments_ctx()->get_token();
+    }
 
     /*********************************
      * The basic strategy of priority scheduling:
@@ -1503,11 +1508,11 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
      * 4. Regularly increase the priority of the remaining tasks in the queue to avoid starvation for large queries
      *********************************/
     PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
+    PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
     _total_assign_num = 0;
     _nice = 18 + std::max(0, 2 - (int)_olap_scanners.size() / 5);
     std::list<OlapScanner*> olap_scanners;
 
-    int64_t mem_limit = _scanner_mem_tracker->limit();
     int64_t mem_consume = _scanner_mem_tracker->consumption();
     int max_thread = _max_materialized_row_batches;
     if (config::doris_scanner_row_num > state->batch_size()) {
@@ -1532,7 +1537,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             size_t thread_slot_num = 0;
             mem_consume = _scanner_mem_tracker->consumption();
             // check limit for total memory and _scan_row_batches memory
-            if (mem_consume < (mem_limit * 6) / 10 &&
+            if (mem_consume < (state->instance_mem_tracker()->limit() * 6) / 10 &&
                 _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
                 thread_slot_num = max_thread - assigned_thread_num;
             } else {
@@ -1582,8 +1587,17 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                 task.priority = _nice;
                 task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
                 (*iter)->start_wait_worker_timer();
+
+                TabletStorageType type = (*iter)->get_storage_type();
+                bool ret = false;
                 COUNTER_UPDATE(_scanner_sched_counter, 1);
-                if (thread_pool->offer(task)) {
+                if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
+                    ret = thread_pool->offer(task);
+                } else {
+                    ret = remote_thread_pool->offer(task);
+                }
+
+                if (ret) {
                     olap_scanners.erase(iter++);
                 } else {
                     LOG(FATAL) << "Failed to assign scanner task to thread pool!";
@@ -1648,8 +1662,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
-    SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
-    ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
+    SCOPED_ATTACH_TASK(_runtime_state);
     Thread::set_self_name("olap_scanner");
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;
@@ -1692,7 +1705,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             DCHECK(runtime_filter != nullptr);
             bool ready = runtime_filter->is_ready();
             if (ready) {
-                runtime_filter->get_prepared_context(&contexts, row_desc(), _expr_mem_tracker);
+                runtime_filter->get_prepared_context(&contexts, row_desc());
                 scanner_filter_apply_marks[i] = true;
             }
         }
@@ -1732,7 +1745,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
                        << ", fragment id=" << print_id(_runtime_state->fragment_instance_id());
             break;
         }
-        RowBatch* row_batch = new RowBatch(this->row_desc(), state->batch_size());
+        RowBatch* row_batch = new RowBatch(this->row_desc(), _batch_size);
         row_batch->set_scanner_id(scanner->id());
         status = scanner->get_batch(_runtime_state, row_batch, &eos);
         if (!status.ok()) {
@@ -1750,6 +1763,10 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             raw_bytes_read += row_batch->tuple_data_pool()->total_reserved_bytes();
         }
         raw_rows_read = scanner->raw_rows_read();
+        if (limit() != -1 && raw_rows_read >= limit()) {
+            eos = true;
+            break;
+        }
     }
 
     {
@@ -1768,6 +1785,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             std::lock_guard<SpinLock> guard(_status_mutex);
             global_status_ok = _status.ok();
         }
+
         if (UNLIKELY(!global_status_ok)) {
             eos = true;
             for (auto rb : row_batchs) {

@@ -78,6 +78,20 @@ Doris 支持导入 JSON 格式的数据。本文档主要说明在进行JSON格�
    ```
 
    这种方式通常用于 Routine Load 导入方式，如表示 Kafka 中的一条消息，即一行数据。
+   
+2. 以固定分隔符分隔的多行 Object 数据
+
+   Object表示的一行数据即表示要导入的一行数据，示例如下：
+
+   ```json
+   { "id": 123, "city" : "beijing"}
+   { "id": 456, "city" : "shanghai"}
+   ...
+   ```
+   
+   这种方式通常用于 Stream Load 导入方式，以便在一批导入数据中表示多行数据。
+
+   这种方式必须配合设置 `read_json_by_line=true` 使用，特殊分隔符还需要指定`line_delimiter`参数，默认`\n`。Doris 在解析时会按照分隔符分隔，然后解析其中的每一行 Object 作为一行数据。
 
 ### fuzzy_parse 参数
 
@@ -379,7 +393,7 @@ code    INT     NULL
      100     beijing     1
      ```
 
-3. 导入多行数据
+3. 以 Array 形式导入多行数据
 
    ```json
    [
@@ -415,24 +429,48 @@ code    INT     NULL
      105     {"order1":["guangzhou"]}    6
      ```
 
-4. 对导入数据进行转换
+4. 以 多行Object 形式导入多行数据
 
-   数据依然是示例3中的多行数据，现需要对导入数据中的 `code` 列加1后导入。
+      ```
+      {"id": 100, "city": "beijing", "code" : 1}
+      {"id": 101, "city": "shanghai"}
+      {"id": 102, "city": "tianjin", "code" : 3}
+      {"id": 103, "city": "chongqing", "code" : 4}
+      ```
 
-   ```bash
-   curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -H "strip_outer_array: true" -H "columns: id, city, tmpc, code=tmpc+1" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
-   ```
+StreamLoad导入：
 
-   导入结果：
+```bash
+curl --location-trusted -u user:passwd -H "format: json" -H "read_json_by_line: true" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
+```
 
-   ```text
-   100     beijing                     2
-   101     shanghai                    NULL
-   102     tianjin                     4
-   103     chongqing                   5
-   104     ["zhejiang","guangzhou"]    6
-   105     {"order1":["guangzhou"]}    7
-   ```
+导入结果：
+
+```
+100     beijing                     1
+101     shanghai                    NULL
+102     tianjin                     3
+103     chongqing                   4
+```
+
+5. 对导入数据进行转换
+
+数据依然是示例3中的多行数据，现需要对导入数据中的 `code` 列加1后导入。
+
+```bash
+curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -H "strip_outer_array: true" -H "columns: id, city, tmpc, code=tmpc+1" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
+```
+
+导入结果：
+
+```text
+100     beijing                     2
+101     shanghai                    NULL
+102     tianjin                     4
+103     chongqing                   5
+104     ["zhejiang","guangzhou"]    6
+105     {"order1":["guangzhou"]}    7
+```
 
 ### Routine Load
 

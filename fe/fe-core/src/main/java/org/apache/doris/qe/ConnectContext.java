@@ -18,8 +18,8 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.Telemetry;
@@ -114,7 +114,7 @@ public class ConnectContext {
 
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
-    protected Catalog catalog;
+    protected Env env;
     protected String defaultCatalog = InternalDataSource.INTERNAL_DS_NAME;
     protected boolean isSend;
 
@@ -229,7 +229,7 @@ public class ConnectContext {
         if (isTxnModel()) {
             if (isTxnBegin()) {
                 try {
-                    Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                    Env.getCurrentGlobalTransactionMgr().abortTransaction(
                             currentDbId, txnEntry.getTxnConf().getTxnId(), "timeout");
                 } catch (UserException e) {
                     LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
@@ -296,13 +296,13 @@ public class ConnectContext {
         return new TResourceInfo(qualifiedUser, sessionVariable.getResourceGroup());
     }
 
-    public void setCatalog(Catalog catalog) {
-        this.catalog = catalog;
-        defaultCatalog = catalog.getInternalDataSource().getName();
+    public void setEnv(Env env) {
+        this.env = env;
+        defaultCatalog = env.getInternalDataSource().getName();
     }
 
-    public Catalog getCatalog() {
-        return catalog;
+    public Env getEnv() {
+        return env;
     }
 
     public String getQualifiedUser() {
@@ -425,10 +425,10 @@ public class ConnectContext {
 
     public DataSourceIf getCurrentDataSource() {
         // defaultCatalog is switched by SwitchStmt, so we don't need to check to exist of catalog.
-        if (catalog == null) {
-            return Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(defaultCatalog);
+        if (env == null) {
+            return Env.getCurrentEnv().getDataSourceMgr().getCatalog(defaultCatalog);
         }
-        return catalog.getDataSourceMgr().getCatalog(defaultCatalog);
+        return env.getDataSourceMgr().getCatalog(defaultCatalog);
     }
 
     public void changeDefaultCatalog(String catalogName) {
@@ -444,7 +444,7 @@ public class ConnectContext {
     public void setDatabase(String db) {
         currentDb = db;
         Optional<DatabaseIf> dbInstance = getCurrentDataSource().getDb(db);
-        currentDbId = dbInstance.isPresent() ? dbInstance.get().getId() : -1;
+        currentDbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
     }
 
     public void setExecutor(StmtExecutor executor) {
@@ -504,8 +504,8 @@ public class ConnectContext {
 
     // kill operation with no protect.
     public void kill(boolean killConnection) {
-        LOG.warn("kill timeout query, {}, kill connection: {}",
-                getMysqlChannel().getRemoteHostPortString(), killConnection);
+        LOG.warn("kill query from {}, kill connection: {}", getMysqlChannel().getRemoteHostPortString(),
+                killConnection);
 
         if (killConnection) {
             isKilled = true;
@@ -551,10 +551,11 @@ public class ConnectContext {
     }
 
     // Helper to dump connection information.
-    public ThreadInfo toThreadInfo() {
+    public ThreadInfo toThreadInfo(boolean isFull) {
         if (threadInfo == null) {
             threadInfo = new ThreadInfo();
         }
+        threadInfo.isFull = isFull;
         return threadInfo;
     }
 
@@ -584,6 +585,8 @@ public class ConnectContext {
     }
 
     public class ThreadInfo {
+        public boolean isFull;
+
         public List<String> toRow(long nowMs) {
             List<String> row = Lists.newArrayList();
             row.add("" + connectionId);
@@ -594,7 +597,15 @@ public class ConnectContext {
             row.add(command.toString());
             row.add("" + (nowMs - startTime) / 1000);
             row.add("");
-            row.add("");
+            if (queryId != null) {
+                String sql = QeProcessorImpl.INSTANCE.getCurrentQueryByQueryId(queryId);
+                if (!isFull) {
+                    sql = sql.substring(0, Math.min(sql.length(), 100));
+                }
+                row.add(sql);
+            } else {
+                row.add("");
+            }
             return row;
         }
     }
@@ -604,3 +615,4 @@ public class ConnectContext {
     }
 
 }
+

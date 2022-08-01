@@ -19,7 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -51,11 +51,11 @@ public class ProjectPlannerFunctionTest {
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         String createTableStmtStr = "create table test.t1 (k1 int, k2 int) distributed by hash (k1) "
                 + "properties(\"replication_num\" = \"1\")";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTableStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
     }
 
     @AfterClass
@@ -87,8 +87,8 @@ public class ProjectPlannerFunctionTest {
         String queryStr = "desc verbose select a.k2 from test.t1 a inner join test.t1 b on a.k1=b.k1 "
                 + "inner join test.t1 c on a.k1=c.k1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(explainString.contains("output slot ids: 3"));
-        Assert.assertTrue(explainString.contains("output slot ids: 0 3"));
+        Assert.assertTrue(explainString.contains("output slot ids: 8"));
+        Assert.assertTrue(explainString.contains("output slot ids: 4 5"));
     }
 
     // keep a.k2 after a join b

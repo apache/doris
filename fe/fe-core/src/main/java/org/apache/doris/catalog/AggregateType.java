@@ -64,6 +64,8 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.DECIMALV2);
         primitiveTypeList.add(PrimitiveType.DATE);
         primitiveTypeList.add(PrimitiveType.DATETIME);
+        primitiveTypeList.add(PrimitiveType.DATEV2);
+        primitiveTypeList.add(PrimitiveType.DATETIMEV2);
         primitiveTypeList.add(PrimitiveType.CHAR);
         primitiveTypeList.add(PrimitiveType.VARCHAR);
         primitiveTypeList.add(PrimitiveType.STRING);
@@ -80,6 +82,8 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.DECIMALV2);
         primitiveTypeList.add(PrimitiveType.DATE);
         primitiveTypeList.add(PrimitiveType.DATETIME);
+        primitiveTypeList.add(PrimitiveType.DATEV2);
+        primitiveTypeList.add(PrimitiveType.DATETIMEV2);
         primitiveTypeList.add(PrimitiveType.CHAR);
         primitiveTypeList.add(PrimitiveType.VARCHAR);
         primitiveTypeList.add(PrimitiveType.STRING);

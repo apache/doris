@@ -29,4 +29,9 @@ public class IntegerType extends IntegralType {
     public Type toCatalogDataType() {
         return Type.INT;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof IntegerType;
+    }
 }

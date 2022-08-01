@@ -17,7 +17,7 @@
 
 package org.apache.doris.ldap;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.LdapInfo;
@@ -42,7 +42,7 @@ public class LdapClientTest {
     private LdapTemplate ldapTemplate;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
 
     @Mocked
     private PaloAuth auth;
@@ -53,11 +53,11 @@ public class LdapClientTest {
     public void setUp() {
         new Expectations() {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 

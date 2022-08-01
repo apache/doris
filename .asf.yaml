@@ -16,7 +16,7 @@
 #
 
 github:
-  description: Apache Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
+  description: Apache Doris is an easy-to-use, high-performance and unified analytical database. It compatible with MySQL protocol, and using standard SQL. It has extremely fast performance in low-latency and high-throughput queries with columnar storage engine, modern MPP architecture, vectorized query engine, pre-aggregated materialized view and data index. It's a highly cohesive system that can support real-time data serving, interactive data analysis, offline data processing and federated quering for datalake scenarios, one for all.
   homepage: https://doris.apache.org/
   labels:
     - data-warehousing
@@ -48,13 +48,15 @@ github:
       # if strict is true, means "Require branches to be up to date before merging".
         strict: false
         contexts:
-          - Clang Formatter
-          - Build Extensions
           - License Check
+          - Clang Formatter
+          - CheckStyle
           - P0 regression (Doris P0 Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
-          - CheckStyle
+          - Build Broker
+          - Build Documents
+          - BE UT (Clang)
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true

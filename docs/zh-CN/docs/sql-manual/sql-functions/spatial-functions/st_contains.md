@@ -1,6 +1,6 @@
 ---
 {
-    "title": "`ST_Contains`",
+    "title": "ST_Contains",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `ST_Contains`
+## ST_Contains
 ### description
 #### Syntax
 

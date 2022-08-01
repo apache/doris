@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//  http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -26,10 +26,9 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultSubExprRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -49,6 +48,20 @@ import java.util.stream.Stream;
  * BindSlotReference.
  */
 public class BindSlotReference implements AnalysisRuleFactory {
+    private final Optional<Scope> outerScope;
+
+    public BindSlotReference(Optional<Scope> outputScope) {
+        this.outerScope = outputScope;
+    }
+
+    private Scope toScope(List<Slot> slots) {
+        if (outerScope.isPresent()) {
+            return new Scope(outerScope, slots);
+        } else {
+            return new Scope(slots);
+        }
+    }
+
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
@@ -74,8 +87,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
                 logicalAggregate().then(agg -> {
-                    List<Expression> groupBy = bind(agg.getGroupByExpressionList(), agg.children(), agg);
-                    List<NamedExpression> output = bind(agg.getOutputExpressionList(), agg.children(), agg);
+                    List<Expression> groupBy = bind(agg.getGroupByExpressions(), agg.children(), agg);
+                    List<NamedExpression> output = bind(agg.getOutputExpressions(), agg.children(), agg);
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),
@@ -116,15 +129,14 @@ public class BindSlotReference implements AnalysisRuleFactory {
         List<Slot> boundedSlots = inputs.stream()
                 .flatMap(input -> input.getOutput().stream())
                 .collect(Collectors.toList());
-        return (E) new SlotBinder(boundedSlots, plan).bind(expr);
+        return (E) new SlotBinder(toScope(boundedSlots), plan).bind(expr);
     }
 
-    private class SlotBinder extends DefaultExpressionRewriter<Void> {
-        private final List<Slot> boundSlots;
+    private class SlotBinder extends DefaultSubExprRewriter<Void> {
         private final Plan plan;
 
-        public SlotBinder(List<Slot> boundSlots, Plan plan) {
-            this.boundSlots = boundSlots;
+        public SlotBinder(Scope scope, Plan plan) {
+            super(scope);
             this.plan = plan;
         }
 
@@ -145,15 +157,22 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         @Override
         public Slot visitUnboundSlot(UnboundSlot unboundSlot, Void context) {
-            List<Slot> bounded = bindSlot(unboundSlot, boundSlots);
+            Optional<List<Slot>> boundedOpt = getScope()
+                    .toScopeLink() // Scope Link from inner scope to outer scope
+                    .stream()
+                    .map(scope -> bindSlot(unboundSlot, scope.getSlots()))
+                    .filter(slots -> !slots.isEmpty())
+                    .findFirst();
+            if (!boundedOpt.isPresent()) {
+                throw new AnalysisException("Cannot resolve " + unboundSlot.toString());
+            }
+            List<Slot> bounded = boundedOpt.get();
             switch (bounded.size()) {
-                case 0:
-                    throw new AnalysisException("Cannot resolve " + unboundSlot.toString());
                 case 1:
                     return bounded.get(0);
                 default:
                     throw new AnalysisException(unboundSlot + " is ambiguous： "
-                        + bounded.stream()
+                            + bounded.stream()
                             .map(Slot::toString)
                             .collect(Collectors.joining(", ")));
             }
@@ -167,7 +186,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
             List<String> qualifier = unboundStar.getQualifier();
             switch (qualifier.size()) {
                 case 0: // select *
-                    return new BoundStar(boundSlots);
+                    return new BoundStar(getScope().getSlots());
                 case 1: // select table.*
                 case 2: // select db.table.*
                     return bindQualifiedStar(qualifier, context);
@@ -180,7 +199,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         private BoundStar bindQualifiedStar(List<String> qualifierStar, Void context) {
             // FIXME: compatible with previous behavior:
             // https://github.com/apache/doris/pull/10415/files/3fe9cb0c3f805ab3a9678033b281b16ad93ec60a#r910239452
-            List<Slot> slots = boundSlots.stream().filter(boundSlot -> {
+            List<Slot> slots = getScope().getSlots().stream().filter(boundSlot -> {
                 switch (qualifierStar.size()) {
                     // table.*
                     case 1:
@@ -257,8 +276,8 @@ public class BindSlotReference implements AnalysisRuleFactory {
     /** BoundStar is used to wrap list of slots for temporary. */
     private class BoundStar extends NamedExpression {
         public BoundStar(List<Slot> children) {
-            super(ExpressionType.BOUND_STAR, children.toArray(new Slot[0]));
-            Preconditions.checkArgument(children.stream().allMatch(slot -> !(slot instanceof UnboundSlot)),
+            super(children.toArray(new Slot[0]));
+            Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),
                     "BoundStar can not wrap UnboundSlot"
             );
         }

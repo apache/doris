@@ -133,12 +133,6 @@ public:
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
 
-    // used for append not null data. When page is full, will append data not reach num_rows.
-    virtual Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) = 0;
-
-    // used for append not null data. When page is full, will append data not reach num_rows.
-    virtual Status append_data_in_current_page(const uint8_t* ptr, size_t* num_rows) = 0;
-
     bool is_nullable() const { return _is_nullable; }
 
     Field* get_field() const { return _field.get(); }
@@ -147,9 +141,6 @@ private:
     std::unique_ptr<Field> _field;
     bool _is_nullable;
     std::vector<uint8_t> _null_bitmap;
-
-protected:
-    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 class FlushPageCallback {
@@ -191,8 +182,10 @@ public:
     }
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
 
-    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) override;
-    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_rows) override;
+    // used for append not null data. When page is full, will append data not reach num_rows.
+    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_written);
+
+    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_written);
 
 private:
     std::unique_ptr<PageBuilder> _page_builder;
@@ -270,14 +263,6 @@ public:
     Status init() override;
 
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
-    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) override {
-        return Status::NotSupported(
-                "array writer has no data, can not append_data_in_current_page");
-    }
-    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_rows) override {
-        return Status::NotSupported(
-                "array writer has no data, can not append_data_in_current_page");
-    }
 
     uint64_t estimate_buffer_size() override;
 

@@ -25,6 +25,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
@@ -35,6 +36,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
+import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -248,15 +250,29 @@ public class AggregationNode extends PlanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.AGGREGATION_NODE;
         List<TExpr> aggregateFunctions = Lists.newArrayList();
+        List<TSortInfo> aggSortInfos = Lists.newArrayList();
         // only serialize agg exprs that are being materialized
         for (FunctionCallExpr e : aggInfo.getMaterializedAggregateExprs()) {
             aggregateFunctions.add(e.treeToThrift());
+            List<TExpr> orderingExpr = Lists.newArrayList();
+            List<Boolean> isAscs = Lists.newArrayList();
+            List<Boolean> nullFirsts = Lists.newArrayList();
+
+            e.getOrderByElements().forEach(o -> {
+                orderingExpr.add(o.getExpr().treeToThrift());
+                isAscs.add(o.getIsAsc());
+                nullFirsts.add(o.getNullsFirstParam());
+            });
+            aggSortInfos.add(new TSortInfo(orderingExpr, isAscs, nullFirsts));
         }
+
         msg.agg_node = new TAggregationNode(
                 aggregateFunctions,
                 aggInfo.getIntermediateTupleId().asInt(),
                 aggInfo.getOutputTupleId().asInt(), needsFinalize);
+        msg.agg_node.setAggSortInfos(aggSortInfos);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
+        msg.agg_node.setIsFirstPhase(aggInfo.isFirstPhase());
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
             msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));
@@ -311,7 +327,7 @@ public class AggregationNode extends PlanNode {
     }
 
     @Override
-    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         Set<SlotId> result = Sets.newHashSet();
         // compute group by slot
         ArrayList<Expr> groupingExprs = aggInfo.getGroupingExprs();
@@ -324,6 +340,19 @@ public class AggregationNode extends PlanNode {
         List<SlotId> aggregateSlotIds = Lists.newArrayList();
         Expr.getIds(aggregateExprs, null, aggregateSlotIds);
         result.addAll(aggregateSlotIds);
+
+        // case: select count(*) from test
+        // result is empty
+        // Actually need to take a column as the input column of the agg operator
+        if (result.isEmpty()) {
+            TupleDescriptor tupleDesc = analyzer.getTupleDesc(getChild(0).getOutputTupleIds().get(0));
+            // If the query result is empty set such as: select count(*) from table where 1=2
+            // then the materialized slot will be empty
+            // So the result should be empty also.
+            if (!tupleDesc.getMaterializedSlots().isEmpty()) {
+                result.add(tupleDesc.getMaterializedSlots().get(0).getId());
+            }
+        }
         return result;
     }
 }

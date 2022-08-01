@@ -150,10 +150,9 @@ Status PartitionInfo::from_thrift(ObjectPool* pool, const TRangePartition& t_par
     return Status::OK();
 }
 
-Status PartitionInfo::prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                              const std::shared_ptr<MemTracker>& mem_tracker) {
+Status PartitionInfo::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     if (_distributed_expr_ctxs.size() > 0) {
-        RETURN_IF_ERROR(Expr::prepare(_distributed_expr_ctxs, state, row_desc, mem_tracker));
+        RETURN_IF_ERROR(Expr::prepare(_distributed_expr_ctxs, state, row_desc));
     }
     return Status::OK();
 }

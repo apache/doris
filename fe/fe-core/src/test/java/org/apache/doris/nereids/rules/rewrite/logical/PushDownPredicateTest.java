@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
@@ -135,9 +136,9 @@ public class PushDownPredicateTest {
         LogicalFilter filter1 = (LogicalFilter) op2;
         LogicalFilter filter2 = (LogicalFilter) op3;
 
-        Assertions.assertEquals(join1.getCondition().get(), onCondition1);
-        Assertions.assertEquals(filter1.getPredicates(), ExpressionUtils.and(onCondition2, whereCondition1));
-        Assertions.assertEquals(filter2.getPredicates(), ExpressionUtils.and(onCondition3, whereCondition2));
+        Assertions.assertEquals(onCondition1, join1.getCondition().get());
+        Assertions.assertEquals(ExpressionUtils.and(onCondition2, whereCondition1), filter1.getPredicates());
+        Assertions.assertEquals(ExpressionUtils.and(onCondition3, whereCondition2), filter2.getPredicates());
     }
 
     @Test
@@ -176,9 +177,9 @@ public class PushDownPredicateTest {
         LogicalJoin join1 = (LogicalJoin) op1;
         LogicalFilter filter1 = (LogicalFilter) op2;
         LogicalFilter filter2 = (LogicalFilter) op3;
-        Assertions.assertEquals(join1.getCondition().get(), whereCondition1);
-        Assertions.assertEquals(filter1.getPredicates(), whereCondition2);
-        Assertions.assertEquals(filter2.getPredicates(), whereCondition3);
+        Assertions.assertEquals(whereCondition1, join1.getCondition().get());
+        Assertions.assertEquals(whereCondition2, filter1.getPredicates());
+        Assertions.assertEquals(whereCondition3, filter2.getPredicates());
     }
 
     @Test
@@ -235,13 +236,14 @@ public class PushDownPredicateTest {
         Assertions.assertTrue(op1 instanceof LogicalFilter);
         Assertions.assertTrue(op2 instanceof LogicalFilter);
 
-        Assertions.assertEquals(((LogicalJoin) join2).getCondition().get(), whereCondition2);
-        Assertions.assertEquals(((LogicalJoin) join3).getCondition().get(), whereCondition1);
-        Assertions.assertEquals(((LogicalFilter) op1).getPredicates().toSql(), whereCondition3result.toSql());
-        Assertions.assertEquals(((LogicalFilter) op2).getPredicates(), whereCondition4);
+        Assertions.assertEquals(whereCondition2, ((LogicalJoin) join2).getCondition().get());
+        Assertions.assertEquals(whereCondition1, ((LogicalJoin) join3).getCondition().get());
+        Assertions.assertEquals(whereCondition3result.toSql(), ((LogicalFilter) op1).getPredicates().toSql());
+        Assertions.assertEquals(whereCondition4, ((LogicalFilter) op2).getPredicates());
     }
 
     private Memo rewrite(Plan plan) {
-        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushPredicateThroughJoin());
+        Plan normalizedPlan = PlanRewriter.topDownRewrite(plan, new ConnectContext(), new ExpressionNormalization());
+        return PlanRewriter.topDownRewriteMemo(normalizedPlan, new ConnectContext(), new PushPredicateThroughJoin());
     }
 }

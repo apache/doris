@@ -255,8 +255,7 @@ Status FragmentExecState::execute() {
 Status FragmentExecState::cancel_before_execute() {
     // set status as 'abort', cuz cancel() won't effect the status arg of DataSink::close().
 #ifndef BE_TEST
-    SCOPED_ATTACH_TASK_THREAD(executor()->runtime_state()->query_type(),
-                              executor()->runtime_state()->instance_mem_tracker());
+    SCOPED_ATTACH_TASK(executor()->runtime_state());
 #endif
     _executor.set_abort();
     _executor.cancel();
@@ -478,6 +477,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     std::string func_name {"PlanFragmentExecutor::_exec_actual"};
 #ifndef BE_TEST
     auto span = exec_state->executor()->runtime_state()->get_tracer()->StartSpan(func_name);
+    SCOPED_ATTACH_TASK(exec_state->executor()->runtime_state());
 #else
     auto span = telemetry::get_noop_tracer()->StartSpan(func_name);
 #endif
@@ -494,10 +494,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
             .query_id(exec_state->query_id())
             .instance_id(exec_state->fragment_instance_id())
             .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
-#ifndef BE_TEST
-    SCOPED_ATTACH_TASK_THREAD(exec_state->executor()->runtime_state(),
-                              exec_state->executor()->runtime_state()->instance_mem_tracker());
-#endif
+
     exec_state->execute();
 
     std::shared_ptr<QueryFragmentsCtx> fragments_ctx = exec_state->get_fragments_ctx();
@@ -641,6 +638,15 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             fragments_ctx->timeout_second = params.query_options.query_timeout;
             if (params.query_options.__isset.resource_limit) {
                 fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
+            }
+        }
+        if (params.__isset.fragment && params.fragment.__isset.plan &&
+            params.fragment.plan.nodes.size() > 0) {
+            for (auto& node : params.fragment.plan.nodes) {
+                if (node.limit > 0 && node.limit < 1024) {
+                    fragments_ctx->set_serial_thread_token();
+                    break;
+                }
             }
         }
 

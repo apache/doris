@@ -29,10 +29,10 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -275,8 +275,9 @@ public class OlapScanNode extends ScanNode {
         String situation;
         boolean update;
         CHECK: { // CHECKSTYLE IGNORE THIS LINE
-            if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
-                situation = "The key type of table is duplicate.";
+            if (olapTable.getKeysType() == KeysType.DUP_KEYS || (olapTable.getKeysType() == KeysType.UNIQUE_KEYS
+                    && olapTable.getEnableUniqueKeyMergeOnWrite())) {
+                situation = "The key type of table is duplicate, or unique key with merge-on-write.";
                 update = true;
                 break CHECK;
             }
@@ -403,7 +404,7 @@ public class OlapScanNode extends ScanNode {
             final MaterializedIndex baseIndex = partition.getBaseIndex();
             cardinality += baseIndex.getRowCount();
         }
-        Catalog.getCurrentCatalog().getStatisticsManager()
+        Env.getCurrentEnv().getStatisticsManager()
                 .getStatistics().mockTableStatsWithRowCount(tableId, cardinality);
     }
 
@@ -567,7 +568,7 @@ public class OlapScanNode extends ScanNode {
             boolean collectedStat = false;
             List<String> errs = Lists.newArrayList();
             for (Replica replica : replicas) {
-                Backend backend = Catalog.getCurrentSystemInfo().getBackend(replica.getBackendId());
+                Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
                 if (backend == null || !backend.isAlive()) {
                     LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
                             replica.getId());
@@ -659,7 +660,8 @@ public class OlapScanNode extends ScanNode {
     public void selectBestRollupByRollupSelector(Analyzer analyzer) throws UserException {
         // Step2: select best rollup
         long start = System.currentTimeMillis();
-        if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
+        if (olapTable.getKeysType() == KeysType.DUP_KEYS || (olapTable.getKeysType() == KeysType.UNIQUE_KEYS
+                && olapTable.getEnableUniqueKeyMergeOnWrite())) {
             // This function is compatible with the INDEX selection logic of ROLLUP,
             // so the Duplicate table here returns base index directly
             // and the selection logic of materialized view is selected in
@@ -790,7 +792,7 @@ public class OlapScanNode extends ScanNode {
         if (selectedIndexId != -1) {
             for (Column col : olapTable.getSchemaByIndexId(selectedIndexId, true)) {
                 TColumn tColumn = col.toThrift();
-                col.setIndexFlag(tColumn, olapTable.getIndexes());
+                col.setIndexFlag(tColumn, olapTable);
                 columnsDesc.add(tColumn);
                 if ((Util.showHiddenColumns() || (!Util.showHiddenColumns() && col.isVisible())) && col.isKey()) {
                     keyColumnNames.add(col.getName());
@@ -938,7 +940,6 @@ public class OlapScanNode extends ScanNode {
             SlotRef deleteSignSlot = new SlotRef(desc.getAliasAsName(), Column.DELETE_SIGN);
             deleteSignSlot.analyze(analyzer);
             deleteSignSlot.getDesc().setIsMaterialized(true);
-            deleteSignSlot.getDesc().setIsNullable(analyzer.isOuterMaterializedJoined(desc.getId()));
             Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
             conjunct.analyze(analyzer);
             conjuncts.add(conjunct);
@@ -952,7 +953,7 @@ public class OlapScanNode extends ScanNode {
      * when data partition of fragment is UNPARTITIONED.
      */
     public DataPartition constructInputPartitionByDistributionInfo() throws UserException {
-        ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
         if ((colocateTableIndex.isColocateTable(olapTable.getId())
                 && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId())))
                 || olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED

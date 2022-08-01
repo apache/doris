@@ -91,31 +91,31 @@ public class AggregateDisassembleTest {
         Expression localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
         Expression localGroupBy = rStudent.getOutput().get(2).toSlot();
 
-        Assertions.assertEquals(2, local.getOutputExpressionList().size());
-        Assertions.assertTrue(local.getOutputExpressionList().get(0) instanceof SlotReference);
-        Assertions.assertEquals(localOutput0, local.getOutputExpressionList().get(0));
-        Assertions.assertTrue(local.getOutputExpressionList().get(1) instanceof Alias);
-        Assertions.assertEquals(localOutput1, local.getOutputExpressionList().get(1).child(0));
-        Assertions.assertEquals(1, local.getGroupByExpressionList().size());
-        Assertions.assertEquals(localGroupBy, local.getGroupByExpressionList().get(0));
+        Assertions.assertEquals(2, local.getOutputExpressions().size());
+        Assertions.assertTrue(local.getOutputExpressions().get(0) instanceof SlotReference);
+        Assertions.assertEquals(localOutput0, local.getOutputExpressions().get(0));
+        Assertions.assertTrue(local.getOutputExpressions().get(1) instanceof Alias);
+        Assertions.assertEquals(localOutput1, local.getOutputExpressions().get(1).child(0));
+        Assertions.assertEquals(1, local.getGroupByExpressions().size());
+        Assertions.assertEquals(localGroupBy, local.getGroupByExpressions().get(0));
 
-        Expression globalOutput0 = local.getOutputExpressionList().get(0).toSlot();
-        Expression globalOutput1 = new Sum(local.getOutputExpressionList().get(1).toSlot());
-        Expression globalGroupBy = local.getOutputExpressionList().get(0).toSlot();
+        Expression globalOutput0 = local.getOutputExpressions().get(0).toSlot();
+        Expression globalOutput1 = new Sum(local.getOutputExpressions().get(1).toSlot());
+        Expression globalGroupBy = local.getOutputExpressions().get(0).toSlot();
 
-        Assertions.assertEquals(2, global.getOutputExpressionList().size());
-        Assertions.assertTrue(global.getOutputExpressionList().get(0) instanceof SlotReference);
-        Assertions.assertEquals(globalOutput0, global.getOutputExpressionList().get(0));
-        Assertions.assertTrue(global.getOutputExpressionList().get(1) instanceof Alias);
-        Assertions.assertEquals(globalOutput1, global.getOutputExpressionList().get(1).child(0));
-        Assertions.assertEquals(1, global.getGroupByExpressionList().size());
-        Assertions.assertEquals(globalGroupBy, global.getGroupByExpressionList().get(0));
+        Assertions.assertEquals(2, global.getOutputExpressions().size());
+        Assertions.assertTrue(global.getOutputExpressions().get(0) instanceof SlotReference);
+        Assertions.assertEquals(globalOutput0, global.getOutputExpressions().get(0));
+        Assertions.assertTrue(global.getOutputExpressions().get(1) instanceof Alias);
+        Assertions.assertEquals(globalOutput1, global.getOutputExpressions().get(1).child(0));
+        Assertions.assertEquals(1, global.getGroupByExpressions().size());
+        Assertions.assertEquals(globalGroupBy, global.getGroupByExpressions().get(0));
 
         // check id:
         Assertions.assertEquals(outputExpressionList.get(0).getExprId(),
-                global.getOutputExpressionList().get(0).getExprId());
+                global.getOutputExpressions().get(0).getExprId());
         Assertions.assertEquals(outputExpressionList.get(1).getExprId(),
-                global.getOutputExpressionList().get(1).getExprId());
+                global.getOutputExpressions().get(1).getExprId());
     }
 
     /**
@@ -150,31 +150,31 @@ public class AggregateDisassembleTest {
         Expression localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
         Expression localGroupBy = new Add(rStudent.getOutput().get(2).toSlot(), new IntegerLiteral(1));
 
-        Assertions.assertEquals(2, local.getOutputExpressionList().size());
-        Assertions.assertTrue(local.getOutputExpressionList().get(0) instanceof Alias);
-        Assertions.assertEquals(localOutput0, local.getOutputExpressionList().get(0).child(0));
-        Assertions.assertTrue(local.getOutputExpressionList().get(1) instanceof Alias);
-        Assertions.assertEquals(localOutput1, local.getOutputExpressionList().get(1).child(0));
-        Assertions.assertEquals(1, local.getGroupByExpressionList().size());
-        Assertions.assertEquals(localGroupBy, local.getGroupByExpressionList().get(0));
+        Assertions.assertEquals(2, local.getOutputExpressions().size());
+        Assertions.assertTrue(local.getOutputExpressions().get(0) instanceof Alias);
+        Assertions.assertEquals(localOutput0, local.getOutputExpressions().get(0).child(0));
+        Assertions.assertTrue(local.getOutputExpressions().get(1) instanceof Alias);
+        Assertions.assertEquals(localOutput1, local.getOutputExpressions().get(1).child(0));
+        Assertions.assertEquals(1, local.getGroupByExpressions().size());
+        Assertions.assertEquals(localGroupBy, local.getGroupByExpressions().get(0));
 
-        Expression globalOutput0 = local.getOutputExpressionList().get(0).toSlot();
-        Expression globalOutput1 = new Sum(local.getOutputExpressionList().get(1).toSlot());
-        Expression globalGroupBy = local.getOutputExpressionList().get(0).toSlot();
+        Expression globalOutput0 = local.getOutputExpressions().get(0).toSlot();
+        Expression globalOutput1 = new Sum(local.getOutputExpressions().get(1).toSlot());
+        Expression globalGroupBy = local.getOutputExpressions().get(0).toSlot();
 
-        Assertions.assertEquals(2, global.getOutputExpressionList().size());
-        Assertions.assertTrue(global.getOutputExpressionList().get(0) instanceof Alias);
-        Assertions.assertEquals(globalOutput0, global.getOutputExpressionList().get(0).child(0));
-        Assertions.assertTrue(global.getOutputExpressionList().get(1) instanceof Alias);
-        Assertions.assertEquals(globalOutput1, global.getOutputExpressionList().get(1).child(0));
-        Assertions.assertEquals(1, global.getGroupByExpressionList().size());
-        Assertions.assertEquals(globalGroupBy, global.getGroupByExpressionList().get(0));
+        Assertions.assertEquals(2, global.getOutputExpressions().size());
+        Assertions.assertTrue(global.getOutputExpressions().get(0) instanceof Alias);
+        Assertions.assertEquals(globalOutput0, global.getOutputExpressions().get(0).child(0));
+        Assertions.assertTrue(global.getOutputExpressions().get(1) instanceof Alias);
+        Assertions.assertEquals(globalOutput1, global.getOutputExpressions().get(1).child(0));
+        Assertions.assertEquals(1, global.getGroupByExpressions().size());
+        Assertions.assertEquals(globalGroupBy, global.getGroupByExpressions().get(0));
 
         // check id:
         Assertions.assertEquals(outputExpressionList.get(0).getExprId(),
-                global.getOutputExpressionList().get(0).getExprId());
+                global.getOutputExpressions().get(0).getExprId());
         Assertions.assertEquals(outputExpressionList.get(1).getExprId(),
-                global.getOutputExpressionList().get(1).getExprId());
+                global.getOutputExpressions().get(1).getExprId());
     }
 
     /**
@@ -205,21 +205,21 @@ public class AggregateDisassembleTest {
 
         Expression localOutput0 = new Sum(rStudent.getOutput().get(0).toSlot());
 
-        Assertions.assertEquals(1, local.getOutputExpressionList().size());
-        Assertions.assertTrue(local.getOutputExpressionList().get(0) instanceof Alias);
-        Assertions.assertEquals(localOutput0, local.getOutputExpressionList().get(0).child(0));
-        Assertions.assertEquals(0, local.getGroupByExpressionList().size());
+        Assertions.assertEquals(1, local.getOutputExpressions().size());
+        Assertions.assertTrue(local.getOutputExpressions().get(0) instanceof Alias);
+        Assertions.assertEquals(localOutput0, local.getOutputExpressions().get(0).child(0));
+        Assertions.assertEquals(0, local.getGroupByExpressions().size());
 
-        Expression globalOutput0 = new Sum(local.getOutputExpressionList().get(0).toSlot());
+        Expression globalOutput0 = new Sum(local.getOutputExpressions().get(0).toSlot());
 
-        Assertions.assertEquals(1, global.getOutputExpressionList().size());
-        Assertions.assertTrue(global.getOutputExpressionList().get(0) instanceof Alias);
-        Assertions.assertEquals(globalOutput0, global.getOutputExpressionList().get(0).child(0));
-        Assertions.assertEquals(0, global.getGroupByExpressionList().size());
+        Assertions.assertEquals(1, global.getOutputExpressions().size());
+        Assertions.assertTrue(global.getOutputExpressions().get(0) instanceof Alias);
+        Assertions.assertEquals(globalOutput0, global.getOutputExpressions().get(0).child(0));
+        Assertions.assertEquals(0, global.getGroupByExpressions().size());
 
         // check id:
         Assertions.assertEquals(outputExpressionList.get(0).getExprId(),
-                global.getOutputExpressionList().get(0).getExprId());
+                global.getOutputExpressions().get(0).getExprId());
     }
 
     /**
@@ -253,26 +253,26 @@ public class AggregateDisassembleTest {
         Expression localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
         Expression localGroupBy = rStudent.getOutput().get(2).toSlot();
 
-        Assertions.assertEquals(2, local.getOutputExpressionList().size());
-        Assertions.assertTrue(local.getOutputExpressionList().get(0) instanceof SlotReference);
-        Assertions.assertEquals(localOutput0, local.getOutputExpressionList().get(0));
-        Assertions.assertTrue(local.getOutputExpressionList().get(1) instanceof Alias);
-        Assertions.assertEquals(localOutput1, local.getOutputExpressionList().get(1).child(0));
-        Assertions.assertEquals(1, local.getGroupByExpressionList().size());
-        Assertions.assertEquals(localGroupBy, local.getGroupByExpressionList().get(0));
+        Assertions.assertEquals(2, local.getOutputExpressions().size());
+        Assertions.assertTrue(local.getOutputExpressions().get(0) instanceof SlotReference);
+        Assertions.assertEquals(localOutput0, local.getOutputExpressions().get(0));
+        Assertions.assertTrue(local.getOutputExpressions().get(1) instanceof Alias);
+        Assertions.assertEquals(localOutput1, local.getOutputExpressions().get(1).child(0));
+        Assertions.assertEquals(1, local.getGroupByExpressions().size());
+        Assertions.assertEquals(localGroupBy, local.getGroupByExpressions().get(0));
 
-        Expression globalOutput0 = new Sum(local.getOutputExpressionList().get(1).toSlot());
-        Expression globalGroupBy = local.getOutputExpressionList().get(0).toSlot();
+        Expression globalOutput0 = new Sum(local.getOutputExpressions().get(1).toSlot());
+        Expression globalGroupBy = local.getOutputExpressions().get(0).toSlot();
 
-        Assertions.assertEquals(1, global.getOutputExpressionList().size());
-        Assertions.assertTrue(global.getOutputExpressionList().get(0) instanceof Alias);
-        Assertions.assertEquals(globalOutput0, global.getOutputExpressionList().get(0).child(0));
-        Assertions.assertEquals(1, global.getGroupByExpressionList().size());
-        Assertions.assertEquals(globalGroupBy, global.getGroupByExpressionList().get(0));
+        Assertions.assertEquals(1, global.getOutputExpressions().size());
+        Assertions.assertTrue(global.getOutputExpressions().get(0) instanceof Alias);
+        Assertions.assertEquals(globalOutput0, global.getOutputExpressions().get(0).child(0));
+        Assertions.assertEquals(1, global.getGroupByExpressions().size());
+        Assertions.assertEquals(globalGroupBy, global.getGroupByExpressions().get(0));
 
         // check id:
         Assertions.assertEquals(outputExpressionList.get(0).getExprId(),
-                global.getOutputExpressionList().get(0).getExprId());
+                global.getOutputExpressions().get(0).getExprId());
     }
 
     private Plan rewrite(Plan input) {
