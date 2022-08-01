@@ -339,7 +339,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
-    success_res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    success_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                            &del_pred);
     EXPECT_EQ(Status::OK(), success_res);
 
@@ -363,7 +363,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondInvalidParameters) {
     // 空的过滤条件
     std::vector<TCondition> conditions;
     DeletePredicatePB del_pred;
-    Status failed_res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(),
+    Status failed_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(),
                                                                  conditions, &del_pred);
     ;
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS), failed_res);
@@ -380,7 +380,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("2");
     conditions.push_back(condition);
     DeletePredicatePB del_pred;
-    Status failed_res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(),
+    Status failed_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(),
                                                                  conditions, &del_pred);
     ;
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), failed_res);
@@ -393,7 +393,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    failed_res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    failed_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                           &del_pred);
     ;
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), failed_res);
@@ -406,7 +406,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    Status success_res = DeleteHandler::generate_delete_predicate(dup_tablet->tablet_schema(),
+    Status success_res = DeleteHandler::generate_delete_predicate(*dup_tablet->tablet_schema(),
                                                                   conditions, &del_pred);
     ;
     EXPECT_EQ(Status::OK(), success_res);
@@ -484,7 +484,7 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions, &del_pred);
     EXPECT_EQ(Status::OK(), res);
 
     // k5类型为int128
@@ -496,7 +496,7 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_2;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_2);
     EXPECT_EQ(Status::OK(), res);
 
@@ -509,28 +509,28 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_3;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_3);
     EXPECT_EQ(Status::OK(), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2");
     DeletePredicatePB del_pred_4;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_4);
     EXPECT_EQ(Status::OK(), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-2");
     DeletePredicatePB del_pred_5;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_5);
     EXPECT_EQ(Status::OK(), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-2.3");
     DeletePredicatePB del_pred_6;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_6);
     EXPECT_EQ(Status::OK(), res);
 
@@ -549,7 +549,7 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_7;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_7);
     EXPECT_EQ(Status::OK(), res);
 
@@ -568,7 +568,7 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_8;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_8);
     EXPECT_EQ(Status::OK(), res);
 }
@@ -586,7 +586,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_1;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_1);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -594,7 +594,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-1000");
     DeletePredicatePB del_pred_2;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_2);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -603,7 +603,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k2";
     conditions[0].condition_values.push_back("32768");
     DeletePredicatePB del_pred_3;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_3);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -611,7 +611,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-32769");
     DeletePredicatePB del_pred_4;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_4);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -620,7 +620,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k3";
     conditions[0].condition_values.push_back("2147483648");
     DeletePredicatePB del_pred_5;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_5);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -628,7 +628,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-2147483649");
     DeletePredicatePB del_pred_6;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_6);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -637,7 +637,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k4";
     conditions[0].condition_values.push_back("9223372036854775808");
     DeletePredicatePB del_pred_7;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_7);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -645,7 +645,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-9223372036854775809");
     DeletePredicatePB del_pred_8;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_8);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -654,7 +654,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k5";
     conditions[0].condition_values.push_back("170141183460469231731687303715884105728");
     DeletePredicatePB del_pred_9;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_9);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -662,7 +662,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-170141183460469231731687303715884105729");
     DeletePredicatePB del_pred_10;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_10);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -671,7 +671,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k9";
     conditions[0].condition_values.push_back("12347876.5");
     DeletePredicatePB del_pred_11;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_11);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -679,7 +679,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("1.2345678");
     DeletePredicatePB del_pred_12;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_12);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -687,7 +687,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("1.");
     DeletePredicatePB del_pred_13;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_13);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -696,21 +696,21 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k10";
     conditions[0].condition_values.push_back("20130101");
     DeletePredicatePB del_pred_14;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_14);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-64-01");
     DeletePredicatePB del_pred_15;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_15);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-40");
     DeletePredicatePB del_pred_16;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_16);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -719,42 +719,42 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k11";
     conditions[0].condition_values.push_back("20130101 00:00:00");
     DeletePredicatePB del_pred_17;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_17);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-64-01 00:00:00");
     DeletePredicatePB del_pred_18;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_18);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-40 00:00:00");
     DeletePredicatePB del_pred_19;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_19);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-01 24:00:00");
     DeletePredicatePB del_pred_20;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_20);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-01 00:60:00");
     DeletePredicatePB del_pred_21;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_21);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-01 00:00:60");
     DeletePredicatePB del_pred_22;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_22);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -766,7 +766,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
             "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
             "FhYWFhYWFhYWFhYWFhYWFhYWFhYWE=;k13=YWFhYQ==");
     DeletePredicatePB del_pred_23;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_23);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 
@@ -777,7 +777,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
             "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
             "FhYWFhYWFhYWFhYWFhYWFhYWFhYWE=;k13=YWFhYQ==");
     DeletePredicatePB del_pred_24;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_24);
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), res);
 }
@@ -811,8 +811,8 @@ protected:
         EXPECT_TRUE(tablet != nullptr);
         _tablet_path = tablet->tablet_path();
 
-        _data_row_cursor.init(tablet->tablet_schema());
-        _data_row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
+        _data_row_cursor.init(*tablet->tablet_schema());
+        _data_row_cursor.allocate_memory_for_string_type(*tablet->tablet_schema());
     }
 
     void TearDown() {
@@ -856,7 +856,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions, &del_pred);
     EXPECT_EQ(Status::OK(), res);
     tablet->add_delete_predicate(del_pred, 1);
 
@@ -868,7 +868,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_2;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_2);
     EXPECT_EQ(Status::OK(), res);
     tablet->add_delete_predicate(del_pred_2, 2);
@@ -881,7 +881,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_3;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_3);
     EXPECT_EQ(Status::OK(), res);
     tablet->add_delete_predicate(del_pred_3, 3);
@@ -894,13 +894,13 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_4;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_4);
     EXPECT_EQ(Status::OK(), res);
     tablet->add_delete_predicate(del_pred_4, 4);
 
     // 从header文件中取出版本号小于等于7的过滤条件
-    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(*tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(4, _delete_handler.conditions_num());
     std::vector<int64_t> conds_version = _delete_handler.get_conds_version();
@@ -936,12 +936,12 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions, &del_pred);
     EXPECT_EQ(Status::OK(), res);
     tablet->add_delete_predicate(del_pred, 1);
 
     // 指定版本号为10以载入Header中的所有过滤条件(在这个case中，只有过滤条件1)
-    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(*tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(1, _delete_handler.conditions_num());
 
@@ -996,7 +996,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions, &del_pred);
     EXPECT_EQ(Status::OK(), res);
     tablet->add_delete_predicate(del_pred, 1);
 
@@ -1009,7 +1009,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_2;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_2);
     EXPECT_EQ(Status::OK(), res);
     tablet->add_delete_predicate(del_pred_2, 2);
@@ -1023,13 +1023,13 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_3;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_3);
     EXPECT_EQ(Status::OK(), res);
     tablet->add_delete_predicate(del_pred_3, 3);
 
     // 指定版本号为4以载入meta中的所有过滤条件(在这个case中，只有过滤条件1)
-    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(*tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(3, _delete_handler.conditions_num());
 
@@ -1075,7 +1075,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions, &del_pred);
     EXPECT_EQ(Status::OK(), res);
     tablet->add_delete_predicate(del_pred, 3);
 
@@ -1088,13 +1088,13 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_2;
-    res = DeleteHandler::generate_delete_predicate(tablet->tablet_schema(), conditions,
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_2);
     EXPECT_EQ(Status::OK(), res);
     tablet->add_delete_predicate(del_pred_2, 4);
 
     // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
-    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(*tablet->tablet_schema(), tablet->delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(2, _delete_handler.conditions_num());
 

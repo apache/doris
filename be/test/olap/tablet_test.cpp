@@ -26,6 +26,7 @@
 #include "olap/storage_engine.h"
 #include "olap/storage_policy_mgr.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema_cache.h"
 #include "testutil/mock_rowset.h"
 #include "util/time.h"
 
@@ -379,19 +380,21 @@ TEST_F(TestTablet, rowset_tree_update) {
 
     RowsetMetaSharedPtr rsm1(new RowsetMeta());
     init_rs_meta(rsm1, 6, 7, convert_key_bounds({{"100", "200"}, {"300", "400"}}));
+    rsm1->set_tablet_schema(tablet->tablet_schema());
     RowsetId id1;
     id1.init(10010);
     RowsetSharedPtr rs_ptr1;
-    MockRowset::create_rowset(&tablet_meta->tablet_schema(), "", rsm1, &rs_ptr1, false);
+    MockRowset::create_rowset(tablet->tablet_schema(), "", rsm1, &rs_ptr1, false);
     tablet->add_inc_rowset(rs_ptr1);
 
     RowsetMetaSharedPtr rsm2(new RowsetMeta());
     init_rs_meta(rsm2, 8, 8, convert_key_bounds({{"500", "999"}}));
+    rsm2->set_tablet_schema(tablet->tablet_schema());
     RowsetId id2;
     id2.init(10086);
     rsm2->set_rowset_id(id2);
     RowsetSharedPtr rs_ptr2;
-    MockRowset::create_rowset(&tablet_meta->tablet_schema(), "", rsm2, &rs_ptr2, false);
+    MockRowset::create_rowset(tablet->tablet_schema(), "", rsm2, &rs_ptr2, false);
     tablet->add_inc_rowset(rs_ptr2);
 
     RowLocation loc;
