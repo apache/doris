@@ -498,6 +498,11 @@ public class MaterializedViewHandler extends AlterHandler {
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
             newMVColumns.add(new Column(olapTable.getSequenceCol()));
         }
+
+        // set MV column unique id to Column.COLUMN_UNIQUE_ID_INIT_VALUE support old unique id rule.
+        newMVColumns.stream().forEach(column -> {
+            column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
+        });
         return newMVColumns;
     }
 
