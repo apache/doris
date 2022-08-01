@@ -19,7 +19,9 @@
 
 #include <memory>
 
+#include "common/config.h"
 #include "common/status.h"
+#include "io/cache/file_cache.h"
 
 namespace doris {
 namespace io {
@@ -29,21 +31,22 @@ public:
     FileCacheManager() = default;
     ~FileCacheManager() = default;
 
-    static FileCacheManager* instance() {
-        return _file_cache_manager;
-    }
+    static FileCacheManager* instance();
 
-    void add_file_cache(const std::string& cache_path, FileCache* file_cache) { }
+    void add_file_cache(const Path& cache_path, FileCachePtr file_cache);
 
-    void remove_file_cache(const std::string& cache_path) { }
+    void remove_file_cache(const Path& cache_path);
 
-    void clean_timeout_caches() {}
+    void clean_timeout_caches();
+
+    FileCachePtr new_file_cache(const Path& cache_dir, int64_t alive_time_sec,
+                                io::FileReaderSPtr remote_file_reader,
+                                const std::string& file_cache_type);
+
 private:
-    static FileCacheManager* _file_cache_manager;
-
-    std::shared_mutex _cache_map_mtx;
+    std::shared_mutex _cache_map_lock;
     // cache_path -> FileCache
-    std::map<std::string, FileCache*> _file_cache_map;
+    std::map<std::string, FileCachePtr> _file_cache_map;
 };
 
 

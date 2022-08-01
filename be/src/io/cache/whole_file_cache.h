@@ -28,30 +28,44 @@ namespace io {
 
 class WholeFileCache final : public FileCache {
 public:
-    WholeFileCache(const Path& cache_file_path, int64_t alive_time_sec);
+    WholeFileCache(const Path& cache_dir, int64_t alive_time_sec,
+                   io::FileReaderSPtr remote_file_reader);
     ~WholeFileCache() override;
+
+    Status close() override { return _remote_file_reader->close(); }
 
     Status read_at(size_t offset, Slice result, size_t* bytes_read) override;
 
-    const Path& cache_file_path() const override {
-        return _cache_file_path;
-    }
+    const Path& path() const override { return _remote_file_reader->path(); }
 
-    size_t cache_file_size() const override {
-        return _cache_file_size;
-    }
+    size_t size() const override { return _remote_file_reader->size(); }
+
+    bool closed() const override { return _remote_file_reader->closed(); }
+
+    const Path& cache_dir() const override { return _cache_dir; }
+
+    size_t cache_file_size() const override { return _cache_file_size; }
+
+    io::FileReaderSPtr remote_file_reader() const override { return _remote_file_reader; }
 
     Status clean_timeout_cache() override;
 
     Status clean_all_cache() override;
+
 private:
-    Path _cache_file_path;
+    Status _generate_cache_reader(size_t offset, size_t req_size);
+
+    Status _clean_cache_internal();
+
+private:
+    Path _cache_dir;
     size_t _cache_file_size;
     int64_t _alive_time_sec;
+    io::FileReaderSPtr _remote_file_reader;
 
-    std::shared_mutex _cache_mtx;
+    std::shared_mutex _cache_lock;
     int64_t _last_match_time;
-    std::shared_ptr<LocalFileReader> _cache_file_reader;
+    io::FileReaderSPtr _cache_file_reader;
 };
 
 } // namespace io

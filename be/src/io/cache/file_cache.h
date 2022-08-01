@@ -18,27 +18,27 @@
 #pragma once
 
 #include <memory>
+#include <shared_mutex>
 
 #include "common/status.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/path.h"
 
 namespace doris {
 namespace io {
 
-class FileCache {
+class FileCache : public FileReader {
 public:
     FileCache() = default;
     virtual ~FileCache() = default;
 
     DISALLOW_COPY_AND_ASSIGN(FileCache);
 
-    virtual Status read_at(size_t offset, Slice result, size_t* bytes_read) = 0;
-
-    virtual const Path& cache_file_path() const = 0;
+    virtual const Path& cache_dir() const = 0;
 
     virtual size_t cache_file_size() const = 0;
 
-    virtual FileReader* remote_file_reader() const = 0;
+    virtual io::FileReaderSPtr remote_file_reader() const = 0;
 
     virtual Status clean_timeout_cache() = 0;
 
