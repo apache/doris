@@ -18,9 +18,9 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -263,7 +263,7 @@ public class StatisticsJob {
      * get statisticsJob from analyzeStmt.
      * AnalyzeStmt: analyze t1(c1,c2,c3)
      * tableId: [t1]
-     * tableIdToColumnName <t1,[c1,c2,c3]>
+     * tableIdToColumnName: {t1: [c1,c2,c3]}
      */
     public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt stmt) throws AnalysisException {
         long dbId = stmt.getDbId();
@@ -324,7 +324,7 @@ public class StatisticsJob {
         }
 
         List<String> scope = Lists.newArrayList();
-        Database db = Catalog.getCurrentCatalog()
+        Database db = Env.getCurrentEnv()
                 .getInternalDataSource().getDbOrAnalysisException(dbId);
         for (Long tblId : tblIds) {
             try {

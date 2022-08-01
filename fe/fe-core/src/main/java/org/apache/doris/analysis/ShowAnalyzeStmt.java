@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -150,7 +150,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
             String tblName = dbTableName.getTbl();
             checkShowAnalyzePriv(dbName, tblName);
 
-            Database db = analyzer.getCatalog()
+            Database db = analyzer.getEnv()
                     .getInternalDataSource().getDbOrAnalysisException(dbName);
             Table table = db.getTableOrAnalysisException(tblName);
             dbId = db.getId();
@@ -162,7 +162,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
 
-            Database db = analyzer.getCatalog()
+            Database db = analyzer.getEnv()
                     .getInternalDataSource().getDbOrAnalysisException(dbName);
 
             db.readLock();
@@ -229,7 +229,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
     }
 
     private void checkShowAnalyzePriv(String dbName, String tblName) throws AnalysisException {
-        PaloAuth auth = Catalog.getCurrentCatalog().getAuth();
+        PaloAuth auth = Env.getCurrentEnv().getAuth();
         if (!auth.checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
