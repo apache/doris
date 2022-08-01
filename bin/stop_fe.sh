@@ -31,6 +31,11 @@ export PID_DIR=$(
     pwd
 )
 
+signum=9
+if [ "x"$1 = "x--grace" ]; then
+    signum=15
+fi
+
 while read line; do
     envline=$(echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
     envline=$(eval "echo $envline")
@@ -64,9 +69,9 @@ if [ -f $pidfile ]; then
     fi
 
     # kill pid process and check it
-    if kill $pid >/dev/null 2>&1; then
+    if kill -${signum} $pid >/dev/null 2>&1; then
         while true; do
-            if kill -0 $pid >/dev/null; then
+            if kill -0 $pid >/dev/null 2>&1; then
                 echo "waiting fe to stop, pid: $pid"
                 sleep 2
             else
