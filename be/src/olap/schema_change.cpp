@@ -618,20 +618,6 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
     // (0 means no need to filter out, 1 means yes, during the process 2 means that this row needs to be cut and there is no need to compare other columns later)
     std::vector<int8_t> is_data_left_vec(row_num, 1);
 
-    // Compare each row
-    for (size_t row_index = 0; row_index < row_num; ++row_index) {
-        ref_block->get_row(row_index, &read_helper);
-
-        // filter data according to delete conditions specified in DeleteData command
-        if (is_data_left_vec[row_index] == 1) {
-            if (_delete_handler != nullptr &&
-                _delete_handler->is_filter_data(data_version, read_helper)) {
-                is_data_left_vec[row_index] = 0;
-                (*filtered_rows)++;
-            }
-        }
-    }
-
     // a.2 Calculate the left row num
     uint32_t new_row_num = row_num - *filtered_rows;
 
