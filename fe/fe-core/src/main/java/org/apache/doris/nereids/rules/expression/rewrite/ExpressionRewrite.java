@@ -38,10 +38,10 @@ import java.util.stream.Collectors;
 /**
  * expression of plan rewrite rule.
  */
-public class ExpressionOfPlanRewrite implements RewriteRuleFactory {
+public class ExpressionRewrite implements RewriteRuleFactory {
     private final ExpressionRuleExecutor rewriter;
 
-    public ExpressionOfPlanRewrite(ExpressionRuleExecutor rewriter) {
+    public ExpressionRewrite(ExpressionRuleExecutor rewriter) {
         this.rewriter = Objects.requireNonNull(rewriter, "rewriter is null");
     }
 

@@ -247,7 +247,7 @@ public class Memo {
 
     private Plan replaceChildrenToGroupPlan(Plan plan, List<Group> childrenGroups) {
         List<Plan> groupPlanChildren = childrenGroups.stream()
-                .map(group -> new GroupPlan(group))
+                .map(GroupPlan::new)
                 .collect(ImmutableList.toImmutableList());
         LogicalProperties logicalProperties = plan.getLogicalProperties();
         return plan.withChildren(groupPlanChildren)

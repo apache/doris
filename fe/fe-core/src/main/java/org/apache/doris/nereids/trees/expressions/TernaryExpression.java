@@ -23,17 +23,4 @@ import org.apache.doris.nereids.trees.TernaryNode;
  * Interface for all expression that have three children.
  */
 public interface TernaryExpression extends TernaryNode<Expression, Expression, Expression, Expression> {
-
-
-    default Expression first() {
-        return child(0);
-    }
-
-    default Expression second() {
-        return child(1);
-    }
-
-    default Expression third() {
-        return child(2);
-    }
 }
