@@ -121,7 +121,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         del_preds.push(del_pred);
         if (!res.ok()) {
             LOG(WARNING) << "fail to generate delete condition. res=" << res
-                         << ", tablet=" << tablet_var.tablet->full_name();
+                         << ", tablet=" << tablet->full_name();
             return res;
         }
     }
@@ -156,7 +156,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                      << ", transaction_id=" << request.transaction_id;
 
         Status rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(
-                request.partition_id, tablet_var.tablet, request.transaction_id);
+                request.partition_id, tablet, request.transaction_id);
         // has to check rollback status to ensure not delete a committed rowset
         if (rollback_status.ok()) {
             StorageEngine::instance()->add_unused_rowset(rowset_to_add);
