@@ -39,7 +39,7 @@ class Cache;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTrackerLimiter> mem_tracker,
+    LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                 int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
                 bool is_vec);
     ~LoadChannel();
@@ -99,7 +99,7 @@ private:
 
     UniqueId _load_id;
     // Tracks the total memory consumed by current load job on this BE
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     // lock protect the tablets channel map
     std::mutex _lock;
