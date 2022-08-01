@@ -33,8 +33,8 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -59,9 +59,9 @@ public class MergeConsecutiveProjectsTest {
         plannerContext.bottomUpRewrite(rules);
         Plan plan = plannerContext.getMemo().copyOut();
         System.out.println(plan.treeString());
-        Assert.assertTrue(plan instanceof LogicalProject);
-        Assert.assertTrue(((LogicalProject<?>) plan).getProjects().equals(Lists.newArrayList(colA)));
-        Assert.assertTrue(plan.child(0) instanceof UnboundRelation);
+        Assertions.assertTrue(plan instanceof LogicalProject);
+        Assertions.assertTrue(((LogicalProject<?>) plan).getProjects().equals(Lists.newArrayList(colA)));
+        Assertions.assertTrue(plan.child(0) instanceof UnboundRelation);
     }
 
     /**
@@ -103,14 +103,14 @@ public class MergeConsecutiveProjectsTest {
         plannerContext.bottomUpRewrite(rules);
         Plan plan = plannerContext.getMemo().copyOut();
         System.out.println(plan.treeString());
-        Assert.assertTrue(plan instanceof LogicalProject);
+        Assertions.assertTrue(plan instanceof LogicalProject);
         LogicalProject finalProject = (LogicalProject) plan;
         Add finalExpression = new Add(
                 new Add(colA, new IntegerLiteral(1)),
                 new IntegerLiteral(2)
         );
-        Assert.assertEquals(1, finalProject.getProjects().size());
-        Assert.assertTrue(((Alias) finalProject.getProjects().get(0)).child().equals(finalExpression));
+        Assertions.assertEquals(1, finalProject.getProjects().size());
+        Assertions.assertTrue(((Alias) finalProject.getProjects().get(0)).child().equals(finalExpression));
     }
 
 }
