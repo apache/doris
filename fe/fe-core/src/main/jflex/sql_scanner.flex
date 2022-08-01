@@ -165,6 +165,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("time", new Integer(SqlParserSymbols.KW_TIME));
         keywordMap.put("day", new Integer(SqlParserSymbols.KW_DAY));
         keywordMap.put("decimal", new Integer(SqlParserSymbols.KW_DECIMAL));
+        keywordMap.put("decimalv3", new Integer(SqlParserSymbols.KW_DECIMALV3));
         keywordMap.put("decommission", new Integer(SqlParserSymbols.KW_DECOMMISSION));
         keywordMap.put("default", new Integer(SqlParserSymbols.KW_DEFAULT));
         keywordMap.put("delete", new Integer(SqlParserSymbols.KW_DELETE));
