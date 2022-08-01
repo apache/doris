@@ -111,12 +111,13 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             }
 
             // 3. replace expression in globalOutputExprs and globalGroupByExprs
+            ExpressionReplacer replacer = new ExpressionReplacer();
             List<NamedExpression> globalOutputExprs = aggregate.getOutputExpressions().stream()
-                    .map(e -> ExpressionReplacer.INSTANCE.visit(e, inputSubstitutionMap))
+                    .map(e -> replacer.visit(e, inputSubstitutionMap))
                     .map(NamedExpression.class::cast)
                     .collect(Collectors.toList());
             List<Expression> globalGroupByExprs = localGroupByExprs.stream()
-                    .map(e -> ExpressionReplacer.INSTANCE.visit(e, inputSubstitutionMap)).collect(Collectors.toList());
+                    .map(e -> replacer.visit(e, inputSubstitutionMap)).collect(Collectors.toList());
 
             // 4. generate new plan
             LogicalAggregate localAggregate = new LogicalAggregate<>(
