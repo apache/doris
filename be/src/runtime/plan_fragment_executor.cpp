@@ -36,6 +36,7 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
@@ -99,6 +100,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
     SCOPED_ATTACH_TASK(_runtime_state.get());
+    _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);

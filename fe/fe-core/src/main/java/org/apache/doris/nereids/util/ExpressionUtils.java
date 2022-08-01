@@ -135,28 +135,4 @@ public class ExpressionUtils {
         }
         return false;
     }
-
-    /**
-     * Whether `List of SlotReference` contains a `SlotReference`.
-     */
-    public static boolean contains(List<SlotReference> list, SlotReference item) {
-        for (SlotReference slotRefInList : list) {
-            if (item.equals(slotRefInList)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Whether `List of SlotReference` contains all another `List of SlotReference`.
-     */
-    public static boolean containsAll(List<SlotReference> large, List<SlotReference> small) {
-        for (SlotReference slotRefInSmall : small) {
-            if (!contains(large, slotRefInSmall)) {
-                return false;
-            }
-        }
-        return true;
-    }
 }

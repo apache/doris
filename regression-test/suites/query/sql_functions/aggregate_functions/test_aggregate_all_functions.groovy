@@ -392,8 +392,8 @@ suite("test_aggregate_all_functions", "query") {
         """
     sql "INSERT INTO ${tableName_19} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
 
-    qt_select37 = sql "select id,var_samp(level) from ${tableName_19} group by id order by id"
-    qt_select38 = sql "select id,variance_samp(level) from ${tableName_19} group by id order by id"
+    qt_select37 "select id,var_samp(level) from ${tableName_19} group by id order by id"
+    qt_select38 "select id,variance_samp(level) from ${tableName_19} group by id order by id"
 
     sql "DROP TABLE IF EXISTS ${tableName_19}"
     
@@ -460,4 +460,6 @@ suite("test_aggregate_all_functions", "query") {
     qt_select43 "select MIN_BY(id,level) from ${tableName_12}"
        
     sql "DROP TABLE IF EXISTS ${tableName_10}"
+
+    qt_select44 """ select sum(distinct k1), sum(distinct k2), sum(distinct k3), sum(distinct cast(k4 as largeint)), sum(distinct k5), sum(distinct k8), sum(distinct k9) from test_query_db.test  """
 }
