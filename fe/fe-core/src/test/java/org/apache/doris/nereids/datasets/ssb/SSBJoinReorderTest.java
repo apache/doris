@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.ssb;
+package org.apache.doris.nereids.datasets.ssb;
 
 import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;

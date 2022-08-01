@@ -18,9 +18,14 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.StringType;
 
@@ -31,7 +36,7 @@ import org.junit.jupiter.api.Test;
 
 public class MemoTest {
     @Test
-    public void testCopyIn() {
+    public void testInsert() {
         UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
         LogicalProject insideProject = new LogicalProject(
                 ImmutableList.of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
@@ -59,61 +64,112 @@ public class MemoTest {
     }
 
     /**
-     * initial Memo status:
-     *      group#1(project1)-->group#0(relationA)
-     *      group#3(project2)-->group#2(relationB)
-     *      group#4(project3)-->group#2(relationB)
-     * copy relationA into group#2
-     * after merge:
-     *      group#1(project1)-->group#0(relationA, relationB)
-     *      group#4(project3)-->group#0
-     * merging group#2 and group#0 recursively invoke merging group#3 and group#1 and merging group#4 and group#1
+     * Original:
+     * |---Project(name)
+     *     |---Project(name)
+     *         |---UnboundRelation
+     *
+     * After rewrite:
+     * Project(name)
+     * |---Project(rewrite)
+     *     |---Project(rewrite_inside)
+     *         |---UnboundRelation
+     */
+    @Test
+    public void testRewrite() {
+        UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
+        LogicalProject insideProject = new LogicalProject<>(
+                ImmutableList.of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                unboundRelation
+        );
+        LogicalProject rootProject = new LogicalProject<>(
+                ImmutableList.of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                insideProject
+        );
+
+        // Project -> Project -> Relation
+        Memo memo = new Memo(rootProject);
+        Group leafGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 0).findFirst().get();
+        Group targetGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 1).findFirst().get();
+        LogicalProject rewriteInsideProject = new LogicalProject<>(
+                ImmutableList.of(new SlotReference("rewrite_inside", StringType.INSTANCE,
+                        false, ImmutableList.of("test"))),
+                new GroupPlan(leafGroup)
+        );
+        LogicalProject rewriteProject = new LogicalProject<>(
+                ImmutableList.of(new SlotReference("rewrite", StringType.INSTANCE,
+                        true, ImmutableList.of("test"))),
+                rewriteInsideProject
+        );
+        memo.copyIn(rewriteProject, targetGroup, true);
+
+        Assertions.assertEquals(4, memo.getGroups().size());
+        Plan node = memo.copyOut();
+        Assertions.assertTrue(node instanceof LogicalProject);
+        Assertions.assertEquals("name", ((LogicalProject<?>) node).getProjects().get(0).getName());
+        node = node.child(0);
+        Assertions.assertTrue(node instanceof LogicalProject);
+        Assertions.assertEquals("rewrite", ((LogicalProject<?>) node).getProjects().get(0).getName());
+        node = node.child(0);
+        Assertions.assertTrue(node instanceof LogicalProject);
+        Assertions.assertEquals("rewrite_inside", ((LogicalProject<?>) node).getProjects().get(0).getName());
+        node = node.child(0);
+        Assertions.assertTrue(node instanceof UnboundRelation);
+        Assertions.assertEquals("test", ((UnboundRelation) node).getTableName());
+    }
+
+    /**
+     * Original:
+     * Group 0: UnboundRelation C
+     * Group 1: UnboundRelation B
+     * Group 2: UnboundRelation A
+     * Group 3: Join(Group 1, Group 2)
+     * Group 4: Join(Group 0, Group 3)
+     * Group 5: Filter(Group 4)
+     * Group 6: Join(Group 2, Group 1)
+     * Group 7: Join(Group 0, Group 6)
+     *
+     * Then:
+     * Copy In Join(Group 2, Group 1) into Group 3
+     *
+     * Expected:
+     * Group 0: UnboundRelation C
+     * Group 1: UnboundRelation B
+     * Group 2: UnboundRelation A
+     * Group 5: Filter(Group 7)
+     * Group 6: Join(Group 2, Group 1), Join(Group 1, Group 2)
+     * Group 7: Join(Group 0, Group 6)
      */
     @Test
     public void testMergeGroup() {
-        UnboundRelation relation1 = new UnboundRelation(Lists.newArrayList("A"));
-        LogicalProject project1 = new LogicalProject(
-                ImmutableList.of(new SlotReference(new ExprId(1), "name", StringType.INSTANCE, true, ImmutableList.of("test"))),
-                relation1
-        );
+        UnboundRelation unboundRelationA = new UnboundRelation(Lists.newArrayList("A"));
+        UnboundRelation unboundRelationB = new UnboundRelation(Lists.newArrayList("B"));
+        UnboundRelation unboundRelationC = new UnboundRelation(Lists.newArrayList("C"));
+        LogicalJoin logicalJoinAB = new LogicalJoin<>(JoinType.INNER_JOIN, unboundRelationA, unboundRelationB);
+        LogicalJoin logicalJoinBA = new LogicalJoin<>(JoinType.INNER_JOIN, unboundRelationB, unboundRelationA);
+        LogicalJoin logicalJoinCAB = new LogicalJoin<>(JoinType.INNER_JOIN, unboundRelationC, logicalJoinAB);
+        LogicalJoin logicalJoinCBA = new LogicalJoin<>(JoinType.INNER_JOIN, unboundRelationC, logicalJoinBA);
+        LogicalFilter logicalFilter = new LogicalFilter<>(new BooleanLiteral(true), logicalJoinCBA);
 
-        Memo memo = new Memo(project1);
+        Memo memo = new Memo(logicalFilter);
+        memo.copyIn(logicalJoinCAB, null, false);
+        Assertions.assertEquals(8, memo.getGroups().size());
+        Assertions.assertEquals(8, memo.getGroupExpressions().size());
 
-        UnboundRelation relation2 = new UnboundRelation(Lists.newArrayList("B"));
-        LogicalProject project2 = new LogicalProject(
-                ImmutableList.of(new SlotReference(new ExprId(1), "name", StringType.INSTANCE, true, ImmutableList.of("test"))),
-                relation2
-        );
-        memo.copyIn(project2, null, false);
-        Assertions.assertEquals(4, memo.getGroups().size());
-
-        LogicalProject project3 = new LogicalProject(
-                ImmutableList.of(new SlotReference(new ExprId(1), "other", StringType.INSTANCE, true, ImmutableList.of("other"))),
-                relation2
-        );
-
-        memo.copyIn(project3, null, false);
-
-        //after copyIn, group#2 contains relationA and relationB
-        memo.copyIn(relation1, memo.getGroups().get(2), true);
-
-
-        Assertions.assertEquals(3, memo.getGroups().size());
+        Group target = memo.getRoot().getLogicalExpression().child(0).getLogicalExpression().child(1);
+        LogicalJoin repeat = new LogicalJoin<>(JoinType.INNER_JOIN, unboundRelationA, unboundRelationB);
+        memo.copyIn(repeat, target, false);
+        Assertions.assertEquals(6, memo.getGroups().size());
+        Assertions.assertEquals(7, memo.getGroupExpressions().size());
         Group root = memo.getRoot();
         Assertions.assertEquals(1, root.getLogicalExpressions().size());
-        Assertions.assertEquals(PlanType.LOGICAL_PROJECT, root.logicalExpressionsAt(0).getPlan().getType());
-        GroupExpression rootExpression = root.logicalExpressionsAt(0);
-        Assertions.assertEquals(1, rootExpression.children().size());
-        //two expressions: relationA and relationB
-        Assertions.assertEquals(2, rootExpression.child(0).getLogicalExpressions().size());
-        GroupExpression childExpression = rootExpression.child(0).logicalExpressionsAt(0);
-        Assertions.assertEquals(PlanType.LOGICAL_UNBOUND_RELATION, childExpression.getPlan().getType());
-
-        Group groupProjct3 = memo.getGroups().get(2); //group for project3
-        Group groupRelation = memo.getGroups().get(0); //group for relation
-        //group0 is child of group4
-        Assertions.assertEquals(groupRelation, groupProjct3.logicalExpressionsAt(0).child(0));
-        Assertions.assertEquals(1, groupProjct3.getLogicalExpressions().size());
-        Assertions.assertEquals(1, groupProjct3.logicalExpressionsAt(0).children().size());
+        GroupExpression filter = root.getLogicalExpression();
+        GroupExpression joinCBA = filter.child(0).getLogicalExpression();
+        Assertions.assertEquals(1, joinCBA.child(0).getLogicalExpressions().size());
+        Assertions.assertEquals(2, joinCBA.child(1).getLogicalExpressions().size());
+        GroupExpression joinBA = joinCBA.child(1).getLogicalExpressions().get(0);
+        GroupExpression joinAB = joinCBA.child(1).getLogicalExpressions().get(1);
+        Assertions.assertTrue(joinAB.getPlan() instanceof LogicalJoin);
+        Assertions.assertTrue(joinBA.getPlan() instanceof LogicalJoin);
     }
 }

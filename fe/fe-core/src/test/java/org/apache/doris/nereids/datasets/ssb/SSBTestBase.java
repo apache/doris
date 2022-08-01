@@ -15,13 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.tpch;
+package org.apache.doris.nereids.datasets.ssb;
 
-public abstract class TPCHTestBase extends AnalyzeCheckTestBase {
+import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
+
+public abstract class SSBTestBase extends AnalyzeCheckTestBase {
     @Override
     protected void runBeforeAll() throws Exception {
-        createDatabase("tpch");
-        connectContext.setDatabase("default_cluster:tpch");
-        TPCHUtils.createTables(this);
+        createDatabase("test");
+        connectContext.setDatabase("default_cluster:test");
+        SSBUtils.createTables(this);
     }
 }

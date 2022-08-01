@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.tpch;
+package org.apache.doris.nereids.datasets.tpch;
 
 import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.analyzer.Unbound;

@@ -269,7 +269,7 @@ public class Table extends MetaObject implements Writable, TableIf {
         if (full) {
             return fullSchema;
         } else {
-            return fullSchema.stream().filter(column -> column.isVisible()).collect(Collectors.toList());
+            return fullSchema.stream().filter(Column::isVisible).collect(Collectors.toList());
         }
     }
 

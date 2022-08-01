@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.tpch.AnalyzeCheckTestBase;
+import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 
 import org.junit.jupiter.api.Test;
 
