@@ -20,11 +20,11 @@
 // and modified by Doris.
 
 suite("load_four_step") {
-    def tables = ["customer": ["""c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use""", 30000, "c_custkey", 15000], "lineorder": ["""lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority, 
+    def tables = ["customer": ["""c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use""", 3000, "c_custkey", 1500], "lineorder": ["""lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority, 
                     lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount, 
-                    lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy""", 6001215, "lo_orderkey", 4799919], "part": ["""p_partkey,p_name,p_mfgr,p_category,p_brand,p_color,p_type,p_size,p_container,p_dummy""", 200000, "p_partkey", 100000], "date": ["""d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,
+                    lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy""", 600572, "lo_orderkey", 481137], "part": ["""p_partkey,p_name,p_mfgr,p_category,p_brand,p_color,p_type,p_size,p_container,p_dummy""", 20000, "p_partkey", 10000], "date": ["""d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,
                     d_daynuminweek,d_daynuminmonth,d_daynuminyear,d_monthnuminyear,d_weeknuminyear,
-                    d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy""", 2556, "d_datekey", 1462], "supplier": ["""s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy""", 2000, "s_suppkey", 1000]]
+                    d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy""", 255, "d_datekey", 224], "supplier": ["""s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy""", 200, "s_suppkey", 100]]
 
     tables.each { tableName, rows ->
         sql """ DROP TABLE IF EXISTS $tableName """
@@ -36,7 +36,7 @@ suite("load_four_step") {
                 set 'compress_type', 'GZ'
                 set 'columns', rows[0]
                 set 'function_column.sequence_col', rows[2]
-                file """${context.sf1DataPath}/ssb/sf1/${tableName}.tbl.gz"""
+                file """${context.sf1DataPath}/ssb/sf0.1/${tableName}.tbl.gz"""
 
                 time 10000 // limit inflight 10s
 
@@ -75,7 +75,7 @@ suite("load_four_step") {
             set 'compress_type', 'GZ'
             set 'columns', rows[0]
             set 'function_column.sequence_col', rows[2]
-            file """${context.sf1DataPath}/ssb/sf1/${tableName}.tbl.gz"""
+            file """${context.sf1DataPath}/ssb/sf0.1/${tableName}.tbl.gz"""
 
             time 10000 // limit inflight 10s
 

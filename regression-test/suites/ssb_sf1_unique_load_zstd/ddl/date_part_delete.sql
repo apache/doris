@@ -1,1 +1,0 @@
-delete from `date` where d_datekey >= '19930101' and d_datekey <= '19951230';
