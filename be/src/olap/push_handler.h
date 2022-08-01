@@ -39,11 +39,6 @@ class BinaryReader;
 struct ColumnMapping;
 class RowCursor;
 
-struct TabletVars {
-    TabletSharedPtr tablet;
-    RowsetSharedPtr rowset_to_add;
-};
-
 class PushHandler {
 public:
     using SchemaMapping = std::vector<ColumnMapping>;
@@ -60,24 +55,18 @@ public:
     int64_t write_rows() const { return _write_rows; }
 
 private:
-    Status _convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
-                       RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset,
+    Status _convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
                        TabletSchemaSPtr tablet_schema);
     // Convert local data file to internal formatted delta,
     // return new delta's SegmentGroup
-    Status _convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
-                    RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset,
+    Status _convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
                     TabletSchemaSPtr tablet_schema);
 
     // Only for debug
     std::string _debug_version_list(const Versions& versions) const;
 
-    void _get_tablet_infos(const std::vector<TabletVars>& tablet_infos,
-                           std::vector<TTabletInfo>* tablet_info_vec);
-
     Status _do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
-                                   PushType push_type, vector<TabletVars>* tablet_vars,
-                                   std::vector<TTabletInfo>* tablet_info_vec);
+                                   PushType push_type, std::vector<TTabletInfo>* tablet_info_vec);
 
 private:
     // mainly tablet_id, version and delta file path
