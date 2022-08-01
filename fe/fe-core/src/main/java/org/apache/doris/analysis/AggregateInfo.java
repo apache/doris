@@ -476,6 +476,23 @@ public final class AggregateInfo extends AggregateInfoBase {
             secondPhaseDistinctAggInfo.substitute(smap, analyzer);
         }
 
+        /**
+         * About why:
+         * The outputTuple of the first phase aggregate info is generated at analysis phase of SelectStmt,
+         * and the SlotDescriptor of output tuple of this agg info will refer to the origin column of the
+         * table in the same query block.
+         *
+         * However, if the child node is a HashJoinNode with outerJoin type, the nullability of the SlotDescriptor
+         * might be changed, those changed SlotDescriptor is referred by a SlotRef, and this SlotRef will be added
+         * to the outputSmap of the HashJoinNode.
+         *
+         * In BE execution, the SlotDescriptor which referred by output and groupBy should have the same nullability,
+         * So we need the update SlotDescriptor of output tuple.
+         *
+         * About how:
+         * Since the outputTuple of agg info is simply create a SlotRef and SlotDescriptor for each expr in aggregate
+         * expr and groupBy expr, so we could handle this as this way.
+         */
         for (SlotDescriptor slotDesc : getOutputTupleDesc().getSlots()) {
             List<Expr> exprList = slotDesc.getSourceExprs();
             if (exprList.size() > 1) {
