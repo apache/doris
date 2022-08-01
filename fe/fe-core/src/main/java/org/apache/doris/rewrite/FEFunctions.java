@@ -398,33 +398,6 @@ public class FEFunctions {
         return new DecimalLiteral(result);
     }
 
-    @FEFunction(name = "add", argTypes = { "DECIMAL32", "DECIMAL32" }, returnType = "DECIMAL32")
-    public static DecimalLiteral addDecimal32(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        BigDecimal left = new BigDecimal(first.getStringValue());
-        BigDecimal right = new BigDecimal(second.getStringValue());
-
-        BigDecimal result = left.add(right);
-        return new DecimalLiteral(result);
-    }
-
-    @FEFunction(name = "add", argTypes = { "DECIMAL64", "DECIMAL64" }, returnType = "DECIMAL64")
-    public static DecimalLiteral addDecimal64(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        BigDecimal left = new BigDecimal(first.getStringValue());
-        BigDecimal right = new BigDecimal(second.getStringValue());
-
-        BigDecimal result = left.add(right);
-        return new DecimalLiteral(result);
-    }
-
-    @FEFunction(name = "add", argTypes = { "DECIMAL128", "DECIMAL128" }, returnType = "DECIMAL128")
-    public static DecimalLiteral addDecimal128(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        BigDecimal left = new BigDecimal(first.getStringValue());
-        BigDecimal right = new BigDecimal(second.getStringValue());
-
-        BigDecimal result = left.add(right);
-        return new DecimalLiteral(result);
-    }
-
     @FEFunction(name = "add", argTypes = { "LARGEINT", "LARGEINT" }, returnType = "LARGEINT")
     public static LargeIntLiteral addBigInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigInteger left = new BigInteger(first.getStringValue());

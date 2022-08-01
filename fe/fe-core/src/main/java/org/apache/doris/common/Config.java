@@ -1714,4 +1714,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_tags = false;
+
+    /**
+     * If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_decimal_conversion = false;
 }

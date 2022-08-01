@@ -21,6 +21,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -45,7 +46,9 @@ public class DecimalLiteralTest {
 
         // if DecimalLiteral need to cast to Decimal and Decimalv2, need to cast
         // to themselves
-        Assert.assertEquals(literal, literal.uncheckedCastTo(Type.DECIMALV2));
+        if (!(Config.enable_decimalv3 && Config.enable_decimal_conversion)) {
+            Assert.assertEquals(literal, literal.uncheckedCastTo(Type.DECIMALV2));
+        }
 
         Assert.assertEquals(1, literal.compareLiteral(new NullLiteral()));
     }

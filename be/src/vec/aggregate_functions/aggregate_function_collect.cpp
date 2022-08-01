@@ -64,6 +64,10 @@ AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
         return create_agg_function_collect<Float32>(distinct, argument_types);
     } else if (type.is_float64()) {
         return create_agg_function_collect<Float64>(distinct, argument_types);
+    } else if (type.is_decimal32()) {
+        return create_agg_function_collect<Decimal32>(distinct, argument_types);
+    } else if (type.is_decimal64()) {
+        return create_agg_function_collect<Decimal64>(distinct, argument_types);
     } else if (type.is_decimal128()) {
         return create_agg_function_collect<Decimal128>(distinct, argument_types);
     } else if (type.is_date()) {

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.planner.PlanFragment;
@@ -170,7 +171,11 @@ public class CreateFunctionTest {
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
 
         queryStr = "select db1.decimal(k3, 4, 1) from db1.tbl1;";
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMAL(4,1))"));
+        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMALV3(4,1))"));
+        } else {
+            Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMAL(4,1))"));
+        }
 
         // cast any type to varchar with fixed length
         createFuncStr = "create alias function db1.varchar(all, int) with parameter(text, length) as "

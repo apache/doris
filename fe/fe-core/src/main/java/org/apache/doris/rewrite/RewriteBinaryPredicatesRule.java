@@ -121,7 +121,8 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
         BinaryPredicate.Operator op = ((BinaryPredicate) expr).getOp();
         Expr expr0 = expr.getChild(0);
         Expr expr1 = expr.getChild(1);
-        if (expr0 instanceof CastExpr && expr0.getType() == Type.DECIMALV2 && expr0.getChild(0) instanceof SlotRef
+        if (expr0 instanceof CastExpr && (expr0.getType() == Type.DECIMALV2 || expr0.getType().isDecimalV3())
+                && expr0.getChild(0) instanceof SlotRef
                 && expr0.getChild(0).getType().getResultType() == Type.BIGINT && expr1 instanceof DecimalLiteral) {
             return rewriteBigintSlotRefCompareDecimalLiteral(expr0, (DecimalLiteral) expr1, op);
         }

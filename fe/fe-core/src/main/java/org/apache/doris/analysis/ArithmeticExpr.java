@@ -37,6 +37,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -528,7 +529,19 @@ public class ArithmeticExpr extends Expr {
             } else {
                 analyzeNoneDecimalOp(t1, t2);
             }
-            fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
+            fn = getBuiltinFunction(op.name, Arrays.stream(collectChildReturnTypes()).map(
+                    (Type type) -> {
+                        if (type.getPrimitiveType() == PrimitiveType.DECIMAL32) {
+                            return Type.DECIMAL32;
+                        } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL64) {
+                            return Type.DECIMAL64;
+                        } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL128) {
+                            return Type.DECIMAL128;
+                        } else if (type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
+                            return Type.DATETIMEV2;
+                        }
+                        return type;
+                    }).toArray(Type[]::new), Function.CompareMode.IS_IDENTICAL);
             if (fn == null) {
                 Preconditions.checkState(false, String.format(
                         "No match for vec function '%s' with operand types %s and %s", toSql(), t1, t2));

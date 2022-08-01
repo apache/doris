@@ -177,21 +177,37 @@ public class RewriteDateLiteralRuleTest {
     public void testWithDoubleFormatDate() throws Exception {
         String query = "select * from " + DB_NAME + ".tb1 where k1 > 20210301.22";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > 2.021030122E7"));
+        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+            Assert.assertTrue(planString.contains("`k1` > 20210301"));
+        } else {
+            Assert.assertTrue(planString.contains("`k1` > 2.021030122E7"));
+        }
 
         query = "select k1 > 20210331.22 from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > 2.021033122E7"));
+        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+            Assert.assertTrue(planString.contains("`k1` > 20210331"));
+        } else {
+            Assert.assertTrue(planString.contains("`k1` > 2.021033122E7"));
+        }
     }
 
     public void testWithDoubleFormatDateV2() throws Exception {
         String query = "select * from " + DB_NAME + ".tb2 where k1 > 20210301.22";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > 2.021030122E7"));
+        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+            Assert.assertTrue(planString.contains("`k1` > 20210301"));
+        } else {
+            Assert.assertTrue(planString.contains("`k1` > 2.021030122E7"));
+        }
 
         query = "select k1 > 20210331.22 from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > 2.021033122E7"));
+        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+            Assert.assertTrue(planString.contains("`k1` > 20210331"));
+        } else {
+            Assert.assertTrue(planString.contains("`k1` > 2.021033122E7"));
+        }
     }
 
     public void testWithInvalidFormatDate() throws Exception {

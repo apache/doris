@@ -44,41 +44,46 @@ public class RoundLiteralInBinaryPredicatesRule implements ExprRewriteRule {
             if (expr0.getType().isDecimalV3()
                     && ((ScalarType) expr0.getType()).getScalarScale()
                     < ((ScalarType) expr1.getType()).getScalarScale()) {
-                switch (op) {
-                    case EQ: {
-                        BigDecimal originValue = literal.getValue();
-                        literal.roundCeiling(((ScalarType) expr0.getType()).getScalarScale());
-                        if (literal.getValue().equals(originValue)) {
+                int toScale = ((ScalarType) expr0.getType()).getScalarScale();
+                try {
+                    switch (op) {
+                        case EQ: {
+                            BigDecimal originValue = literal.getValue();
+                            literal.roundCeiling();
+                            if (literal.getValue().equals(originValue.setScale(toScale))) {
+                                expr.setChild(1, literal);
+                                return expr;
+                            } else {
+                                return new BoolLiteral(false);
+                            }
+                        }
+                        case NE: {
+                            BigDecimal originValue = literal.getValue();
+                            literal.roundCeiling(toScale);
+                            if (literal.getValue().equals(originValue.setScale(toScale))) {
+                                expr.setChild(1, literal);
+                                return expr;
+                            } else {
+                                return new BoolLiteral(true);
+                            }
+                        }
+                        case GT:
+                        case LE: {
+                            literal.roundFloor(toScale);
                             expr.setChild(1, literal);
                             return expr;
-                        } else {
-                            return new BoolLiteral(false);
                         }
-                    }
-                    case NE: {
-                        BigDecimal originValue = literal.getValue();
-                        literal.roundCeiling(((ScalarType) expr0.getType()).getScalarScale());
-                        if (literal.getValue().equals(originValue)) {
+                        case LT:
+                        case GE: {
+                            literal.roundCeiling(toScale);
                             expr.setChild(1, literal);
                             return expr;
-                        } else {
-                            return new BoolLiteral(true);
                         }
+                        default:
+                            return expr;
                     }
-                    case GT:
-                    case LE: {
-                        literal.roundFloor(((ScalarType) expr0.getType()).getScalarScale());
-                        expr.setChild(1, literal);
-                        return expr;
-                    }
-                    case LT:
-                    case GE: {
-                        literal.roundCeiling(((ScalarType) expr0.getType()).getScalarScale());
-                        expr.setChild(1, literal);
-                        return expr;
-                    }
-                    default:
-                        return expr;
+                } catch (ArithmeticException e) {
+                    return new BoolLiteral(false);
                 }
             }
         }
@@ -86,6 +91,9 @@ public class RoundLiteralInBinaryPredicatesRule implements ExprRewriteRule {
     }
 
     private Expr rewriteDateLiteral(Expr expr) {
+        if (!(expr instanceof BinaryPredicate)) {
+            return expr;
+        }
         Operator op = ((BinaryPredicate) expr).getOp();
         Expr expr0 = expr.getChild(0);
         Expr expr1 = expr.getChild(1);
