@@ -227,7 +227,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
 
-    // using hashset intead of group by + count can improve performance but may cause rpc failed when cluster has less BE
+    // using hashset intead of group by + count can improve performance
+    //        but may cause rpc failed when cluster has less BE
     // Whether this switch is turned on depends on the BE number
     @VariableMgr.VarAttr(name = ENABLE_SINGLE_DISTINCT_COLUMN_OPT)
     public boolean enableSingleDistinctColumnOpt = false;
