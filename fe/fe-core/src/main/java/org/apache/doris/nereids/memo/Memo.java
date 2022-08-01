@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -92,8 +91,11 @@ public class Memo {
         node = replaceChildrenToGroupPlan(node, childrenGroups);
         GroupExpression newGroupExpression = new GroupExpression(node);
         newGroupExpression.setChildren(childrenGroups);
-        return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite,
-                node.getLogicalProperties());
+        if (rewrite) {
+            return rewriteGroupExpression(newGroupExpression, target, node.getLogicalProperties());
+        } else {
+            return insertGroupExpression(newGroupExpression, target, node.getLogicalProperties());
+        }
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
 
@@ -122,44 +124,64 @@ public class Memo {
     }
 
     /**
-     * Insert or rewrite groupExpression to target group.
+     * Insert groupExpression to target group.
      * If group expression is already in memo and target group is not null, we merge two groups.
      * If target is null, generate new group.
-     * If rewrite is true, rewrite the groupExpression to target group.
+     * If target is not null, add group expression to target group
      *
      * @param groupExpression groupExpression to insert
-     * @param target target group to insert or rewrite groupExpression
-     * @param rewrite whether to rewrite the groupExpression to target group
+     * @param target target group to insert groupExpression
      * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
      *         and the second element is a reference of node in Memo
      */
-    private Pair<Boolean, GroupExpression> insertOrRewriteGroupExpression(GroupExpression groupExpression, Group target,
-            boolean rewrite, LogicalProperties logicalProperties) {
+    private Pair<Boolean, GroupExpression> insertGroupExpression(
+            GroupExpression groupExpression, Group target, LogicalProperties logicalProperties) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
-            Group mergedGroup = existedGroupExpression.getOwnerGroup();
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
-                mergedGroup = mergeGroup(target, existedGroupExpression.getOwnerGroup());
+                mergeGroup(existedGroupExpression.getOwnerGroup(), target);
             }
-            if (rewrite) {
-                mergedGroup.setLogicalProperties(logicalProperties);
-            }
-            return new Pair(false, existedGroupExpression);
+            return new Pair<>(false, existedGroupExpression);
         }
         if (target != null) {
-            if (rewrite) {
-                GroupExpression oldExpression = target.rewriteLogicalExpression(groupExpression, logicalProperties);
-                groupExpressions.remove(oldExpression);
-            } else {
-                target.addGroupExpression(groupExpression);
-            }
+            target.addGroupExpression(groupExpression);
         } else {
             Group group = new Group(groupIdGenerator.getNextId(), groupExpression, logicalProperties);
-            Preconditions.checkArgument(!groups.contains(group), "new group with already exist output");
             groups.add(group);
         }
         groupExpressions.put(groupExpression, groupExpression);
-        return new Pair(true, groupExpression);
+        return new Pair<>(true, groupExpression);
+    }
+
+    /**
+     * Rewrite groupExpression to target group.
+     * If group expression is already in memo, we replace logical properties regardless the target group present or not
+     *     for replace UnboundLogicalProperties to LogicalProperties
+     * If target is null, generate new group.
+     * If target is not null, rewrite the groupExpression to target group.
+     *
+     * @param groupExpression groupExpression to rewrite old one
+     * @param target target group to rewrite groupExpression
+     * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
+     *         and the second element is a reference of node in Memo
+     */
+    private Pair<Boolean, GroupExpression> rewriteGroupExpression(
+            GroupExpression groupExpression, Group target, LogicalProperties logicalProperties) {
+        boolean newGroupExpressionGenerated = true;
+        GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
+        if (existedGroupExpression != null) {
+            target = existedGroupExpression.getOwnerGroup();
+            newGroupExpressionGenerated = false;
+        }
+        if (target != null) {
+            GroupExpression oldExpression = target.rewriteLogicalExpression(groupExpression, logicalProperties);
+            groupExpressions.remove(oldExpression);
+        } else {
+            Group group = new Group(groupIdGenerator.getNextId(), groupExpression, logicalProperties);
+            groups.add(group);
+        }
+        groupExpressions.put(groupExpression, groupExpression);
+        return new Pair<>(newGroupExpressionGenerated, groupExpression);
     }
 
     /**
