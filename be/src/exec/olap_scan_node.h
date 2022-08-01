@@ -206,6 +206,8 @@ protected:
     // object is.
     ObjectPool _scanner_pool;
 
+    size_t _batch_size = 0;
+
     std::shared_ptr<std::thread> _transfer_thread;
 
     // Keeps track of total splits and the number finished.
