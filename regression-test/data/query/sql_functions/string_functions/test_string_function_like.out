@@ -87,3 +87,14 @@ ba
 bab
 bb
 
+-- !sql --
+a
+ab
+accb
+b
+ba
+bab
+bb
+
+-- !sql --
+
