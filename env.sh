@@ -122,7 +122,7 @@ if test -z "${BUILD_THIRDPARTY_WIP}"; then
 
     # check java home
     if [ -z "$JAVA_HOME" ]; then
-        export JAVACMD=$(which java)
+        export JAVA=$(which java)
         JAVAP=$(which javap)
     else
         export JAVA="${JAVA_HOME}/bin/java"
