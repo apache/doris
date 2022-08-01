@@ -119,6 +119,7 @@ public enum ExpressionFunctions {
             // Make functions for date/datetime applicable to datev2/datetimev2
             if (!(invoker.getSignature().returnType.isDate() && signature.getReturnType().isDateV2())
                     && !(invoker.getSignature().returnType.isDatetime() && signature.getReturnType().isDatetimeV2())
+                    && !(invoker.getSignature().returnType.isDecimalV2() && signature.getReturnType().isDecimalV3())
                     && !invoker.getSignature().returnType.equals(signature.getReturnType())) {
                 continue;
             }
@@ -133,6 +134,7 @@ public enum ExpressionFunctions {
             for (int i = 0; i < argTypes1.length; i++) {
                 if (!(argTypes1[i].isDate() && argTypes2[i].isDateV2())
                         && !(argTypes1[i].isDatetime() && argTypes2[i].isDatetimeV2())
+                        && !(argTypes1[i].isDecimalV2() && argTypes2[i].isDecimalV3())
                         && !argTypes1[i].equals(argTypes2[i])) {
                     match = false;
                     break;
