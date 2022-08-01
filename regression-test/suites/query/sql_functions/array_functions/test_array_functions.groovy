@@ -57,4 +57,5 @@ suite("test_array_functions", "query") {
     qt_select "SELECT k1, array_slice(k2, 2) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_slice(k2, 1, 2) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, reverse(k2), reverse(k3), reverse(k4) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_join(k2, '_', 'null'), array_join(k3, '-', 'null') FROM ${tableName} ORDER BY k1"
 }
