@@ -506,7 +506,7 @@ public final class AggregateInfo extends AggregateInfoBase {
             if (right == null) {
                 continue;
             }
-            slotRef.getDesc().setIsNullable(right.isNullable());
+            slotDesc.setIsNullable(right.isNullable());
         }
     }
 
