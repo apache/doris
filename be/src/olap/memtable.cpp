@@ -144,7 +144,9 @@ MemTable::~MemTable() {
     _mem_tracker->release(_mem_usage);
     _buffer_mem_pool->free_all();
     _table_mem_pool->free_all();
-    _mem_tracker->memory_leak_check();
+    DCHECK_EQ(_mem_tracker->consumption(), 0)
+            << std::endl
+            << MemTracker::log_usage(_mem_tracker->make_snapshot(0));
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}

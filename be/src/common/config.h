@@ -732,9 +732,25 @@ CONF_String(function_service_protocol, "h2:grpc");
 // use which load balancer to select server to connect
 CONF_String(rpc_load_balancer, "rr");
 
+// Enable tracing
+// If this configuration is enabled, you should also specify the trace_export_url.
 CONF_Bool(enable_tracing, "false");
 
+// Enable opentelemtry collector
+CONF_Bool(enable_otel_collector, "false");
+
+// Current support for exporting traces:
+// zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
+// collector: The collector can be used to receive and process traces and support export to a variety of
+//   third-party systems.
+CONF_mString(trace_exporter, "zipkin");
+CONF_Validator(trace_exporter, [](const std::string& config) -> bool {
+    return config == "zipkin" || config == "collector";
+});
+
 // The endpoint to export spans to.
+// export to zipkin like: http://127.0.0.1:9411/api/v2/spans
+// export to collector like: http://127.0.0.1:4318/v1/traces
 CONF_String(trace_export_url, "http://127.0.0.1:9411/api/v2/spans");
 
 // The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
@@ -788,6 +804,11 @@ CONF_mInt64(cooldown_lag_time_sec, "10800"); // 3h
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 CONF_Bool(enable_time_lut, "true");
+
+// number of s3 scanner thread pool size
+CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
+// number of s3 scanner thread pool queue size
+CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
 
 #ifdef BE_TEST
 // test s3

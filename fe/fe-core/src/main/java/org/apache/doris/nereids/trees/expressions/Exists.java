@@ -23,15 +23,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
-import com.google.common.base.Preconditions;
-
-import java.util.List;
 import java.util.Objects;
 
 /**
  * Exists subquery expression.
  */
-public class Exists extends SubqueryExpr {
+public class Exists extends SubqueryExpr implements LeafExpression {
 
     public Exists(LogicalPlan subquery) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"));
@@ -54,29 +51,5 @@ public class Exists extends SubqueryExpr {
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitExistsSubquery(this, context);
-    }
-
-    @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        Preconditions.checkArgument(children.get(0) instanceof SubqueryExpr);
-        return new Exists(((SubqueryExpr) children.get(0)).getQueryPlan());
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        Exists exists = (Exists) o;
-        return Objects.equals(this.queryPlan, exists.getQueryPlan());
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(this.queryPlan);
     }
 }

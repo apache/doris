@@ -16,3 +16,6 @@
 [submodule ".github/actions/action-pr-title"]
 	path = .github/actions/action-pr-title
 	url = https://github.com/deepakputhraya/action-pr-title.git
+[submodule ".github/actions/ccache-action"]
+	path = .github/actions/ccache-action
+	url = https://github.com/hendrikmuhs/ccache-action

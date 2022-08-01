@@ -31,14 +31,6 @@
 
 namespace doris::vectorized {
 
-std::variant<std::false_type, std::true_type> static inline make_bool_variant(bool condition) {
-    if (condition) {
-        return std::true_type {};
-    } else {
-        return std::false_type {};
-    }
-}
-
 using ProfileCounter = RuntimeProfile::Counter;
 template <class HashTableContext>
 struct ProcessHashTableBuild {
@@ -855,7 +847,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(), nullptr,
+    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
                                                 _runtime_profile.get());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 

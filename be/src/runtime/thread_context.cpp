@@ -29,8 +29,9 @@ ThreadContextPtr::ThreadContextPtr() {
     _init = true;
 }
 
-AttachTask::AttachTask(MemTrackerLimiter* mem_tracker, const ThreadContext::TaskType& type,
-                       const std::string& task_id, const TUniqueId& fragment_instance_id) {
+AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+                       const ThreadContext::TaskType& type, const std::string& task_id,
+                       const TUniqueId& fragment_instance_id) {
     DCHECK(mem_tracker);
 #ifdef USE_MEM_TRACKER
     thread_context()->attach_task(type, task_id, fragment_instance_id, mem_tracker);

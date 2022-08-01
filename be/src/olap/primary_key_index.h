@@ -93,10 +93,13 @@ public:
         return _index_reader->num_values();
     }
 
+    uint64_t get_memory_size() {
+        DCHECK(_parsed);
+        return _index_reader->get_memory_size() + _bf->size();
+    }
+
 private:
     bool _parsed;
-    bool _use_page_cache = true;
-    bool _kept_in_memory = true;
     std::unique_ptr<segment_v2::IndexedColumnReader> _index_reader;
     std::unique_ptr<segment_v2::BloomFilter> _bf;
 };

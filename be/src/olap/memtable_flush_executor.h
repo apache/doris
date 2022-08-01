@@ -57,7 +57,8 @@ public:
     explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
             : _flush_token(std::move(flush_pool_token)), _flush_status(OLAP_SUCCESS) {}
 
-    Status submit(std::unique_ptr<MemTable> mem_table, MemTrackerLimiter* tracker);
+    Status submit(std::unique_ptr<MemTable> mem_table,
+                  const std::shared_ptr<MemTrackerLimiter>& tracker);
 
     // error has happpens, so we cancel this token
     // And remove all tasks in the queue.
