@@ -39,7 +39,7 @@ suite("test_grouping_sets", "query") {
                """
 
     qt_select6 """
-                 select if(k0 = 1, 2, k0) k_if, k1, sum(k2) from test_query_db.baseall where k0 is null or k2 = 1991
-                 group by grouping sets((k_if, k1),()) order by k_if, k1
+                 select if(k0 = 1, 2, k0) k_if, k1, sum(k2) k2_sum from test_query_db.baseall where k0 is null or k2 = 1991
+                 group by grouping sets((k_if, k1),()) order by k_if, k1, k2_sum
                """
 }
