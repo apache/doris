@@ -34,13 +34,13 @@ import java.util.stream.Collectors;
  */
 public class InPredicate extends Expression {
 
-    private Expression compareExpr;
-    private List<Expression> optionsList;
+    private final Expression compareExpr;
+    private final List<Expression> options;
 
     public InPredicate(Expression compareExpr, List<Expression> optionsList) {
         super(new Builder<Expression>().add(compareExpr).addAll(optionsList).build().toArray(new Expression[0]));
         this.compareExpr = Objects.requireNonNull(compareExpr, "Compare Expr cannot be null");
-        this.optionsList = ImmutableList.copyOf(Objects.requireNonNull(optionsList, "In list cannot be null"));
+        this.options = ImmutableList.copyOf(Objects.requireNonNull(optionsList, "In list cannot be null"));
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -59,16 +59,16 @@ public class InPredicate extends Expression {
 
     @Override
     public String toString() {
-        return compareExpr + " IN " + optionsList.stream()
+        return compareExpr + " IN " + options.stream()
             .map(Expression::toString)
-            .collect(Collectors.joining(",", "(", ")"));
+            .collect(Collectors.joining(", ", "(", ")"));
     }
 
     @Override
     public String toSql() {
-        return compareExpr.toSql() + " IN " + optionsList.stream()
+        return compareExpr.toSql() + " IN " + options.stream()
             .map(Expression::toSql)
-            .collect(Collectors.joining(",", "(", ")"));
+            .collect(Collectors.joining(", ", "(", ")"));
     }
 
     @Override
@@ -81,19 +81,19 @@ public class InPredicate extends Expression {
         }
         InPredicate that = (InPredicate) o;
         return Objects.equals(compareExpr, that.getCompareExpr())
-            && Objects.equals(optionsList, that.getOptionsList());
+            && Objects.equals(options, that.getOptions());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(compareExpr, optionsList);
+        return Objects.hash(compareExpr, options);
     }
 
     public Expression getCompareExpr() {
         return compareExpr;
     }
 
-    public List<Expression> getOptionsList() {
-        return optionsList;
+    public List<Expression> getOptions() {
+        return options;
     }
 }

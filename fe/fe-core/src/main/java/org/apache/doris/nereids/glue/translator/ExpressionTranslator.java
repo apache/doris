@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.ArithmeticExpr;
+import org.apache.doris.analysis.BetweenPredicate;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -48,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
@@ -66,6 +69,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisit
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Used to translate expression of new optimizer to stale expr.
@@ -143,10 +147,48 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitNot(Not not, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.CompoundPredicate(
-                org.apache.doris.analysis.CompoundPredicate.Operator.NOT,
-                not.child(0).accept(this, context),
-                null);
+        if (not.child() instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) not.child();
+            List<Expr> inList = inPredicate.getOptions().stream()
+                    .map(e -> translate(e, context))
+                    .collect(Collectors.toList());
+            return new org.apache.doris.analysis.InPredicate(
+                    inPredicate.getCompareExpr().accept(this, context),
+                    inList,
+                    true);
+        } else if (not.child() instanceof Like) {
+            Like like = (Like) not.child();
+            LikePredicate likePredicate = (LikePredicate) visitLike(like, context);
+            CompoundPredicate compoundPredicate = new CompoundPredicate(CompoundPredicate.Operator.NOT,
+                    likePredicate,
+                    null);
+            return compoundPredicate;
+        } else if (not.child() instanceof Regexp) {
+            Regexp regexp = (Regexp) not.child();
+            LikePredicate likePredicate = (LikePredicate) visitRegexp(regexp, context);
+            CompoundPredicate compoundPredicate = new CompoundPredicate(CompoundPredicate.Operator.NOT,
+                    likePredicate,
+                    null);
+            return compoundPredicate;
+        } else if (not.child() instanceof Between) {
+            Between between = (Between) not.child();
+            BetweenPredicate betweenPredicate = new BetweenPredicate(
+                    between.getCompareExpr().accept(this, context),
+                    between.getLowerBound().accept(this, context),
+                    between.getUpperBound().accept(this, context),
+                    true);
+            return betweenPredicate;
+        } else if (not.child() instanceof EqualTo) {
+            EqualTo equalTo = (EqualTo) not.child();
+            BinaryPredicate binaryPredicate =  new BinaryPredicate(Operator.NE,
+                    equalTo.child(0).accept(this, context),
+                    equalTo.child(1).accept(this, context));
+            return binaryPredicate;
+        } else {
+            return new CompoundPredicate(CompoundPredicate.Operator.NOT,
+                    not.child(0).accept(this, context),
+                    null);
+        }
     }
 
     @Override
@@ -196,7 +238,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitBetween(Between between, PlanTranslatorContext context) {
-        throw new RuntimeException("Unexpected invocation");
+        return new BetweenPredicate(between.getCompareExpr().accept(this, context),
+                between.getLowerBound().accept(this, context),
+                between.getUpperBound().accept(this, context),
+                false);
     }
 
     @Override
@@ -253,6 +298,17 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // left child of cast is expression, right child of cast is target type
         return new CastExpr(cast.getDataType().toCatalogDataType(),
                 cast.left().accept(this, context));
+    }
+
+    @Override
+    public Expr visitInPredicate(InPredicate inPredicate, PlanTranslatorContext context) {
+        List<Expr> inList = inPredicate.getOptions().stream()
+                .map(e -> translate(e, context))
+                .collect(Collectors.toList());
+        return new org.apache.doris.analysis.InPredicate(
+                inPredicate.getCompareExpr().accept(this, context),
+                inList,
+                false);
     }
 
     // TODO: Supports for `distinct`

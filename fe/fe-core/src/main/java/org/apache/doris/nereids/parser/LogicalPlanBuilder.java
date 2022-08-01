@@ -826,8 +826,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.IN:
                     if (ctx.query() == null) {
                         outExpression = new InPredicate(
-                            valueExpression,
-                            withInList(ctx)
+                                valueExpression,
+                                withInList(ctx)
                         );
                     } else {
                         outExpression = new InSubquery(
@@ -869,7 +869,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     public List<Expression> withInList(PredicateContext ctx) {
         List<Expression> expressions = ctx.expression().stream()
-                .map(expr -> getExpression(expr)).collect(ImmutableList.toImmutableList());
+                .map(this::getExpression).collect(ImmutableList.toImmutableList());
         return expressions;
     }
 }
