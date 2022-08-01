@@ -62,10 +62,8 @@ public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
                             NamedExpression::toSlot, e -> e.child(0))
                     );
 
-            ExpressionReplacer replacer =
-                    new ExpressionReplacer();
             projectExpressions = projectExpressions.stream()
-                    .map(e -> replacer.visit(e, childAliasMap))
+                    .map(e -> ExpressionReplacer.INSTANCE.visit(e, childAliasMap))
                     .map(NamedExpression.class::cast)
                     .collect(Collectors.toList());
             return new LogicalProject(projectExpressions, (Plan) childProject.children().get(0));

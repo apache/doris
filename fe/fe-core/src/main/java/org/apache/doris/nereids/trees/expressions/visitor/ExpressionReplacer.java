@@ -26,6 +26,8 @@ import java.util.Map;
  */
 public class ExpressionReplacer
         extends DefaultExpressionRewriter<Map<Expression, Expression>> {
+    public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
+
     @Override
     public Expression visit(Expression expr, Map<Expression, Expression> substitutionMap) {
         if (substitutionMap.containsKey(expr)) {
