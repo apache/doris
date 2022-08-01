@@ -311,7 +311,12 @@ public class CastExpr extends Expr {
                     + " from " + childType + " to " + type);
         }
 
-        Preconditions.checkState(type.matchesType(fn.getReturnType()), type + " != " + fn.getReturnType());
+        if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
+            Preconditions.checkState(type.getPrimitiveType() == fn.getReturnType().getPrimitiveType(),
+                    type + " != " + fn.getReturnType());
+        } else {
+            Preconditions.checkState(type.matchesType(fn.getReturnType()), type + " != " + fn.getReturnType());
+        }
     }
 
     @Override
