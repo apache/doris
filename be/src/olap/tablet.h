@@ -125,7 +125,7 @@ public:
 
     const RowsetSharedPtr rowset_with_max_version() const;
 
-    static const RowsetMetaSharedPtr rowset_meta_with_max_schema_version(
+    static RowsetMetaSharedPtr rowset_meta_with_max_schema_version(
             const std::vector<RowsetMetaSharedPtr>& rowset_metas);
 
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
@@ -282,16 +282,16 @@ public:
         return _tablet_meta->all_beta();
     }
 
-    const TabletSchema& tablet_schema() const override;
+    TabletSchemaSPtr tablet_schema() const override;
 
     Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                const SegmentsOverlapPB& overlap, const TabletSchema* tablet_schema,
+                                const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,
                                 int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
                                 const RowsetStatePB& rowset_state, const SegmentsOverlapPB& overlap,
-                                const TabletSchema* tablet_schema,
+                                TabletSchemaSPtr tablet_schema,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
@@ -494,55 +494,55 @@ inline Version Tablet::max_version() const {
 }
 
 inline KeysType Tablet::keys_type() const {
-    return _schema.keys_type();
+    return _schema->keys_type();
 }
 
 inline SortType Tablet::sort_type() const {
-    return _schema.sort_type();
+    return _schema->sort_type();
 }
 
 inline size_t Tablet::sort_col_num() const {
-    return _schema.sort_col_num();
+    return _schema->sort_col_num();
 }
 
 inline size_t Tablet::num_columns() const {
-    return _schema.num_columns();
+    return _schema->num_columns();
 }
 
 inline size_t Tablet::num_null_columns() const {
-    return _schema.num_null_columns();
+    return _schema->num_null_columns();
 }
 
 inline size_t Tablet::num_key_columns() const {
-    return _schema.num_key_columns();
+    return _schema->num_key_columns();
 }
 
 inline size_t Tablet::num_short_key_columns() const {
-    return _schema.num_short_key_columns();
+    return _schema->num_short_key_columns();
 }
 
 inline size_t Tablet::num_rows_per_row_block() const {
-    return _schema.num_rows_per_row_block();
+    return _schema->num_rows_per_row_block();
 }
 
 inline CompressKind Tablet::compress_kind() const {
-    return _schema.compress_kind();
+    return _schema->compress_kind();
 }
 
 inline double Tablet::bloom_filter_fpp() const {
-    return _schema.bloom_filter_fpp();
+    return _schema->bloom_filter_fpp();
 }
 
 inline size_t Tablet::next_unique_id() const {
-    return _schema.next_column_unique_id();
+    return _schema->next_column_unique_id();
 }
 
 inline int32_t Tablet::field_index(const std::string& field_name) const {
-    return _schema.field_index(field_name);
+    return _schema->field_index(field_name);
 }
 
 inline size_t Tablet::row_size() const {
-    return _schema.row_size();
+    return _schema->row_size();
 }
 
 } // namespace doris

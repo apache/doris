@@ -55,7 +55,7 @@ struct RowsetWriterContext {
         context.tablet_schema_hash = new_tablet->schema_hash();
         context.rowset_type = new_rowset_type;
         context.tablet_path = new_tablet->tablet_path();
-        context.tablet_schema = &(new_tablet->tablet_schema());
+        context.tablet_schema = new_tablet->tablet_schema();
         context.data_dir = new_tablet->data_dir();
         context.rowset_state = VISIBLE;
         context.version = version;
@@ -70,7 +70,7 @@ struct RowsetWriterContext {
     int64_t partition_id;
     RowsetTypePB rowset_type;
     std::string tablet_path;
-    const TabletSchema* tablet_schema;
+    TabletSchemaSPtr tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state;

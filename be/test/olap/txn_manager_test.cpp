@@ -132,10 +132,10 @@ public:
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         rowset_meta->init_from_json(_json_rowset_meta);
         EXPECT_EQ(rowset_meta->rowset_id(), rowset_id);
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path,
-                                                             rowset_meta, &_rowset));
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path,
-                                                             rowset_meta, &_rowset_same_id));
+        EXPECT_EQ(Status::OK(),
+                  RowsetFactory::create_rowset(_schema, rowset_meta_path, rowset_meta, &_rowset));
+        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, rowset_meta_path, rowset_meta,
+                                                             &_rowset_same_id));
 
         // init rowset meta 2
         _json_rowset_meta = "";
@@ -150,7 +150,7 @@ public:
         RowsetMetaSharedPtr rowset_meta2(new RowsetMeta());
         rowset_meta2->init_from_json(_json_rowset_meta);
         EXPECT_EQ(rowset_meta2->rowset_id(), rowset_id);
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path_2,
+        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, rowset_meta_path_2,
                                                              rowset_meta2, &_rowset_diff_id));
         _tablet_uid = TabletUid(10, 10);
     }
@@ -170,7 +170,7 @@ private:
     SchemaHash schema_hash = 333;
     TabletUid _tablet_uid {0, 0};
     PUniqueId load_id;
-    std::unique_ptr<TabletSchema> _schema;
+    TabletSchemaSPtr _schema;
     RowsetSharedPtr _rowset;
     RowsetSharedPtr _rowset_same_id;
     RowsetSharedPtr _rowset_diff_id;

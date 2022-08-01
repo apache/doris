@@ -17,11 +17,13 @@
 
 #include "olap/rowset/rowset.h"
 
+#include "olap/tablet_schema.h"
+#include "olap/tablet_schema_cache.h"
 #include "util/time.h"
 
 namespace doris {
 
-Rowset::Rowset(const TabletSchema* schema, const std::string& tablet_path,
+Rowset::Rowset(TabletSchemaSPtr schema, const std::string& tablet_path,
                RowsetMetaSharedPtr rowset_meta)
         : _tablet_path(tablet_path), _rowset_meta(std::move(rowset_meta)), _refs_by_reader(0) {
     _is_pending = !_rowset_meta->has_version();
@@ -32,7 +34,7 @@ Rowset::Rowset(const TabletSchema* schema, const std::string& tablet_path,
         _is_cumulative = version.first != version.second;
     }
     // build schema from RowsetMeta.tablet_schema or Tablet.tablet_schema
-    _schema = _rowset_meta->tablet_schema() != nullptr ? _rowset_meta->tablet_schema() : schema;
+    _schema = _rowset_meta->tablet_schema() ? _rowset_meta->tablet_schema() : schema;
 }
 
 Status Rowset::load(bool use_cache) {

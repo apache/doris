@@ -18,6 +18,7 @@
 #include "olap/data_dir.h"
 
 #include <ctype.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <mntent.h>
 #include <stdio.h>
 #include <sys/file.h>
@@ -475,8 +476,8 @@ Status DataDir::load() {
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED &&
             rowset_meta->tablet_uid() == tablet->tablet_uid()) {
-            if (!rowset_meta->get_rowset_pb().has_tablet_schema()) {
-                rowset_meta->set_tablet_schema(&tablet->tablet_schema());
+            if (!rowset_meta->tablet_schema()) {
+                rowset_meta->set_tablet_schema(tablet->tablet_schema());
                 RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(),
                                         rowset_meta->get_rowset_pb());
             }
@@ -498,8 +499,8 @@ Status DataDir::load() {
             }
         } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
                    rowset_meta->tablet_uid() == tablet->tablet_uid()) {
-            if (!rowset_meta->get_rowset_pb().has_tablet_schema()) {
-                rowset_meta->set_tablet_schema(&tablet->tablet_schema());
+            if (!rowset_meta->tablet_schema()) {
+                rowset_meta->set_tablet_schema(tablet->tablet_schema());
                 RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(), rowset_meta->rowset_id(),
                                         rowset_meta->get_rowset_pb());
             }

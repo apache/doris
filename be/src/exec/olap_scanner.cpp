@@ -83,7 +83,7 @@ Status OlapScanner::prepare(
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-        _tablet_schema = _tablet->tablet_schema();
+        _tablet_schema.copy_from(*_tablet->tablet_schema());
         if (!_parent->_olap_scan_node.columns_desc.empty() &&
             _parent->_olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             _tablet_schema.clear_columns();
@@ -289,7 +289,7 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
     }
 
     // expand the sequence column
-    if (_tablet->tablet_schema().has_sequence_col() && need_seq_col) {
+    if (_tablet_schema.has_sequence_col() && need_seq_col) {
         bool has_replace_col = false;
         for (auto col : _return_columns) {
             if (_tablet_schema.column(col).aggregation() ==

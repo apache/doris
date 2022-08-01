@@ -62,7 +62,7 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
     static Status open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
-                       const TabletSchema* tablet_schema, std::shared_ptr<Segment>* output);
+                       TabletSchemaSPtr tablet_schema, std::shared_ptr<Segment>* output);
 
     ~Segment();
 
@@ -96,7 +96,7 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
-    Segment(uint32_t segment_id, const TabletSchema* tablet_schema);
+    Segment(uint32_t segment_id, TabletSchemaSPtr tablet_schema);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer();
@@ -107,7 +107,7 @@ private:
     io::FileReaderSPtr _file_reader;
 
     uint32_t _segment_id;
-    TabletSchema _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
 
     int64_t _meta_mem_usage;
     SegmentFooterPB _footer;

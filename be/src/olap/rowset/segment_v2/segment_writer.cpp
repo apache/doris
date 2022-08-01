@@ -40,7 +40,7 @@ const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
-                             const TabletSchema* tablet_schema, DataDir* data_dir,
+                             TabletSchemaSPtr tablet_schema, DataDir* data_dir,
                              uint32_t max_row_per_segment, const SegmentWriterOptions& opts)
         : _segment_id(segment_id),
           _tablet_schema(tablet_schema),
@@ -50,7 +50,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
           _file_writer(file_writer),
           _mem_tracker(std::make_unique<MemTracker>("SegmentWriter:Segment-" +
                                                     std::to_string(segment_id))),
-          _olap_data_convertor(tablet_schema) {
+          _olap_data_convertor(tablet_schema.get()) {
     CHECK_NOTNULL(file_writer);
     if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
         _num_key_columns = _tablet_schema->num_key_columns();
@@ -92,7 +92,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 
-        init_column_meta(opts.meta, &column_id, column, _tablet_schema);
+        init_column_meta(opts.meta, &column_id, column, _tablet_schema.get());
 
         // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
         // and not support zone map for array type.

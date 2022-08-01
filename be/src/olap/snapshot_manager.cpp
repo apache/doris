@@ -36,6 +36,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "runtime/thread_context.h"
 
 using std::filesystem::path;
@@ -148,8 +149,9 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     new_tablet_meta_pb.set_tablet_id(tablet_id);
     new_tablet_meta_pb.set_replica_id(replica_id);
     new_tablet_meta_pb.set_schema_hash(schema_hash);
-    TabletSchema tablet_schema;
-    tablet_schema.init_from_pb(new_tablet_meta_pb.schema());
+    TabletSchemaSPtr tablet_schema;
+    tablet_schema =
+            TabletSchemaCache::instance()->insert(new_tablet_meta_pb.schema().SerializeAsString());
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
     std::unordered_map<RowsetId, RowsetId, HashOfRowsetId> rowset_id_mapping;
@@ -234,14 +236,14 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
 
 Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
                                           const std::string& new_tablet_path,
-                                          TabletSchema& tablet_schema, const RowsetId& rowset_id,
+                                          TabletSchemaSPtr tablet_schema, const RowsetId& rowset_id,
                                           RowsetMetaPB* new_rs_meta_pb) {
     Status res = Status::OK();
     RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
     rowset_meta->init_from_pb(rs_meta_pb);
     RowsetSharedPtr org_rowset;
-    RETURN_NOT_OK(RowsetFactory::create_rowset(&tablet_schema, new_tablet_path, rowset_meta,
-                                               &org_rowset));
+    RETURN_NOT_OK(
+            RowsetFactory::create_rowset(tablet_schema, new_tablet_path, rowset_meta, &org_rowset));
     // do not use cache to load index
     // because the index file may conflict
     // and the cached fd may be invalid
@@ -255,7 +257,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     context.rowset_type = org_rowset_meta->rowset_type();
     context.tablet_path = new_tablet_path;
     context.tablet_schema =
-            org_rowset_meta->tablet_schema() ? org_rowset_meta->tablet_schema() : &tablet_schema;
+            org_rowset_meta->tablet_schema() ? org_rowset_meta->tablet_schema() : tablet_schema;
     context.rowset_state = org_rowset_meta->rowset_state();
     context.version = org_rowset_meta->version();
     context.oldest_write_timestamp = org_rowset_meta->oldest_write_timestamp();

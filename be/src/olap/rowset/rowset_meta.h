@@ -32,6 +32,7 @@
 #include "json2pb/pb_to_json.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
+#include "olap/tablet_schema_cache.h"
 
 namespace doris {
 
@@ -53,6 +54,11 @@ public:
 
     virtual bool init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
         _rowset_meta_pb = rowset_meta_pb;
+        if (_rowset_meta_pb.has_tablet_schema()) {
+            _schema = TabletSchemaCache::instance()->insert(
+                    _rowset_meta_pb.tablet_schema().SerializeAsString());
+            _rowset_meta_pb.clear_tablet_schema();
+        }
         _init();
         return true;
     }
@@ -245,8 +251,20 @@ public:
 
     void set_num_segments(int64_t num_segments) { _rowset_meta_pb.set_num_segments(num_segments); }
 
-    void to_rowset_pb(RowsetMetaPB* rs_meta_pb) const { *rs_meta_pb = _rowset_meta_pb; }
-    const RowsetMetaPB& get_rowset_pb() { return _rowset_meta_pb; }
+    void to_rowset_pb(RowsetMetaPB* rs_meta_pb) const {
+        *rs_meta_pb = _rowset_meta_pb;
+        if (_schema) {
+            _schema->to_schema_pb(rs_meta_pb->mutable_tablet_schema());
+        }
+    }
+
+    RowsetMetaPB get_rowset_pb() {
+        RowsetMetaPB rowset_meta_pb = _rowset_meta_pb;
+        if (_schema) {
+            _schema->to_schema_pb(rowset_meta_pb.mutable_tablet_schema());
+        }
+        return rowset_meta_pb;
+    }
 
     bool is_singleton_delta() const {
         return has_version() && _rowset_meta_pb.start_version() == _rowset_meta_pb.end_version();
@@ -323,25 +341,37 @@ public:
     int64_t oldest_write_timestamp() const { return _rowset_meta_pb.oldest_write_timestamp(); }
 
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
-    void set_tablet_schema(const TabletSchema* tablet_schema) {
-        TabletSchemaPB* ts_pb = _rowset_meta_pb.mutable_tablet_schema();
-        tablet_schema->to_schema_pb(ts_pb);
-        CHECK(_schema == nullptr);
-        _schema = std::make_shared<TabletSchema>(*tablet_schema);
+    void set_tablet_schema(const TabletSchemaSPtr& tablet_schema) {
+        DCHECK(_schema == nullptr);
+        _schema = TabletSchemaCache::instance()->insert(tablet_schema->to_key());
     }
 
-    const TabletSchema* tablet_schema() { return _schema.get(); }
+    TabletSchemaSPtr tablet_schema() { return _schema; }
 
 private:
     bool _deserialize_from_pb(const std::string& value) {
-        return _rowset_meta_pb.ParseFromString(value);
+        RowsetMetaPB rowset_meta_pb;
+        if (!rowset_meta_pb.ParseFromString(value)) {
+            return false;
+        }
+        if (rowset_meta_pb.has_tablet_schema()) {
+            _schema = TabletSchemaCache::instance()->insert(
+                    rowset_meta_pb.tablet_schema().SerializeAsString());
+            rowset_meta_pb.clear_tablet_schema();
+        }
+        _rowset_meta_pb = rowset_meta_pb;
+        return true;
     }
 
     bool _serialize_to_pb(std::string* value) {
         if (value == nullptr) {
             return false;
         }
-        return _rowset_meta_pb.SerializeToString(value);
+        RowsetMetaPB rowset_meta_pb = _rowset_meta_pb;
+        if (_schema) {
+            _schema->to_schema_pb(rowset_meta_pb.mutable_tablet_schema());
+        }
+        return rowset_meta_pb.SerializeToString(value);
     }
 
     void _init() {
@@ -349,10 +379,6 @@ private:
             _rowset_id.init(_rowset_meta_pb.rowset_id());
         } else {
             _rowset_id.init(_rowset_meta_pb.rowset_id_v2());
-        }
-        if (_rowset_meta_pb.has_tablet_schema()) {
-            _schema = std::make_shared<TabletSchema>();
-            _schema->init_from_pb(_rowset_meta_pb.tablet_schema());
         }
     }
 

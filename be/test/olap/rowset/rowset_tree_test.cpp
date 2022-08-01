@@ -40,6 +40,7 @@
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
+#include "olap/tablet_schema.h"
 #include "testutil/mock_rowset.h"
 #include "testutil/test_util.h"
 #include "util/slice.h"
@@ -59,9 +60,10 @@ public:
     TestRowsetTree() : rowset_id_generator_({0, 0}) {}
 
     void SetUp() {
+        schema_ = std::make_shared<TabletSchema>();
         TabletSchemaPB schema_pb;
         schema_pb.set_keys_type(UNIQUE_KEYS);
-        schema_.init_from_pb(schema_pb);
+        schema_->init_from_pb(schema_pb);
     }
 
     // Generates random rowsets with keys between 0 and 10000
@@ -88,12 +90,12 @@ public:
         RowsetMetaSharedPtr meta_ptr = make_shared<RowsetMeta>();
         meta_ptr->init_from_pb(rs_meta_pb);
         RowsetSharedPtr res_ptr;
-        MockRowset::create_rowset(&schema_, rowset_path_, meta_ptr, &res_ptr, is_mem_rowset);
+        MockRowset::create_rowset(schema_, rowset_path_, meta_ptr, &res_ptr, is_mem_rowset);
         return res_ptr;
     }
 
 private:
-    TabletSchema schema_;
+    TabletSchemaSPtr schema_;
     std::string rowset_path_;
     UniqueRowsetIdGenerator rowset_id_generator_;
 };

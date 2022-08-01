@@ -138,7 +138,7 @@ public:
 
     // publish rowset to make it visible to read
     void make_visible(Version version);
-    const TabletSchema* tablet_schema() { return _schema; }
+    TabletSchemaSPtr tablet_schema() { return _schema; }
 
     // helper class to access RowsetMeta
     int64_t start_version() const { return rowset_meta()->version().first; }
@@ -158,7 +158,7 @@ public:
     bool delete_flag() const { return rowset_meta()->delete_flag(); }
     int64_t num_segments() const { return rowset_meta()->num_segments(); }
     void to_rowset_pb(RowsetMetaPB* rs_meta) const { return rowset_meta()->to_rowset_pb(rs_meta); }
-    const RowsetMetaPB& get_rowset_pb() const { return rowset_meta()->get_rowset_pb(); }
+    RowsetMetaPB get_rowset_pb() const { return rowset_meta()->get_rowset_pb(); }
     int64_t oldest_write_timestamp() const { return rowset_meta()->oldest_write_timestamp(); }
     int64_t newest_write_timestamp() const { return rowset_meta()->newest_write_timestamp(); }
     KeysType keys_type() { return _schema->keys_type(); }
@@ -269,7 +269,7 @@ protected:
 
     DISALLOW_COPY_AND_ASSIGN(Rowset);
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
-    Rowset(const TabletSchema* schema, const std::string& tablet_path,
+    Rowset(TabletSchemaSPtr schema, const std::string& tablet_path,
            RowsetMetaSharedPtr rowset_meta);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
@@ -284,7 +284,7 @@ protected:
     // allow subclass to add custom logic when rowset is being published
     virtual void make_visible_extra(Version version) {}
 
-    const TabletSchema* _schema;
+    TabletSchemaSPtr _schema;
     std::string _tablet_path;
     RowsetMetaSharedPtr _rowset_meta;
     // init in constructor

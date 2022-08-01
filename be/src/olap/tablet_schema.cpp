@@ -17,6 +17,8 @@
 
 #include "olap/tablet_schema.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include "gen_cpp/descriptors.pb.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -527,6 +529,18 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
     _schema_version = schema.schema_version();
+}
+
+void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema.to_schema_pb(&tablet_schema_pb);
+    init_from_pb(tablet_schema_pb);
+}
+
+std::string TabletSchema::to_key() const {
+    TabletSchemaPB pb;
+    to_schema_pb(&pb);
+    return pb.SerializeAsString();
 }
 
 void TabletSchema::build_current_tablet_schema(int64_t index_id,

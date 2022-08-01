@@ -26,7 +26,7 @@
 
 namespace doris {
 
-Status RowsetFactory::create_rowset(const TabletSchema* schema, const std::string& tablet_path,
+Status RowsetFactory::create_rowset(TabletSchemaSPtr schema, const std::string& tablet_path,
                                     RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
     if (rowset_meta->rowset_type() == ALPHA_ROWSET) {
         return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID);

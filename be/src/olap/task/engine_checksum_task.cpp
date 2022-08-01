@@ -77,7 +77,7 @@ Status EngineChecksumTask::_compute_checksum() {
         }
     }
 
-    for (size_t i = 0; i < tablet->tablet_schema().num_columns(); ++i) {
+    for (size_t i = 0; i < tablet->tablet_schema()->num_columns(); ++i) {
         reader_params.return_columns.push_back(i);
     }
 
@@ -90,12 +90,12 @@ Status EngineChecksumTask::_compute_checksum() {
     RowCursor row;
     std::unique_ptr<MemPool> mem_pool(new MemPool());
     std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
-    res = row.init(tablet->tablet_schema(), reader_params.return_columns);
+    res = row.init(*tablet->tablet_schema(), reader_params.return_columns);
     if (!res.ok()) {
         LOG(WARNING) << "failed to init row cursor. res = " << res;
         return res;
     }
-    row.allocate_memory_for_string_type(tablet->tablet_schema());
+    row.allocate_memory_for_string_type(*tablet->tablet_schema());
 
     bool eof = false;
     uint32_t row_checksum = 0;

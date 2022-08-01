@@ -18,6 +18,7 @@
 #pragma once
 
 #include "olap/rowset/rowset.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
@@ -64,7 +65,7 @@ class MockRowset : public Rowset {
         return Rowset::get_segments_key_bounds(segments_key_bounds);
     }
 
-    static Status create_rowset(const TabletSchema* schema, const std::string& rowset_path,
+    static Status create_rowset(TabletSchemaSPtr schema, const std::string& rowset_path,
                                 RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset,
                                 bool is_mem_rowset = false) {
         rowset->reset(new MockRowset(schema, rowset_path, rowset_meta));
@@ -73,7 +74,7 @@ class MockRowset : public Rowset {
     }
 
 protected:
-    MockRowset(const TabletSchema* schema, const std::string& rowset_path,
+    MockRowset(TabletSchemaSPtr schema, const std::string& rowset_path,
                RowsetMetaSharedPtr rowset_meta)
             : Rowset(schema, rowset_path, rowset_meta) {}
 
