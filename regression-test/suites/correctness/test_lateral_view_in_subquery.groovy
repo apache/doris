@@ -16,7 +16,7 @@
  // under the License.
 
  suite("test_lateral_view_in_subquery") {
-     sql """ DROP TABLE IF EXISTS bitmap """
+     sql """ DROP TABLE IF EXISTS bm """
      sql """ DROP TABLE IF EXISTS gp """
      sql """
          CREATE TABLE `bm` (
@@ -37,7 +37,7 @@
          CREATE TABLE `gp` (
              `id` varchar(128) NOT NULL,
              `uh` bigint(20) NOT NULL,
-             `uuid` varchar(128) MAX NULL,
+             `uid` varchar(128) MAX NULL,
              `group` varchar(32) MAX NULL
          ) ENGINE=OLAP
          AGGREGATE KEY(`id`, `uh`)
