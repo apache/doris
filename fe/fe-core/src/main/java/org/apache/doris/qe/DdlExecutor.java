@@ -47,6 +47,7 @@ import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
+import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
@@ -315,6 +316,8 @@ public class DdlExecutor {
             env.getDataSourceMgr().alterCatalogName((AlterCatalogNameStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterCatalogPropertyStmt) {
             env.getDataSourceMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
+        } else if (ddlStmt instanceof CleanLabelStmt) {
+            env.getCurrentEnv().getLoadManager().cleanLabel((CleanLabelStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

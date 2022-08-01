@@ -83,6 +83,7 @@ public class OperationType {
     public static final short OP_LOAD_CANCEL = 35;
     public static final short OP_EXPORT_CREATE = 36;
     public static final short OP_EXPORT_UPDATE_STATE = 37;
+    public static final short OP_CLEAN_LABEL = 38;
 
     @Deprecated
     public static final short OP_FINISH_SYNC_DELETE = 40;

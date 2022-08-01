@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.CancelLoadStmt;
+import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Database;
@@ -39,7 +40,9 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
+import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -573,14 +576,105 @@ public class LoadManager implements Writable {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
             if (labelToLoadJobs.containsKey(label)) {
                 List<LoadJob> labelLoadJobs = labelToLoadJobs.get(label);
-                Optional<LoadJob> loadJobOptional =
-                        labelLoadJobs.stream().filter(entity -> entity.getState() != JobState.CANCELLED).findFirst();
+                Optional<LoadJob> loadJobOptional = labelLoadJobs.stream()
+                        .filter(entity -> entity.getState() != JobState.CANCELLED).findFirst();
                 if (loadJobOptional.isPresent()) {
                     LOG.warn("Failed to add load job when label {} has been used.", label);
                     throw new LabelAlreadyUsedException(label);
                 }
             }
         }
+    }
+
+    public void cleanLabel(CleanLabelStmt stmt) throws DdlException {
+        String dbName = stmt.getDb();
+        String label = stmt.getLabel();
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        cleanLabelInternal(db.getId(), label, false);
+    }
+
+    public void replayCleanLabel(CleanLabelOperationLog log) {
+        cleanLabelInternal(log.getDbId(), log.getLabel(), true);
+    }
+
+    /**
+     * Clean the label with given database and label
+     * It will only remove the load jobs which are already done.
+     * 1. Remove from LoadManager
+     * 2. Remove from DatabaseTransactionMgr
+     *
+     * @param dbId
+     * @param label
+     * @param isReplay
+     */
+    private void cleanLabelInternal(long dbId, String label, boolean isReplay) {
+        // 1. Remove from LoadManager
+        int counter = 0;
+        writeLock();
+        try {
+            if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
+                // no label in this db, just return
+                return;
+            }
+            Map<String, List<LoadJob>> labelToJob = dbIdToLabelToLoadJobs.get(dbId);
+            if (Strings.isNullOrEmpty(label)) {
+                // clean all labels in this db
+                Iterator<Map.Entry<String, List<LoadJob>>> iter = labelToJob.entrySet().iterator();
+                while (iter.hasNext()) {
+                    List<LoadJob> jobs = iter.next().getValue();
+                    Iterator<LoadJob> innerIter = jobs.iterator();
+                    while (innerIter.hasNext()) {
+                        LoadJob job = innerIter.next();
+                        if (!job.isCompleted()) {
+                            continue;
+                        }
+                        innerIter.remove();
+                        idToLoadJob.remove(job.getId());
+                        ++counter;
+                    }
+                    if (jobs.isEmpty()) {
+                        iter.remove();
+                    }
+                }
+            } else {
+                List<LoadJob> jobs = labelToJob.get(label);
+                if (jobs == null) {
+                    // no job for this label, just return
+                    return;
+                }
+                Iterator<LoadJob> iter = jobs.iterator();
+                while (iter.hasNext()) {
+                    LoadJob job = iter.next();
+                    if (!job.isCompleted()) {
+                        continue;
+                    }
+                    iter.remove();
+                    idToLoadJob.remove(job.getId());
+                    ++counter;
+                }
+                if (jobs.isEmpty()) {
+                    labelToJob.remove(label);
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+        LOG.info("clean {} labels on db {} with label '{}' in load mgr.", counter, dbId, label);
+
+        // 2. Remove from DatabaseTransactionMgr
+        try {
+            DatabaseTransactionMgr dbTxnMgr = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(dbId);
+            dbTxnMgr.cleanLabel(label);
+        } catch (AnalysisException e) {
+            // just ignore, because we don't want to throw any exception here.
+        }
+
+        // 3. Log
+        if (!isReplay) {
+            CleanLabelOperationLog log = new CleanLabelOperationLog(dbId, label);
+            Env.getCurrentEnv().getEditLog().logCleanLabel(log);
+        }
+        LOG.info("finished to clean label on db {} with label {}. is replay: {}", dbId, label, isReplay);
     }
 
     private void readLock() {
