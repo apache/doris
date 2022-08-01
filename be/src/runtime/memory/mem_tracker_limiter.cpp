@@ -19,6 +19,8 @@
 
 #include <fmt/format.h>
 
+#include <boost/stacktrace.hpp>
+
 #include "gutil/once.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -29,7 +31,8 @@
 namespace doris {
 
 MemTrackerLimiter::MemTrackerLimiter(int64_t byte_limit, const std::string& label,
-                                     MemTrackerLimiter* parent, RuntimeProfile* profile)
+                                     const std::shared_ptr<MemTrackerLimiter>& parent,
+                                     RuntimeProfile* profile)
         : MemTracker(label, profile, true) {
     DCHECK_GE(byte_limit, -1);
     _limit = byte_limit;
@@ -42,32 +45,28 @@ MemTrackerLimiter::MemTrackerLimiter(int64_t byte_limit, const std::string& labe
     while (tracker != nullptr) {
         _all_ancestors.push_back(tracker);
         if (tracker->has_limit()) _limited_ancestors.push_back(tracker);
-        tracker = tracker->_parent;
+        tracker = tracker->_parent.get();
     }
     DCHECK_GT(_all_ancestors.size(), 0);
     DCHECK_EQ(_all_ancestors[0], this);
-    if (_parent) _parent->add_child(this);
+    if (_parent) {
+        std::lock_guard<std::mutex> l(_parent->_child_tracker_limiter_lock);
+        _child_tracker_it = _parent->_child_tracker_limiters.insert(
+                _parent->_child_tracker_limiters.end(), this);
+        _had_child_count++;
+    }
 }
 
 MemTrackerLimiter::~MemTrackerLimiter() {
     // TCMalloc hook will be triggered during destructor memtracker, may cause crash.
     if (_label == "Process") doris::thread_context_ptr._init = false;
     DCHECK(remain_child_count() == 0 || _label == "Process");
-    if (_parent) _parent->remove_child(this);
-}
-
-void MemTrackerLimiter::add_child(MemTrackerLimiter* tracker) {
-    std::lock_guard<std::mutex> l(_child_tracker_limiter_lock);
-    tracker->_child_tracker_it =
-            _child_tracker_limiters.insert(_child_tracker_limiters.end(), tracker);
-    _had_child_count++;
-}
-
-void MemTrackerLimiter::remove_child(MemTrackerLimiter* tracker) {
-    std::lock_guard<std::mutex> l(_child_tracker_limiter_lock);
-    if (tracker->_child_tracker_it != _child_tracker_limiters.end()) {
-        _child_tracker_limiters.erase(tracker->_child_tracker_it);
-        tracker->_child_tracker_it = _child_tracker_limiters.end();
+    if (_parent) {
+        std::lock_guard<std::mutex> l(_parent->_child_tracker_limiter_lock);
+        if (_child_tracker_it != _parent->_child_tracker_limiters.end()) {
+            _parent->_child_tracker_limiters.erase(_child_tracker_it);
+            _child_tracker_it = _parent->_child_tracker_limiters.end();
+        }
     }
 }
 
@@ -221,13 +220,14 @@ std::string MemTrackerLimiter::log_usage(int max_recursive_depth,
 Status MemTrackerLimiter::mem_limit_exceeded(RuntimeState* state, const std::string& details,
                                              int64_t failed_allocation_size, Status failed_alloc) {
     STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
-    MemTrackerLimiter* process_tracker = ExecEnv::GetInstance()->process_mem_tracker();
     std::string detail =
             "Memory exceed limit. fragment={}, details={}, on backend={}. Memory left in process "
             "limit={}.";
-    detail = fmt::format(detail, state != nullptr ? print_id(state->fragment_instance_id()) : "",
-                         details, BackendOptions::get_localhost(),
-                         PrettyPrinter::print(process_tracker->spare_capacity(), TUnit::BYTES));
+    detail = fmt::format(
+            detail, state != nullptr ? print_id(state->fragment_instance_id()) : "", details,
+            BackendOptions::get_localhost(),
+            PrettyPrinter::print(ExecEnv::GetInstance()->process_mem_tracker()->spare_capacity(),
+                                 TUnit::BYTES));
     if (!failed_alloc) {
         detail += " failed alloc=<{}>. current tracker={}.";
         detail = fmt::format(detail, failed_alloc.to_string(), _label);
@@ -240,13 +240,15 @@ Status MemTrackerLimiter::mem_limit_exceeded(RuntimeState* state, const std::str
     Status status = Status::MemoryLimitExceeded(detail);
     if (state != nullptr) state->log_error(detail);
 
+    detail += "\n" + boost::stacktrace::to_string(boost::stacktrace::stacktrace());
     // only print the tracker log_usage in be log.
-    if (process_tracker->spare_capacity() < failed_allocation_size) {
+    if (ExecEnv::GetInstance()->process_mem_tracker()->spare_capacity() < failed_allocation_size) {
         // Dumping the process MemTracker is expensive. Limiting the recursive depth to two
         // levels limits the level of detail to a one-line summary for each query MemTracker.
-        detail += "\n" + process_tracker->log_usage(2);
+        detail += "\n" + ExecEnv::GetInstance()->process_mem_tracker()->log_usage(2);
+    } else {
+        detail += "\n" + log_usage();
     }
-    detail += "\n" + log_usage();
 
     LOG(WARNING) << detail;
     return status;

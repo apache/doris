@@ -60,8 +60,9 @@ class OlapTableSchemaParam;
 // Write channel for a particular (load, index).
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key, MemTrackerLimiter* parent_tracker,
-                   bool is_high_priority, bool is_vec);
+    TabletsChannel(const TabletsChannelKey& key,
+                   const std::shared_ptr<MemTrackerLimiter>& parent_tracker, bool is_high_priority,
+                   bool is_vec);
 
     ~TabletsChannel();
 
@@ -144,7 +145,7 @@ private:
 
     static std::atomic<uint64_t> _s_tablet_writer_count;
 
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     bool _is_high_priority = false;
 

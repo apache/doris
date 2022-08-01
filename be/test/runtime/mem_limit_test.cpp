@@ -53,9 +53,9 @@ TEST(MemTestTest, SingleTrackerWithLimit) {
 }
 
 TEST(MemTestTest, TrackerHierarchy) {
-    auto p = std::make_unique<MemTrackerLimiter>(100);
-    auto c1 = std::make_unique<MemTrackerLimiter>(80, "c1", p.get());
-    auto c2 = std::make_unique<MemTrackerLimiter>(50, "c2", p.get());
+    auto p = std::make_shared<MemTrackerLimiter>(100);
+    auto c1 = std::make_unique<MemTrackerLimiter>(80, "c1", p);
+    auto c2 = std::make_unique<MemTrackerLimiter>(50, "c2", p);
 
     // everything below limits
     c1->consume(60);
@@ -96,9 +96,9 @@ TEST(MemTestTest, TrackerHierarchy) {
 }
 
 TEST(MemTestTest, TrackerHierarchyTryConsume) {
-    auto p = std::make_unique<MemTrackerLimiter>(100);
-    auto c1 = std::make_unique<MemTrackerLimiter>(80, "c1", p.get());
-    auto c2 = std::make_unique<MemTrackerLimiter>(50, "c2", p.get());
+    auto p = std::make_shared<MemTrackerLimiter>(100);
+    auto c1 = std::make_unique<MemTrackerLimiter>(80, "c1", p);
+    auto c2 = std::make_unique<MemTrackerLimiter>(50, "c2", p);
 
     // everything below limits
     bool consumption = c1->try_consume(60).ok();

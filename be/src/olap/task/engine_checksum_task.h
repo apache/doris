@@ -44,7 +44,7 @@ private:
     TSchemaHash _schema_hash;
     TVersion _version;
     uint32_t* _checksum;
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris

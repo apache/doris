@@ -127,8 +127,8 @@ public:
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     ExecEnv* exec_env() { return _exec_env; }
-    MemTrackerLimiter* query_mem_tracker() { return _query_mem_tracker; }
-    MemTrackerLimiter* instance_mem_tracker() { return _instance_mem_tracker.get(); }
+    std::shared_ptr<MemTrackerLimiter> query_mem_tracker() { return _query_mem_tracker; }
+    std::shared_ptr<MemTrackerLimiter> instance_mem_tracker() { return _instance_mem_tracker; }
     ThreadResourceMgr::ResourcePool* resource_pool() { return _resource_pool; }
 
     void set_fragment_root_id(PlanNodeId id) {
@@ -390,10 +390,10 @@ private:
 
     // MemTracker that is shared by all fragment instances running on this host.
     // The query mem tracker must be released after the _instance_mem_tracker.
-    MemTrackerLimiter* _query_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
 
     // Memory usage of this fragment instance
-    std::unique_ptr<MemTrackerLimiter> _instance_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _instance_mem_tracker;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.

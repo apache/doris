@@ -182,7 +182,7 @@ private:
     // signal of new batch or the eos/cancelled condition
     std::condition_variable _batch_prepared_cv;
 
-    void process_sorted_run_task(MemTrackerLimiter* mem_tracker) {
+    void process_sorted_run_task(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
         SCOPED_ATTACH_TASK(mem_tracker, ThreadContext::TaskType::QUERY);
         std::unique_lock<std::mutex> lock(_mutex);
         while (true) {

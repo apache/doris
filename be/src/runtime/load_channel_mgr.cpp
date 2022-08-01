@@ -84,7 +84,7 @@ LoadChannelMgr::~LoadChannelMgr() {
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mgr_mem_limit = calc_process_max_load_memory(process_mem_limit);
-    _mem_tracker = std::make_unique<MemTrackerLimiter>(load_mgr_mem_limit, "LoadChannelMgr");
+    _mem_tracker = std::make_shared<MemTrackerLimiter>(load_mgr_mem_limit, "LoadChannelMgr");
     REGISTER_HOOK_METRIC(load_channel_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
     _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
@@ -110,13 +110,13 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t load_mem_limit = params.has_load_mem_limit() ? params.load_mem_limit() : -1;
             int64_t channel_mem_limit =
                     calc_channel_max_load_memory(load_mem_limit, _mem_tracker->limit());
-            auto channel_mem_tracker = std::make_unique<MemTrackerLimiter>(
+            auto channel_mem_tracker = std::make_shared<MemTrackerLimiter>(
                     channel_mem_limit,
                     fmt::format("LoadChannel#senderIp={}#loadID={}", params.sender_ip(),
                                 load_id.to_string()),
-                    _mem_tracker.get());
-            channel.reset(new LoadChannel(load_id, std::move(channel_mem_tracker),
-                                          channel_timeout_s, is_high_priority, params.sender_ip(),
+                    _mem_tracker);
+            channel.reset(new LoadChannel(load_id, channel_mem_tracker, channel_timeout_s,
+                                          is_high_priority, params.sender_ip(),
                                           params.is_vectorized()));
             _load_channels.insert({load_id, channel});
         }

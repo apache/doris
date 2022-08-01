@@ -76,7 +76,7 @@ protected:
 
 protected:
     // the root tracker for this compaction
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     TabletSharedPtr _tablet;
 

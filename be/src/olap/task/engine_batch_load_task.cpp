@@ -53,7 +53,7 @@ EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTablet
           _signature(signature),
           _res_status(res_status) {
     _download_status = Status::OK();
-    _mem_tracker = std::make_unique<MemTrackerLimiter>(
+    _mem_tracker = std::make_shared<MemTrackerLimiter>(
             -1,
             fmt::format("EngineBatchLoadTask#pushType={}:tabletId={}", _push_req.push_type,
                         std::to_string(_push_req.tablet_id)),
@@ -63,7 +63,7 @@ EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTablet
 EngineBatchLoadTask::~EngineBatchLoadTask() {}
 
 Status EngineBatchLoadTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE);
+    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
     Status status = Status::OK();
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_V2) {
         status = _init();

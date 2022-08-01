@@ -113,16 +113,16 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _index_stream_lru_cache(nullptr),
           _file_cache(nullptr),
           _compaction_mem_tracker(
-                  std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::AutoCompaction")),
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::AutoCompaction")),
           _segment_meta_mem_tracker(std::make_unique<MemTracker>("StorageEngine::SegmentMeta")),
           _schema_change_mem_tracker(
-                  std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::SchemaChange")),
-          _clone_mem_tracker(std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::Clone")),
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::SchemaChange")),
+          _clone_mem_tracker(std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::Clone")),
           _batch_load_mem_tracker(
-                  std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::BatchLoad")),
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::BatchLoad")),
           _consistency_mem_tracker(
-                  std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::Consistency")),
-          _mem_tracker(std::make_unique<MemTrackerLimiter>(-1, "StorageEngine::Self")),
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::Consistency")),
+          _mem_tracker(std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::Self")),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -168,7 +168,7 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
     for (auto data_dir : data_dirs) {
         threads.emplace_back([this, data_dir] {
-            SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE);
+            SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
             auto res = data_dir->load();
             if (!res.ok()) {
                 LOG(WARNING) << "io error when init load tables. res=" << res
@@ -220,7 +220,7 @@ Status StorageEngine::_init_store_map() {
                                      _tablet_manager.get(), _txn_manager.get());
         tmp_stores.emplace_back(store);
         threads.emplace_back([this, store, &error_msg_lock, &error_msg]() {
-            SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::STORAGE);
+            SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
             auto st = store->init();
             if (!st.ok()) {
                 {

@@ -79,7 +79,7 @@ private:
     const TMasterInfo& _master_info;
     int64_t _copy_size;
     int64_t _copy_time_ms;
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris
