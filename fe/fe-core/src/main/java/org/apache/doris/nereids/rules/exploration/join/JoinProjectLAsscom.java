@@ -87,7 +87,7 @@ public class JoinProjectLAsscom extends OneExplorationRuleFactory {
 
                 // Ignore join with some OnClause like:
                 // Join C = B + A for above example.
-                List<Expression> topJoinOnClauseConjuncts = ExpressionUtils.extractConjunctive(topJoinOnClause);
+                List<Expression> topJoinOnClauseConjuncts = ExpressionUtils.extractConjunction(topJoinOnClause);
                 for (Expression topJoinOnClauseConjunct : topJoinOnClauseConjuncts) {
                     if (ExpressionUtils.isIntersecting(
                             topJoinOnClauseConjunct.collect(SlotReference.class::isInstance), aOutputSlots)
@@ -101,7 +101,7 @@ public class JoinProjectLAsscom extends OneExplorationRuleFactory {
                         return null;
                     }
                 }
-                List<Expression> bottomJoinOnClauseConjuncts = ExpressionUtils.extractConjunctive(
+                List<Expression> bottomJoinOnClauseConjuncts = ExpressionUtils.extractConjunction(
                         bottomJoinOnClause);
 
                 List<Expression> allOnCondition = Lists.newArrayList();

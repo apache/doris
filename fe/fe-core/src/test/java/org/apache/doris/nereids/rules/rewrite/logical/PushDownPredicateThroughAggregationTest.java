@@ -18,10 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite.logical;
 
 
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -40,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
@@ -73,12 +70,7 @@ public class PushDownPredicateThroughAggregationTest {
     */
     @Test
     public void pushDownPredicateOneFilterTest() {
-        Table student = new Table(0L, "student", Table.TableType.OLAP,
-                ImmutableList.<Column>of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("gender", Type.INT, false, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                        new Column("age", Type.INT, true, AggregateType.NONE, "", "")));
-        Plan scan = new LogicalOlapScan(student, ImmutableList.of("student"));
+        Plan scan = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
         Slot gender = scan.getOutput().get(1);
         Slot age = scan.getOutput().get(3);
 
@@ -138,12 +130,7 @@ public class PushDownPredicateThroughAggregationTest {
      */
     @Test
     public void pushDownPredicateTwoFilterTest() {
-        Table student = new Table(0L, "student", Table.TableType.OLAP,
-                ImmutableList.<Column>of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("gender", Type.INT, false, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                        new Column("age", Type.INT, true, AggregateType.NONE, "", "")));
-        Plan scan = new LogicalOlapScan(student, ImmutableList.of("student"));
+        Plan scan = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
         Slot gender = scan.getOutput().get(1);
         Slot name = scan.getOutput().get(2);
         Slot age = scan.getOutput().get(3);

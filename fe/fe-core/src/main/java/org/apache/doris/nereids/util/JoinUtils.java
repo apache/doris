@@ -59,7 +59,7 @@ public class JoinUtils {
                 .collect(Collectors.toList());
 
         Expression onCondition = join.getCondition().get();
-        List<Expression> conjunctList = ExpressionUtils.extractConjunctive(onCondition);
+        List<Expression> conjunctList = ExpressionUtils.extractConjunction(onCondition);
         for (Expression predicate : conjunctList) {
             if (isEqualTo(leftSlots, rightSlots, predicate)) {
                 eqConjuncts.add((EqualTo) predicate);

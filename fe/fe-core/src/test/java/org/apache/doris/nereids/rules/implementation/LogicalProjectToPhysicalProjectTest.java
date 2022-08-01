@@ -19,27 +19,67 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 public class LogicalProjectToPhysicalProjectTest {
-    @Test
-    public void projectionImplTest(@Mocked Group group, @Mocked PlannerContext plannerContext) {
-        Plan plan = new LogicalProject(Lists.newArrayList(), new GroupPlan(group));
-        Rule rule = new LogicalProjectToPhysicalProject().build();
-        List<Plan> transform = rule.transform(plan, plannerContext);
+    private final Map<String, Rule> rulesMap
+            = ImmutableMap.<String, Rule>builder()
+            .put(LogicalProject.class.getName(), (new LogicalProjectToPhysicalProject()).build())
+            .put(LogicalAggregate.class.getName(), (new LogicalAggToPhysicalHashAgg()).build())
+            .put(LogicalJoin.class.getName(), (new LogicalJoinToHashJoin()).build())
+            .put(LogicalOlapScan.class.getName(), (new LogicalOlapScanToPhysicalOlapScan()).build())
+            .put(LogicalFilter.class.getName(), (new LogicalFilterToPhysicalFilter()).build())
+            .put(LogicalSort.class.getName(), (new LogicalSortToPhysicalHeapSort()).build())
+            .build();
+
+    private PhysicalPlan rewriteLogicalToPhysical(Group group, PlannerContext plannerContext) {
+        List<Plan> children = Lists.newArrayList();
+        for (Group child : group.getLogicalExpression().children()) {
+            children.add(rewriteLogicalToPhysical(child, plannerContext));
+        }
+
+        Rule rule = rulesMap.get(group.getLogicalExpression().getPlan().getClass().getName());
+        List<Plan> transform = rule.transform(group.getLogicalExpression().getPlan(), plannerContext);
         Assertions.assertEquals(1, transform.size());
-        Plan implPlan = transform.get(0);
-        Assertions.assertEquals(PlanType.PHYSICAL_PROJECT, implPlan.getType());
+        Assertions.assertTrue(transform.get(0) instanceof PhysicalPlan);
+        PhysicalPlan implPlanNode = (PhysicalPlan) transform.get(0);
+
+        return (PhysicalPlan) implPlanNode.withChildren(children);
+    }
+
+    @Test
+    public void projectionImplTest() {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan("a");
+        LogicalPlan project = new LogicalProject<>(Lists.newArrayList(), scan);
+
+        PlannerContext plannerContext = new Memo(project)
+                .newPlannerContext(new ConnectContext())
+                .setDefaultJobContext();
+
+        PhysicalPlan physicalProject = rewriteLogicalToPhysical(plannerContext.getMemo().getRoot(), plannerContext);
+        Assertions.assertEquals(PlanType.PHYSICAL_PROJECT, physicalProject.getType());
+        PhysicalPlan physicalScan = (PhysicalPlan) physicalProject.child(0);
+        Assertions.assertEquals(PlanType.PHYSICAL_OLAP_SCAN, physicalScan.getType());
     }
 }

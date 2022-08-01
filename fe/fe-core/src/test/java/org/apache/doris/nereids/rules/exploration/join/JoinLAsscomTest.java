@@ -17,10 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.rules.Rule;
@@ -31,8 +27,8 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.util.PlanConstructor;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -50,20 +46,10 @@ public class JoinLAsscomTest {
 
     @BeforeAll
     public static void init() {
-        Table t1 = new Table(0L, "t1", Table.TableType.OLAP,
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "0", "")));
-        LogicalOlapScan scan1 = new LogicalOlapScan(t1, ImmutableList.of());
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScanWithTable("t1");
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScanWithTable("t2");
+        LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScanWithTable("t3");
 
-        Table t2 = new Table(0L, "t2", Table.TableType.OLAP,
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "0", "")));
-        LogicalOlapScan scan2 = new LogicalOlapScan(t2, ImmutableList.of());
-
-        Table t3 = new Table(0L, "t3", Table.TableType.OLAP,
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "0", "")));
-        LogicalOlapScan scan3 = new LogicalOlapScan(t3, ImmutableList.of());
         scans.add(scan1);
         scans.add(scan2);
         scans.add(scan3);

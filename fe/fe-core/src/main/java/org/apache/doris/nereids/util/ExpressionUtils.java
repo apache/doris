@@ -37,11 +37,11 @@ import java.util.Set;
  */
 public class ExpressionUtils {
 
-    public static List<Expression> extractConjunctive(Expression expr) {
+    public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
     }
 
-    public static List<Expression> extractDisjunctive(Expression expr) {
+    public static List<Expression> extractDisjunction(Expression expr) {
         return extract(Or.class, expr);
     }
 

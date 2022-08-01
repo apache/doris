@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -40,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -111,11 +110,10 @@ public class PlanEqualsTest {
 
     @Test
     public void testLogicalOlapScan() {
-        LogicalOlapScan olapScan = new LogicalOlapScan(new Table(TableType.OLAP), Lists.newArrayList());
-        Assertions.assertEquals(olapScan, olapScan);
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan("table");
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan("table");
 
-        LogicalOlapScan olapScan1 = new LogicalOlapScan(new Table(TableType.OLAP), Lists.newArrayList());
-        Assertions.assertEquals(olapScan, olapScan1);
+        Assertions.assertEquals(scan1, scan2);
     }
 
     @Test

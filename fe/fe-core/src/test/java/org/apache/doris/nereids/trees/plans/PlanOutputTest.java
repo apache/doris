@@ -17,20 +17,17 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -39,14 +36,10 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Optional;
 
-public class TestPlanOutput {
+public class PlanOutputTest {
     @Test
     public void testComputeOutput() {
-        Table table = new Table(0L, "a", Table.TableType.OLAP, ImmutableList.<Column>of(
-            new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-            new Column("name", Type.STRING, true, AggregateType.NONE, "", "")
-        ));
-        LogicalRelation relationPlan = new LogicalOlapScan(table, ImmutableList.of("db"));
+        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScanWithTable("a");
         List<Slot> output = relationPlan.getOutput();
         Assertions.assertEquals(2, output.size());
         Assertions.assertEquals(output.get(0).getName(), "id");
@@ -74,11 +67,7 @@ public class TestPlanOutput {
 
     @Test
     public void testWithOutput() {
-        Table table = new Table(0L, "a", Table.TableType.OLAP, ImmutableList.of(
-            new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-            new Column("name", Type.STRING, true, AggregateType.NONE, "", "")
-        ));
-        LogicalRelation relationPlan = new LogicalOlapScan(table, ImmutableList.of("db"));
+        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScanWithTable("a");
 
         List<Slot> output = relationPlan.getOutput();
         // column prune

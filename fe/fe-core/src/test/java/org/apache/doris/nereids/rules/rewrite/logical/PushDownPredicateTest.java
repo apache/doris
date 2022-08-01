@@ -17,10 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
@@ -41,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
@@ -59,9 +56,7 @@ import java.util.Optional;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class PushDownPredicateTest {
 
-    private Table student;
-    private Table score;
-    private Table course;
+
 
     private Plan rStudent;
     private Plan rScore;
@@ -72,26 +67,11 @@ public class PushDownPredicateTest {
      */
     @BeforeAll
     public final void beforeAll() {
-        student = new Table(0L, "student", Table.TableType.OLAP,
-                ImmutableList.<Column>of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                        new Column("age", Type.INT, true, AggregateType.NONE, "", "")));
+        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
 
-        score = new Table(0L, "score", Table.TableType.OLAP,
-                ImmutableList.<Column>of(new Column("sid", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("cid", Type.INT, true, AggregateType.NONE, "", ""),
-                        new Column("grade", Type.DOUBLE, true, AggregateType.NONE, "", "")));
+        rScore = new LogicalOlapScan(PlanConstructor.score, ImmutableList.of("score"));
 
-        course = new Table(0L, "course", Table.TableType.OLAP,
-                ImmutableList.<Column>of(new Column("cid", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                        new Column("teacher", Type.STRING, true, AggregateType.NONE, "", "")));
-
-        rStudent = new LogicalOlapScan(student, ImmutableList.of("student"));
-
-        rScore = new LogicalOlapScan(score, ImmutableList.of("score"));
-
-        rCourse = new LogicalOlapScan(course, ImmutableList.of("course"));
+        rCourse = new LogicalOlapScan(PlanConstructor.course, ImmutableList.of("course"));
     }
 
     @Test
