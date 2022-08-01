@@ -3647,6 +3647,9 @@ public class Env {
 
                 String oldTableName = table.getName();
                 String newTableName = tableRenameClause.getNewTableName();
+                if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(newTableName)) {
+                    newTableName = newTableName.toLowerCase();
+                }
                 if (oldTableName.equals(newTableName)) {
                     throw new DdlException("Same table name");
                 }
