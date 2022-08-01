@@ -139,7 +139,7 @@ public class Memo {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
-                mergeGroup(target, existedGroupExpression.getOwnerGroup());
+                mergeGroup(existedGroupExpression.getOwnerGroup(), target);
             }
             return new Pair<>(false, existedGroupExpression);
         }
@@ -155,7 +155,8 @@ public class Memo {
 
     /**
      * Rewrite groupExpression to target group.
-     * If group expression is already in memo and target group is not null, we replace logical properties.
+     * If group expression is already in memo, we replace logical properties regardless the target group present or not
+     *     for replace UnboundLogicalProperties to LogicalProperties
      * If target is null, generate new group.
      * If target is not null, rewrite the groupExpression to target group.
      *
@@ -166,11 +167,11 @@ public class Memo {
      */
     private Pair<Boolean, GroupExpression> rewriteGroupExpression(
             GroupExpression groupExpression, Group target, LogicalProperties logicalProperties) {
+        boolean newGroupExpressionGenerated = true;
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
-            Group existedGroup = existedGroupExpression.getOwnerGroup();
-            existedGroup.setLogicalProperties(logicalProperties);
-            return new Pair<>(false, existedGroupExpression);
+            target = existedGroupExpression.getOwnerGroup();
+            newGroupExpressionGenerated = false;
         }
         if (target != null) {
             GroupExpression oldExpression = target.rewriteLogicalExpression(groupExpression, logicalProperties);
@@ -180,7 +181,7 @@ public class Memo {
             groups.add(group);
         }
         groupExpressions.put(groupExpression, groupExpression);
-        return new Pair<>(true, groupExpression);
+        return new Pair<>(newGroupExpressionGenerated, groupExpression);
     }
 
     /**
