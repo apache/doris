@@ -57,10 +57,11 @@ private:
 
     Status _clean_cache_internal(size_t offset);
 
-    Status _get_need_cache_offsets(
-            size_t offset, size_t req_size, std::vector<size_t>* cache_offsets);
+    Status _get_need_cache_offsets(size_t offset, size_t req_size,
+                                   std::vector<size_t>* cache_offsets);
 
     size_t _get_cache_file_size();
+
 private:
     Path _cache_dir;
     size_t _cache_file_size;

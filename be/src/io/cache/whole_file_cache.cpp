@@ -31,19 +31,18 @@ WholeFileCache::WholeFileCache(const Path& cache_dir, int64_t alive_time_sec,
           _alive_time_sec(alive_time_sec),
           _remote_file_reader(remote_file_reader),
           _last_match_time(time(nullptr)),
-          _cache_file_reader(nullptr) {
-}
+          _cache_file_reader(nullptr) {}
 
-WholeFileCache::~WholeFileCache() { }
+WholeFileCache::~WholeFileCache() {}
 
 Status WholeFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
     if (_cache_file_reader == nullptr) {
         RETURN_IF_ERROR(_generate_cache_reader(offset, result.size));
     }
     std::shared_lock<std::shared_mutex> rlock(_cache_lock);
-    RETURN_NOT_OK_STATUS_WITH_WARN(_cache_file_reader->read_at(offset, result, bytes_read),
-                                   fmt::format("Read local cache file failed: {}",
-                                               _cache_file_reader->path().native()));
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            _cache_file_reader->read_at(offset, result, bytes_read),
+            fmt::format("Read local cache file failed: {}", _cache_file_reader->path().native()));
     if (*bytes_read != result.size) {
         LOG(ERROR) << "read cache file failed: " << _cache_file_reader->path().native()
                    << ", bytes read: " << bytes_read << " vs required size: " << result.size;
@@ -67,22 +66,21 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                 io::global_local_filesystem()->exists(cache_file, &cache_file_exist),
                 "Check local cache file exist failed.");
         if (cache_file_exist) {
-            RETURN_NOT_OK_STATUS_WITH_WARN(
-                    io::global_local_filesystem()->delete_file(cache_file),
+            RETURN_NOT_OK_STATUS_WITH_WARN(io::global_local_filesystem()->delete_file(cache_file),
                     "Check local cache file exist failed.");
         }
-        LOG(INFO) << "Download cache file from remote file: " << _remote_file_reader->path().native()
-                  << " -> " << cache_file.native();
+        LOG(INFO) << "Download cache file from remote file: "
+                  << _remote_file_reader->path().native() << " -> " << cache_file.native();
         std::unique_ptr<char[]> file_buf(new char[_remote_file_reader->size()]);
         Slice file_slice(file_buf.get(), _remote_file_reader->size());
         size_t bytes_read = 0;
-        RETURN_NOT_OK_STATUS_WITH_WARN(_remote_file_reader->read_at(0, file_slice, &bytes_read),
-                                       fmt::format("read remote file failed. {}",
-                                                   _remote_file_reader->path().native()));
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                _remote_file_reader->read_at(0, file_slice, &bytes_read),
+                fmt::format("read remote file failed. {}", _remote_file_reader->path().native()));
         if (bytes_read != _remote_file_reader->size()) {
             LOG(ERROR) << "read remote file failed: " << _remote_file_reader->path().native()
-                       << ", bytes read: " << bytes_read << " vs file size: "
-                       << _remote_file_reader->size();
+                       << ", bytes read: " << bytes_read
+                       << " vs file size: " << _remote_file_reader->size();
             return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
         }
         io::FileWriterPtr file_writer;

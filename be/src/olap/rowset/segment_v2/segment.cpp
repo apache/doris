@@ -21,7 +21,7 @@
 #include <utility>
 
 #include "common/config.h"
-#include "common/logging.h"                       // LOG
+#include "common/logging.h" // LOG
 #include "io/cache/file_cache_manager.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
@@ -48,8 +48,8 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segme
     } else {
         std::string cache_path = path.substr(0, path.size() - 4);
         io::FileReaderSPtr cache_reader = FileCacheManager::instance()->new_file_cache(
-                cache_path, config::file_cache_alive_time_sec,
-                file_reader, config::file_cache_type);
+                cache_path, config::file_cache_alive_time_sec, file_reader,
+                config::file_cache_type);
         segment->_file_reader = std::move(cache_reader);
     }
     RETURN_IF_ERROR(segment->_open());

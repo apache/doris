@@ -29,13 +29,12 @@ const static std::string SUB_FILE_CACHE_PREFIX = "SUB_CACHE";
 const static std::string SUB_FILE_DONE_PREFIX = "SUB_CACHE_DONE";
 
 SubFileCache::SubFileCache(const Path& cache_dir, int64_t alive_time_sec,
-                               io::FileReaderSPtr remote_file_reader)
+                           io::FileReaderSPtr remote_file_reader)
         : _cache_dir(cache_dir),
           _alive_time_sec(alive_time_sec),
-          _remote_file_reader(remote_file_reader) {
-}
+          _remote_file_reader(remote_file_reader) {}
 
-SubFileCache::~SubFileCache() { }
+SubFileCache::~SubFileCache() {}
 
 Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
     std::vector<size_t> need_cache_offsets;
@@ -44,9 +43,9 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
     {
         std::shared_lock<std::shared_mutex> rlock(_cache_map_lock);
         for (vector<size_t>::const_iterator iter = need_cache_offsets.cbegin();
-                iter != need_cache_offsets.cend(); ++iter) {
-            if (_cache_file_readers.find(*iter) == _cache_file_readers.end()
-                || _cache_file_readers[*iter] == nullptr) {
+             iter != need_cache_offsets.cend(); ++iter) {
+            if (_cache_file_readers.find(*iter) == _cache_file_readers.end() ||
+                _cache_file_readers[*iter] == nullptr) {
                 need_download = true;
                 break;
             }
@@ -56,8 +55,8 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
         std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
         for (vector<size_t>::const_iterator iter = need_cache_offsets.cbegin();
              iter != need_cache_offsets.cend(); ++iter) {
-            if (_cache_file_readers.find(*iter) == _cache_file_readers.end()
-                || _cache_file_readers[*iter] == nullptr) {
+            if (_cache_file_readers.find(*iter) == _cache_file_readers.end() ||
+                _cache_file_readers[*iter] == nullptr) {
                 size_t offset_begin = *iter;
                 size_t req_size = config::max_sub_cache_file_size;
                 if (offset_begin + req_size > _remote_file_reader->size()) {
@@ -76,8 +75,8 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
             size_t offset_begin = *iter;
             size_t req_size = config::max_sub_cache_file_size;
             if (_cache_file_readers.find(*iter) == _cache_file_readers.end()) {
-                LOG(ERROR) << "Local cache file reader can't be found: "
-                           << offset_begin << ", " << offset_begin;
+                LOG(ERROR) << "Local cache file reader can't be found: " << offset_begin << ", "
+                           << offset_begin;
                 return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
             }
             if (offset_begin < offset) {
@@ -89,8 +88,8 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
             Slice read_slice(result.mutable_data() + offset_begin - offset, req_size);
             size_t sub_bytes_read = -1;
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    _cache_file_readers[*iter]->read_at(
-                            offset_begin - *iter, read_slice, &sub_bytes_read),
+                    _cache_file_readers[*iter]->read_at(offset_begin - *iter, read_slice,
+                                                        &sub_bytes_read),
                     fmt::format("Read local cache file failed: {}",
                                 _cache_file_readers[*iter]->path().native()));
             if (sub_bytes_read != read_slice.size) {
@@ -123,8 +122,8 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                     io::global_local_filesystem()->delete_file(cache_file),
                     fmt::format("Check local cache file exist failed. {}", cache_file.native()));
         }
-        LOG(INFO) << "Download cache file from remote file: " << _remote_file_reader->path().native()
-                  << " -> " << cache_file.native();
+        LOG(INFO) << "Download cache file from remote file: "
+                  << _remote_file_reader->path().native() << " -> " << cache_file.native();
         std::unique_ptr<char[]> file_buf(new char[req_size]);
         Slice file_slice(file_buf.get(), req_size);
         size_t bytes_read = 0;
@@ -133,9 +132,10 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                 fmt::format("read remote file failed. {}. offset: {}, size: {}",
                             _remote_file_reader->path().native(), offset, req_size));
         if (bytes_read != req_size) {
-            LOG(ERROR) << "read remote file failed: " << _remote_file_reader->path().native()
-                       << ", bytes read: " << bytes_read << " vs file size: "
-                       << _remote_file_reader->size();
+            LOG(ERROR) << "read remote file failed: "
+                       << _remote_file_reader->path().native()
+                       << ", bytes read: " << bytes_read
+                       << " vs file size: " << _remote_file_reader->size();
             return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
         }
         io::FileWriterPtr file_writer;
@@ -154,17 +154,17 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
     _cache_file_readers.emplace(offset, cache_reader);
     _last_match_times.emplace(offset, time(nullptr));
     LOG(INFO) << "Create cache file from remote file successfully: "
-              << _remote_file_reader->path().native() << "(" << offset << ", "
-              << req_size << ") -> " << cache_file.native();
+              << _remote_file_reader->path().native() << "(" << offset << ", " << req_size
+              << ") -> " << cache_file.native();
     return Status::OK();
 }
 
 Status SubFileCache::_get_need_cache_offsets(size_t offset, size_t req_size,
                                              std::vector<size_t>* cache_offsets) {
-    size_t first_offset_begin = offset / config::max_sub_cache_file_size
-                                * config::max_sub_cache_file_size;
+    size_t first_offset_begin =
+            offset / config::max_sub_cache_file_size * config::max_sub_cache_file_size;
     for (size_t begin = first_offset_begin; begin < offset + req_size;
-            begin += config::max_sub_cache_file_size) {
+         begin += config::max_sub_cache_file_size) {
         cache_offsets->push_back(begin);
     }
     return Status::OK();
