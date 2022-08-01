@@ -31,6 +31,7 @@
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
@@ -115,7 +116,8 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
             }
 
             DeletePredicatePB del_pred;
-            auto tablet_schema = tablet_var.tablet->tablet_schema();
+            TabletSchema tablet_schema;
+            tablet_schema.copy_from(*tablet_var.tablet->tablet_schema());
             if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
                 tablet_schema.clear_columns();
                 for (const auto& column_desc : request.columns_desc) {
@@ -141,12 +143,12 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                      << ". tablet: " << tablet_vars->at(0).tablet->full_name();
         return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_VERSION);
     }
-
-    auto tablet_schema = tablet_vars->at(0).tablet->tablet_schema();
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->copy_from(*tablet_vars->at(0).tablet->tablet_schema());
     if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
-        tablet_schema.clear_columns();
+        tablet_schema->clear_columns();
         for (const auto& column_desc : request.columns_desc) {
-            tablet_schema.append_column(TabletColumn(column_desc));
+            tablet_schema->append_column(TabletColumn(column_desc));
         }
     }
 
@@ -154,12 +156,12 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     if (push_type == PUSH_NORMAL_V2) {
         res = _convert_v2(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
                           &(tablet_vars->at(0).rowset_to_add), &(tablet_vars->at(1).rowset_to_add),
-                          &tablet_schema);
+                          tablet_schema);
 
     } else {
         res = _convert(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
                        &(tablet_vars->at(0).rowset_to_add), &(tablet_vars->at(1).rowset_to_add),
-                       &tablet_schema);
+                       tablet_schema);
     }
     if (!res.ok()) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
@@ -219,7 +221,7 @@ void PushHandler::_get_tablet_infos(const std::vector<TabletVars>& tablet_vars,
 
 Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet,
                                 RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset,
-                                const TabletSchema* tablet_schema) {
+                                TabletSchemaSPtr tablet_schema) {
     Status res = Status::OK();
     uint32_t num_rows = 0;
     PUniqueId load_id;
@@ -344,7 +346,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_
 
 Status PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet,
                              RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset,
-                             const TabletSchema* tablet_schema) {
+                             TabletSchemaSPtr tablet_schema) {
     Status res = Status::OK();
     RowCursor row;
     BinaryFile raw_file;
@@ -515,7 +517,7 @@ IBinaryReader* IBinaryReader::create(bool need_decompress) {
 
 BinaryReader::BinaryReader() : _row_buf(nullptr), _row_buf_size(0) {}
 
-Status BinaryReader::init(const TabletSchema* tablet_schema, BinaryFile* file) {
+Status BinaryReader::init(TabletSchemaSPtr tablet_schema, BinaryFile* file) {
     Status res = Status::OK();
 
     do {
@@ -657,7 +659,7 @@ LzoBinaryReader::LzoBinaryReader()
           _row_num(0),
           _next_row_start(0) {}
 
-Status LzoBinaryReader::init(const TabletSchema* tablet_schema, BinaryFile* file) {
+Status LzoBinaryReader::init(TabletSchemaSPtr tablet_schema, BinaryFile* file) {
     Status res = Status::OK();
 
     do {
