@@ -272,6 +272,7 @@ public class AggregationNode extends PlanNode {
                 aggInfo.getOutputTupleId().asInt(), needsFinalize);
         msg.agg_node.setAggSortInfos(aggSortInfos);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
+        msg.agg_node.setIsFirstPhase(aggInfo.isFirstPhase());
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
             msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));

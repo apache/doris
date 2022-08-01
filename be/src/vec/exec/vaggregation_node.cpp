@@ -102,6 +102,8 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
     } else {
         _is_streaming_preagg = false;
     }
+
+    _is_first_phase = tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase;
 }
 
 AggregationNode::~AggregationNode() = default;
@@ -142,26 +144,26 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
         case TYPE_INT:
         case TYPE_FLOAT:
         case TYPE_DATEV2:
-            if (_is_merge)
-                _agg_data.init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
-            else
+            if (_is_first_phase)
                 _agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
+            else
+                _agg_data.init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
             return;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
         case TYPE_DATE:
         case TYPE_DATETIME:
         case TYPE_DATETIMEV2:
-            if (_is_merge)
-                _agg_data.init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
-            else
+            if (_is_first_phase)
                 _agg_data.init(AggregatedDataVariants::Type::int64_key, is_nullable);
+            else
+                _agg_data.init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
             return;
         case TYPE_LARGEINT: {
-            if (_is_merge)
-                _agg_data.init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
-            else
+            if (_is_first_phase)
                 _agg_data.init(AggregatedDataVariants::Type::int128_key, is_nullable);
+            else
+                _agg_data.init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
             return;
         }
         case TYPE_DECIMALV2:
@@ -175,20 +177,20 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
                                         : type_ptr->get_type_id();
             WhichDataType which(idx);
             if (which.is_decimal32()) {
-                if (_is_merge)
-                    _agg_data.init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
-                else
+                if (_is_first_phase)
                     _agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
+                else
+                    _agg_data.init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
             } else if (which.is_decimal64()) {
-                if (_is_merge)
-                    _agg_data.init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
-                else
+                if (_is_first_phase)
                     _agg_data.init(AggregatedDataVariants::Type::int64_key, is_nullable);
-            } else {
-                if (_is_merge)
-                    _agg_data.init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
                 else
+                    _agg_data.init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
+            } else {
+                if (_is_first_phase)
                     _agg_data.init(AggregatedDataVariants::Type::int128_key, is_nullable);
+                else
+                    _agg_data.init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
             }
             return;
         }
@@ -229,38 +231,38 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
         if (use_fixed_key) {
             if (has_null) {
                 if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
-                    if (_is_merge)
-                        _agg_data.init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
-                    else
+                    if (_is_first_phase)
                         _agg_data.init(AggregatedDataVariants::Type::int64_keys, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
                 } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
                            sizeof(UInt128)) {
-                    if (_is_merge)
-                        _agg_data.init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
-                    else
+                    if (_is_first_phase)
                         _agg_data.init(AggregatedDataVariants::Type::int128_keys, has_null);
-                } else {
-                    if (_is_merge)
-                        _agg_data.init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
                     else
+                        _agg_data.init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
+                } else {
+                    if (_is_first_phase)
                         _agg_data.init(AggregatedDataVariants::Type::int256_keys, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
                 }
             } else {
                 if (key_byte_size <= sizeof(UInt64)) {
-                    if (_is_merge)
-                        _agg_data.init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
-                    else
+                    if (_is_first_phase)
                         _agg_data.init(AggregatedDataVariants::Type::int64_keys, has_null);
-                } else if (key_byte_size <= sizeof(UInt128)) {
-                    if (_is_merge)
-                        _agg_data.init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
                     else
+                        _agg_data.init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
+                } else if (key_byte_size <= sizeof(UInt128)) {
+                    if (_is_first_phase)
                         _agg_data.init(AggregatedDataVariants::Type::int128_keys, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
                 } else {
                     if (_is_merge)
-                        _agg_data.init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
-                    else
                         _agg_data.init(AggregatedDataVariants::Type::int256_keys, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
                 }
             }
         } else {

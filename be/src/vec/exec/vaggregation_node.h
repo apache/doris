@@ -647,6 +647,7 @@ private:
 
     bool _needs_finalize;
     bool _is_merge;
+    bool _is_first_phase;
     std::unique_ptr<MemPool> _mem_pool;
 
     std::unique_ptr<MemTracker> _data_mem_tracker;

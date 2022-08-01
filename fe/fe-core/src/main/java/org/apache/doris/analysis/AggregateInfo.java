@@ -373,6 +373,10 @@ public final class AggregateInfo extends AggregateInfoBase {
         return aggPhase.isMerge();
     }
 
+    public boolean isFirstPhase() {
+        return aggPhase == AggPhase.FIRST;
+    }
+
     public boolean isDistinctAgg() {
         return secondPhaseDistinctAggInfo != null;
     }

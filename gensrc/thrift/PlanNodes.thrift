@@ -545,6 +545,7 @@ struct TAggregationNode {
   5: required bool need_finalize
   6: optional bool use_streaming_preaggregation
   7: optional list<TSortInfo> agg_sort_infos
+  8: optional bool is_first_phase;
 }
 
 struct TRepeatNode {
