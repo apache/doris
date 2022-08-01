@@ -57,6 +57,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -1722,5 +1723,53 @@ public class DatabaseTransactionMgr {
         for (TransactionState transactionState : finalStatusTransactionStateDequeLong) {
             transactionState.write(out);
         }
+    }
+
+    public void cleanLabel(String label) {
+        Set<Long> removedTxnIds = Sets.newHashSet();
+        writeLock();
+        try {
+            if (Strings.isNullOrEmpty(label)) {
+                Iterator<Map.Entry<String, Set<Long>>> iter = labelToTxnIds.entrySet().iterator();
+                while (iter.hasNext()) {
+                    Set<Long> txnIds = iter.next().getValue();
+                    Iterator<Long> innerIter = txnIds.iterator();
+                    while (innerIter.hasNext()) {
+                        long txnId = innerIter.next();
+                        if (idToFinalStatusTransactionState.remove(txnId) != null) {
+                            innerIter.remove();
+                            removedTxnIds.add(txnId);
+                        }
+                    }
+                    if (txnIds.isEmpty()) {
+                        iter.remove();
+                    }
+                }
+            } else {
+                Set<Long> txnIds = labelToTxnIds.get(label);
+                if (txnIds == null) {
+                    return;
+                }
+                Iterator<Long> iter = txnIds.iterator();
+                while (iter.hasNext()) {
+                    long txnId = iter.next();
+                    if (idToFinalStatusTransactionState.remove(txnId) != null) {
+                        iter.remove();
+                        removedTxnIds.add(txnId);
+                    }
+                }
+                if (txnIds.isEmpty()) {
+                    labelToTxnIds.remove(label);
+                }
+            }
+            // remove from finalStatusTransactionStateDequeShort and finalStatusTransactionStateDequeLong
+            // So that we can keep consistency in meta image
+            finalStatusTransactionStateDequeShort.removeIf(txn -> removedTxnIds.contains(txn.getTransactionId()));
+            finalStatusTransactionStateDequeLong.removeIf(txn -> removedTxnIds.contains(txn.getTransactionId()));
+        } finally {
+            writeUnlock();
+        }
+        LOG.info("clean {} labels on db {} with label '{}' in database transaction mgr.", removedTxnIds.size(), dbId,
+                label);
     }
 }

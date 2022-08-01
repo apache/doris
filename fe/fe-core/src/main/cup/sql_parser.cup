@@ -304,7 +304,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt;
 
 nonterminal String transaction_label;
 nonterminal ImportColumnDesc import_column_desc;
@@ -755,6 +755,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | refresh_stmt:stmt
     {: RESULT = stmt; :}
+    | clean_stmt:stmt
+    {: RESULT = stmt; :}
     | /* empty: query only has comments */
     {:
         RESULT = new EmptyStmt();
@@ -791,6 +793,17 @@ refresh_stmt ::=
     | KW_REFRESH KW_DATABASE ident:db
     {:
         RESULT = new RefreshDbStmt(db);
+    :}
+    ;
+
+clean_stmt ::=
+    KW_CLEAN KW_LABEL from_or_in ident:db
+    {:
+        RESULT = new CleanLabelStmt(db, null);
+    :}
+    | KW_CLEAN KW_LABEL ident:label from_or_in ident:db
+    {:
+        RESULT = new CleanLabelStmt(db, label);
     :}
     ;
 

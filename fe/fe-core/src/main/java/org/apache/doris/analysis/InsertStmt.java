@@ -99,7 +99,6 @@ public class InsertStmt extends DdlStmt {
     private Boolean isRepartition;
     private boolean isStreaming = false;
     private String label = null;
-    private boolean isUserSpecifiedLabel = false;
 
     private Map<Long, Integer> indexIdToSchemaHash = null;
 
@@ -141,10 +140,6 @@ public class InsertStmt extends DdlStmt {
         this.queryStmt = source.getQueryStmt();
         this.planHints = hints;
         this.targetColumnNames = cols;
-
-        if (!Strings.isNullOrEmpty(label)) {
-            isUserSpecifiedLabel = true;
-        }
 
         this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
@@ -248,10 +243,6 @@ public class InsertStmt extends DdlStmt {
         return label;
     }
 
-    public boolean isUserSpecifiedLabel() {
-        return isUserSpecifiedLabel;
-    }
-
     public DataSink getDataSink() {
         return dataSink;
     }
@@ -306,7 +297,7 @@ public class InsertStmt extends DdlStmt {
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         if (Strings.isNullOrEmpty(label)) {
-            label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
+            label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
         }
         if (!isExplain() && !isTransactionBegin) {
             if (targetTable instanceof OlapTable) {
