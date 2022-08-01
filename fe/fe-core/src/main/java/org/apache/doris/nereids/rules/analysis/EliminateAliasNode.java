@@ -19,15 +19,10 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Eliminate the logical sub query and alias node after analyze and before rewrite
@@ -68,37 +63,5 @@ public class EliminateAliasNode implements AnalysisRuleFactory {
                                         ImmutableList.of(join.left(), join.right().child())))
                 )
         );
-    }
-
-    private LogicalPlan eliminateSubQueryAliasNode(LogicalPlan node, List<Plan> aliasNodes) {
-        List<Plan> nodes = aliasNodes.stream()
-                .map(this::getPlan)
-                .collect(Collectors.toList());
-        return (LogicalPlan) node.withChildren(nodes);
-    }
-
-    private LogicalPlan joinEliminateSubQueryAliasNode(LogicalPlan node, List<Plan> aliasNode) {
-        List<Plan> nodes = aliasNode.stream()
-                .map(child -> {
-                    if (checkIsSubQueryAliasNode((GroupPlan) child)) {
-                        return ((GroupPlan) child).getGroup()
-                                .getLogicalExpression()
-                                .child(0)
-                                .getLogicalExpression()
-                                .getPlan();
-                    }
-                    return child;
-                })
-                .collect(Collectors.toList());
-        return (LogicalPlan) node.withChildren(nodes);
-    }
-
-    private boolean checkIsSubQueryAliasNode(GroupPlan node) {
-        return node.getGroup().getLogicalExpression().getPlan().getType()
-                == PlanType.LOGICAL_SUBQUERY_ALIAS;
-    }
-
-    private Plan getPlan(Plan node) {
-        return ((GroupPlan) node.child(0)).getGroup().getLogicalExpression().getPlan();
     }
 }

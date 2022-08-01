@@ -214,7 +214,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String alias = ctx.strictIdentifier().getText();
         if (null != ctx.identifierList()) {
             throw new ParseException("Do not implemented", ctx);
-            // List<String> colName = visitIdentifierSeq(ctx.identifierList().identifierSeq());
             // TODO: multi-colName
         }
         return new LogicalSubQueryAlias<>(alias, plan);
@@ -236,7 +235,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitAliasedRelation(AliasedRelationContext ctx) {
-        return withTableAlias((LogicalPlan) super.visitRelation(ctx.relation()), ctx.tableAlias());
+        return withTableAlias((LogicalPlan) visitRelation(ctx.relation()), ctx.tableAlias());
     }
 
     /**

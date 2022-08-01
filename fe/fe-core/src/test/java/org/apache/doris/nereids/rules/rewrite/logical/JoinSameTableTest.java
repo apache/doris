@@ -22,14 +22,13 @@ import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
+import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
 import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.batch.PredicatePushDownRulesJob;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -40,7 +39,8 @@ import java.util.List;
 
 public class JoinSameTableTest extends TestWithFeService {
     private final List<String> testSql = Lists.newArrayList(
-            "SELECT * FROM T1 JOIN T1 T2 ON T1.ID = T2.ID"
+            "SELECT * FROM T1 JOIN T1 T2 ON T1.ID = T2.ID",
+            "SELECT * FROM T1"
     );
 
     @Override
@@ -78,24 +78,26 @@ public class JoinSameTableTest extends TestWithFeService {
                 .analyzeWithPlannerContext(plan);
 
         System.out.println("\n***** analyzed *****\n\n");
-        System.out.println(plan.treeString());
-        plan = (LogicalPlan) PlanRewriter.bottomUpRewrite(plan, connectContext, new EliminateAliasNode());
+        System.out.println(ctx.getMemo().copyOut().treeString());
+
+        new FinalizeAnalyzeJob(ctx).execute();
         System.out.println("\n***** eliminated *****\n\n");
-        System.out.println(plan.treeString());
+        System.out.println(ctx.getMemo().copyOut().treeString());
 
         new JoinReorderRulesJob(ctx).execute();
         System.out.println("\n***** reordered *****\n\n");
-        System.out.println(plan.treeString());
+        System.out.println(ctx.getMemo().copyOut().treeString());
+
         new PredicatePushDownRulesJob(ctx).execute();
         System.out.println("\n***** pushed *****\n\n");
-        System.out.println(plan.treeString());
+        System.out.println(ctx.getMemo().copyOut().treeString());
+
         new DisassembleRulesJob(ctx).execute();
         System.out.println("\n***** disassembled *****\n\n");
-        System.out.println(plan.treeString());
+        System.out.println(ctx.getMemo().copyOut().treeString());
+
         new OptimizeRulesJob(ctx).execute();
         System.out.println("\n***** optimized *****\n\n");
-        System.out.println(plan.treeString());
-
         PhysicalPlan plan1 = ctx.getMemo().getRoot().extractPlan();
 
         PlanFragment plan2 = new PhysicalPlanTranslator().translatePlan(plan1, new PlanTranslatorContext());
