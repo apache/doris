@@ -57,6 +57,7 @@ import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
+import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
@@ -676,6 +677,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
                 data = TableAddOrDropColumnsInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CLEAN_LABEL: {
+                data = CleanLabelOperationLog.read(in);
                 isRead = true;
                 break;
             }
