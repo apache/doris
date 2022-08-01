@@ -35,6 +35,12 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      - name: Ccache ${{ github.ref }}
+        uses: ./.github/actions/ccache-action
+        with:
+          key: ${{ github.ref }} (BE UT Clang)
+          max-size: "1G"
+
       - name: Paths filter
         uses: ./.github/actions/paths-filter
         id: filter
@@ -64,7 +70,7 @@ jobs:
 
           sudo apt update
           sudo apt upgrade --yes
-          sudo DEBIAN_FRONTEND=noninteractive apt install --yes tzdata ccache byacc
+          sudo DEBIAN_FRONTEND=noninteractive apt install --yes tzdata byacc
 
           # set timezone
           sudo ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime

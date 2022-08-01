@@ -137,6 +137,23 @@ Status VOlapScanner::open() {
     return Status::OK();
 }
 
+TabletStorageType VOlapScanner::get_storage_type() {
+    int local_reader = 0;
+    for (const auto& reader : _tablet_reader_params.rs_readers) {
+        if (reader->rowset()->rowset_meta()->resource_id().empty()) {
+            local_reader++;
+        }
+    }
+    int total_reader = _tablet_reader_params.rs_readers.size();
+
+    if (local_reader == total_reader) {
+        return TabletStorageType::STORAGE_TYPE_LOCAL;
+    } else if (local_reader == 0) {
+        return TabletStorageType::STORAGE_TYPE_REMOTE;
+    }
+    return TabletStorageType::STORAGE_TYPE_REMOTE_AND_LOCAL;
+}
+
 // it will be called under tablet read lock because capture rs readers need
 Status VOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,

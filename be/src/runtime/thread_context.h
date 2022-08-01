@@ -130,7 +130,8 @@ public:
     }
 
     void attach_task(const TaskType& type, const std::string& task_id,
-                     const TUniqueId& fragment_instance_id, MemTrackerLimiter* mem_tracker) {
+                     const TUniqueId& fragment_instance_id,
+                     const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
         DCHECK((_type == TaskType::UNKNOWN || _type == TaskType::BRPC) && _task_id == "")
                 << ",new tracker label: " << mem_tracker->label() << ",old tracker label: "
                 << _thread_mem_tracker_mgr->limiter_mem_tracker()->label();
@@ -195,7 +196,7 @@ static ThreadContext* thread_context() {
 
 class AttachTask {
 public:
-    explicit AttachTask(MemTrackerLimiter* mem_tracker,
+    explicit AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                         const ThreadContext::TaskType& type = ThreadContext::TaskType::UNKNOWN,
                         const std::string& task_id = "",
                         const TUniqueId& fragment_instance_id = TUniqueId());

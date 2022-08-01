@@ -55,6 +55,8 @@ struct RowsetWriterContext;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
+enum TabletStorageType { STORAGE_TYPE_LOCAL, STORAGE_TYPE_REMOTE, STORAGE_TYPE_REMOTE_AND_LOCAL };
+
 class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,

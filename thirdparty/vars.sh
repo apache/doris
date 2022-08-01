@@ -157,7 +157,7 @@ HYPERSCAN_MD5SUM="65e08385038c24470a248f6ff2fa379b"
 
 # vectorscan (support arm for hyperscan)
 MACHINE_TYPE=$(uname -m)
-if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
     echo "use vectorscan instead of hyperscan on aarch64"
     HYPERSCAN_DOWNLOAD="https://github.com/VectorCamp/vectorscan/archive/refs/tags/vectorscan/5.4.7.tar.gz"
     HYPERSCAN_NAME=vectorscan-5.4.7.tar.gz

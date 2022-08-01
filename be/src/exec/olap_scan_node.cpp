@@ -1502,6 +1502,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
      * 4. Regularly increase the priority of the remaining tasks in the queue to avoid starvation for large queries
      *********************************/
     PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
+    PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
     _total_assign_num = 0;
     _nice = 18 + std::max(0, 2 - (int)_olap_scanners.size() / 5);
     std::list<OlapScanner*> olap_scanners;
@@ -1580,8 +1581,17 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                 task.priority = _nice;
                 task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
                 (*iter)->start_wait_worker_timer();
+
+                TabletStorageType type = (*iter)->get_storage_type();
+                bool ret = false;
                 COUNTER_UPDATE(_scanner_sched_counter, 1);
-                if (thread_pool->offer(task)) {
+                if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
+                    ret = thread_pool->offer(task);
+                } else {
+                    ret = remote_thread_pool->offer(task);
+                }
+
+                if (ret) {
                     olap_scanners.erase(iter++);
                 } else {
                     LOG(FATAL) << "Failed to assign scanner task to thread pool!";

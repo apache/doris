@@ -71,10 +71,21 @@ suite("test_conditional_function", "query") {
     qt_sql "select is_null_pred(user_id) from ${tbName} order by user_id"
     qt_sql "select is_not_null_pred(user_id) from ${tbName} order by user_id"
 
-    sql "DROP TABLE ${tbName};"
-
     qt_sql """select if(date_format(CONCAT_WS('', '9999-07', '-26'), '%Y-%m')= DATE_FORMAT( curdate(), '%Y-%m'),
 	        curdate(),
 	        DATE_FORMAT(DATE_SUB(month_ceil ( CONCAT_WS('', '9999-07', '-26')), 1), '%Y-%m-%d'));"""
 
+    qt_sql "select ifnull(date_format(CONCAT_WS('', '9999-07', '-00'), '%Y-%m'),3);"
+
+    qt_sql "select ifnull(date_format(CONCAT_WS('', '9999-07', '-01'), '%Y-%m'),3);"
+
+    qt_sql "select ifnull(date_format(CONCAT_WS('', '9999-07', '-00'), '%Y-%m'),date_format(CONCAT_WS('', '9999-07', '-00'), '%Y-%m'));"
+
+    qt_sql "select ifnull(date_format(CONCAT_WS('', '9999-07', '-00'), '%Y-%m'),date_format(CONCAT_WS('', '9999-07', '-26'), '%Y-%m'));"
+
+    qt_sql "select ifnull( user_id, to_date('9999-01-01')) r from ${tbName} order by r"
+
+    qt_sql "select ifnull( user_id, 999) r from ${tbName} order by r"
+
+    sql "DROP TABLE ${tbName};"
 }

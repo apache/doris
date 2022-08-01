@@ -29,6 +29,7 @@
 #include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
@@ -159,6 +160,7 @@ public:
                          const std::vector<RowsetMetaSharedPtr>& to_delete,
                          bool same_version = false);
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
+    void revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap);
 
     const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
@@ -203,6 +205,9 @@ public:
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
+
+    void update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_rowsets,
+                              const Version& version, const RowIdConversion& rowid_conversion);
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -272,7 +277,7 @@ class DeleteBitmap {
 public:
     mutable std::shared_mutex lock;
     using SegmentId = uint32_t;
-    using Version = uint32_t;
+    using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
 
@@ -298,6 +303,12 @@ public:
      * process
      */
     DeleteBitmap snapshot() const;
+
+    /**
+     * Makes a snapshot of delete bimap on given version, read lock will be
+     * acquired temporary in this process
+     */
+    DeleteBitmap snapshot(Version version) const;
 
     /**
      * Marks the specific row deleted

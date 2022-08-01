@@ -205,7 +205,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `buffer_pool_clean_pages_limit`
 
-默认值：20G
+默认值：50%
 
 清理可能被缓冲池保存的Page
 

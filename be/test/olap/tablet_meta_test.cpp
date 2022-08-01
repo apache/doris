@@ -21,6 +21,8 @@
 
 #include <string>
 
+#include "testutil/mock_rowset.h"
+
 namespace doris {
 
 TEST(TabletMetaTest, SaveAndParse) {
@@ -39,6 +41,54 @@ TEST(TabletMetaTest, SaveAndParse) {
     new_tablet_meta.create_from_file(meta_path);
 
     EXPECT_EQ(old_tablet_meta, new_tablet_meta);
+}
+
+TEST(TabletMetaTest, TestReviseMeta) {
+    TabletMeta tablet_meta;
+    std::vector<RowsetSharedPtr> src_rowsets;
+    std::vector<RowsetId> rsids;
+    // src rowsets
+    for (int i = 0; i < 4; i++) {
+        RowsetMetaPB rs_meta_pb;
+        RowsetId rowset_id;
+        rowset_id.init(i);
+        rsids.push_back(rowset_id);
+        rs_meta_pb.set_rowset_id_v2(rowset_id.to_string());
+        rs_meta_pb.set_num_segments(2);
+        rs_meta_pb.set_start_version(i);
+        rs_meta_pb.set_end_version(i);
+        RowsetMetaSharedPtr meta_ptr = std::make_shared<RowsetMeta>();
+        meta_ptr->init_from_pb(rs_meta_pb);
+        RowsetSharedPtr rowset_ptr;
+        TabletSchema schema;
+        MockRowset::create_rowset(&schema, "", meta_ptr, &rowset_ptr, false);
+        src_rowsets.push_back(rowset_ptr);
+        tablet_meta.add_rs_meta(rowset_ptr->rowset_meta());
+    }
+    ASSERT_EQ(4, tablet_meta.all_rs_metas().size());
+
+    tablet_meta.delete_bitmap().add({rsids[0], 1, 1}, 1);
+    tablet_meta.delete_bitmap().add({rsids[1], 0, 2}, 2);
+    tablet_meta.delete_bitmap().add({rsids[2], 1, 1}, 1);
+    tablet_meta.delete_bitmap().add({rsids[3], 0, 2}, 3);
+    tablet_meta.delete_bitmap().add({rsids[3], 0, 4}, 4);
+    ASSERT_EQ(5, tablet_meta.delete_bitmap().delete_bitmap.size());
+
+    std::vector<RowsetMetaSharedPtr> new_rowsets;
+    new_rowsets.push_back(src_rowsets[2]->rowset_meta());
+    new_rowsets.push_back(src_rowsets[3]->rowset_meta());
+    tablet_meta.revise_rs_metas(std::move(new_rowsets));
+    // Take a snapshot with max_version=3.
+    DeleteBitmap snap = tablet_meta.delete_bitmap().snapshot(3);
+    tablet_meta.revise_delete_bitmap_unlocked(snap);
+    ASSERT_EQ(2, tablet_meta.all_rs_metas().size());
+    ASSERT_EQ(2, tablet_meta.delete_bitmap().delete_bitmap.size());
+    for (auto entry : tablet_meta.delete_bitmap().delete_bitmap) {
+        RowsetId rsid = std::get<0>(entry.first);
+        ASSERT_TRUE(rsid == rsids[2] || rsid == rsids[3]);
+        int64_t version = std::get<2>(entry.first);
+        ASSERT_TRUE(version <= 3); // should not contain versions greater than 3.
+    }
 }
 
 TEST(TabletMetaTest, TestDeleteBitmap) {
@@ -70,6 +120,26 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
     dbmp->add({RowsetId {2, 0, 1, 1}, 1, 2}, 1104);
 
     ASSERT_EQ(dbmp->delete_bitmap.size(), 10 * 20 + 2);
+
+    {
+        auto snap = dbmp->snapshot(1);
+        auto it = snap.delete_bitmap.begin();
+        while (it != snap.delete_bitmap.end()) {
+            ASSERT_TRUE(std::get<2>(it->first) <= 1);
+            it++;
+        }
+        ASSERT_EQ(snap.delete_bitmap.size(), 10 * 20 + 1);
+    }
+
+    {
+        auto snap = dbmp->snapshot(0);
+        auto it = snap.delete_bitmap.begin();
+        while (it != snap.delete_bitmap.end()) {
+            ASSERT_TRUE(std::get<2>(it->first) <= 0);
+            it++;
+        }
+        ASSERT_EQ(snap.delete_bitmap.size(), 10 * 20);
+    }
 
     { // Bitmap of certain verisons only get their own row ids
         auto bm = dbmp->get({RowsetId {2, 0, 1, 1}, 1, 2});
