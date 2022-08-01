@@ -148,7 +148,7 @@ public class TableProperty implements Writable {
 
     public TableProperty buildUseLightSchemaChange() {
         useSchemaLightChange = Boolean.parseBoolean(
-                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE, "true"));
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE, "false"));
         return this;
     }
 
