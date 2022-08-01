@@ -24,8 +24,8 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -49,6 +49,7 @@ import org.apache.doris.utframe.MockedFrontend.NotInitException;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
@@ -80,7 +81,7 @@ public class UtFrameUtils {
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setRemoteIP(remoteIp);
-        ctx.setCatalog(Catalog.getCurrentCatalog());
+        ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
         return ctx;
     }
@@ -96,7 +97,7 @@ public class UtFrameUtils {
         System.out.println("begin to parse stmt: " + originStmt);
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
-        Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
+        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         StatementBase statementBase = null;
         try {
             statementBase = SqlParserUtils.getFirstStmt(parser);
@@ -119,7 +120,7 @@ public class UtFrameUtils {
         System.out.println("begin to parse stmts: " + originStmt);
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
-        Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
+        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         List<StatementBase> statementBases = null;
         try {
             statementBases = SqlParserUtils.getMultiStmts(parser);
@@ -155,6 +156,7 @@ public class UtFrameUtils {
         }
         Config.plugin_dir = dorisHome + "/plugins";
         Config.custom_config_dir = dorisHome + "/conf";
+        Config.edit_log_type = "local";
         File file = new File(Config.custom_config_dir);
         if (!file.exists()) {
             file.mkdir();
@@ -166,7 +168,7 @@ public class UtFrameUtils {
         int feEditLogPort = findValidPort();
 
         // start fe in "DORIS_HOME/fe/mocked/"
-        MockedFrontend frontend = MockedFrontend.getInstance();
+        MockedFrontend frontend = new MockedFrontend();
         Map<String, String> feConfMap = Maps.newHashMap();
         // set additional fe config
         feConfMap.put("http_port", String.valueOf(feHttpPort));
@@ -187,18 +189,36 @@ public class UtFrameUtils {
     public static void createDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         int feRpcPort = startFEServer(runningDir);
+        List<Backend> bes = Lists.newArrayList();
         for (int i = 0; i < backendNum; i++) {
-            createBackend("127.0.0.1", feRpcPort);
-            // sleep to wait first heartbeat
-            Thread.sleep(6000);
+            bes.add(createBackend("127.0.0.1", feRpcPort));
+        }
+        System.out.println("after create backend");
+        checkBEHeartbeat(bes);
+        // Thread.sleep(2000);
+        System.out.println("after create backend2");
+    }
+
+    private static void checkBEHeartbeat(List<Backend> bes) throws InterruptedException {
+        int maxTry = 10;
+        boolean allAlive = false;
+        while (maxTry-- > 0 && !allAlive) {
+            Thread.sleep(1000);
+            boolean hasDead = false;
+            for (Backend be : bes) {
+                if (!be.isAlive()) {
+                    hasDead = true;
+                }
+            }
+            allAlive = !hasDead;
         }
     }
 
     // Create multi backends with different host for unit test.
     // the host of BE will be "127.0.0.1", "127.0.0.2"
     public static void createDorisClusterWithMultiTag(String runningDir, int backendNum)
-            throws EnvVarNotSetException, IOException, FeStartException,
-            NotInitException, DdlException, InterruptedException {
+            throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
+            InterruptedException {
         // set runningUnitTest to true, so that for ut,
         // the agent task will be sent to "127.0.0.1" to make cluster running well.
         FeConstants.runningUnitTest = true;
@@ -211,23 +231,21 @@ public class UtFrameUtils {
         Thread.sleep(6000);
     }
 
-    public static void createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
+    public static Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
         int beHeartbeatPort = findValidPort();
         int beThriftPort = findValidPort();
         int beBrpcPort = findValidPort();
         int beHttpPort = findValidPort();
 
         // start be
-        MockedBackend backend = MockedBackendFactory.createBackend(beHost,
-                beHeartbeatPort, beThriftPort, beBrpcPort, beHttpPort,
-                new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
+        MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
+                beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
                 new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
         // add be
-        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(),
-                backend.getHost(), backend.getHeartbeatPort());
+        Backend be = new Backend(Env.getCurrentEnv().getNextId(), backend.getHost(), backend.getHeartbeatPort());
         Map<String, DiskInfo> disks = Maps.newHashMap();
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setTotalCapacityB(1000000);
@@ -240,7 +258,8 @@ public class UtFrameUtils {
         be.setBePort(beThriftPort);
         be.setHttpPort(beHttpPort);
         be.setBrpcPort(beBrpcPort);
-        Catalog.getCurrentSystemInfo().addBackend(be);
+        Env.getCurrentSystemInfo().addBackend(be);
+        return be;
     }
 
     public static void cleanDorisFeDir(String baseDir) {

@@ -18,10 +18,10 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
@@ -228,7 +228,7 @@ public class DynamicPartitionUtil {
         if (replicaAlloc.getTotalReplicaNum() <= 0) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
-        Catalog.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, db.getClusterName(), null);
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, db.getClusterName(), null);
     }
 
     private static void checkHotPartitionNum(String val) throws DdlException {
@@ -351,12 +351,12 @@ public class DynamicPartitionUtil {
             throw new DdlException(DynamicPartitionProperty.REMOTE_STORAGE_POLICY + " is empty.");
         }
         StoragePolicy checkedPolicyCondition = StoragePolicy.ofCheck(policyName);
-        if (!Catalog.getCurrentCatalog().getPolicyMgr().existPolicy(checkedPolicyCondition)) {
+        if (!Env.getCurrentEnv().getPolicyMgr().existPolicy(checkedPolicyCondition)) {
             throw new DdlException(
                     DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + policyName + " doesn't exist.");
         }
-        StoragePolicy storagePolicy = (StoragePolicy) Catalog.getCurrentCatalog()
-                .getPolicyMgr().getPolicy(checkedPolicyCondition);
+        StoragePolicy storagePolicy = (StoragePolicy) Env.getCurrentEnv().getPolicyMgr()
+                .getPolicy(checkedPolicyCondition);
         if (Strings.isNullOrEmpty(storagePolicy.getCooldownTtl())) {
             throw new DdlException("Storage policy cooldown type need to be cooldownTtl for properties "
                     + DynamicPartitionProperty.REMOTE_STORAGE_POLICY + ": " + policyName);
@@ -458,13 +458,13 @@ public class DynamicPartitionUtil {
                 if (!isReplay) {
                     // execute create partition first time only in master of FE, So no need execute
                     // when it's replay
-                    Catalog.getCurrentCatalog().getDynamicPartitionScheduler()
+                    Env.getCurrentEnv().getDynamicPartitionScheduler()
                             .executeDynamicPartitionFirstTime(dbId, olapTable.getId());
                 }
-                Catalog.getCurrentCatalog().getDynamicPartitionScheduler()
+                Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .registerDynamicPartitionTable(dbId, olapTable.getId());
             } else {
-                Catalog.getCurrentCatalog().getDynamicPartitionScheduler()
+                Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .removeDynamicPartitionTable(dbId, olapTable.getId());
             }
         }
@@ -669,9 +669,10 @@ public class DynamicPartitionUtil {
     }
 
     public static String getPartitionFormat(Column column) throws DdlException {
-        if (column.getDataType().equals(PrimitiveType.DATE)) {
+        if (column.getDataType().equals(PrimitiveType.DATE) || column.getDataType().equals(PrimitiveType.DATEV2)) {
             return DATE_FORMAT;
-        } else if (column.getDataType().equals(PrimitiveType.DATETIME)) {
+        } else if (column.getDataType().equals(PrimitiveType.DATETIME)
+                || column.getDataType().equals(PrimitiveType.DATETIMEV2)) {
             return DATETIME_FORMAT;
         } else if (PrimitiveType.getIntegerTypes().contains(column.getDataType())) {
             // TODO: For Integer Type, only support format it as yyyyMMdd now

@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.statistics.PlanStats;
 
 import java.util.List;
 import java.util.Optional;
@@ -31,9 +30,12 @@ import java.util.Optional;
 /**
  * Abstract class for all plan node.
  */
-public interface Plan extends TreeNode<Plan>, PlanStats {
+public interface Plan extends TreeNode<Plan> {
 
     PlanType getType();
+
+    // cache GroupExpression for fast exit from Memo.copyIn.
+    Optional<GroupExpression> getGroupExpression();
 
     default <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         throw new RuntimeException("accept() is not implemented by plan " + this.getClass().getSimpleName());
@@ -62,4 +64,6 @@ public interface Plan extends TreeNode<Plan>, PlanStats {
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 
     Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties);
+
+    long getLimit();
 }

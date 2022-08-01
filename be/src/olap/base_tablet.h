@@ -18,9 +18,11 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "olap/olap_define.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/metrics.h"
 
@@ -58,14 +60,12 @@ public:
     int16_t shard_id() const;
     bool equal(int64_t tablet_id, int32_t schema_hash);
 
-    const io::ResourceId& cooldown_resource() const { return _tablet_meta->cooldown_resource(); }
+    const std::string& storage_policy() const { return _tablet_meta->storage_policy(); }
 
-    void set_cooldown_resource(io::ResourceId resource) {
-        _tablet_meta->set_cooldown_resource(std::move(resource));
-    }
+    void set_storage_policy(const std::string& policy) { _tablet_meta->set_storage_policy(policy); }
 
     // properties encapsulated in TabletSchema
-    virtual const TabletSchema& tablet_schema() const;
+    virtual TabletSchemaSPtr tablet_schema() const;
 
     bool set_tablet_schema_into_rowset_meta();
 
@@ -75,7 +75,7 @@ protected:
 protected:
     TabletState _state;
     TabletMetaSharedPtr _tablet_meta;
-    const TabletSchema& _schema;
+    TabletSchemaSPtr _schema;
 
     DataDir* _data_dir;
     std::string _tablet_path;
@@ -146,7 +146,7 @@ inline bool BaseTablet::equal(int64_t id, int32_t hash) {
     return (tablet_id() == id) && (schema_hash() == hash);
 }
 
-inline const TabletSchema& BaseTablet::tablet_schema() const {
+inline TabletSchemaSPtr BaseTablet::tablet_schema() const {
     return _schema;
 }
 

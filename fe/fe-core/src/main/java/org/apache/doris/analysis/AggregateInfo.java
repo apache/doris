@@ -327,6 +327,13 @@ public final class AggregateInfo extends AggregateInfoBase {
             // TODO: Deal with constant exprs more generally, instead of special-casing
             // group_concat().
             expr0Children.add(distinctAggExprs.get(0).getChild(0).ignoreImplicitCast());
+            FunctionCallExpr distinctExpr = distinctAggExprs.get(0);
+            if (!distinctExpr.getOrderByElements().isEmpty()) {
+                for (int i = distinctExpr.getChildren().size() - distinctExpr.getOrderByElements().size();
+                        i < distinctExpr.getChildren().size(); i++) {
+                    expr0Children.add(distinctAggExprs.get(0).getChild(i));
+                }
+            }
         } else {
             for (Expr expr : distinctAggExprs.get(0).getChildren()) {
                 expr0Children.add(expr.ignoreImplicitCast());
@@ -364,6 +371,10 @@ public final class AggregateInfo extends AggregateInfoBase {
 
     public boolean isMerge() {
         return aggPhase.isMerge();
+    }
+
+    public boolean isFirstPhase() {
+        return aggPhase == AggPhase.FIRST;
     }
 
     public boolean isDistinctAgg() {
@@ -464,6 +475,39 @@ public final class AggregateInfo extends AggregateInfoBase {
         if (secondPhaseDistinctAggInfo != null) {
             secondPhaseDistinctAggInfo.substitute(smap, analyzer);
         }
+
+
+        // About why:
+        // The outputTuple of the first phase aggregate info is generated at analysis phase of SelectStmt,
+        // and the SlotDescriptor of output tuple of this agg info will refer to the origin column of the
+        // table in the same query block.
+        //
+        // However, if the child node is a HashJoinNode with outerJoin type, the nullability of the SlotDescriptor
+        // might be changed, those changed SlotDescriptor is referred by a SlotRef, and this SlotRef will be added
+        // to the outputSmap of the HashJoinNode.
+        //
+        // In BE execution, the SlotDescriptor which referred by output and groupBy should have the same nullability,
+        // So we need the update SlotDescriptor of output tuple.
+        //
+        // About how:
+        // Since the outputTuple of agg info is simply create a SlotRef and SlotDescriptor for each expr in aggregate
+        // expr and groupBy expr, so we could handle this as this way.
+        for (SlotDescriptor slotDesc : getOutputTupleDesc().getSlots()) {
+            List<Expr> exprList = slotDesc.getSourceExprs();
+            if (exprList.size() > 1) {
+                continue;
+            }
+            Expr expr = exprList.get(0);
+            if (!(expr instanceof SlotRef)) {
+                continue;
+            }
+            SlotRef slotRef = (SlotRef) expr;
+            Expr right = smap.get(slotRef);
+            if (right == null) {
+                continue;
+            }
+            slotDesc.setIsNullable(right.isNullable());
+        }
     }
 
     /**
@@ -496,6 +540,8 @@ public final class AggregateInfo extends AggregateInfoBase {
             FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
                     inputExpr, Lists.newArrayList(aggExprParam), inputExpr.getFnParams().exprs());
             aggExpr.analyzeNoThrow(analyzer);
+            // do not need analyze in merge stage, just do mark for BE get right function
+            aggExpr.setOrderByElements(inputExpr.getOrderByElements());
             aggExprs.add(aggExpr);
         }
 
@@ -590,10 +636,17 @@ public final class AggregateInfo extends AggregateInfoBase {
                     // tuple reference is correct.
                     exprList.add(new SlotRef(inputDesc.getSlots().get(origGroupingExprs.size())));
                     // Check if user provided a custom separator
-                    if (inputExpr.getChildren().size() == 2) {
+                    if (inputExpr.getChildren().size() - inputExpr.getOrderByElements().size() == 2) {
                         exprList.add(inputExpr.getChild(1));
                     }
-                    aggExpr = new FunctionCallExpr(inputExpr.getFnName(), exprList);
+
+                    if (!inputExpr.getOrderByElements().isEmpty()) {
+                        for (int i = 0; i < inputExpr.getOrderByElements().size(); i++) {
+                            inputExpr.getOrderByElements().get(i).setExpr(
+                                new SlotRef(inputDesc.getSlots().get(origGroupingExprs.size() + i + 1)));
+                        }
+                    }
+                    aggExpr = new FunctionCallExpr(inputExpr.getFnName(), exprList, inputExpr.getOrderByElements());
                 } else {
                     // SUM(DISTINCT <expr>) -> SUM(<last grouping slot>);
                     // (MIN(DISTINCT ...) and MAX(DISTINCT ...) have their DISTINCT turned
@@ -621,7 +674,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
         Preconditions.checkState(
                 secondPhaseAggExprs.size() == aggregateExprs.size() + distinctAggExprs.size());
-
         for (FunctionCallExpr aggExpr : secondPhaseAggExprs) {
             aggExpr.analyzeNoThrow(analyzer);
             Preconditions.checkState(aggExpr.isAggregateFunction());
@@ -649,18 +701,16 @@ public final class AggregateInfo extends AggregateInfoBase {
         int numDistinctParams = 0;
         if (!isMultiDistinct) {
             numDistinctParams = distinctAggExprs.get(0).getChildren().size();
-            // If we are counting distinct params of group_concat, we cannot include the custom
-            // separator since it is not a distinct param.
-            if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")
-                    && numDistinctParams == 2) {
-                --numDistinctParams;
-            }
         } else {
             for (int i = 0; i < distinctAggExprs.size(); i++) {
                 numDistinctParams += distinctAggExprs.get(i).getChildren().size();
             }
         }
-
+        // If we are counting distinct params of group_concat, we cannot include the custom
+        // separator since it is not a distinct param.
+        if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
+            numDistinctParams = 1 + distinctAggExprs.get(0).getOrderByElements().size();
+        }
         int numOrigGroupingExprs = inputAggInfo.getGroupingExprs().size() - numDistinctParams;
         Preconditions.checkState(
                 slotDescs.size() == numOrigGroupingExprs + distinctAggExprs.size()

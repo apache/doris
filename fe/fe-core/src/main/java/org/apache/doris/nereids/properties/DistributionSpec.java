@@ -21,52 +21,48 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
-import org.apache.doris.planner.DataPartition;
 
 import com.google.common.collect.Lists;
 
 /**
  * Spec of data distribution.
+ * GPORCA has more type in CDistributionSpec.
  */
-public class DistributionSpec {
-
-    private DataPartition dataPartition;
-
-    // TODO: why exist?
-    public DistributionSpec() {
-    }
-
-    public DistributionSpec(DataPartition dataPartition) {
-        this.dataPartition = dataPartition;
-    }
+public abstract class DistributionSpec {
+    /**
+     * Self satisfies other DistributionSpec.
+     * Example:
+     * `DistributionSpecGather` satisfies `DistributionSpecAny`
+     */
+    public abstract boolean satisfy(DistributionSpec other);
 
     /**
-     * TODO: need read ORCA.
-     * Whether other `DistributionSpec` is satisfied the current `DistributionSpec`.
-     *
-     * @param other another DistributionSpec.
+     * Add physical operator of enforcer.
      */
-    public boolean meet(DistributionSpec other) {
-        return false;
-    }
-
-    public DataPartition getDataPartition() {
-        return dataPartition;
-    }
-
-    public void setDataPartition(DataPartition dataPartition) {
-        this.dataPartition = dataPartition;
-    }
-
     public GroupExpression addEnforcer(Group child) {
+        // TODO:maybe we need to new a LogicalProperties or just do not set logical properties for this node.
+        // If we don't set LogicalProperties explicitly, node will compute a applicable LogicalProperties for itself.
         PhysicalDistribution distribution = new PhysicalDistribution(
-                new DistributionSpec(dataPartition), child.getLogicalProperties(), new GroupPlan(child));
+                this,
+                child.getLogicalProperties(),
+                new GroupPlan(child));
         return new GroupExpression(distribution, Lists.newArrayList(child));
     }
 
-    // TODO
+
     @Override
-    public boolean equals(Object obj) {
-        return super.equals(obj);
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public String toString() {
+        return this.getClass().toString();
     }
 }

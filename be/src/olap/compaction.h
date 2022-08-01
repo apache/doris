@@ -54,8 +54,6 @@ public:
     Status execute_compact();
     virtual Status execute_compact_impl() = 0;
 
-    std::shared_ptr<MemTracker>& get_mem_tracker() { return _mem_tracker; }
-
 protected:
     virtual Status pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
@@ -67,7 +65,7 @@ protected:
     Status modify_rowsets();
     void gc_output_rowset();
 
-    Status construct_output_rowset_writer(const TabletSchema* schema);
+    Status construct_output_rowset_writer(TabletSchemaSPtr schema);
     Status construct_input_rowset_readers();
 
     Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
@@ -78,7 +76,7 @@ protected:
 
 protected:
     // the root tracker for this compaction
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     TabletSharedPtr _tablet;
 
@@ -97,6 +95,7 @@ protected:
 
     int64_t _oldest_write_timestamp;
     int64_t _newest_write_timestamp;
+    RowIdConversion _rowid_conversion;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };

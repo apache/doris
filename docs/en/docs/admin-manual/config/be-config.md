@@ -212,7 +212,7 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `buffer_pool_clean_pages_limit`
 
-default: 20G
+default: 50%
 
 Clean up pages that may be saved by the buffer pool
 
@@ -220,7 +220,7 @@ Clean up pages that may be saved by the buffer pool
 
 * Type: string
 * Description: The largest allocatable memory of the buffer pool
-* Default value: 80G
+* Default value: 20%
 
 The maximum amount of memory available in the BE buffer pool. The buffer pool is a new memory management structure of BE, which manages the memory by the buffer page and enables spill data to disk. The memory for all concurrent queries will be allocated from the buffer pool. The current buffer pool only works on **AggregationNode** and **ExchangeNode**.
 
@@ -1443,35 +1443,17 @@ The size of the buffer before flashing
   
 * Default: 3
 
-### `track_new_delete`
+### `enable_tcmalloc_hook`
 
 * Type: bool
 * Description: Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
 * Default: true
-
-### `mem_tracker_level`
-
-* Type: int16
-* Description: The level at which MemTracker is displayed on the Web page equal or lower than this level will be displayed on the Web page
-  ```
-    OVERVIEW = 0
-    TASK = 1
-    INSTANCE = 2
-    VERBOSE = 3
-  ```
-* Default: 0
 
 ### `mem_tracker_consume_min_size_bytes`
 
 * Type: int32
 * Description: The minimum length of TCMalloc Hook when consume/release MemTracker. Consume size smaller than this value will continue to accumulate to avoid frequent calls to consume/release of MemTracker. Decreasing this value will increase the frequency of consume/release. Increasing this value will cause MemTracker statistics to be inaccurate. Theoretically, the statistical value of a MemTracker differs from the true value = ( mem_tracker_consume_min_size_bytes * the number of BE threads where the MemTracker is located).
 * Default: 1048576
-
-### `memory_leak_detection`
-
-* Type: bool
-* Description: Whether to start memory leak detection, when MemTracker is a negative value, it is considered that a memory leak has occurred, but the actual MemTracker records inaccurately will also cause a negative value, so this feature is in the experimental stage.
-* Default: false
 
 ### `max_segment_num_per_rowset`
 

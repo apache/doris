@@ -112,20 +112,17 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _index_stream_lru_cache(nullptr),
           _file_cache(nullptr),
-          _compaction_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::AutoCompaction",
-                                                             nullptr, MemTrackerLevel::OVERVIEW)),
-          _tablet_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::TabletHeader", nullptr,
-                                                         MemTrackerLevel::OVERVIEW)),
-          _schema_change_mem_tracker(MemTracker::create_tracker(
-                  -1, "StorageEngine::SchemaChange", nullptr, MemTrackerLevel::OVERVIEW)),
-          _storage_migration_mem_tracker(MemTracker::create_tracker(
-                  -1, "StorageEngine::StorageMigration", nullptr, MemTrackerLevel::OVERVIEW)),
-          _clone_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::Clone", nullptr,
-                                                        MemTrackerLevel::OVERVIEW)),
-          _batch_load_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::BatchLoad",
-                                                             nullptr, MemTrackerLevel::OVERVIEW)),
-          _consistency_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::Consistency",
-                                                              nullptr, MemTrackerLevel::OVERVIEW)),
+          _compaction_mem_tracker(
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::AutoCompaction")),
+          _segment_meta_mem_tracker(std::make_unique<MemTracker>("StorageEngine::SegmentMeta")),
+          _schema_change_mem_tracker(
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::SchemaChange")),
+          _clone_mem_tracker(std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::Clone")),
+          _batch_load_mem_tracker(
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::BatchLoad")),
+          _consistency_mem_tracker(
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::Consistency")),
+          _mem_tracker(std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::Self")),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -170,7 +167,8 @@ StorageEngine::~StorageEngine() {
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
     for (auto data_dir : data_dirs) {
-        threads.emplace_back([data_dir] {
+        threads.emplace_back([this, data_dir] {
+            SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
             auto res = data_dir->load();
             if (!res.ok()) {
                 LOG(WARNING) << "io error when init load tables. res=" << res
@@ -221,7 +219,8 @@ Status StorageEngine::_init_store_map() {
         DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
                                      _tablet_manager.get(), _txn_manager.get());
         tmp_stores.emplace_back(store);
-        threads.emplace_back([store, &error_msg_lock, &error_msg]() {
+        threads.emplace_back([this, store, &error_msg_lock, &error_msg]() {
+            SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
             auto st = store->init();
             if (!st.ok()) {
                 {
@@ -330,7 +329,7 @@ std::vector<DataDir*> StorageEngine::get_stores() {
     stores.reserve(_store_map.size());
 
     std::lock_guard<std::mutex> l(_store_lock);
-    if (include_unused) {
+    if constexpr (include_unused) {
         for (auto& it : _store_map) {
             stores.push_back(it.second);
         }
@@ -720,6 +719,12 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     // clean unused rowset metas in OlapMeta
     _clean_unused_rowset_metas();
+
+    // clean unused rowsets in remote storage backends
+    for (auto data_dir : get_stores()) {
+        data_dir->perform_remote_rowset_gc();
+        data_dir->perform_remote_tablet_gc();
+    }
 
     return res;
 }

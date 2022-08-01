@@ -31,6 +31,7 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/short_key_index.h"
 #include "util/doris_metrics.h"
+#include "util/key_util.h"
 #include "util/simd/bits.h"
 
 namespace doris {
@@ -142,7 +143,7 @@ Status SegmentIterator::_init(bool is_vec) {
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
     // z-order can not use prefix index
-    if (_segment->_tablet_schema.sort_type() != SortType::ZORDER) {
+    if (_segment->_tablet_schema->sort_type() != SortType::ZORDER) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
@@ -151,6 +152,13 @@ Status SegmentIterator::_init(bool is_vec) {
         _vec_init_char_column_id();
     } else {
         _init_lazy_materialization();
+    }
+    // Remove rows that have been marked deleted
+    if (_opts.delete_bitmap.count(segment_id()) > 0 &&
+        _opts.delete_bitmap[segment_id()] != nullptr) {
+        size_t pre_size = _row_bitmap.cardinality();
+        _row_bitmap -= *(_opts.delete_bitmap[segment_id()]);
+        _opts.stats->rows_del_by_bitmap += (pre_size - _row_bitmap.cardinality());
     }
     _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
     return Status::OK();
@@ -383,7 +391,16 @@ int compare_row_with_lhs_columns(const LhsRowType& lhs, const RhsRowType& rhs) {
     return 0;
 }
 
-// look up one key to get its ordinal at which can get data.
+Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
+                                        rowid_t* rowid) {
+    if (_segment->_tablet_schema->keys_type() == UNIQUE_KEYS &&
+        _segment->get_primary_key_index() != nullptr) {
+        return _lookup_ordinal_from_pk_index(key, is_include, rowid);
+    }
+    return _lookup_ordinal_from_sk_index(key, is_include, upper_bound, rowid);
+}
+
+// look up one key to get its ordinal at which can get data by using short key index.
 // 'upper_bound' is defined the max ordinal the function will search.
 // We use upper_bound to reduce search times.
 // If we find a valid ordinal, it will be set in rowid and with Status::OK()
@@ -392,13 +409,17 @@ int compare_row_with_lhs_columns(const LhsRowType& lhs, const RhsRowType& rhs) {
 // 1. get [start, end) ordinal through short key index
 // 2. binary search to find exact ordinal that match the input condition
 // Make is_include template to reduce branch
-Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
-                                        rowid_t* rowid) {
+Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool is_include,
+                                                      rowid_t upper_bound, rowid_t* rowid) {
+    const ShortKeyIndexDecoder* sk_index_decoder = _segment->get_short_key_index();
+    DCHECK(sk_index_decoder != nullptr);
+
     std::string index_key;
-    encode_key_with_padding(&index_key, key, _segment->num_short_keys(), is_include);
+    encode_key_with_padding(&index_key, key, _segment->_tablet_schema->num_short_key_columns(),
+                            is_include);
 
     uint32_t start_block_id = 0;
-    auto start_iter = _segment->lower_bound(index_key);
+    auto start_iter = sk_index_decoder->lower_bound(index_key);
     if (start_iter.valid()) {
         // Because previous block may contain this key, so we should set rowid to
         // last block's first row.
@@ -410,14 +431,14 @@ Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, r
         // When we don't find a valid index item, which means all short key is
         // smaller than input key, this means that this key may exist in the last
         // row block. so we set the rowid to first row of last row block.
-        start_block_id = _segment->last_block();
+        start_block_id = sk_index_decoder->num_items() - 1;
     }
-    rowid_t start = start_block_id * _segment->num_rows_per_block();
+    rowid_t start = start_block_id * sk_index_decoder->num_rows_per_block();
 
     rowid_t end = upper_bound;
-    auto end_iter = _segment->upper_bound(index_key);
+    auto end_iter = sk_index_decoder->upper_bound(index_key);
     if (end_iter.valid()) {
-        end = end_iter.ordinal() * _segment->num_rows_per_block();
+        end = end_iter.ordinal() * sk_index_decoder->num_rows_per_block();
     }
 
     // binary search to find the exact key
@@ -441,6 +462,38 @@ Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, r
     }
 
     *rowid = start;
+    return Status::OK();
+}
+
+Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool is_include,
+                                                      rowid_t* rowid) {
+    DCHECK(_segment->_tablet_schema->keys_type() == UNIQUE_KEYS);
+    const PrimaryKeyIndexReader* pk_index_reader = _segment->get_primary_key_index();
+    DCHECK(pk_index_reader != nullptr);
+
+    std::string index_key;
+    encode_key_with_padding<RowCursor, true, true>(
+            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include);
+    bool exact_match = false;
+
+    std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
+    RETURN_IF_ERROR(pk_index_reader->new_iterator(&index_iterator));
+
+    Status status = index_iterator->seek_at_or_after(&index_key, &exact_match);
+    if (UNLIKELY(!status.ok())) {
+        *rowid = num_rows();
+        if (status.is_not_found()) {
+            return Status::OK();
+        }
+        return status;
+    }
+    *rowid = index_iterator->get_current_ordinal();
+
+    // find the key in primary key index, and the is_include is false, so move
+    // to the next row.
+    if (exact_match && !is_include) {
+        *rowid += 1;
+    }
     return Status::OK();
 }
 
@@ -809,10 +862,11 @@ void SegmentIterator::_init_current_block(
             if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
                 current_columns[cid]->set_date_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
-                // TODO(Gabriel): support datetime v2
                 current_columns[cid]->set_datetime_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DATEV2) {
                 current_columns[cid]->set_date_v2_type();
+            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIMEV2) {
+                current_columns[cid]->set_datetime_v2_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DECIMAL) {
                 current_columns[cid]->set_decimalv2_type();
             }
@@ -972,7 +1026,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     if (UNLIKELY(!_inited)) {
         RETURN_IF_ERROR(_init(true));
         _inited = true;
-        if (_lazy_materialization_read) {
+        if (_lazy_materialization_read || _opts.record_rowids) {
             _block_rowids.resize(_opts.block_row_max);
         }
         _current_return_columns.resize(_schema.columns().size());
@@ -1000,18 +1054,19 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
     _init_current_block(block, _current_return_columns);
 
-    uint32_t nrows_read = 0;
+    _current_batch_rows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
     if (UNLIKELY(_estimate_row_size)) {
         // read 100 rows to estimate average row size
         nrows_read_limit = 100;
     }
-    _read_columns_by_index(nrows_read_limit, nrows_read, _lazy_materialization_read);
+    _read_columns_by_index(nrows_read_limit, _current_batch_rows_read,
+                           _lazy_materialization_read || _opts.record_rowids);
 
     _opts.stats->blocks_load += 1;
-    _opts.stats->raw_rows_read += nrows_read;
+    _opts.stats->raw_rows_read += _current_batch_rows_read;
 
-    if (nrows_read == 0) {
+    if (_current_batch_rows_read == 0) {
         for (int i = 0; i < block->columns(); i++) {
             auto cid = _schema.column_id(i);
             // todo(wb) abstract make column where
@@ -1027,7 +1082,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         _output_non_pred_columns(block);
     } else {
         _convert_dict_code_for_predicate_if_necessary();
-        uint16_t selected_size = nrows_read;
+        uint16_t selected_size = _current_batch_rows_read;
         uint16_t sel_rowid_idx[selected_size];
 
         // step 1: evaluate vectorization predicate
@@ -1038,6 +1093,14 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         //          to reduce cost of read short circuit columns.
         //          In SSB test, it make no difference; So need more scenarios to test
         selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
+
+        if (UNLIKELY(_opts.record_rowids)) {
+            _sel_rowid_idx.reserve(selected_size);
+            _selected_size = selected_size;
+            for (auto i = 0; i < _selected_size; i++) {
+                _sel_rowid_idx[i] = sel_rowid_idx[i];
+            }
+        }
 
         if (!_lazy_materialization_read) {
             Status ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
@@ -1086,6 +1149,24 @@ void SegmentIterator::_update_max_row(const vectorized::Block* block) {
 
     int block_row_max = config::doris_scan_block_max_mb / avg_row_size;
     _opts.block_row_max = std::min(block_row_max, _opts.block_row_max);
+}
+
+Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
+    DCHECK(_opts.record_rowids);
+    DCHECK_GE(_block_rowids.size(), _current_batch_rows_read);
+    uint32_t sid = segment_id();
+    if (!_is_need_vec_eval && !_is_need_short_eval) {
+        block_row_locations->resize(_current_batch_rows_read);
+        for (auto i = 0; i < _current_batch_rows_read; i++) {
+            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[i]);
+        }
+    } else {
+        block_row_locations->resize(_selected_size);
+        for (auto i = 0; i < _selected_size; i++) {
+            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[_sel_rowid_idx[i]]);
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace segment_v2

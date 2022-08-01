@@ -18,6 +18,7 @@
 #pragma once
 
 #include <limits>
+#include <variant>
 
 #include "http/http_status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -46,17 +47,21 @@
 #define TIME_TYPE_TO_COLUMN_TYPE(M) \
     M(Date, ColumnInt64)            \
     M(DateTime, ColumnInt64)        \
-    M(DateV2, ColumnUInt32)
+    M(DateV2, ColumnUInt32)         \
+    M(DateTimeV2, ColumnUInt64)
 
 #define COMPLEX_TYPE_TO_COLUMN_TYPE(M) \
     M(BitMap, ColumnBitmap)            \
     M(HLL, ColumnHLL)
 
-#define TYPE_TO_COLUMN_TYPE(M)     \
-    NUMERIC_TYPE_TO_COLUMN_TYPE(M) \
-    DECIMAL_TYPE_TO_COLUMN_TYPE(M) \
-    STRING_TYPE_TO_COLUMN_TYPE(M)  \
-    TIME_TYPE_TO_COLUMN_TYPE(M)    \
+#define TYPE_TO_BASIC_COLUMN_TYPE(M) \
+    NUMERIC_TYPE_TO_COLUMN_TYPE(M)   \
+    DECIMAL_TYPE_TO_COLUMN_TYPE(M)   \
+    STRING_TYPE_TO_COLUMN_TYPE(M)    \
+    TIME_TYPE_TO_COLUMN_TYPE(M)
+
+#define TYPE_TO_COLUMN_TYPE(M)   \
+    TYPE_TO_BASIC_COLUMN_TYPE(M) \
     COMPLEX_TYPE_TO_COLUMN_TYPE(M)
 
 namespace doris::vectorized {
@@ -148,5 +153,13 @@ struct constexpr_3_loop_match {
 template <template <bool, bool, bool> typename Reducer>
 using constexpr_3_bool_match =
         constexpr_3_loop_match<bool, false, true, Reducer, constexpr_2_bool_match>;
+
+std::variant<std::false_type, std::true_type> static inline make_bool_variant(bool condition) {
+    if (condition) {
+        return std::true_type {};
+    } else {
+        return std::false_type {};
+    }
+}
 
 } // namespace  doris::vectorized

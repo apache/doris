@@ -21,10 +21,12 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Expression for alias, such as col1 as c1.
@@ -45,8 +47,9 @@ public class Alias extends NamedExpression implements UnaryExpression {
         this(NamedExpressionUtil.newExprId(), child, name);
     }
 
-    private Alias(ExprId exprId, Expression child, String name) {
-        super(ExpressionType.ALIAS, child);
+    @VisibleForTesting
+    Alias(ExprId exprId, Expression child, String name) {
+        super(child);
         this.exprId = exprId;
         this.name = name;
         this.qualifier = ImmutableList.of();
@@ -88,12 +91,28 @@ public class Alias extends NamedExpression implements UnaryExpression {
     }
 
     @Override
-    public String toString() {
-        return child().toString() + " AS `" + name + "`#" + exprId;
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Alias that = (Alias) o;
+        return exprId.equals(that.exprId)
+                && name.equals(that.name)
+                && qualifier.equals(that.qualifier)
+                && child().equals(that.child());
     }
 
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitAlias(this, context);
+    @Override
+    public int hashCode() {
+        return Objects.hash(exprId, name, qualifier, children());
+    }
+
+    @Override
+    public String toString() {
+        return child().toString() + " AS `" + name + "`#" + exprId;
     }
 
     @Override
@@ -102,4 +121,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
         return new Alias(exprId, children.get(0), name);
     }
 
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitAlias(this, context);
+    }
 }

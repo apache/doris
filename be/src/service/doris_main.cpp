@@ -51,6 +51,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
+#include "runtime/memory/mem_tracker_task_pool.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -63,11 +64,6 @@
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
-
-#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
-#include "runtime/tcmalloc_hook.h"
-#endif
 
 static void help(const char*);
 
@@ -285,7 +281,8 @@ int main(int argc, char** argv) {
 
     // open pid file, obtain file lock and save pid
     string pid_file = string(getenv("PID_DIR")) + "/be.pid";
-    int fd = open(pid_file.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+    int fd = open(pid_file.c_str(), O_RDWR | O_CREAT,
+                  S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
     if (fd < 0) {
         fprintf(stderr, "fail to create pid file.");
         exit(-1);
@@ -333,11 +330,6 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
         return -1;
     }
-#if defined(USE_MEM_TRACKER) && !defined(USE_JEMALLOC)
-    if (doris::config::track_new_delete) {
-        init_hook();
-    }
-#endif // USE_MEM_TRACKER
 #endif
 
     std::vector<doris::StorePath> paths;
@@ -384,6 +376,11 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
+    // init exec env
+    auto exec_env = doris::ExecEnv::GetInstance();
+    doris::ExecEnv::init(exec_env, paths);
+    doris::TabletSchemaCache::create_global_schema_cache();
+
     // init and open storage engine
     doris::EngineOptions options;
     options.store_paths = paths;
@@ -394,10 +391,6 @@ int main(int argc, char** argv) {
         LOG(FATAL) << "fail to open StorageEngine, res=" << st.get_error_msg();
         exit(-1);
     }
-
-    // init exec env
-    auto exec_env = doris::ExecEnv::GetInstance();
-    doris::ExecEnv::init(exec_env, paths);
     exec_env->set_storage_engine(engine);
     engine->set_heartbeat_flags(exec_env->heartbeat_flags());
 
@@ -405,7 +398,7 @@ int main(int argc, char** argv) {
     // SHOULD be called after exec env is initialized.
     EXIT_IF_ERROR(engine->start_bg_threads());
 
-    doris::telemetry::initTracer();
+    doris::telemetry::init_tracer();
 
     // begin to start services
     doris::ThriftRpcHelper::setup(exec_env);
@@ -481,9 +474,7 @@ int main(int argc, char** argv) {
 #endif
         doris::PerfCounters::refresh_proc_status();
 
-        // TODO(zxy) 10s is too long to clear the expired task mem tracker.
-        // A query mem tracker is about 57 bytes, assuming 10000 qps, which wastes about 55M of memory.
-        // It should be actively triggered at the end of query/load.
+        // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
         doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
         sleep(1);
     }

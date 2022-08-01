@@ -64,7 +64,7 @@ public class RuntimeProfileTest {
     public void testInfoStrings() {
         RuntimeProfile profile = new RuntimeProfile("profileName");
 
-        Assert.assertNull(profile.getInfoString("key"));
+        Assert.assertEquals("", profile.getInfoString("key"));
         // normal add and get
         profile.addInfoString("key", "value");
         String value = profile.getInfoString("key");

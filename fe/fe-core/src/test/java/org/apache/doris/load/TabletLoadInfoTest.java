@@ -17,7 +17,7 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.FeConstants;
 
 import org.junit.Assert;
@@ -30,13 +30,13 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
 public class TabletLoadInfoTest {
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
 
     @Test
     public void testSerialization() throws Exception {
         // mock catalog
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        fakeEnv = new FakeEnv();
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
 
         // test
         File file = new File("./tabletLoadInfoTest");

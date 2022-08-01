@@ -23,8 +23,10 @@
 
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/storage_engine.h"
 #include "olap/storage_policy_mgr.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema_cache.h"
 #include "testutil/mock_rowset.h"
 #include "util/time.h"
 
@@ -34,11 +36,13 @@ namespace doris {
 
 using RowsetMetaSharedContainerPtr = std::shared_ptr<std::vector<RowsetMetaSharedPtr>>;
 
+static StorageEngine* k_engine = nullptr;
+
 class TestTablet : public testing::Test {
 public:
     virtual ~TestTablet() {}
 
-    virtual void SetUp() {
+    void SetUp() override {
         _tablet_meta = new_tablet_meta(TTabletSchema());
         _json_rowset_meta = R"({
             "rowset_id": 540081,
@@ -88,9 +92,19 @@ public:
                 }]
             }
         })";
+
+        doris::EngineOptions options;
+        k_engine = new StorageEngine(options);
+        StorageEngine::_s_instance = k_engine;
     }
 
-    virtual void TearDown() {}
+    void TearDown() override {
+        if (k_engine != nullptr) {
+            k_engine->stop();
+            delete k_engine;
+            k_engine = nullptr;
+        }
+    }
 
     TabletMetaSharedPtr new_tablet_meta(TTabletSchema schema, bool enable_merge_on_write = false) {
         return static_cast<TabletMetaSharedPtr>(
@@ -268,7 +282,7 @@ TEST_F(TestTablet, cooldown_policy) {
 
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
     _tablet->init();
-    _tablet->set_cooldown_resource("test_policy_name");
+    _tablet->set_storage_policy("test_policy_name");
 
     _tablet->_rs_version_map[ptr1->version()] = rowset1;
     _tablet->_rs_version_map[ptr2->version()] = rowset2;
@@ -366,19 +380,21 @@ TEST_F(TestTablet, rowset_tree_update) {
 
     RowsetMetaSharedPtr rsm1(new RowsetMeta());
     init_rs_meta(rsm1, 6, 7, convert_key_bounds({{"100", "200"}, {"300", "400"}}));
+    rsm1->set_tablet_schema(tablet->tablet_schema());
     RowsetId id1;
     id1.init(10010);
     RowsetSharedPtr rs_ptr1;
-    MockRowset::create_rowset(&tablet_meta->tablet_schema(), "", rsm1, &rs_ptr1, false);
+    MockRowset::create_rowset(tablet->tablet_schema(), "", rsm1, &rs_ptr1, false);
     tablet->add_inc_rowset(rs_ptr1);
 
     RowsetMetaSharedPtr rsm2(new RowsetMeta());
     init_rs_meta(rsm2, 8, 8, convert_key_bounds({{"500", "999"}}));
+    rsm2->set_tablet_schema(tablet->tablet_schema());
     RowsetId id2;
     id2.init(10086);
     rsm2->set_rowset_id(id2);
     RowsetSharedPtr rs_ptr2;
-    MockRowset::create_rowset(&tablet_meta->tablet_schema(), "", rsm2, &rs_ptr2, false);
+    MockRowset::create_rowset(tablet->tablet_schema(), "", rsm2, &rs_ptr2, false);
     tablet->add_inc_rowset(rs_ptr2);
 
     RowLocation loc;

@@ -86,6 +86,28 @@ void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys,
 }
 
 template <typename T>
+void ColumnDecimal<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+    for (size_t i = 0; i < num_rows; ++i) {
+        keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
+        keys[i].size -= sizeof(T);
+    }
+}
+
+template <typename T>
+void ColumnDecimal<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
+                                                     const size_t num_rows,
+                                                     const uint8_t* null_map) {
+    for (size_t i = 0; i < num_rows; ++i) {
+        if (null_map[i] == 0) {
+            keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
+            keys[i].size -= sizeof(T);
+        } else {
+            insert_default();
+        }
+    }
+}
+
+template <typename T>
 UInt64 ColumnDecimal<T>::get64(size_t n) const {
     if constexpr (sizeof(T) > sizeof(UInt64)) {
         LOG(FATAL) << "Method get64 is not supported for " << get_family_name();

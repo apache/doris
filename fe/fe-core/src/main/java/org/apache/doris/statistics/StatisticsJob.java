@@ -18,7 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
@@ -59,7 +59,7 @@ public class StatisticsJob {
 
     protected final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    private final long id = Catalog.getCurrentCatalog().getNextId();
+    private final long id = Env.getCurrentEnv().getNextId();
 
     /**
      * to be collected database stats.
@@ -263,7 +263,7 @@ public class StatisticsJob {
      * get statisticsJob from analyzeStmt.
      * AnalyzeStmt: analyze t1(c1,c2,c3)
      * tableId: [t1]
-     * tableIdToColumnName [t1, [c1,c2,c3]]
+     * tableIdToColumnName <t1,[c1,c2,c3]>
      */
     public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt stmt) throws AnalysisException {
         long dbId = stmt.getDbId();

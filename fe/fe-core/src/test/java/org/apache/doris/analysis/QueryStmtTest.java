@@ -82,17 +82,10 @@ public class QueryStmtTest {
     @Test
     public void testCollectExprs() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
-        String sql = "SELECT CASE\n"
-                + "        WHEN (\n"
-                + "            SELECT COUNT(*) / 2\n"
-                + "            FROM db1.tbl1\n"
-                + "        ) > k4 THEN (\n"
-                + "            SELECT AVG(k4)\n"
-                + "            FROM db1.tbl1\n"
-                + "        )\n"
-                + "        ELSE (\n"
-                + "            SELECT SUM(k4)\n"
+        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
+        String sql = "SELECT CASE\n" + "        WHEN (\n" + "            SELECT COUNT(*) / 2\n"
+                + "            FROM db1.tbl1\n" + "        ) > k4 THEN (\n" + "            SELECT AVG(k4)\n"
+                + "            FROM db1.tbl1\n" + "        )\n" + "        ELSE (\n" + "            SELECT SUM(k4)\n"
                 + "            FROM db1.tbl1\n"
                 + "        )\n"
                 + "    END AS kk4\n"
@@ -197,7 +190,11 @@ public class QueryStmtTest {
         Assert.assertEquals(2, exprsMap.size());
         constMap.clear();
         constMap = getConstantExprMap(exprsMap, analyzer);
-        Assert.assertEquals(0, constMap.size());
+        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+            Assert.assertEquals(6, constMap.size());
+        } else {
+            Assert.assertEquals(0, constMap.size());
+        }
 
         sql = "SELECT k1 FROM db1.baseall GROUP BY k1 HAVING EXISTS(SELECT k4 FROM db1.tbl1 GROUP BY k4 "
                 + "HAVING SUM(k4) = k4);";
@@ -261,7 +258,7 @@ public class QueryStmtTest {
             Assert.assertEquals(24, exprsMap.size());
             constMap.clear();
             constMap = getConstantExprMap(exprsMap, analyzer);
-            Assert.assertEquals(10, constMap.size());
+            Assert.assertEquals(4, constMap.size());
         }
     }
 
@@ -283,7 +280,7 @@ public class QueryStmtTest {
                 + "FROM\n"
                 + "  (SELECT curdate()) a;";
         StatementBase stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        stmt.foldConstant(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
 
         // reAnalyze
         reAnalyze(stmt, ctx);
@@ -305,7 +302,7 @@ public class QueryStmtTest {
                 + "   t2.k2 = @@language\n"
                 + ")";
         stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        stmt.foldConstant(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
         // reAnalyze
         reAnalyze(stmt, ctx);
         Assert.assertTrue(stmt.toSql().contains("Apache License, Version 2.0"));
@@ -326,7 +323,7 @@ public class QueryStmtTest {
                 + "   t2.k2 = CONNECTION_ID()\n"
                 + ")";
         stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        stmt.foldConstant(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
         // reAnalyze
         reAnalyze(stmt, ctx);
         Assert.assertTrue(stmt.toSql().contains("root''@''%"));
@@ -339,7 +336,7 @@ public class QueryStmtTest {
                 + "   (select USER() k1, CURRENT_USER() k2, SCHEMA() k3) t1,\n"
                 + "   (select @@license k1, @@version k2) t2\n";
         stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        stmt.foldConstant(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
         // reAnalyze
         reAnalyze(stmt, ctx);
         Assert.assertTrue(stmt.toSql().contains("root''@''%"));
@@ -359,7 +356,7 @@ public class QueryStmtTest {
         // query re-analyze
         stmt.reset();
         // Re-analyze the stmt with a new analyzer.
-        stmt.analyze(new Analyzer(ctx.getCatalog(), ctx));
+        stmt.analyze(new Analyzer(ctx.getEnv(), ctx));
 
         // Restore the original result types and column labels.
         stmt.castResultExprs(origResultTypes);

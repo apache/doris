@@ -42,8 +42,7 @@ class OlapScanNode;
 class OlapScanner {
 public:
     OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
-                bool need_agg_finalize, const TPaloScanRange& scan_range,
-                const std::shared_ptr<MemTracker>& tracker);
+                bool need_agg_finalize, const TPaloScanRange& scan_range, MemTracker* tracker);
 
     virtual ~OlapScanner() = default;
 
@@ -89,7 +88,9 @@ public:
 
     const std::vector<SlotDescriptor*>& get_query_slots() const { return _query_slots; }
 
-    const std::shared_ptr<MemTracker>& mem_tracker() const { return _mem_tracker; }
+    TabletStorageType get_storage_type();
+
+    void set_batch_size(size_t batch_size) { _batch_size = batch_size; }
 
 protected:
     Status _init_tablet_reader_params(
@@ -141,6 +142,8 @@ protected:
     int64_t _raw_rows_read = 0;
     int64_t _compressed_bytes_read = 0;
 
+    size_t _batch_size = 0;
+
     // number rows filtered by pushed condition
     int64_t _num_rows_pushed_cond_filtered = 0;
 
@@ -148,7 +151,7 @@ protected:
 
     MonotonicStopWatch _watcher;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    MemTracker* _mem_tracker;
 
     TabletSchema _tablet_schema;
 };

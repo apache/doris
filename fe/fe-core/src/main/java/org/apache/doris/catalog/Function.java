@@ -519,10 +519,11 @@ public class Function implements Writable {
                 return "string_val";
             case DATE:
             case DATETIME:
-            case DATETIMEV2:
                 return "datetime_val";
             case DATEV2:
                 return "datev2_val";
+            case DATETIMEV2:
+                return "datetimev2_val";
             case DECIMALV2:
                 return "decimalv2_val";
             case DECIMAL32:
@@ -568,10 +569,11 @@ public class Function implements Writable {
                 return "StringVal";
             case DATE:
             case DATETIME:
-            case DATETIMEV2:
                 return "DateTimeVal";
             case DATEV2:
                 return "DateV2Val";
+            case DATETIMEV2:
+                return "DateTimeV2Val";
             case DECIMALV2:
                 return "DecimalV2Val";
             case DECIMAL32:

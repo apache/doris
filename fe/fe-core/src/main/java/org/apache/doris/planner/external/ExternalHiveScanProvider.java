@@ -18,6 +18,7 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.HiveBucketUtil;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
@@ -27,6 +28,7 @@ import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
@@ -39,6 +41,7 @@ import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -69,8 +72,16 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
     }
 
     @Override
-    public TFileType getTableFileType() {
-        return TFileType.FILE_HDFS;
+    public TFileType getTableFileType() throws DdlException, MetaNotFoundException {
+        String location = hmsTable.getRemoteTable().getSd().getLocation();
+        if (location != null && !location.isEmpty()) {
+            if (location.startsWith("s3a") || location.startsWith("s3n")) {
+                return TFileType.FILE_S3;
+            } else if (location.startsWith("hdfs:")) {
+                return TFileType.FILE_HDFS;
+            }
+        }
+        throw new DdlException("Unknown file type for hms table.");
     }
 
     @Override
@@ -79,33 +90,57 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
     }
 
     @Override
-    public InputSplit[] getSplits(List<Expr> exprs)
+    public List<InputSplit> getSplits(List<Expr> exprs)
             throws IOException, UserException {
         String splitsPath = getRemoteHiveTable().getSd().getLocation();
         List<String> partitionKeys = getRemoteHiveTable().getPartitionKeys()
                 .stream().map(FieldSchema::getName).collect(Collectors.toList());
+        List<Partition> hivePartitions = new ArrayList<>();
 
         if (partitionKeys.size() > 0) {
             ExprNodeGenericFuncDesc hivePartitionPredicate = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
                     exprs, partitionKeys, hmsTable.getName());
 
             String metaStoreUris = getMetaStoreUrl();
-            List<Partition> hivePartitions = HiveMetaStoreClientHelper.getHivePartitions(
-                    metaStoreUris,  getRemoteHiveTable(), hivePartitionPredicate);
-            if (!hivePartitions.isEmpty()) {
-                splitsPath = hivePartitions.stream().map(x -> x.getSd().getLocation())
-                        .collect(Collectors.joining(","));
-            }
+            hivePartitions.addAll(HiveMetaStoreClientHelper.getHivePartitions(
+                    metaStoreUris,  getRemoteHiveTable(), hivePartitionPredicate));
         }
 
         String inputFormatName = getRemoteHiveTable().getSd().getInputFormat();
 
         Configuration configuration = setConfiguration();
         InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(configuration, inputFormatName, false);
+        List<InputSplit> splits;
+        if (!hivePartitions.isEmpty()) {
+            splits = hivePartitions.parallelStream()
+                    .flatMap(x -> getSplitsByPath(inputFormat, configuration, x.getSd().getLocation()).stream())
+                    .collect(Collectors.toList());
+        } else {
+            splits = getSplitsByPath(inputFormat, configuration, splitsPath);
+        }
+        return HiveBucketUtil.getPrunedSplitsByBuckets(
+                splits,
+                hmsTable.getName(),
+                exprs,
+                getRemoteHiveTable().getSd().getBucketCols(),
+                getRemoteHiveTable().getSd().getNumBuckets(),
+                getRemoteHiveTable().getParameters());
+    }
+
+    private List<InputSplit> getSplitsByPath(
+            InputFormat<?, ?> inputFormat,
+            Configuration configuration,
+            String splitsPath) {
         JobConf jobConf = new JobConf(configuration);
         FileInputFormat.setInputPaths(jobConf, splitsPath);
-        return inputFormat.getSplits(jobConf, 0);
+        try {
+            InputSplit[] splits = inputFormat.getSplits(jobConf, 0);
+            return Lists.newArrayList(splits);
+        } catch (IOException e) {
+            return new ArrayList<InputSplit>();
+        }
     }
+
 
     protected Configuration setConfiguration() {
         Configuration conf = new Configuration();

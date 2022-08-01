@@ -40,21 +40,21 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class TableTest {
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
 
-    private Catalog catalog;
+    private Env env;
 
     private Table table;
     private long tableId = 10000;
 
     @Before
     public void setUp() {
-        fakeCatalog = new FakeCatalog();
-        catalog = Deencapsulation.newInstance(Catalog.class);
+        fakeEnv = new FakeEnv();
+        env = Deencapsulation.newInstance(Env.class);
         table = new Table(Table.TableType.OLAP);
         table.setName("test");
-        FakeCatalog.setCatalog(catalog);
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        FakeEnv.setEnv(env);
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test

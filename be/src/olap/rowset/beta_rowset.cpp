@@ -28,6 +28,7 @@
 #include "io/fs/s3_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/doris_metrics.h"
 
@@ -46,6 +47,12 @@ std::string BetaRowset::local_segment_path(const std::string& tablet_path,
     return fmt::format("{}/{}_{}.dat", tablet_path, rowset_id.to_string(), segment_id);
 }
 
+std::string BetaRowset::remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
+                                            int segment_id) {
+    // data/{tablet_id}/{rowset_id}_{seg_num}.dat
+    return fmt::format("{}/{}/{}_{}.dat", DATA_PREFIX, tablet_id, rowset_id, segment_id);
+}
+
 std::string BetaRowset::remote_segment_path(int64_t tablet_id, const RowsetId& rowset_id,
                                             int segment_id) {
     // data/{tablet_id}/{rowset_id}_{seg_num}.dat
@@ -53,7 +60,7 @@ std::string BetaRowset::remote_segment_path(int64_t tablet_id, const RowsetId& r
                        segment_id);
 }
 
-BetaRowset::BetaRowset(const TabletSchema* schema, const std::string& tablet_path,
+BetaRowset::BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
                        RowsetMetaSharedPtr rowset_meta)
         : Rowset(schema, tablet_path, std::move(rowset_meta)) {}
 

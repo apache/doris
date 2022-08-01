@@ -26,6 +26,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/schema.h"
+#include "olap/tablet_meta.h"
 #include "vec/core/block.h"
 #include "vec/olap/vgeneric_iterators.h"
 
@@ -72,6 +73,18 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
                                               read_context->predicates->end());
     }
 
+    // Take a delete-bitmap for each segment, the bitmap contains all deletes
+    // until the max read version, which is read_context->version.second
+    if (read_context->delete_bitmap != nullptr) {
+        RowsetId rowset_id = rowset()->rowset_id();
+        for (uint32_t seg_id = 0; seg_id < rowset()->num_segments(); ++seg_id) {
+            auto d = read_context->delete_bitmap->get_agg(
+                    {rowset_id, seg_id, read_context->version.second});
+            if (d->isEmpty()) continue; // Empty delete bitmap for the segment
+            read_options.delete_bitmap.emplace(seg_id, std::move(d));
+        }
+    }
+
     if (_should_push_down_value_predicates()) {
         if (read_context->value_predicates != nullptr) {
             read_options.column_predicates.insert(read_options.column_predicates.end(),
@@ -84,6 +97,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     }
     read_options.use_page_cache = read_context->use_page_cache;
     read_options.tablet_schema = read_context->tablet_schema;
+    read_options.record_rowids = read_context->record_rowids;
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
@@ -243,8 +257,17 @@ bool BetaRowsetReader::_should_push_down_value_predicates() const {
     // if unique table with rowset [0-x] or [0-1] [2-y] [...],
     // value column predicates can be pushdown on rowset [0-x] or [2-y], [2-y] must be compaction and not overlapping
     return _rowset->keys_type() == UNIQUE_KEYS &&
-           (_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
-           !_rowset->_rowset_meta->is_segments_overlapping();
+           (((_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
+             !_rowset->_rowset_meta->is_segments_overlapping()) ||
+            _context->enable_unique_key_merge_on_write);
 }
 
+Status BetaRowsetReader::get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) {
+    auto& seg_ptrs = _segment_cache_handle.get_segments();
+    segment_num_rows->resize(seg_ptrs.size());
+    for (size_t i = 0; i < seg_ptrs.size(); i++) {
+        (*segment_num_rows)[i] = seg_ptrs[i]->num_rows();
+    }
+    return Status::OK();
+}
 } // namespace doris

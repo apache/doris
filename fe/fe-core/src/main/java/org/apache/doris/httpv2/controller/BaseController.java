@@ -19,7 +19,7 @@ package org.apache.doris.httpv2.controller;
 
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.HttpAuthManager;
@@ -83,7 +83,7 @@ public class BaseController {
             ctx.setQualifiedUser(authInfo.fullUserName);
             ctx.setRemoteIP(authInfo.remoteIp);
             ctx.setCurrentUserIdentity(currentUser);
-            ctx.setCatalog(Catalog.getCurrentCatalog());
+            ctx.setEnv(Env.getCurrentEnv());
             ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             ctx.setThreadLocalInfo();
             LOG.debug("check auth without cookie success for user: {}, thread: {}",
@@ -123,7 +123,7 @@ public class BaseController {
             return null;
         }
 
-        if (checkAuth && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(sessionValue.currentUser,
+        if (checkAuth && !Env.getCurrentEnv().getAuth().checkGlobalPriv(sessionValue.currentUser,
                 PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
                         PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR))) {
             // need to check auth and check auth failed
@@ -136,7 +136,7 @@ public class BaseController {
         ctx.setQualifiedUser(sessionValue.currentUser.getQualifiedUser());
         ctx.setRemoteIP(request.getRemoteHost());
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
-        ctx.setCatalog(Catalog.getCurrentCatalog());
+        ctx.setEnv(Env.getCurrentEnv());
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setThreadLocalInfo();
         LOG.debug("check cookie success for user: {}, thread: {}",
@@ -190,7 +190,7 @@ public class BaseController {
     }
 
     protected void checkGlobalAuth(UserIdentity currentUser, PrivPredicate predicate) throws UnauthorizedException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(currentUser, predicate)) {
+        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(currentUser, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -198,7 +198,7 @@ public class BaseController {
 
     protected void checkDbAuth(UserIdentity currentUser, String db, PrivPredicate predicate)
             throws UnauthorizedException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(currentUser, db, predicate)) {
+        if (!Env.getCurrentEnv().getAuth().checkDbPriv(currentUser, db, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -206,7 +206,7 @@ public class BaseController {
 
     protected void checkTblAuth(UserIdentity currentUser, String db, String tbl, PrivPredicate predicate)
             throws UnauthorizedException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, db, tbl, predicate)) {
+        if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser, db, tbl, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -216,7 +216,7 @@ public class BaseController {
     protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo)
             throws UnauthorizedException {
         List<UserIdentity> currentUser = Lists.newArrayList();
-        if (!Catalog.getCurrentCatalog().getAuth().checkPlainPassword(authInfo.fullUserName,
+        if (!Env.getCurrentEnv().getAuth().checkPlainPassword(authInfo.fullUserName,
                 authInfo.remoteIp, authInfo.password, currentUser)) {
             throw new UnauthorizedException("Access denied for "
                     + authInfo.fullUserName + "@" + authInfo.remoteIp);

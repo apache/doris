@@ -17,12 +17,9 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
@@ -40,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
@@ -58,9 +56,7 @@ import java.util.Optional;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class PushDownPredicateTest {
 
-    private Table student;
-    private Table score;
-    private Table course;
+
 
     private Plan rStudent;
     private Plan rScore;
@@ -71,26 +67,11 @@ public class PushDownPredicateTest {
      */
     @BeforeAll
     public final void beforeAll() {
-        student = new Table(0L, "student", Table.TableType.OLAP,
-                ImmutableList.<Column>of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                        new Column("age", Type.INT, true, AggregateType.NONE, "", "")));
+        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
 
-        score = new Table(0L, "score", Table.TableType.OLAP,
-                ImmutableList.<Column>of(new Column("sid", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("cid", Type.INT, true, AggregateType.NONE, "", ""),
-                        new Column("grade", Type.DOUBLE, true, AggregateType.NONE, "", "")));
+        rScore = new LogicalOlapScan(PlanConstructor.score, ImmutableList.of("score"));
 
-        course = new Table(0L, "course", Table.TableType.OLAP,
-                ImmutableList.<Column>of(new Column("cid", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                        new Column("teacher", Type.STRING, true, AggregateType.NONE, "", "")));
-
-        rStudent = new LogicalOlapScan(student, ImmutableList.of("student"));
-
-        rScore = new LogicalOlapScan(score, ImmutableList.of("score"));
-
-        rCourse = new LogicalOlapScan(course, ImmutableList.of("course"));
+        rCourse = new LogicalOlapScan(PlanConstructor.course, ImmutableList.of("course"));
     }
 
     @Test
@@ -135,9 +116,9 @@ public class PushDownPredicateTest {
         LogicalFilter filter1 = (LogicalFilter) op2;
         LogicalFilter filter2 = (LogicalFilter) op3;
 
-        Assertions.assertEquals(join1.getCondition().get(), onCondition1);
-        Assertions.assertEquals(filter1.getPredicates(), ExpressionUtils.and(onCondition2, whereCondition1));
-        Assertions.assertEquals(filter2.getPredicates(), ExpressionUtils.and(onCondition3, whereCondition2));
+        Assertions.assertEquals(onCondition1, join1.getCondition().get());
+        Assertions.assertEquals(ExpressionUtils.and(onCondition2, whereCondition1), filter1.getPredicates());
+        Assertions.assertEquals(ExpressionUtils.and(onCondition3, whereCondition2), filter2.getPredicates());
     }
 
     @Test
@@ -176,9 +157,9 @@ public class PushDownPredicateTest {
         LogicalJoin join1 = (LogicalJoin) op1;
         LogicalFilter filter1 = (LogicalFilter) op2;
         LogicalFilter filter2 = (LogicalFilter) op3;
-        Assertions.assertEquals(join1.getCondition().get(), whereCondition1);
-        Assertions.assertEquals(filter1.getPredicates(), whereCondition2);
-        Assertions.assertEquals(filter2.getPredicates(), whereCondition3);
+        Assertions.assertEquals(whereCondition1, join1.getCondition().get());
+        Assertions.assertEquals(whereCondition2, filter1.getPredicates());
+        Assertions.assertEquals(whereCondition3, filter2.getPredicates());
     }
 
     @Test
@@ -235,13 +216,14 @@ public class PushDownPredicateTest {
         Assertions.assertTrue(op1 instanceof LogicalFilter);
         Assertions.assertTrue(op2 instanceof LogicalFilter);
 
-        Assertions.assertEquals(((LogicalJoin) join2).getCondition().get(), whereCondition2);
-        Assertions.assertEquals(((LogicalJoin) join3).getCondition().get(), whereCondition1);
-        Assertions.assertEquals(((LogicalFilter) op1).getPredicates().toSql(), whereCondition3result.toSql());
-        Assertions.assertEquals(((LogicalFilter) op2).getPredicates(), whereCondition4);
+        Assertions.assertEquals(whereCondition2, ((LogicalJoin) join2).getCondition().get());
+        Assertions.assertEquals(whereCondition1, ((LogicalJoin) join3).getCondition().get());
+        Assertions.assertEquals(whereCondition3result.toSql(), ((LogicalFilter) op1).getPredicates().toSql());
+        Assertions.assertEquals(whereCondition4, ((LogicalFilter) op2).getPredicates());
     }
 
     private Memo rewrite(Plan plan) {
-        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushPredicateThroughJoin());
+        Plan normalizedPlan = PlanRewriter.topDownRewrite(plan, new ConnectContext(), new ExpressionNormalization());
+        return PlanRewriter.topDownRewriteMemo(normalizedPlan, new ConnectContext(), new PushPredicateThroughJoin());
     }
 }

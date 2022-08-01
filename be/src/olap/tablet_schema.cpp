@@ -17,6 +17,8 @@
 
 #include "olap/tablet_schema.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include "gen_cpp/descriptors.pb.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -61,6 +63,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_DATE;
     } else if (0 == upper_type_str.compare("DATEV2")) {
         type = OLAP_FIELD_TYPE_DATEV2;
+    } else if (0 == upper_type_str.compare("DATETIMEV2")) {
+        type = OLAP_FIELD_TYPE_DATETIMEV2;
     } else if (0 == upper_type_str.compare("DATETIME")) {
         type = OLAP_FIELD_TYPE_DATETIME;
     } else if (0 == upper_type_str.compare("DECIMAL32")) {
@@ -180,6 +184,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case OLAP_FIELD_TYPE_DATETIME:
         return "DATETIME";
 
+    case OLAP_FIELD_TYPE_DATETIMEV2:
+        return "DATETIMEV2";
+
     case OLAP_FIELD_TYPE_DECIMAL:
         return "DECIMAL";
 
@@ -275,6 +282,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::DATEV2:
         return 4;
     case TPrimitiveType::DATETIME:
+        return 8;
+    case TPrimitiveType::DATETIMEV2:
         return 8;
     case TPrimitiveType::FLOAT:
         return 4;
@@ -520,6 +529,18 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
     _schema_version = schema.schema_version();
+}
+
+void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema.to_schema_pb(&tablet_schema_pb);
+    init_from_pb(tablet_schema_pb);
+}
+
+std::string TabletSchema::to_key() const {
+    TabletSchemaPB pb;
+    to_schema_pb(&pb);
+    return pb.SerializeAsString();
 }
 
 void TabletSchema::build_current_tablet_schema(int64_t index_id,

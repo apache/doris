@@ -28,6 +28,7 @@
 #include "exec/text_converter.hpp"
 #include "exprs/expr_context.h"
 #include "io/buffered_reader.h"
+#include "io/file_factory.h"
 #include "io/hdfs_reader_writer.h"
 #include "util/types.h"
 #include "util/utf8_check.h"
@@ -90,6 +91,7 @@ Status FileTextScanner::get_next(Block* block, bool* eof) {
 
     const int batch_size = _state->batch_size();
 
+    int current_rows = _rows;
     while (_rows < batch_size && !_scanner_eof) {
         if (_cur_line_reader == nullptr || _cur_line_reader_eof) {
             RETURN_IF_ERROR(_open_next_reader());
@@ -112,6 +114,10 @@ Status FileTextScanner::get_next(Block* block, bool* eof) {
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             RETURN_IF_ERROR(_fill_file_columns(Slice(ptr, size), block));
+        }
+        if (_cur_line_reader_eof) {
+            RETURN_IF_ERROR(_fill_columns_from_path(block, _rows - current_rows));
+            current_rows = _rows;
         }
     }
 
@@ -152,11 +158,8 @@ Status FileTextScanner::_open_next_reader() {
 
 Status FileTextScanner::_open_file_reader() {
     const TFileRangeDesc& range = _ranges[_next_range];
-
-    FileReader* hdfs_reader = nullptr;
-    RETURN_IF_ERROR(HdfsReaderWriter::create_reader(_params.hdfs_params, range.path,
-                                                    range.start_offset, &hdfs_reader));
-    _cur_file_reader.reset(new BufferedReader(_profile, hdfs_reader));
+    RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params, range,
+                                                    _cur_file_reader));
     return _cur_file_reader->open();
 }
 

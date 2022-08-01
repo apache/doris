@@ -19,7 +19,7 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -85,7 +85,7 @@ public class WhiteList implements Writable {
                 Preconditions.checkNotNull(password, entry.getKey());
                 // set password
                 try {
-                    Catalog.getCurrentCatalog().getAuth().setPasswordInternal(userIdent, password, domainUserIdent,
+                    Env.getCurrentEnv().getAuth().setPasswordInternal(userIdent, password, domainUserIdent,
                             false /* err on non exist */, true /* set by resolver */, true /* is replay */);
                 } catch (DdlException e) {
                     // this may happen when this user ident is already set by user, so that resolver can not

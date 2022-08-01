@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.util;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
@@ -140,11 +140,11 @@ public class LoadSubmitter {
 
         private Backend selectOneBackend() throws LoadException {
             BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
-            List<Long> backendIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+            List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
             if (backendIds.isEmpty()) {
                 throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
             }
-            Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
             if (backend == null) {
                 throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
             }

@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExchangeNode;
@@ -116,7 +117,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (physicalPlan.getType() == PlanType.PHYSICAL_PROJECT) {
             PhysicalProject<Plan> physicalProject = (PhysicalProject<Plan>) physicalPlan;
             List<Expr> outputExprs = physicalProject.getProjects().stream()
-                    .map(e -> ExpressionTranslator.translate((Expression) e, context))
+                    .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toList());
             rootFragment.setOutputExprs(outputExprs);
         } else {
@@ -149,8 +150,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         //    1. add a project after agg, if agg function is not the top output expression.
         //    2. introduce canonicalized, semanticEquals and deterministic in Expression
         //       for removing duplicate.
-        List<Expression> groupByExpressionList = aggregate.getGroupByExprList();
-        List<NamedExpression> outputExpressionList = aggregate.getOutputExpressionList();
+        List<Expression> groupByExpressionList = aggregate.getGroupByExpressions();
+        List<NamedExpression> outputExpressionList = aggregate.getOutputExpressions();
 
         // 1. generate slot reference for each group expression
         List<SlotReference> groupSlotList = Lists.newArrayList();
@@ -189,7 +190,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // process partition list
-        List<Expression> partitionExpressionList = aggregate.getPartitionExprList();
+        List<Expression> partitionExpressionList = aggregate.getPartitionExpressions();
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         DataPartition mergePartition = DataPartition.UNPARTITIONED;
@@ -244,7 +245,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage());
         }
-        exec(olapScanNode::init);
+        Utils.execWithUncheckedException(olapScanNode::init);
         olapScanNode.addConjuncts(execConjunctsList);
         context.addScanNode(olapScanNode);
         // Create PlanFragment
@@ -328,7 +329,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             childSortNode.setLimit(limit + offset);
         }
         childSortNode.setOffset(0);
-        context.addPlanFragment(mergeFragment);
         return mergeFragment;
     }
 
@@ -348,15 +348,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             throw new RuntimeException("Physical hash join could not execute without equal join condition.");
         } else {
             Expression eqJoinExpression = hashJoin.getCondition().get();
-            List<Expr> execEqConjunctList = ExpressionUtils.extractConjunct(eqJoinExpression).stream()
+            List<Expr> execEqConjunctList = ExpressionUtils.extractConjunction(eqJoinExpression).stream()
                     .map(EqualTo.class::cast)
                     .map(e -> swapEqualToForChildrenOrder(e, hashJoin.left().getOutput()))
                     .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toList());
 
+            TupleDescriptor outputDescriptor = context.generateTupleDesc();
+            List<Expr> srcToOutput = hashJoin.getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .peek(s -> context.createSlotDesc(outputDescriptor, s))
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .collect(Collectors.toList());
+
             HashJoinNode hashJoinNode = new HashJoinNode(context.nextPlanNodeId(), leftFragmentPlanRoot,
-                    rightFragmentPlanRoot,
-                    JoinType.toJoinOperator(joinType), execEqConjunctList, Lists.newArrayList());
+                    rightFragmentPlanRoot, JoinType.toJoinOperator(joinType), execEqConjunctList, Lists.newArrayList(),
+                    srcToOutput, outputDescriptor, outputDescriptor);
 
             hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
             hashJoinNode.setChild(0, leftFragmentPlanRoot);
@@ -393,7 +400,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment inputFragment = filter.child(0).accept(this, context);
         PlanNode planNode = inputFragment.getPlanRoot();
         Expression expression = filter.getPredicates();
-        List<Expression> expressionList = ExpressionUtils.extractConjunct(expression);
+        List<Expression> expressionList = ExpressionUtils.extractConjunction(expression);
         expressionList.stream().map(e -> ExpressionTranslator.translate(e, context)).forEach(planNode::addConjunct);
         return inputFragment;
     }
@@ -484,22 +491,4 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return fragment;
     }
 
-    /**
-     * Helper function to eliminate unnecessary checked exception caught requirement from the main logic of translator.
-     *
-     * @param f function which would invoke the logic of
-     *        stale code from old optimizer that could throw
-     *        a checked exception
-     */
-    public void exec(FuncWrapper f) {
-        try {
-            f.exec();
-        } catch (Exception e) {
-            throw new RuntimeException(e.getMessage(), e);
-        }
-    }
-
-    private interface FuncWrapper {
-        void exec() throws Exception;
-    }
 }

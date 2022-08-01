@@ -17,8 +17,8 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -51,7 +51,7 @@ public class Diagnoser {
     //
     public static List<List<String>> diagnoseTablet(long tabletId) {
         List<List<String>> results = Lists.newArrayList();
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
         if (tabletMeta == null) {
             results.add(Lists.newArrayList("TabletExist", "No", ""));
@@ -60,7 +60,7 @@ public class Diagnoser {
         results.add(Lists.newArrayList("TabletExist", "Yes", ""));
         results.add(Lists.newArrayList("TabletId", String.valueOf(tabletId), ""));
         // database
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             results.add(Lists.newArrayList("Database", "Not exist", ""));
             return results;
@@ -105,7 +105,7 @@ public class Diagnoser {
             results.add(Lists.newArrayList("ReplicasNum", "OK", ""));
         }
 
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
         StringBuilder backendErr = new StringBuilder();
         StringBuilder versionErr = new StringBuilder();
         StringBuilder statusErr = new StringBuilder();

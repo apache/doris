@@ -54,6 +54,10 @@ static IAggregateFunction* create_aggregate_function_single_value(const String& 
         return new AggregateFunctionTemplate<Data<SingleValueDataFixed<UInt32>>, false>(
                 argument_type);
     }
+    if (which.idx == TypeIndex::DateTimeV2) {
+        return new AggregateFunctionTemplate<Data<SingleValueDataFixed<UInt64>>, false>(
+                argument_type);
+    }
     if (which.idx == TypeIndex::Decimal32) {
         return new AggregateFunctionTemplate<Data<SingleValueDataDecimal<Decimal32>>, false>(
                 argument_type);

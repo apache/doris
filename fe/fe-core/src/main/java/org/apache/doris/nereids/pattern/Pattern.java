@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.pattern;
 
-import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -26,7 +25,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
@@ -174,11 +172,6 @@ public class Pattern<TYPE extends Plan>
 
     public Pattern<TYPE> withPredicates(List<Predicate<TYPE>> predicates) {
         return new Pattern(patternType, planType, predicates, children.toArray(new Pattern[0]));
-    }
-
-    @Override
-    public Optional<GroupExpression> getGroupExpression() {
-        return Optional.empty();
     }
 
     public boolean hasMultiChild() {

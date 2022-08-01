@@ -57,5 +57,8 @@ suite("test_string_function_like", "query") {
     qt_sql "SELECT k FROM ${tbName} WHERE k NOT LIKE \"_a_\" ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k NOT LIKE \"a__b\" ORDER BY k;"
 
+    qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"%\" ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE k NOT LIKE \"%\" ORDER BY k;"
+
     sql "DROP TABLE ${tbName};"
 }

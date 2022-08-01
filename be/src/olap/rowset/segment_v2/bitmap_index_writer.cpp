@@ -64,7 +64,7 @@ public:
     using MemoryIndexType = typename BitmapIndexTraits<CppType>::MemoryIndexType;
 
     explicit BitmapIndexWriterImpl(const TypeInfo* type_info)
-            : _type_info(type_info), _reverted_index_size(0), _pool("BitmapIndexWriterImpl") {}
+            : _type_info(type_info), _reverted_index_size(0), _pool() {}
 
     ~BitmapIndexWriterImpl() override = default;
 
@@ -222,6 +222,9 @@ Status BitmapIndexWriter::create(const TypeInfo* type_info,
         break;
     case OLAP_FIELD_TYPE_DATEV2:
         res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DATEV2>(type_info));
+        break;
+    case OLAP_FIELD_TYPE_DATETIMEV2:
+        res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DATETIMEV2>(type_info));
         break;
     case OLAP_FIELD_TYPE_LARGEINT:
         res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_LARGEINT>(type_info));

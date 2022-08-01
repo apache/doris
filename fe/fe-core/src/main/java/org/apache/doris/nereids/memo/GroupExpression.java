@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -135,19 +136,19 @@ public class GroupExpression {
     }
 
     /**
-     * Add a (parentOutputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
+     * Add a (outputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
      */
     public boolean updateLowestCostTable(
-            PhysicalProperties parentOutputProperties,
+            PhysicalProperties outputProperties,
             List<PhysicalProperties> childrenInputProperties,
             double cost) {
-        if (lowestCostTable.containsKey(parentOutputProperties)) {
-            if (lowestCostTable.get(parentOutputProperties).first > cost) {
-                lowestCostTable.put(parentOutputProperties, new Pair<>(cost, childrenInputProperties));
+        if (lowestCostTable.containsKey(outputProperties)) {
+            if (lowestCostTable.get(outputProperties).first > cost) {
+                lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
                 return true;
             }
         } else {
-            lowestCostTable.put(parentOutputProperties, new Pair<>(cost, childrenInputProperties));
+            lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
             return true;
         }
         return false;
@@ -173,5 +174,9 @@ public class GroupExpression {
     @Override
     public int hashCode() {
         return Objects.hash(children, plan);
+    }
+
+    public StatsDeriveResult getCopyOfChildStats(int idx) {
+        return child(idx).getStatistics().copy();
     }
 }

@@ -188,10 +188,10 @@ public class Config extends ConfigBase {
     /**
      * Edit log type.
      * BDB: write log to bdbje
-     * LOCAL: deprecated.
+     * LOCAL: use local file to save edit log, only used for unit test
      */
     @ConfField
-    public static String edit_log_type = "BDB";
+    public static String edit_log_type = "bdb";
 
     /**
      * bdbje port
@@ -1631,9 +1631,27 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_default_sample_percentage = 10;
 
+    /**
+     * If this configuration is enabled, you should also specify the trace_export_url.
+     */
     @ConfField(mutable = false, masterOnly = false)
     public static boolean enable_tracing = false;
 
+    /**
+     * Current support for exporting traces:
+     *   zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
+     *   collector: The collector can be used to receive and process traces and support export to a variety of
+     *     third-party systems.
+     * If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String trace_exporter = "zipkin";
+
+    /**
+     * The endpoint to export spans to.
+     * export to zipkin like: http://127.0.0.1:9411/api/v2/spans
+     * export to collector like: http://127.0.0.1:4318/v1/traces
+     */
     @ConfField(mutable = false, masterOnly = false)
     public static String trace_export_url = "http://127.0.0.1:9411/api/v2/spans";
 
@@ -1685,12 +1703,21 @@ public class Config extends ConfigBase {
      * It's used to test the reliability in single replica case when tablet scheduling are frequent.
      * Default is false.
      */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean be_rebalancer_fuzzy_test = false;
 
+    /**
+     * If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically.
+     */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean use_date_v2_by_default = false;
+    public static boolean enable_date_conversion = false;
 
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_tags = false;
+
+    /**
+     * If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_decimal_conversion = false;
 }
