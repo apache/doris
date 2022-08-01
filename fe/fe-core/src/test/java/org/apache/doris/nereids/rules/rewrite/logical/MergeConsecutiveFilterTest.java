@@ -29,8 +29,8 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -56,10 +56,10 @@ public class MergeConsecutiveFilterTest {
         //check transformed plan
         Plan resultPlan = plannerContext.getMemo().copyOut();
         System.out.println(resultPlan.treeString());
-        Assert.assertTrue(resultPlan instanceof LogicalFilter);
+        Assertions.assertTrue(resultPlan instanceof LogicalFilter);
         Expression allPredicates = ExpressionUtils.and(expression3,
                 ExpressionUtils.and(expression2, expression1));
-        Assert.assertTrue(((LogicalFilter<?>) resultPlan).getPredicates().equals(allPredicates));
-        Assert.assertTrue(resultPlan.child(0) instanceof UnboundRelation);
+        Assertions.assertTrue(((LogicalFilter<?>) resultPlan).getPredicates().equals(allPredicates));
+        Assertions.assertTrue(resultPlan.child(0) instanceof UnboundRelation);
     }
 }

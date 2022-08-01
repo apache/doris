@@ -24,8 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import java.util.Optional;
-
 /**
  * this rule aims to merge consecutive filters.
  * For example:
@@ -52,11 +50,7 @@ public class MergeConsecutiveFilters  extends OneRewriteRuleFactory {
             Expression predicates = filter.getPredicates();
             Expression childPredicates = childFilter.getPredicates();
             Expression mergedPredicates = ExpressionUtils.and(predicates, childPredicates);
-            LogicalFilter mergedFilter = new LogicalFilter(
-                    mergedPredicates,
-                    Optional.empty(),
-                    Optional.of(filter.getLogicalProperties()),
-                    childFilter.child());
+            LogicalFilter mergedFilter = new LogicalFilter(mergedPredicates, childFilter.child());
             return mergedFilter;
         }).toRule(RuleType.MERGE_CONSECUTIVE_FILTERS);
     }
