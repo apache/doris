@@ -1134,7 +1134,7 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
             int32_t old_col_idx = base_tablet->field_index(column.column_name);
             if (old_col_idx != -1) {
                 uint32_t old_unique_id =
-                        base_tablet->tablet_schema().column(old_col_idx).unique_id();
+                        base_tablet->tablet_schema()->column(old_col_idx).unique_id();
                 col_idx_to_unique_id[new_col_idx] = old_unique_id;
             } else {
                 // Not exist in old tablet, it is a new added column

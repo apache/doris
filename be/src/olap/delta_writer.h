@@ -130,7 +130,7 @@ private:
     // tablet schema owned by delta writer, all write will use this tablet schema
     // it's build from tablet_schema（stored when create tablet） and OlapTableSchema
     // every request will have it's own tablet schema so simple schema change can work
-    std::unique_ptr<TabletSchema> _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
     bool _delta_written_success;
 
     StorageEngine* _storage_engine;

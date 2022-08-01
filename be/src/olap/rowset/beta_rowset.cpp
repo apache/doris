@@ -28,6 +28,7 @@
 #include "io/fs/s3_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/doris_metrics.h"
 
@@ -59,7 +60,7 @@ std::string BetaRowset::remote_segment_path(int64_t tablet_id, const RowsetId& r
                        segment_id);
 }
 
-BetaRowset::BetaRowset(const TabletSchema* schema, const std::string& tablet_path,
+BetaRowset::BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
                        RowsetMetaSharedPtr rowset_meta)
         : Rowset(schema, tablet_path, std::move(rowset_meta)) {}
 

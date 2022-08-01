@@ -192,7 +192,7 @@ public class OlapTableSink extends DataSink {
             columns.addAll(indexMeta.getSchema().stream().map(Column::getName).collect(Collectors.toList()));
             for (Column column : indexMeta.getSchema()) {
                 TColumn tColumn = column.toThrift();
-                column.setIndexFlag(tColumn, table.getIndexes());
+                column.setIndexFlag(tColumn, table);
                 columnsDesc.add(tColumn);
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
