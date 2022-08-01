@@ -77,7 +77,7 @@ public class PushPredicateThroughAggregation extends OneRewriteRuleFactory {
             }
             List<Expression> pushDownPredicates = Lists.newArrayList();
             List<Expression> filterPredicates = Lists.newArrayList();
-            ExpressionUtils.extractConjunctive(filter.getPredicates()).forEach(conjunct -> {
+            ExpressionUtils.extractConjunction(filter.getPredicates()).forEach(conjunct -> {
                 Set<Slot> conjunctSlots = SlotExtractor.extractSlot(conjunct);
                 if (groupBySlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);

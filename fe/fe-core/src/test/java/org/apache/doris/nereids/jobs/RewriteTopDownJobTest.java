@@ -17,10 +17,7 @@
 
 package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.memo.Group;
@@ -38,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -52,14 +50,9 @@ public class RewriteTopDownJobTest {
     public static class FakeRule extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return unboundRelation().then(unboundRelation -> {
-                        Table olapTable = new Table(0, "test", TableType.OLAP, ImmutableList.of(
-                                new Column("id", Type.INT),
-                                new Column("name", Type.STRING)
-                        ));
-                        return new LogicalBoundRelation(olapTable, Lists.newArrayList("test"));
-                    }
-                ).toRule(RuleType.BINDING_RELATION);
+            return unboundRelation().then(unboundRelation ->
+                    new LogicalBoundRelation(PlanConstructor.newTable(0L, "test"), Lists.newArrayList("test"))
+            ).toRule(RuleType.BINDING_RELATION);
         }
     }
 
