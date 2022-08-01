@@ -64,6 +64,9 @@ public:
     void insert_result_into(ConstAggregateDataPtr, IColumn& to) const override {
         to.insert_default();
     }
+
+    void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
+                               Arena* arena) const override {}
 };
 
 } // namespace doris::vectorized
