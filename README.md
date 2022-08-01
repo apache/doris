@@ -50,9 +50,9 @@ Apache Doris is widely used in the following scenarios:
 
 - Reporting Analysis
 
-	- Real-time Dashboards
-	- Reports for in-house analysts and managers
-	- Highly concurrent user-oriented or customer-oriented report analysis.For example, in the scenarios of site analysis for website owners and advertising reports for advertisers, the concurrency usually requires thousands of QPS and the query latency requires sub-seconds response. The famous e-commerce company JD.com uses Doris in advertising reports, writing 10 billion rows of data per day, with tens of thousands of concurrent query QPS and 150ms query latency for the 99th percentile.
+    - Real-time Dashboards
+    - Reports for in-house analysts and managers
+    - Highly concurrent user-oriented or customer-oriented report analysis.For example, in the scenarios of site analysis for website owners and advertising reports for advertisers, the concurrency usually requires thousands of QPS and the query latency requires sub-seconds response. The famous e-commerce company JD.com uses Doris in advertising reports, writing 10 billion rows of data per day, with tens of thousands of concurrent query QPS and 150ms query latency for the 99th percentile.
 
 - Ad-Hoc Query. Analyst-oriented self-service analytics with irregular query patterns and high throughput requirements. XiaoMi has built a growth analytics platform (Growth Analytics, GA) based on Doris, using user behavior data for business growth analysis, with an average query latency of 10 seconds and a 95th percentile query latency of 30 seconds or less, and tens of thousands of SQL queries per day.
 
