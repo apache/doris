@@ -212,7 +212,7 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `buffer_pool_clean_pages_limit`
 
-default: 20G
+default: 50%
 
 Clean up pages that may be saved by the buffer pool
 
@@ -220,7 +220,7 @@ Clean up pages that may be saved by the buffer pool
 
 * Type: string
 * Description: The largest allocatable memory of the buffer pool
-* Default value: 80G
+* Default value: 20%
 
 The maximum amount of memory available in the BE buffer pool. The buffer pool is a new memory management structure of BE, which manages the memory by the buffer page and enables spill data to disk. The memory for all concurrent queries will be allocated from the buffer pool. The current buffer pool only works on **AggregationNode** and **ExchangeNode**.
 
