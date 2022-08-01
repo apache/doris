@@ -17,7 +17,7 @@
 
 github:
   description: Apache Doris is an easy-to-use, high performance and unified analytics database. 
-  homepage: https://doris.apache.org/
+  homepage: https://doris.apache.org
   labels:
     - data-warehousing
     - mpp
