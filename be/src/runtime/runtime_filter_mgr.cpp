@@ -237,32 +237,33 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         std::vector<TRuntimeFilterTargetParams>& targets = cntVal->target_info;
         for (size_t i = 0; i < targets.size(); i++) {
             rpc_contexts.emplace_back(new PPublishFilterRpcContext);
-            rpc_contexts[i]->request = apply_request;
-            rpc_contexts[i]->request.set_filter_id(request->filter_id());
-            *rpc_contexts[i]->request.mutable_query_id() = request->query_id();
+            size_t cur = rpc_contexts.size() - 1;
+            rpc_contexts[cur]->request = apply_request;
+            rpc_contexts[cur]->request.set_filter_id(request->filter_id());
+            *rpc_contexts[cur]->request.mutable_query_id() = request->query_id();
             if (has_attachment) {
-                rpc_contexts[i]->cntl.request_attachment().append(request_attachment);
+                rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
             }
-            rpc_contexts[i]->cid = rpc_contexts[i]->cntl.call_id();
+            rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
 
             // set fragment-id
-            auto request_fragment_id = rpc_contexts[i]->request.mutable_fragment_id();
-            request_fragment_id->set_hi(targets[i].target_fragment_instance_id.hi);
-            request_fragment_id->set_lo(targets[i].target_fragment_instance_id.lo);
+            auto request_fragment_id = rpc_contexts[cur]->request.mutable_fragment_id();
+            request_fragment_id->set_hi(targets[cur].target_fragment_instance_id.hi);
+            request_fragment_id->set_lo(targets[cur].target_fragment_instance_id.lo);
 
             std::shared_ptr<PBackendService_Stub> stub(
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                             targets[i].target_fragment_instance_addr));
-            VLOG_NOTICE << "send filter " << rpc_contexts[i]->request.filter_id()
+            VLOG_NOTICE << "send filter " << rpc_contexts[cur]->request.filter_id()
                         << " to:" << targets[i].target_fragment_instance_addr.hostname << ":"
                         << targets[i].target_fragment_instance_addr.port
-                        << rpc_contexts[i]->request.ShortDebugString();
+                        << rpc_contexts[cur]->request.ShortDebugString();
             if (stub == nullptr) {
                 rpc_contexts.pop_back();
                 continue;
             }
-            stub->apply_filter(&rpc_contexts[i]->cntl, &rpc_contexts[i]->request,
-                               &rpc_contexts[i]->response, brpc::DoNothing());
+            stub->apply_filter(&rpc_contexts[cur]->cntl, &rpc_contexts[cur]->request,
+                               &rpc_contexts[cur]->response, brpc::DoNothing());
         }
         for (auto& rpc_context : rpc_contexts) {
             brpc::Join(rpc_context->cid);
