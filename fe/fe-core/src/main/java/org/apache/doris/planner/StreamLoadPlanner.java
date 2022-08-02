@@ -154,7 +154,8 @@ public class StreamLoadPlanner {
 
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds);
+        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
+                Config.enable_single_replica_load);
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), taskInfo.getTimeout(),
                 taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
         olapTableSink.complete();

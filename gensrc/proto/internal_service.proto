@@ -23,6 +23,7 @@ option java_package = "org.apache.doris.proto";
 import "data.proto";
 import "descriptors.proto";
 import "types.proto";
+import "olap_file.proto";
 
 option cc_generic_services = true;
 
@@ -107,6 +108,8 @@ message PTabletWriterAddBatchRequest {
     // transfer the RowBatch to the Controller Attachment
     optional bool transfer_by_attachment = 10 [default = false];
     optional bool is_high_priority = 11 [default = false];
+    optional bool write_single_replica = 12 [default = false];
+    map<int64, PSlaveTabletNodes> slave_tablet_nodes = 13;
 };
 
 message PTabletWriterAddBlockRequest {
@@ -129,7 +132,25 @@ message PTabletWriterAddBlockRequest {
     // transfer the vectorized::Block to the Controller Attachment
     optional bool transfer_by_attachment = 10 [default = false];
     optional bool is_high_priority = 11 [default = false];
+    optional bool write_single_replica = 12 [default = false];
+    map<int64, PSlaveTabletNodes> slave_tablet_nodes = 13;
 };
+
+message PSlaveTabletNodes {
+    repeated PNodeInfo slave_nodes = 1;
+}
+
+message PNodeInfo {
+    optional int64 id = 1;
+    optional int64 option = 2;
+    optional string host = 3;
+    // used to transfer data between nodes
+    optional int32 async_internal_port = 4;
+}
+
+message PSuccessSlaveTabletNodeIds {
+    repeated int64 slave_node_ids = 1;
+}
 
 message PTabletError {
     optional int64 tablet_id = 1;
@@ -143,6 +164,7 @@ message PTabletWriterAddBatchResult {
     optional int64 wait_lock_time_us = 4;
     optional int64 wait_execution_time_us = 5;
     repeated PTabletError tablet_errors = 6;
+    map<int64, PSuccessSlaveTabletNodeIds> success_slave_tablet_node_ids = 7;
 };
 
 message PTabletWriterAddBlockResult {
@@ -152,6 +174,7 @@ message PTabletWriterAddBlockResult {
     optional int64 wait_lock_time_us = 4;
     optional int64 wait_execution_time_us = 5;
     repeated PTabletError tablet_errors = 6;
+    map<int64, PSuccessSlaveTabletNodeIds> success_slave_tablet_node_ids = 7;
 };
 
 // tablet writer cancel
@@ -476,6 +499,32 @@ message PResetRPCChannelResponse {
 
 message PEmptyRequest {};
 
+message PTabletWriteSlaveRequest {
+    optional RowsetMetaPB rowset_meta = 1;
+    optional string rowset_path = 2;
+    map<int64, int64> segments_size = 3;
+    optional string host = 4;
+    optional int32 http_port = 5;
+    optional int32 brpc_port = 6;
+    optional string token = 7;
+    optional int32 node_id = 8;
+};
+
+message PTabletWriteSlaveResult {
+    optional PStatus status = 1;
+};
+
+message PTabletWriteSlaveDoneRequest {
+    optional int64 txn_id = 1;
+    optional int64 tablet_id = 2;
+    optional int64 node_id = 3;
+    optional bool is_succeed = 4 [default = false];
+};
+
+message PTabletWriteSlaveDoneResult {
+    optional PStatus status = 1;
+};
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -507,5 +556,7 @@ service PBackendService {
     rpc check_rpc_channel(PCheckRPCChannelRequest) returns (PCheckRPCChannelResponse);
     rpc reset_rpc_channel(PResetRPCChannelRequest) returns (PResetRPCChannelResponse);
     rpc hand_shake(PHandShakeRequest) returns (PHandShakeResponse);
+    rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
+    rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
 };
 

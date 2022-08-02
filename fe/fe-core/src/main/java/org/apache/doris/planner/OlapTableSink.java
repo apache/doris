@@ -59,6 +59,7 @@ import org.apache.doris.thrift.TOlapTablePartitionParam;
 import org.apache.doris.thrift.TOlapTableSchemaParam;
 import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPaloNodesInfo;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -67,13 +68,16 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 
 public class OlapTableSink extends DataSink {
@@ -88,10 +92,14 @@ public class OlapTableSink extends DataSink {
     // set after init called
     private TDataSink tDataSink;
 
-    public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds) {
+    private boolean singleReplicaLoad;
+
+    public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds,
+            boolean singleReplicaLoad) {
         this.dstTable = dstTable;
         this.tupleDescriptor = tupleDescriptor;
         this.partitionIds = partitionIds;
+        this.singleReplicaLoad = singleReplicaLoad;
     }
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
@@ -122,6 +130,12 @@ public class OlapTableSink extends DataSink {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_PARTITION, partitionId, dstTable.getName());
             }
         }
+
+        if (singleReplicaLoad && dstTable.getStorageFormat() == TStorageFormat.V1) {
+            // Single replica load not supported by TStorageFormat.V1
+            singleReplicaLoad = false;
+            LOG.warn("Single replica load not supported by TStorageFormat.V1. table: {}", dstTable.getName());
+        }
     }
 
     public void updateLoadId(TUniqueId newLoadId) {
@@ -143,7 +157,12 @@ public class OlapTableSink extends DataSink {
         tSink.setNeedGenRollup(dstTable.shouldLoadToNewRollup());
         tSink.setSchema(createSchema(tSink.getDbId(), dstTable));
         tSink.setPartition(createPartition(tSink.getDbId(), dstTable));
-        tSink.setLocation(createLocation(dstTable));
+        List<TOlapTableLocationParam> locationParams = createLocation(dstTable);
+        tSink.setLocation(locationParams.get(0));
+        if (singleReplicaLoad) {
+            tSink.setSlaveLocation(locationParams.get(1));
+        }
+        tSink.setWriteSingleReplica(singleReplicaLoad);
         tSink.setNodesInfo(createPaloNodesInfo());
     }
 
@@ -321,8 +340,9 @@ public class OlapTableSink extends DataSink {
         }
     }
 
-    private TOlapTableLocationParam createLocation(OlapTable table) throws UserException {
+    private List<TOlapTableLocationParam> createLocation(OlapTable table) throws UserException {
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
+        TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
         // BE id -> path hash
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
         for (Long partitionId : partitionIds) {
@@ -338,8 +358,21 @@ public class OlapTableSink extends DataSink {
                                 "tablet " + tablet.getId() + " has few replicas: " + bePathsMap.keySet().size()
                                         + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]");
                     }
-                    locationParam.addToTablets(
-                            new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+
+                    if (singleReplicaLoad) {
+                        Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
+                        Random random = new Random();
+                        Long masterNode = nodes[random.nextInt(nodes.length)];
+                        Multimap<Long, Long> slaveBePathsMap = bePathsMap;
+                        slaveBePathsMap.removeAll(masterNode);
+                        locationParam.addToTablets(new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(Sets.newHashSet(masterNode))));
+                        slaveLocationParam.addToTablets(new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(slaveBePathsMap.keySet())));
+                    } else {
+                        locationParam.addToTablets(new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(bePathsMap.keySet())));
+                    }
                     allBePathsMap.putAll(bePathsMap);
                 }
             }
@@ -351,7 +384,7 @@ public class OlapTableSink extends DataSink {
         if (!st.ok()) {
             throw new DdlException(st.getErrorMsg());
         }
-        return locationParam;
+        return Arrays.asList(locationParam, slaveLocationParam);
     }
 
     private TPaloNodesInfo createPaloNodesInfo() {

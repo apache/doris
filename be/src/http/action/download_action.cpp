@@ -104,7 +104,7 @@ void DownloadAction::handle_error_log(HttpRequest* req, const std::string& file_
 }
 
 void DownloadAction::handle(HttpRequest* req) {
-    LOG(INFO) << "accept one download request " << req->debug_string();
+    VLOG_CRITICAL << "accept one download request " << req->debug_string();
 
     // add tid to cgroup in order to limit read bandwidth
     CgroupsMgr::apply_system_cgroup();
@@ -124,7 +124,7 @@ void DownloadAction::handle(HttpRequest* req) {
         handle_normal(req, file_path);
     }
 
-    LOG(INFO) << "deal with download request finished! ";
+    VLOG_CRITICAL << "deal with download request finished! ";
 }
 
 Status DownloadAction::check_token(HttpRequest* req) {

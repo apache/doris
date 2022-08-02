@@ -26,7 +26,6 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/strings/substitute.h"
-#include "olap/delta_writer.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
@@ -56,6 +55,7 @@ std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key);
 
 class DeltaWriter;
 class OlapTableSchemaParam;
+class LoadChannel;
 
 // Write channel for a particular (load, index).
 class TabletsChannel {
@@ -76,10 +76,14 @@ public:
     // If all senders are closed, close this channel, set '*finished' to true, update 'tablet_vec'
     // to include all tablets written in this channel.
     // no-op when this channel has been closed or cancelled
-    Status close(int sender_id, int64_t backend_id, bool* finished,
-                 const google::protobuf::RepeatedField<int64_t>& partition_ids,
-                 google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                 google::protobuf::RepeatedPtrField<PTabletError>* tablet_error);
+    Status
+    close(LoadChannel* parent, int sender_id, int64_t backend_id, bool* finished,
+          const google::protobuf::RepeatedField<int64_t>& partition_ids,
+          google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+          google::protobuf::RepeatedPtrField<PTabletError>* tablet_error,
+          const google::protobuf::Map<int64_t, PSlaveTabletNodes>& slave_tablet_nodes,
+          google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>* success_slave_tablet_node_ids,
+          const bool write_single_replica);
 
     // no-op when this channel has been closed or cancelled
     Status cancel();
@@ -102,7 +106,8 @@ private:
     // deal with DeltaWriter close_wait(), add tablet to list for return.
     void _close_wait(DeltaWriter* writer,
                      google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                     google::protobuf::RepeatedPtrField<PTabletError>* tablet_error);
+                     google::protobuf::RepeatedPtrField<PTabletError>* tablet_error,
+                     PSlaveTabletNodes slave_tablet_nodes, const bool write_single_replica);
 
     // id of this load channel
     TabletsChannelKey _key;
@@ -150,6 +155,8 @@ private:
     bool _is_high_priority = false;
 
     bool _is_vec = false;
+
+    bool _write_single_replica = false;
 };
 
 template <typename Request>
@@ -170,74 +177,4 @@ Status TabletsChannel::_get_current_seq(int64_t& cur_seq, const Request& request
     return Status::OK();
 }
 
-template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
-                                 TabletWriterAddResult* response) {
-    int64_t cur_seq = 0;
-
-    auto status = _get_current_seq(cur_seq, request);
-    if (UNLIKELY(!status.ok())) {
-        return status;
-    }
-
-    if (request.packet_seq() < cur_seq) {
-        LOG(INFO) << "packet has already recept before, expect_seq=" << cur_seq
-                  << ", recept_seq=" << request.packet_seq();
-        return Status::OK();
-    }
-
-    std::unordered_map<int64_t /* tablet_id */, std::vector<int> /* row index */> tablet_to_rowidxs;
-    for (int i = 0; i < request.tablet_ids_size(); ++i) {
-        int64_t tablet_id = request.tablet_ids(i);
-        if (_broken_tablets.find(tablet_id) != _broken_tablets.end()) {
-            // skip broken tablets
-            continue;
-        }
-        auto it = tablet_to_rowidxs.find(tablet_id);
-        if (it == tablet_to_rowidxs.end()) {
-            tablet_to_rowidxs.emplace(tablet_id, std::initializer_list<int> {i});
-        } else {
-            it->second.emplace_back(i);
-        }
-    }
-
-    auto get_send_data = [&]() {
-        if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
-            return RowBatch(*_row_desc, request.row_batch());
-        } else {
-            return vectorized::Block(request.block());
-        }
-    };
-
-    auto send_data = get_send_data();
-    google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
-            response->mutable_tablet_errors();
-    for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
-        auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
-        if (tablet_writer_it == _tablet_writers.end()) {
-            return Status::InternalError("unknown tablet to append data, tablet={}",
-                                         tablet_to_rowidxs_it.first);
-        }
-
-        Status st = tablet_writer_it->second->write(&send_data, tablet_to_rowidxs_it.second);
-        if (!st.ok()) {
-            auto err_msg = strings::Substitute(
-                    "tablet writer write failed, tablet_id=$0, txn_id=$1, err=$2",
-                    tablet_to_rowidxs_it.first, _txn_id, st.code());
-            LOG(WARNING) << err_msg;
-            PTabletError* error = tablet_errors->Add();
-            error->set_tablet_id(tablet_to_rowidxs_it.first);
-            error->set_msg(err_msg);
-            _broken_tablets.insert(tablet_to_rowidxs_it.first);
-            // continue write to other tablet.
-            // the error will return back to sender.
-        }
-    }
-
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        _next_seqs[request.sender_id()] = cur_seq + 1;
-    }
-    return Status::OK();
-}
 } // namespace doris

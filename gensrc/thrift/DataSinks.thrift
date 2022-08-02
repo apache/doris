@@ -131,6 +131,8 @@ struct TOlapTableSink {
     14: optional i64 load_channel_timeout_s // the timeout of load channels in second
     15: optional i32 send_batch_parallelism
     16: optional bool load_to_single_tablet
+    17: optional bool write_single_replica
+    18: optional Descriptors.TOlapTableLocationParam slave_location
 }
 
 struct TDataSink {

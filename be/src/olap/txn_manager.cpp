@@ -35,6 +35,7 @@
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
+#include "olap/delta_writer.h"
 #include "olap/lru_cache.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
@@ -80,6 +81,8 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
     _txn_tablet_maps = new txn_tablet_map_t[_txn_map_shard_size];
     _txn_partition_maps = new txn_partition_map_t[_txn_map_shard_size];
     _txn_mutex = new std::mutex[_txn_shard_size];
+    _txn_tablet_delta_writer_map = new txn_tablet_delta_writer_map_t[_txn_map_shard_size];
+    _txn_tablet_delta_writer_map_locks = new std::shared_mutex[_txn_map_shard_size];
 }
 
 Status TxnManager::prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -660,6 +663,53 @@ void TxnManager::_clear_txn_partition_map_unlocked(int64_t transaction_id, int64
             txn_partition_map.erase(it);
         }
     }
+}
+
+void TxnManager::add_txn_tablet_delta_writer(int64_t transaction_id, int64_t tablet_id,
+                                             DeltaWriter* delta_writer) {
+    std::lock_guard<std::shared_mutex> txn_wrlock(
+            _get_txn_tablet_delta_writer_map_lock(transaction_id));
+    txn_tablet_delta_writer_map_t& txn_tablet_delta_writer_map =
+            _get_txn_tablet_delta_writer_map(transaction_id);
+    auto find = txn_tablet_delta_writer_map.find(transaction_id);
+    if (find == txn_tablet_delta_writer_map.end()) {
+        txn_tablet_delta_writer_map[transaction_id] = std::map<int64_t, DeltaWriter*>();
+    }
+    txn_tablet_delta_writer_map[transaction_id][tablet_id] = delta_writer;
+}
+
+void TxnManager::finish_slave_tablet_pull_rowset(int64_t transaction_id, int64_t tablet_id,
+                                                 int64_t node_id, bool is_succeed) {
+    std::lock_guard<std::shared_mutex> txn_wrlock(
+            _get_txn_tablet_delta_writer_map_lock(transaction_id));
+    txn_tablet_delta_writer_map_t& txn_tablet_delta_writer_map =
+            _get_txn_tablet_delta_writer_map(transaction_id);
+    auto find_txn = txn_tablet_delta_writer_map.find(transaction_id);
+    if (find_txn == txn_tablet_delta_writer_map.end()) {
+        LOG(WARNING) << "delta writer manager is not exist, txn_id=" << transaction_id
+                     << ", tablet_id=" << tablet_id;
+        return;
+    }
+    auto find_tablet = txn_tablet_delta_writer_map[transaction_id].find(tablet_id);
+    if (find_tablet == txn_tablet_delta_writer_map[transaction_id].end()) {
+        LOG(WARNING) << "delta writer is not exist, txn_id=" << transaction_id
+                     << ", tablet_id=" << tablet_id;
+        return;
+    }
+    DeltaWriter* delta_writer = txn_tablet_delta_writer_map[transaction_id][tablet_id];
+    delta_writer->finish_slave_tablet_pull_rowset(node_id, is_succeed);
+}
+
+void TxnManager::clear_txn_tablet_delta_writer(int64_t transaction_id) {
+    std::lock_guard<std::shared_mutex> txn_wrlock(
+            _get_txn_tablet_delta_writer_map_lock(transaction_id));
+    txn_tablet_delta_writer_map_t& txn_tablet_delta_writer_map =
+            _get_txn_tablet_delta_writer_map(transaction_id);
+    auto it = txn_tablet_delta_writer_map.find(transaction_id);
+    if (it != txn_tablet_delta_writer_map.end()) {
+        txn_tablet_delta_writer_map.erase(it);
+    }
+    VLOG_CRITICAL << "remove delta writer manager, txn_id=" << transaction_id;
 }
 
 } // namespace doris

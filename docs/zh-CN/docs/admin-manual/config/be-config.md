@@ -926,6 +926,12 @@ BE进程的文件句柄limit要求的下限
 
 每个磁盘的最大线程数也是每个磁盘的最大队列深度
 
+### `number_slave_replica_download_threads`
+
+默认值: 64
+
+每个BE节点上slave副本同步Master副本数据的线程数，用于单副本数据导入功能。
+
 ### `number_tablet_writer_threads`
 
 默认值：16
@@ -1107,6 +1113,36 @@ routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurren
 默认值：false
 
 BE之间rpc通信是否序列化RowBatch，用于查询层之间的数据传输
+
+### `single_replica_load_brpc_port`
+
+* 类型: int32
+* 描述: 单副本数据导入功能中，Master副本和Slave副本之间通信的RPC端口。Master副本flush完成之后通过RPC通知Slave副本同步数据，以及Slave副本同步数据完成后通过RPC通知Master副本。系统为单副本数据导入过程中Master副本和Slave副本之间通信开辟了独立的BRPC线程池，以避免导入并发较大时副本之间的数据同步抢占导入数据分发和查询任务的线程资源。
+* 默认值: 9070
+
+### `single_replica_load_brpc_num_threads`
+
+* 类型: int32
+* 描述: 单副本数据导入功能中，Master副本和Slave副本之间通信的线程数量。导入并发增大时，可以适当调大该参数来保证Slave副本及时同步Master副本数据。
+* 默认值: 64
+
+### `single_replica_load_download_port`
+
+* 类型: int32
+* 描述: 单副本数据导入功能中，Slave副本通过HTTP从Master副本下载数据文件的端口。系统为单副本数据导入过程中Slave副本从Master副本下载数据文件开辟了独立的HTTP线程池，以避免导入并发较大时Slave副本下载数据文件抢占其他http任务的线程资源。
+* 默认值: 8050
+
+### `single_replica_load_download_num_workers`
+
+* 类型: int32
+* 描述: 单副本数据导入功能中，Slave副本通过HTTP从Master副本下载数据文件的线程数。导入并发增大时，可以适当调大该参数来保证Slave副本及时同步Master副本数据。
+* 默认值: 64
+
+### `slave_replica_writer_rpc_timeout_sec`
+
+* 类型: int32
+* 描述: 单副本数据导入功能中，Master副本和Slave副本之间通信的RPC超时时间。
+* 默认值: 60
 
 ### `sleep_one_second`
 + 类型：int32

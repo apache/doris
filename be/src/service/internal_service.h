@@ -148,6 +148,14 @@ public:
                            google::protobuf::Closure* done) override;
     void hand_shake(google::protobuf::RpcController* controller, const PHandShakeRequest* request,
                     PHandShakeResponse* response, google::protobuf::Closure* done) override;
+    void request_slave_tablet_pull_rowset(google::protobuf::RpcController* controller,
+                                          const PTabletWriteSlaveRequest* request,
+                                          PTabletWriteSlaveResult* response,
+                                          google::protobuf::Closure* done) override;
+    void response_slave_tablet_pull_rowset(google::protobuf::RpcController* controller,
+                                           const PTabletWriteSlaveDoneRequest* request,
+                                           PTabletWriteSlaveDoneResult* response,
+                                           google::protobuf::Closure* done) override;
 
 private:
     Status _exec_plan_fragment(const std::string& s_request, PFragmentRequestVersion version,
@@ -175,9 +183,14 @@ private:
                                   PTabletWriterAddBlockResult* response,
                                   google::protobuf::Closure* done);
 
+    void _response_pull_slave_rowset(const std::string& remote_host, int64_t brpc_port,
+                                     int64_t txn_id, int64_t tablet_id, int64_t node_id,
+                                     bool is_succeed);
+
 private:
     ExecEnv* _exec_env;
     PriorityThreadPool _tablet_worker_pool;
+    PriorityThreadPool _slave_replica_worker_pool;
 };
 
 } // namespace doris

@@ -21,6 +21,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "io/fs/file_system_map.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/delta_writer.h"
@@ -178,7 +179,7 @@ TEST_F(RemoteRowsetGcTest, normal) {
 
     st = delta_writer->close();
     ASSERT_EQ(Status::OK(), st);
-    st = delta_writer->close_wait();
+    st = delta_writer->close_wait(PSlaveTabletNodes(), false);
     ASSERT_EQ(Status::OK(), st);
 
     // publish version success

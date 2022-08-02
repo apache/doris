@@ -27,6 +27,9 @@
 #include "olap/storage_engine.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
+#include "service/backend_options.h"
+#include "util/brpc_client_cache.h"
+#include "util/ref_count_closure.h"
 
 namespace doris {
 
@@ -304,7 +307,8 @@ Status DeltaWriter::close() {
     return Status::OK();
 }
 
-Status DeltaWriter::close_wait() {
+Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
+                               const bool write_single_replica) {
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
@@ -338,7 +342,29 @@ Status DeltaWriter::close_wait() {
     const FlushStatistic& stat = _flush_token->get_stats();
     VLOG_CRITICAL << "close delta writer for tablet: " << _tablet->tablet_id()
                   << ", load id: " << print_id(_req.load_id) << ", stats: " << stat;
+
+    if (write_single_replica) {
+        for (auto node_info : slave_tablet_nodes.slave_nodes()) {
+            _request_slave_tablet_pull_rowset(node_info);
+        }
+    }
     return Status::OK();
+}
+
+bool DeltaWriter::check_slave_replicas_done(
+        google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>* success_slave_tablet_node_ids) {
+    std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
+    if (_unfinished_slave_node.empty()) {
+        success_slave_tablet_node_ids->insert({_tablet->tablet_id(), _success_slave_node_ids});
+        return true;
+    }
+    return false;
+}
+
+void DeltaWriter::add_finished_slave_replicas(
+        google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>* success_slave_tablet_node_ids) {
+    std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
+    success_slave_tablet_node_ids->insert({_tablet->tablet_id(), _success_slave_node_ids});
 }
 
 Status DeltaWriter::cancel() {
@@ -388,6 +414,83 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
         _tablet_schema->build_current_tablet_schema(index_id, ptable_schema_param,
                                                     ori_tablet_schema);
     }
+}
+
+void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
+    std::shared_ptr<PBackendService_Stub> stub =
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
+                    node_info.host(), node_info.async_internal_port());
+    if (stub == nullptr) {
+        LOG(WARNING) << "failed to send pull rowset request to slave replica. get rpc stub failed, "
+                        "slave host="
+                     << node_info.host() << ", port=" << node_info.async_internal_port()
+                     << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _req.txn_id;
+        return;
+    }
+
+    _storage_engine->txn_manager()->add_txn_tablet_delta_writer(_req.txn_id, _tablet->tablet_id(),
+                                                                this);
+    {
+        std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
+        _unfinished_slave_node.insert(node_info.id());
+    }
+
+    PTabletWriteSlaveRequest request;
+    RowsetMetaPB rowset_meta_pb = _cur_rowset->rowset_meta()->get_rowset_pb();
+    request.set_allocated_rowset_meta(&rowset_meta_pb);
+    request.set_host(BackendOptions::get_localhost());
+    request.set_http_port(config::single_replica_load_download_port);
+    string tablet_path = _tablet->tablet_path();
+    request.set_rowset_path(tablet_path);
+    request.set_token(ExecEnv::GetInstance()->token());
+    request.set_brpc_port(config::single_replica_load_brpc_port);
+    request.set_node_id(node_info.id());
+    for (int segment_id = 0; segment_id < _cur_rowset->rowset_meta()->num_segments();
+         segment_id++) {
+        std::stringstream segment_name;
+        segment_name << _cur_rowset->rowset_id() << "_" << segment_id << ".dat";
+        int64_t segment_size = std::filesystem::file_size(tablet_path + "/" + segment_name.str());
+        request.mutable_segments_size()->insert({segment_id, segment_size});
+    }
+    RefCountClosure<PTabletWriteSlaveResult>* closure =
+            new RefCountClosure<PTabletWriteSlaveResult>();
+    closure->ref();
+    closure->ref();
+    closure->cntl.set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
+    closure->cntl.ignore_eovercrowded();
+    stub->request_slave_tablet_pull_rowset(&closure->cntl, &request, &closure->result, closure);
+    request.release_rowset_meta();
+
+    closure->join();
+    if (closure->cntl.Failed()) {
+        if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
+                    stub, node_info.host(), node_info.async_internal_port())) {
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    closure->cntl.remote_side());
+        }
+        LOG(WARNING) << "failed to send pull rowset request to slave replica, error="
+                     << berror(closure->cntl.ErrorCode())
+                     << ", error_text=" << closure->cntl.ErrorText()
+                     << ". slave host: " << node_info.host()
+                     << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _req.txn_id;
+        std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
+        _unfinished_slave_node.erase(node_info.id());
+    }
+
+    if (closure->unref()) {
+        delete closure;
+    }
+    closure = nullptr;
+}
+
+void DeltaWriter::finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed) {
+    std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
+    if (is_succeed) {
+        _success_slave_node_ids.add_slave_node_ids(node_id);
+        VLOG_CRITICAL << "record successful slave replica for txn [" << _req.txn_id
+                      << "], tablet_id=" << _tablet->tablet_id() << ", node_id=" << node_id;
+    }
+    _unfinished_slave_node.erase(node_id);
 }
 
 } // namespace doris

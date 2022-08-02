@@ -1321,6 +1321,36 @@ MasterOnly：true
 
 fetch stream load record interval.
 
+### `enable_single_replica_stream_load`
+
+Default：false
+
+IsMutable：true
+
+MasterOnly：true
+
+Whether to enable the function of single replica load for stream load.
+
+### `enable_single_replica_broker_load`
+
+Default：false
+
+IsMutable：true
+
+MasterOnly：true
+
+Whether to enable the function of single replica load for broker load.
+
+### `enable_single_replica_insert`
+
+Default：false
+
+IsMutable：true
+
+MasterOnly：true
+
+Whether to enable the function of single replica load for insert.
+
 ### desired_max_waiting_jobs
 
 Default：100

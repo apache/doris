@@ -17,9 +17,15 @@
 
 #include "service/internal_service.h"
 
+#include <string>
+
 #include "common/config.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "http/http_client.h"
+#include "olap/rowset/rowset_factory.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/exec_env.h"
@@ -35,6 +41,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/md5.h"
 #include "util/proto_util.h"
+#include "util/ref_count_closure.h"
 #include "util/string_util.h"
 #include "util/telemetry/brpc_carrier.h"
 #include "util/telemetry/telemetry.h"
@@ -43,6 +50,8 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris {
+
+const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(add_batch_task_queue_size, MetricUnit::NOUNIT);
 
@@ -75,7 +84,9 @@ private:
 };
 
 PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
-        : _exec_env(exec_env), _tablet_worker_pool(config::number_tablet_writer_threads, 10240) {
+        : _exec_env(exec_env),
+          _tablet_worker_pool(config::number_tablet_writer_threads, 10240),
+          _slave_replica_worker_pool(config::number_slave_replica_download_threads, 10240) {
     REGISTER_HOOK_METRIC(add_batch_task_queue_size,
                          [this]() { return _tablet_worker_pool.get_queue_size(); });
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
@@ -756,6 +767,229 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* cntl_base
         response->set_hello(request->hello());
     }
     response->mutable_status()->set_status_code(0);
+}
+
+void PInternalServiceImpl::request_slave_tablet_pull_rowset(
+        google::protobuf::RpcController* controller, const PTabletWriteSlaveRequest* request,
+        PTabletWriteSlaveResult* response, google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    RowsetMetaPB rowset_meta_pb = request->rowset_meta();
+    std::string rowset_path = request->rowset_path();
+    google::protobuf::Map<int64, int64> segments_size = request->segments_size();
+    std::string host = request->host();
+    int64_t http_port = request->http_port();
+    int64_t brpc_port = request->brpc_port();
+    std::string token = request->token();
+    int64_t node_id = request->node_id();
+    _slave_replica_worker_pool.offer([=]() {
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                rowset_meta_pb.tablet_id(), rowset_meta_pb.tablet_schema_hash());
+        if (tablet == nullptr) {
+            LOG(WARNING) << "failed to pull rowset for slave replica. tablet ["
+                         << rowset_meta_pb.tablet_id()
+                         << "] is not exist. txn_id=" << rowset_meta_pb.txn_id();
+            _response_pull_slave_rowset(host, brpc_port, rowset_meta_pb.txn_id(),
+                                        rowset_meta_pb.tablet_id(), node_id, false);
+            return;
+        }
+
+        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+        std::string rowset_meta_str;
+        bool ret = rowset_meta_pb.SerializeToString(&rowset_meta_str);
+        if (!ret) {
+            LOG(WARNING) << "failed to pull rowset for slave replica. serialize rowset meta "
+                            "failed. rowset_id="
+                         << rowset_meta_pb.rowset_id()
+                         << ", tablet_id=" << rowset_meta_pb.tablet_id()
+                         << ", txn_id=" << rowset_meta_pb.txn_id();
+            _response_pull_slave_rowset(host, brpc_port, rowset_meta_pb.txn_id(),
+                                        rowset_meta_pb.tablet_id(), node_id, false);
+            return;
+        }
+        bool parsed = rowset_meta->init(rowset_meta_str);
+        if (!parsed) {
+            LOG(WARNING) << "failed to pull rowset for slave replica. parse rowset meta string "
+                            "failed. rowset_id="
+                         << rowset_meta_pb.rowset_id()
+                         << ", tablet_id=" << rowset_meta_pb.tablet_id()
+                         << ", txn_id=" << rowset_meta_pb.txn_id();
+            // return false will break meta iterator, return true to skip this error
+            _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
+                                        rowset_meta->tablet_id(), node_id, false);
+            return;
+        }
+        RowsetId remote_rowset_id = rowset_meta->rowset_id();
+        // change rowset id because it maybe same as other local rowset
+        RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
+        rowset_meta->set_rowset_id(new_rowset_id);
+        rowset_meta->set_tablet_uid(tablet->tablet_uid());
+        VLOG_CRITICAL << "succeed to init rowset meta for slave replica. rowset_id="
+                      << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
+                      << ", txn_id=" << rowset_meta->txn_id();
+
+        for (auto& segment : segments_size) {
+            uint64_t file_size = segment.second;
+            uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
+            if (estimate_timeout < config::download_low_speed_time) {
+                estimate_timeout = config::download_low_speed_time;
+            }
+
+            std::stringstream ss;
+            ss << "http://" << host << ":" << http_port << "/api/_tablet/_download?token=" << token
+               << "&file=" << rowset_path << "/" << remote_rowset_id << "_" << segment.first
+               << ".dat";
+            std::string remote_file_url = ss.str();
+            ss.str("");
+            ss << tablet->tablet_path() << "/" << rowset_meta->rowset_id() << "_" << segment.first
+               << ".dat";
+            std::string local_file_path = ss.str();
+
+            auto download_cb = [remote_file_url, estimate_timeout, local_file_path,
+                                file_size](HttpClient* client) {
+                RETURN_IF_ERROR(client->init(remote_file_url));
+                client->set_timeout_ms(estimate_timeout * 1000);
+                RETURN_IF_ERROR(client->download(local_file_path));
+
+                // Check file length
+                uint64_t local_file_size = std::filesystem::file_size(local_file_path);
+                if (local_file_size != file_size) {
+                    LOG(WARNING)
+                            << "failed to pull rowset for slave replica. download file length error"
+                            << ", remote_path=" << remote_file_url << ", file_size=" << file_size
+                            << ", local_file_size=" << local_file_size;
+                    return Status::InternalError("downloaded file size is not equal");
+                }
+                chmod(local_file_path.c_str(), S_IRUSR | S_IWUSR);
+                return Status::OK();
+            };
+            auto st = HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb);
+            if (!st.ok()) {
+                LOG(WARNING)
+                        << "failed to pull rowset for slave replica. failed to download file. url="
+                        << remote_file_url << ", local_path=" << local_file_path
+                        << ", txn_id=" << rowset_meta->txn_id();
+                _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
+                                            rowset_meta->tablet_id(), node_id, false);
+                return;
+            }
+            VLOG_CRITICAL << "succeed to download file for slave replica. url=" << remote_file_url
+                          << ", local_path=" << local_file_path
+                          << ", txn_id=" << rowset_meta->txn_id();
+        }
+
+        RowsetSharedPtr rowset;
+        Status create_status = RowsetFactory::create_rowset(
+                tablet->tablet_schema(), tablet->tablet_path(), rowset_meta, &rowset);
+        if (!create_status) {
+            LOG(WARNING) << "failed to create rowset from rowset meta for slave replica"
+                         << ". rowset_id: " << rowset_meta->rowset_id()
+                         << ", rowset_type: " << rowset_meta->rowset_type()
+                         << ", rowset_state: " << rowset_meta->rowset_state()
+                         << ", tablet_id=" << rowset_meta->tablet_id()
+                         << ", txn_id=" << rowset_meta->txn_id();
+            _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
+                                        rowset_meta->tablet_id(), node_id, false);
+            return;
+        }
+        if (rowset_meta->rowset_state() != RowsetStatePB::COMMITTED) {
+            LOG(WARNING) << "could not commit txn for slave replica because master rowset state is "
+                            "not committed, rowset_state="
+                         << rowset_meta->rowset_state()
+                         << ", tablet_id=" << rowset_meta->tablet_id()
+                         << ", txn_id=" << rowset_meta->txn_id();
+            _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
+                                        rowset_meta->tablet_id(), node_id, false);
+            return;
+        }
+        Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
+                tablet->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
+                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), tablet->tablet_uid(),
+                rowset_meta->load_id(), rowset, true);
+        if (!commit_txn_status &&
+            commit_txn_status !=
+                    Status::OLAPInternalError(OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST)) {
+            LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
+                         << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
+                         << ", txn_id=" << rowset_meta->txn_id();
+            _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
+                                        rowset_meta->tablet_id(), node_id, false);
+            return;
+        }
+        VLOG_CRITICAL << "succeed to pull rowset for slave replica. successfully to add committed "
+                         "rowset: "
+                      << rowset_meta->rowset_id()
+                      << " to tablet, tablet_id=" << rowset_meta->tablet_id()
+                      << ", schema_hash=" << rowset_meta->tablet_schema_hash()
+                      << ", txn_id=" << rowset_meta->txn_id();
+        _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
+                                    rowset_meta->tablet_id(), node_id, true);
+    });
+    Status::OK().to_protobuf(response->mutable_status());
+}
+
+void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote_host,
+                                                       int64_t brpc_port, int64_t txn_id,
+                                                       int64_t tablet_id, int64_t node_id,
+                                                       bool is_succeed) {
+    std::shared_ptr<PBackendService_Stub> stub =
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(remote_host,
+                                                                             brpc_port);
+    if (stub == nullptr) {
+        LOG(WARNING) << "failed to response result of slave replica to master replica. get rpc "
+                        "stub failed, master host="
+                     << remote_host << ", port=" << brpc_port << ", tablet_id=" << tablet_id
+                     << ", txn_id=" << txn_id;
+        return;
+    }
+
+    PTabletWriteSlaveDoneRequest request;
+    request.set_txn_id(txn_id);
+    request.set_tablet_id(tablet_id);
+    request.set_node_id(node_id);
+    request.set_is_succeed(is_succeed);
+    RefCountClosure<PTabletWriteSlaveDoneResult>* closure =
+            new RefCountClosure<PTabletWriteSlaveDoneResult>();
+    closure->ref();
+    closure->ref();
+    closure->cntl.set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
+    closure->cntl.ignore_eovercrowded();
+    stub->response_slave_tablet_pull_rowset(&closure->cntl, &request, &closure->result, closure);
+
+    closure->join();
+    if (closure->cntl.Failed()) {
+        if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(stub, remote_host,
+                                                                             brpc_port)) {
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    closure->cntl.remote_side());
+        }
+        LOG(WARNING) << "failed to response result of slave replica to master replica, error="
+                     << berror(closure->cntl.ErrorCode())
+                     << ", error_text=" << closure->cntl.ErrorText()
+                     << ", master host: " << remote_host << ", tablet_id=" << tablet_id
+                     << ", txn_id=" << txn_id;
+    }
+
+    if (closure->unref()) {
+        delete closure;
+    }
+    closure = nullptr;
+    VLOG_CRITICAL << "succeed to response the result of slave replica pull rowset to master "
+                     "replica. master host: "
+                  << remote_host << ". is_succeed=" << is_succeed << ", tablet_id=" << tablet_id
+                  << ", slave server=" << node_id << ", txn_id=" << txn_id;
+}
+
+void PInternalServiceImpl::response_slave_tablet_pull_rowset(
+        google::protobuf::RpcController* controller, const PTabletWriteSlaveDoneRequest* request,
+        PTabletWriteSlaveDoneResult* response, google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    VLOG_CRITICAL
+            << "receive the result of slave replica pull rowset from slave replica. slave server="
+            << request->node_id() << ", is_succeed=" << request->is_succeed()
+            << ", tablet_id=" << request->tablet_id() << ", txn_id=" << request->txn_id();
+    StorageEngine::instance()->txn_manager()->finish_slave_tablet_pull_rowset(
+            request->txn_id(), request->tablet_id(), request->node_id(), request->is_succeed());
+    Status::OK().to_protobuf(response->mutable_status());
 }
 
 } // namespace doris
