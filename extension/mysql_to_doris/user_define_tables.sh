@@ -89,45 +89,47 @@ for t_name in $(awk -F '\n' '{print $1}' ./conf/tables)
 
 done
 #replace mysql type with doris
-sed -i 's/text/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/tinyblob/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/blob/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/mediumblob/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/longblob/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/tinystring/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/mediumstring/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/longstring/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/timestamp/datetime/g' ./user_files/tables.sql
-sed -i 's/AUTO_INCREMENT//g' ./user_files/tables.sql
-sed -i 's/unsigned//g' ./user_files/tables.sql
-sed -i 's/zerofill//g' ./user_files/tables.sql
-sed -i 's/json/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/enum([^)]*)/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/\<set\>/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/bit/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci//g'  ./user_files/tables.sql
-sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8_general_ci//g' ./user_files/tables.sql
-sed -i 's/CHARACTER SET utf8 COLLATE utf8_general_ci//g' ./user_files/tables.sql
-sed -i 's/COLLATE utf8mb4_general_ci//g' ./user_files/tables.sql
-sed -i 's/COLLATE utf8_general_ci//g'  ./user_files/tables.sql
-sed -i 's/DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP//g' ./user_files/tables.sql
-sed -i 's/DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP//g' ./user_files/tables.sql
-sed -i 's/CHARACTER SET utf8 COLLATE utf8_bin//g' ./user_files/tables.sql
-sed -i 's/COLLATE utf8_general_ci//g'  ./user_files/tables.sql
-sed -i 's/datetime([0-9])/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci//g' ./user_files/tables.sql
-sed -i 's/binary/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/varbinary/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/binary([0-9])/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/varbinary([0-9])/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/string([0-9])/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/binary([0-9][0-9])/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/varbinary([0-9][0-9])/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/string([0-9][0-9])/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/binary([0-9][0-9][0-9])/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/varbinary([0-9][0-9][0-9])/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/string([0-9][0-9][0-9])/varchar(65535)/g' ./user_files/tables.sql
-sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_bin//g' ./user_files/tables.sql
+sed -i 's/\<text\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<tinyblob\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<blob\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<mediumblob\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<longblob\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<tinystring\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<mediumstring\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<longstring\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<timestamp\>/datetime/g' ./files/tables.sql
+sed -i 's/AUTO_INCREMENT//g' ./files/tables.sql
+sed -i 's/\<unsigned\>//g' ./files/tables.sql
+sed -i 's/\<zerofill\>//g' ./files/tables.sql
+sed -i 's/\<json\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/enum([^)]*)/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<set\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<bit\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci//g'  ./files/tables.sql
+sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8_general_ci//g' ./files/tables.sql
+sed -i 's/CHARACTER SET utf8 COLLATE utf8_general_ci//g' ./files/tables.sql
+sed -i 's/COLLATE utf8mb4_general_ci//g' ./files/tables.sql
+sed -i 's/COLLATE utf8_general_ci//g'  ./files/tables.sql
+sed -i 's/DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP//g' ./files/tables.sql
+sed -i 's/DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP//g' ./files/tables.sql
+sed -i 's/CHARACTER SET utf8 COLLATE utf8_bin//g' ./files/tables.sql
+sed -i 's/COLLATE utf8_general_ci//g'  ./files/tables.sql
+sed -i 's/datetime([0-9])/varchar(65535)/g' ./files/tables.sql
+sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci//g' ./files/tables.sql
+sed -i 's/\<binary\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<varbinary\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/binary([0-9])/varchar(65535)/g' ./files/tables.sql
+sed -i 's/varbinary([0-9])/varchar(65535)/g' ./files/tables.sql
+sed -i 's/string([0-9])/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<string\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/string([0-9])/varchar(65535)/g' ./files/tables.sql
+sed -i 's/binary([0-9][0-9])/varchar(65535)/g' ./files/tables.sql
+sed -i 's/varbinary([0-9][0-9])/varchar(65535)/g' ./files/tables.sql
+sed -i 's/string([0-9][0-9])/varchar(65535)/g' ./files/tables.sql
+sed -i 's/binary([0-9][0-9][0-9])/varchar(65535)/g' ./files/tables.sql
+sed -i 's/varbinary([0-9][0-9][0-9])/varchar(65535)/g' ./files/tables.sql
+sed -i 's/string([0-9][0-9][0-9])/varchar(65535)/g' ./files/tables.sql
+sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_bin//g' ./files/tables.sql
 
 
 #######################################
