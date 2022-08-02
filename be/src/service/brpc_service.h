@@ -35,7 +35,7 @@ public:
     BRpcService(ExecEnv* exec_env);
     ~BRpcService();
 
-    Status start(int port);
+    Status start(int port, int num_threads);
     void join();
 
 private:

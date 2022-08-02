@@ -1772,4 +1772,19 @@ public class DatabaseTransactionMgr {
         LOG.info("clean {} labels on db {} with label '{}' in database transaction mgr.", removedTxnIds.size(), dbId,
                 label);
     }
+
+    public long getTxnNumByStatus(TransactionStatus status) {
+        readLock();
+        try {
+            if (idToRunningTransactionState.size() > 10000) {
+                return idToRunningTransactionState.values().parallelStream()
+                        .filter(t -> t.getTransactionStatus() == status).count();
+            } else {
+                return idToRunningTransactionState.values().stream().filter(t -> t.getTransactionStatus() == status)
+                        .count();
+            }
+        } finally {
+            readUnlock();
+        }
+    }
 }

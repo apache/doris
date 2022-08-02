@@ -82,10 +82,6 @@ public:
     // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
     void load_data_dirs(const std::vector<DataDir*>& stores);
 
-    Cache* index_stream_lru_cache() { return _index_stream_lru_cache; }
-
-    std::shared_ptr<Cache> file_cache() { return _file_cache; }
-
     template <bool include_unused = false>
     std::vector<DataDir*> get_stores();
 
@@ -318,17 +314,6 @@ private:
 
     int32_t _effective_cluster_id;
     bool _is_all_cluster_id_exist;
-
-    Cache* _index_stream_lru_cache;
-
-    // _file_cache is a lru_cache for file descriptors of files opened by doris,
-    // which can be shared by others. Why we need to share cache with others?
-    // Because a unique memory space is easier for management. For example,
-    // we can deal with segment v1's cache and segment v2's cache at same time.
-    // Note that, we must create _file_cache before sharing it with other.
-    // (e.g. the storage engine's open function must be called earlier than
-    // FileBlockManager created.)
-    std::shared_ptr<Cache> _file_cache;
 
     static StorageEngine* _s_instance;
 

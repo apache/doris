@@ -17,79 +17,64 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
-import org.apache.doris.datasource.InternalDataSource;
-import org.apache.doris.thrift.TExplainLevel;
-import org.apache.doris.thrift.TPlanNode;
-import org.apache.doris.thrift.TPlanNodeType;
+import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.Multimap;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
+public class RepeatNodeTest extends TestWithFeService {
 
-public class RepeatNodeTest {
-    private Analyzer analyzer;
-    private RepeatNode node;
-    private TupleDescriptor virtualTuple;
-    private List<Set<SlotId>> groupingIdList = new ArrayList<>();
-    private List<List<Long>> groupingList = new ArrayList<>();
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("testdb");
+        useDatabase("testdb");
+        createTable(" CREATE TABLE `testdb`.`mycost` (\n" + "  `id` tinyint(4) NULL,\n" + "  `name` varchar(20) NULL,\n"
+                + "  `date` date NULL,\n" + "  `cost` bigint(20) SUM NULL\n" + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`id`, `name`, `date`)\n" + "COMMENT 'OLAP'\n" + "PARTITION BY RANGE(`date`)\n"
+                + "(PARTITION p2020 VALUES [('0000-01-01'), ('2021-01-01')),\n"
+                + "PARTITION p2021 VALUES [('2021-01-01'), ('2022-01-01')),\n"
+                + "PARTITION p2022 VALUES [('2022-01-01'), ('2023-01-01')))\n" + "DISTRIBUTED BY HASH(`id`) BUCKETS 8\n"
+                + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\"\n" + ");");
 
-    @Before
-    public void setUp() throws Exception {
-        Analyzer analyzerBase = AccessTestUtil.fetchTableAnalyzer();
-        analyzer = new Analyzer(analyzerBase.getEnv(), analyzerBase.getContext());
-        String[] cols = {"k1", "k2", "k3"};
-        List<SlotRef> slots = new ArrayList<>();
-        for (String col : cols) {
-            SlotRef expr = new SlotRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, "testdb", "t"), col);
-            slots.add(expr);
-        }
-        try {
-            Field f = analyzer.getClass().getDeclaredField("tupleByAlias");
-            f.setAccessible(true);
-            Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
-            TupleDescriptor td = new TupleDescriptor(new TupleId(0));
-            td.setTable(analyzerBase.getTableOrAnalysisException(new TableName(InternalDataSource.INTERNAL_DS_NAME, "testdb", "t")));
-            tupleByAlias.put("testdb.t", td);
-            f.set(analyzer, tupleByAlias);
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            e.printStackTrace();
-        }
-        virtualTuple = analyzer.getDescTbl().createTupleDescriptor("VIRTUAL_TUPLE");
-        groupingList.add(Arrays.asList(0L, 7L, 3L, 5L, 1L, 6L, 2L, 4L));
-        groupingList.add(Arrays.asList(0L, 7L, 3L, 5L, 1L, 6L, 2L, 4L));
-        DescriptorTable descTable = new DescriptorTable();
-        TupleDescriptor tuple = descTable.createTupleDescriptor("DstTable");
-        node = new RepeatNode(new PlanNodeId(1),
-                new OlapScanNode(new PlanNodeId(0), tuple, "null"), groupingIdList, virtualTuple, groupingList);
-
+        createTable(
+                " CREATE TABLE `testdb`.`mypeople` (\n" + "  `id` bigint(20) NULL,\n" + "  `name` varchar(20) NULL,\n"
+                        + "  `sex` varchar(10) NULL,\n" + "  `age` int(11) NULL,\n" + "  `phone` char(15) NULL,\n"
+                        + "  `address` varchar(50) NULL\n" + ") ENGINE=OLAP\n" + "DUPLICATE KEY(`id`, `name`)\n"
+                        + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`id`) BUCKETS 8\n" + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n" + "\"in_memory\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\"\n" + ");");
     }
 
     @Test
-    public void testNormal() {
-        try {
-            TPlanNode msg = new TPlanNode();
-            node.toThrift(msg);
-            node.getNodeExplainString("", TExplainLevel.NORMAL);
-            node.debugString();
-            Assert.assertEquals(TPlanNodeType.REPEAT_NODE, msg.node_type);
-        } catch (Exception e) {
-            Assert.fail("throw exceptions");
-        }
+    public void testNormal() throws Exception {
+        String sql = "select id, name, sum(cost), grouping_id(id, name) from mycost group by cube(id, name);";
+        String explainString = getSQLPlanOrErrorMsg("explain " + sql);
+        Assertions.assertTrue(explainString.contains("exprs: `id`, `name`, `cost`"));
+        Assertions.assertTrue(explainString.contains(
+                "output slots: ``id``, ``name``, ``cost``, ``GROUPING_ID``, ``GROUPING_PREFIX_`id`_`name```"));
+    }
+
+    @Test
+    public void testExpr() throws Exception {
+        String sql1 = "select if(c.id > 0, 1, 0) as id_, p.name, sum(c.cost) from mycost c "
+                + "join mypeople p on c.id = p.id group by grouping sets((id_, name),());";
+        String explainString1 = getSQLPlanOrErrorMsg("explain " + sql1);
+        System.out.println(explainString1);
+        Assertions.assertTrue(explainString1.contains(
+                "output slots: `if(`c`.`id` > 0, 1, 0)`, ``p`.`name``, ``c`.`cost``, ``GROUPING_ID``"));
+
+        String sql2 = "select (id + 1) id_, name, sum(cost) from mycost group by grouping sets((id_, name),());";
+        String explainString2 = getSQLPlanOrErrorMsg("explain " + sql2);
+        System.out.println(explainString2);
+        Assertions.assertTrue(explainString2.contains("exprs: (`id` + 1), `name`, `cost`"));
+        Assertions.assertTrue(
+                explainString2.contains(" output slots: `(`id` + 1)`, ``name``, ``cost``, ``GROUPING_ID``"));
+
+        String sql3 = "select 1 as id_, name, sum(cost) from mycost group by grouping sets((id_, name),());";
+        String explainString3 = getSQLPlanOrErrorMsg("explain " + sql3);
+        System.out.println(explainString3);
+        Assertions.assertTrue(explainString3.contains("exprs: 1, `name`, `cost`"));
+        Assertions.assertTrue(explainString3.contains("output slots: `1`, ``name``, ``cost``, ``GROUPING_ID``"));
     }
 }

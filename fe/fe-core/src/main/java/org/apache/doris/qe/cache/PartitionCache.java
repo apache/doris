@@ -106,8 +106,6 @@ public class PartitionCache extends Cache {
             }
             cacheResult = cacheResult.toBuilder().setAllCount(range.getPartitionSingleList().size()).build();
             MetricRepo.COUNTER_CACHE_HIT_PARTITION.increase(1L);
-            MetricRepo.COUNTER_CACHE_PARTITION_ALL.increase((long) range.getPartitionSingleList().size());
-            MetricRepo.COUNTER_CACHE_PARTITION_HIT.increase((long) cacheResult.getValuesList().size());
         }
 
         range.setTooNewByID(latestTable.latestPartitionId);

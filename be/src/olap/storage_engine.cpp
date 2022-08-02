@@ -110,8 +110,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _available_storage_medium_type_count(0),
           _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
-          _index_stream_lru_cache(nullptr),
-          _file_cache(nullptr),
           _compaction_mem_tracker(
                   std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::AutoCompaction")),
           _segment_meta_mem_tracker(std::make_unique<MemTracker>("StorageEngine::SegmentMeta")),
@@ -183,9 +181,6 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 }
 
 Status StorageEngine::_open() {
-    // NOTE: must init before _init_store_map.
-    _file_cache.reset(new_lru_cache("FileHandlerCache", config::file_descriptor_cache_capacity));
-
     // init store_map
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_store_map(), "_init_store_map failed");
 
@@ -195,9 +190,6 @@ Status StorageEngine::_open() {
     _update_storage_medium_type_count();
 
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
-
-    _index_stream_lru_cache =
-            new_lru_cache("SegmentIndexCache", config::index_stream_cache_capacity);
 
     auto dirs = get_stores<false>();
     load_data_dirs(dirs);
@@ -597,9 +589,6 @@ void StorageEngine::stop() {
 }
 
 void StorageEngine::_clear() {
-    SAFE_DELETE(_index_stream_lru_cache);
-    _file_cache.reset();
-
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& store_pair : _store_map) {
         delete store_pair.second;
@@ -643,7 +632,6 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 }
 
 void StorageEngine::_start_clean_cache() {
-    _file_cache->prune();
     SegmentLoader::instance()->prune();
 }
 

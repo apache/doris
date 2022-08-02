@@ -47,6 +47,7 @@
 #include "util/time.h"
 
 namespace doris {
+class DeltaWriter;
 
 struct TabletTxnInfo {
     PUniqueId load_id;
@@ -69,6 +70,8 @@ public:
         delete[] _txn_partition_maps;
         delete[] _txn_map_locks;
         delete[] _txn_mutex;
+        delete[] _txn_tablet_delta_writer_map;
+        delete[] _txn_tablet_delta_writer_map_locks;
     }
 
     Status prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -137,6 +140,12 @@ public:
     void get_partition_ids(const TTransactionId transaction_id,
                            std::vector<TPartitionId>* partition_ids);
 
+    void add_txn_tablet_delta_writer(int64_t transaction_id, int64_t tablet_id,
+                                     DeltaWriter* delta_writer);
+    void clear_txn_tablet_delta_writer(int64_t transaction_id);
+    void finish_slave_tablet_pull_rowset(int64_t transaction_id, int64_t tablet_id, int64_t node_id,
+                                         bool is_succeed);
+
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
 
@@ -159,6 +168,8 @@ private:
     typedef std::unordered_map<TxnKey, std::map<TabletInfo, TabletTxnInfo>, TxnKeyHash, TxnKeyEqual>
             txn_tablet_map_t;
     typedef std::unordered_map<int64_t, std::unordered_set<int64_t>> txn_partition_map_t;
+    typedef std::unordered_map<int64_t, std::map<int64_t, DeltaWriter*>>
+            txn_tablet_delta_writer_map_t;
 
     std::shared_mutex& _get_txn_map_lock(TTransactionId transactionId);
 
@@ -167,6 +178,10 @@ private:
     txn_partition_map_t& _get_txn_partition_map(TTransactionId transactionId);
 
     inline std::mutex& _get_txn_lock(TTransactionId transactionId);
+
+    std::shared_mutex& _get_txn_tablet_delta_writer_map_lock(TTransactionId transactionId);
+
+    txn_tablet_delta_writer_map_t& _get_txn_tablet_delta_writer_map(TTransactionId transactionId);
 
     // Insert or remove (transaction_id, partition_id) from _txn_partition_map
     // get _txn_map_lock before calling.
@@ -193,6 +208,9 @@ private:
     std::shared_mutex* _txn_map_locks;
 
     std::mutex* _txn_mutex;
+
+    txn_tablet_delta_writer_map_t* _txn_tablet_delta_writer_map;
+    std::shared_mutex* _txn_tablet_delta_writer_map_locks;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 }; // TxnManager
 
@@ -211,6 +229,16 @@ inline TxnManager::txn_partition_map_t& TxnManager::_get_txn_partition_map(
 
 inline std::mutex& TxnManager::_get_txn_lock(TTransactionId transactionId) {
     return _txn_mutex[transactionId & (_txn_shard_size - 1)];
+}
+
+inline std::shared_mutex& TxnManager::_get_txn_tablet_delta_writer_map_lock(
+        TTransactionId transactionId) {
+    return _txn_tablet_delta_writer_map_locks[transactionId & (_txn_map_shard_size - 1)];
+}
+
+inline TxnManager::txn_tablet_delta_writer_map_t& TxnManager::_get_txn_tablet_delta_writer_map(
+        TTransactionId transactionId) {
+    return _txn_tablet_delta_writer_map[transactionId & (_txn_map_shard_size - 1)];
 }
 
 } // namespace doris

@@ -90,6 +90,8 @@ protected:
         // Do nothing.
     }
 
+    virtual bool check_current_rowset_segment() override { return true; };
+
 private:
     bool is_mem_rowset_;
 };

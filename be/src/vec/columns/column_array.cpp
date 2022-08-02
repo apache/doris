@@ -768,8 +768,9 @@ ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
             nested_perm.push_back(offset_at(perm[i]) + j);
         }
     }
-
-    res->data = data->permute(nested_perm, nested_perm.size());
+    if (nested_perm.size() != 0) {
+        res->data = data->permute(nested_perm, nested_perm.size());
+    }
     return res;
 }
 
