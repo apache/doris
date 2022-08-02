@@ -139,7 +139,6 @@ private:
     private:
         Status (Level0Iterator::*_refresh_current_row)() = nullptr;
 
-        Status _refresh_current_row_v1();
         Status _refresh_current_row_v2();
 
         RowsetReaderSharedPtr _rs_reader;

@@ -195,7 +195,7 @@ CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
     if (LIKELY(rs_reader->type() == RowsetTypePB::BETA_ROWSET)) {
         _refresh_current_row = &Level0Iterator::_refresh_current_row_v2;
     } else {
-        _refresh_current_row = &Level0Iterator::_refresh_current_row_v1;
+        LOG(FATAL) << "Not supported rowset type";
     }
 }
 
@@ -218,31 +218,6 @@ const RowCursor* CollectIterator::Level0Iterator::current_row() const {
 
 int64_t CollectIterator::Level0Iterator::version() const {
     return _rs_reader->version().second;
-}
-
-Status CollectIterator::Level0Iterator::_refresh_current_row_v1() {
-    do {
-        if (_row_block != nullptr && _row_block->has_remaining()) {
-            size_t pos = _row_block->pos();
-            _row_block->get_row(pos, &_row_cursor);
-            if (_row_block->block_status() == DEL_PARTIAL_SATISFIED &&
-                _reader->_delete_handler.is_filter_data(version(), _row_cursor)) {
-                _reader->_stats.rows_del_filtered++;
-                _row_block->pos_inc();
-                continue;
-            }
-            _current_row = &_row_cursor;
-            return Status::OK();
-        } else {
-            auto res = _rs_reader->next_block(&_row_block);
-            if (!res.ok()) {
-                _current_row = nullptr;
-                return res;
-            }
-        }
-    } while (_row_block != nullptr);
-    _current_row = nullptr;
-    return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
 }
 
 Status CollectIterator::Level0Iterator::_refresh_current_row_v2() {
