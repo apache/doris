@@ -45,7 +45,7 @@ rm -rf ./files/tables
 rm -rf ./files/tables.sql
 
 #get tables from mysql databases
-echo "use $d_mysql; show tables;" |mysql -h$mysql  -uroot -p$mysql_password 2>/dev/null >> ./files/tables
+echo "use $d_mysql; show tables;" |mysql -h$mysql_host  -uroot -p$mysql_password 2>/dev/null >> ./files/tables
 
 #delete tables first line
 sed -i '1d' ./files/tables
