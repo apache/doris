@@ -110,37 +110,37 @@ sed -i 's/CHARACTER SET utf8//g' ./files/tables.sql
 sed -i 's/COLLATE utf8mb4_general_ci//g' ./files/tables.sql
 sed -i 's/COLLATE utf8_general_ci//g'  ./files/tables.sql
 sed -i 's/COLLATE utf8_general_ci//g'  ./files/tables.sql
-sed -i 's/\<tinytext\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<text\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<mediumtext\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<longtext\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<tinyblob\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<blob\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<mediumblob\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<longblob\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<tinystring\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<mediumstring\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<longstring\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<tinytext\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<text\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<mediumtext\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<longtext\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<tinyblob\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<blob\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<mediumblob\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<longblob\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<tinystring\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<mediumstring\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<longstring\>/varchar(65533)/g' ./files/tables.sql
 sed -i 's/\<timestamp\>/datetime/g' ./files/tables.sql
 sed -i 's/\<unsigned\>//g' ./files/tables.sql
 sed -i 's/\<zerofill\>//g' ./files/tables.sql
-sed -i 's/\<json\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/enum([^)]*)/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<set\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<bit\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/datetime([0-9])/varchar(65535)/g' ./files/tables.sql
-sed -i 's/string([0-9][0-9][0-9])/varchar(65535)/g' ./files/tables.sql
-sed -i 's/string([0-9][0-9])/varchar(65535)/g' ./files/tables.sql
-sed -i 's/string([0-9])/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<string\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/binary([0-9][0-9][0-9])/varchar(65535)/g' ./files/tables.sql
-sed -i 's/binary([0-9][0-9])/varchar(65535)/g' ./files/tables.sql
-sed -i 's/binary([0-9])/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<binary\>/varchar(65535)/g' ./files/tables.sql
-sed -i 's/varbinary([0-9][0-9][0-9])/varchar(65535)/g' ./files/tables.sql
-sed -i 's/varbinary([0-9][0-9])/varchar(65535)/g' ./files/tables.sql
-sed -i 's/varbinary([0-9])/varchar(65535)/g' ./files/tables.sql
-sed -i 's/\<varbinary\>/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<json\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/enum([^)]*)/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<set\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<bit\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/datetime([0-9])/varchar(65533)/g' ./files/tables.sql
+sed -i 's/string([0-9][0-9][0-9])/varchar(65533)/g' ./files/tables.sql
+sed -i 's/string([0-9][0-9])/varchar(65533)/g' ./files/tables.sql
+sed -i 's/string([0-9])/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<string\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/binary([0-9][0-9][0-9])/varchar(65533)/g' ./files/tables.sql
+sed -i 's/binary([0-9][0-9])/varchar(65533)/g' ./files/tables.sql
+sed -i 's/binary([0-9])/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<binary\>/varchar(65533)/g' ./files/tables.sql
+sed -i 's/varbinary([0-9][0-9][0-9])/varchar(65533)/g' ./files/tables.sql
+sed -i 's/varbinary([0-9][0-9])/varchar(65533)/g' ./files/tables.sql
+sed -i 's/varbinary([0-9])/varchar(65533)/g' ./files/tables.sql
+sed -i 's/\<varbinary\>/varchar(65533)/g' ./files/tables.sql
 
 
 #######################################
