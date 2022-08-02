@@ -96,7 +96,10 @@ public:
         bool record_rowids = false;
         // used for special optimization for query : ORDER BY key LIMIT n
         bool read_orderby_key = false;
+        // used for special optimization for query : ORDER BY key DESC LIMIT n
         bool read_orderby_key_reverse = false;
+        // num of columns for orderby key
+        size_t read_orderby_key_columns = 0;
 
         void check_validation() const;
 

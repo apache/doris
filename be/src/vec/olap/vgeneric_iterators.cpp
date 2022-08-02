@@ -120,13 +120,17 @@ Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
 class VMergeIteratorContext {
 public:
     VMergeIteratorContext(RowwiseIterator* iter, int sequence_id_idx, bool is_unique,
-                          bool is_reverse)
+                          bool is_reverse, size_t read_orderby_key_columns)
             : _iter(iter),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
               _num_columns(iter->schema().num_column_ids()),
-              _num_key_columns(iter->schema().num_key_columns()) {}
+              _num_compare_columns(iter->schema().num_key_columns()) {
+        if (read_orderby_key_columns > 0) {
+            // _num_compare_columns = read_orderby_key_columns;
+        }
+    }
 
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
     VMergeIteratorContext(VMergeIteratorContext&&) = delete;
@@ -164,7 +168,7 @@ public:
 
     bool compare(const VMergeIteratorContext& rhs) const {
         int cmp_res = this->_block.compare_at(_index_in_block, rhs._index_in_block,
-                                              _num_key_columns, rhs._block, -1);
+                                              _num_compare_columns, rhs._block, -1);
         if (cmp_res != 0) {
             return UNLIKELY(_is_reverse) ? cmp_res < 0 : cmp_res > 0;
         }
@@ -236,7 +240,7 @@ private:
     size_t _index_in_block = -1;
     int _block_row_max = 4096;
     int _num_columns;
-    int _num_key_columns;
+    int _num_compare_columns;
     std::vector<RowLocation> _block_row_locations;
     bool _record_rowids = false;
 };
@@ -355,7 +359,8 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
 
     for (auto iter : _origin_iters) {
         auto ctx = std::make_unique<VMergeIteratorContext>(iter, _sequence_id_idx, _is_unique,
-                                                           _is_reverse);
+                                                           _is_reverse,
+                                                           opts.read_orderby_key_columns);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;

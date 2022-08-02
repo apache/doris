@@ -201,6 +201,10 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
 
         if (read_params.read_orderby_key) {
             need_ordered_result = true;
+            // UNIQUE_KEYS will read all keys
+            if (_tablet_schema->keys_type() == DUP_KEYS) {
+                _reader_context.read_orderby_key_columns = read_params.read_orderby_key_columns;
+            }
         }
     }
 

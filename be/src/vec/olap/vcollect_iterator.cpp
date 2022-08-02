@@ -136,7 +136,7 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
 
     int cmp_res =
             lhs_ref.block->compare_at(lhs_ref.row_pos, rhs_ref.row_pos,
-                                      lhs->tablet_schema().num_key_columns(), *rhs_ref.block, -1);
+                                      lhs->num_compare_columns(), *rhs_ref.block, -1);
     if (cmp_res != 0) {
         return UNLIKELY(_is_reverse) ? cmp_res < 0 : cmp_res > 0;
     }

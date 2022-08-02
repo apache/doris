@@ -38,6 +38,8 @@ struct RowsetReaderContext {
     bool need_ordered_result = true;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
+    // num of columns for orderby key
+    size_t read_orderby_key_columns = 0;
     // projection columns: the set of columns rowset reader should return
     const std::vector<uint32_t>* return_columns = nullptr;
     // set of columns used to prune rows that doesn't satisfy key ranges and `conditions`.

@@ -762,28 +762,23 @@ public class OlapScanNode extends ScanNode {
         // Like: schema: a.b.c.d.e.f.g order by key: a.b.c (no a,b,d)
         // Do **prefix match** to check if order by key can be pushed down.
         // olap order by key: a.b.c.d
-        // sort key: (a) (a,c) (a,c,d) ok, (a,c,b) (a,c,f) not ok
-        int sortSlotIndex = 0;
-        for (int i = 0; i < olapTable.getDataSortInfo().getColNum(); i++) {
+        // sort key: (a) (a,b) (a,b,c) (a,b,c,d) is ok
+        //           (a,c) (a,c,d), (a,c,b) (a,c,f) (a,b,c,d,e)is NOT ok
+        List<Expr> sortExprs = sortNode.getSortInfo().getMaterializedOrderingExprs();
+        if (sortExprs.size() > olapTable.getDataSortInfo().getColNum()) {
+            return false;
+        }
+        for (int i = 0; i < sortExprs.size(); i++) {
             // table key.
-            Column key = olapTable.getFullSchema().get(i);
-
+            Column tableKey = olapTable.getFullSchema().get(i);
             // sort slot.
-            Expr expr = sortNode.getSortInfo().getMaterializedOrderingExprs().get(sortSlotIndex);
-            if (!(expr instanceof SlotRef)) {
+            Expr sortExpr = sortExprs.get(i);
+            if (!(sortExpr instanceof SlotRef) || !tableKey.equals(((SlotRef) sortExpr).getColumn())) {
                 return false;
-            }
-            SlotRef slotRef = (SlotRef) expr;
-
-            if (key.equals(slotRef.getColumn())) {
-                sortSlotIndex++;
-                if (sortSlotIndex == sortNode.getSortInfo().getMaterializedOrderingExprs().size()) {
-                    return true;
-                }
             }
         }
 
-        return false;
+        return true;
     }
 
     /**
