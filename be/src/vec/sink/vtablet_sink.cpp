@@ -123,6 +123,26 @@ Status VNodeChannel::open_wait() {
                     commit_info.tabletId = tablet.tablet_id();
                     commit_info.backendId = _node_id;
                     _tablet_commit_infos.emplace_back(std::move(commit_info));
+                    VLOG_CRITICAL << "master replica commit info: tabletId=" << tablet.tablet_id()
+                                  << ", backendId=" << _node_id
+                                  << ", master node id: " << this->node_id()
+                                  << ", host: " << this->host() << ", txn_id=" << _parent->_txn_id;
+                }
+                if (_parent->_write_single_replica) {
+                    for (auto& tablet_slave_node_ids : result.success_slave_tablet_node_ids()) {
+                        for (auto slave_node_id : tablet_slave_node_ids.second.slave_node_ids()) {
+                            TTabletCommitInfo commit_info;
+                            commit_info.tabletId = tablet_slave_node_ids.first;
+                            commit_info.backendId = slave_node_id;
+                            _tablet_commit_infos.emplace_back(std::move(commit_info));
+                            VLOG_CRITICAL << "slave replica commit info: tabletId="
+                                          << tablet_slave_node_ids.first
+                                          << ", backendId=" << slave_node_id
+                                          << ", master node id: " << this->node_id()
+                                          << ", host: " << this->host()
+                                          << ", txn_id=" << _parent->_txn_id;
+                        }
+                    }
                 }
                 _add_batches_finished = true;
             }
@@ -274,6 +294,28 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     if (request.eos()) {
         for (auto pid : _parent->_partition_ids) {
             request.add_partition_ids(pid);
+        }
+
+        request.set_write_single_replica(false);
+        if (_parent->_write_single_replica) {
+            request.set_write_single_replica(true);
+            for (std::unordered_map<int64_t, std::vector<int64_t>>::iterator iter =
+                         _slave_tablet_nodes.begin();
+                 iter != _slave_tablet_nodes.end(); iter++) {
+                PSlaveTabletNodes slave_tablet_nodes;
+                for (auto node_id : iter->second) {
+                    auto node = _parent->_nodes_info->find_node(node_id);
+                    if (node == nullptr) {
+                        return;
+                    }
+                    PNodeInfo* pnode = slave_tablet_nodes.add_slave_nodes();
+                    pnode->set_id(node->id);
+                    pnode->set_option(node->option);
+                    pnode->set_host(node->host);
+                    pnode->set_async_internal_port(node->brpc_port);
+                }
+                request.mutable_slave_tablet_nodes()->insert({iter->first, slave_tablet_nodes});
+            }
         }
 
         // eos request must be the last request

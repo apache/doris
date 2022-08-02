@@ -205,6 +205,8 @@ public class SessionVariable implements Serializable, Writable {
 
     static final String SESSION_CONTEXT = "session_context";
 
+    public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -510,6 +512,9 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = SESSION_CONTEXT, needForward = true)
     public String sessionContext = "";
+
+    @VariableMgr.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT, needForward = true)
+    public boolean enableSingleReplicaInsert = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -1037,6 +1042,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableNereidsReorderToEliminateCrossJoin(boolean value) {
         enableNereidsReorderToEliminateCrossJoin = value;
+    }
+
+    public boolean isEnableSingleReplicaInsert() {
+        return enableSingleReplicaInsert;
+    }
+
+    public void setEnableSingleReplicaInsert(boolean enableSingleReplicaInsert) {
+        this.enableSingleReplicaInsert = enableSingleReplicaInsert;
     }
 
     /**

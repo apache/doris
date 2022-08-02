@@ -1329,6 +1329,36 @@ BE副本数的平衡阈值。
 
 获取 stream load 记录间隔
 
+### `enable_single_replica_stream_load`
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+是否启动 stream load 的单副本数据导入功能。
+
+### `enable_single_replica_broker_load`
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+是否启动 broker load 的单副本数据导入功能。
+
+### `enable_single_replica_insert`
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+是否启动 insert 的单副本数据写入功能。
+
 ### `desired_max_waiting_jobs`
 
 默认值：100
