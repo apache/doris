@@ -24,14 +24,14 @@ namespace doris::vectorized {
 class RowGroupReader {
 public:
     RowGroupReader(doris::FileReader* file_reader, std::shared_ptr<FileMetaData> file_metadata,
-                   std::vector<int> column_ids);
+                   const std::vector<int>& column_ids);
 
     ~RowGroupReader() = default;
 
     Status read_next_row_group(const int32_t* group_id);
 
 private:
-    void _init_column_readers(std::vector<int> column_ids);
+    void _init_column_readers(const std::vector<int>& column_ids);
 
     Status _process_row_group_filter(bool* filter_group);
 

@@ -30,7 +30,7 @@ RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
     _init_column_readers(column_ids);
 }
 
-void RowGroupReader::_init_column_readers(std::vector<int> column_ids) {
+void RowGroupReader::_init_column_readers(const std::vector<int>& column_ids) {
     //    for (int col_id: column_ids) {
     //
     //    }
