@@ -46,11 +46,7 @@ struct DeleteConditions {
 //    Status res;
 //    DeleteHandler delete_handler;
 //    res = delete_handler.init(tablet, condition_version);
-// 2. Use it to check whether a row should be deleted:
-//    bool should_be_deleted = delete_handler.is_filter_data(data_version, row_cursor);
-// 3. If there are multiple rows, you can invoke function is_filter_data multiple times:
-//    should_be_deleted = delete_handler.is_filter_data(data_version, row_cursor);
-// 4. After all rows have been checked, you should release this object by calling:
+// 2. After all rows have been checked, you should release this object by calling:
 //    delete_handler.finalize();
 //
 // NOTE：
@@ -95,16 +91,6 @@ public:
     //     * Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR): alloc memory failed
     Status init(const TabletSchema& schema, const std::vector<DeletePredicatePB>& delete_conditions,
                 int64_t version, const doris::TabletReader* = nullptr);
-
-    // Check whether a row should be deleted.
-    //
-    // input:
-    //     * data_version: the version of this row
-    //     * row: the row data to be checked
-    // return:
-    //     * true: this row should be deleted
-    //     * false: this row should NOT be deleted
-    bool is_filter_data(const int64_t data_version, const RowCursor& row) const;
 
     // Return the delete conditions' size.
     size_t conditions_num() const { return _del_conds.size(); }

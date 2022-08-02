@@ -310,19 +310,6 @@ Status DeleteHandler::init(const TabletSchema& schema,
     return Status::OK();
 }
 
-bool DeleteHandler::is_filter_data(const int64_t data_version, const RowCursor& row) const {
-    // According to semantics, the delete condition stored in _del_conds should be an OR relationship,
-    // so as long as the data matches one of the _del_conds, it will return true.
-    for (const auto& del_cond : _del_conds) {
-        if (data_version <= del_cond.filter_version &&
-            del_cond.del_cond->delete_conditions_eval(row)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 std::vector<int64_t> DeleteHandler::get_conds_version() {
     std::vector<int64_t> conds_version;
     for (const auto& cond : _del_conds) {
