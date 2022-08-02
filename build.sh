@@ -50,16 +50,15 @@ Usage: $0 <options>
      --be               build Backend
      --fe               build Frontend and Spark Dpp application
      --broker           build Broker
+     --audit            build auditloader
      --ui               build Frontend web ui with npm
      --spark-dpp        build Spark DPP application
      --clean            clean and build target
      -j                 build Backend parallel
-
   Environment variables:
     USE_AVX2            If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
     BUILD_META_TOOL     If set BUILD_META_TOOL=OFF, the output meta_tools binaries will not be compiled. Default is OFF.
     STRIP_DEBUG_INFO    If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
-
   Eg.
     $0                                      build all
     $0 --be                                 build Backend without clean
@@ -68,7 +67,7 @@ Usage: $0 <options>
     $0 --spark-dpp                          build Spark DPP application alone
     $0 --fe --ui                            build Frontend web ui with npm
     $0 --broker                             build Broker
-
+    $0 --audit                              build auditloader
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info.
   "
@@ -107,6 +106,7 @@ OPTS=$(getopt \
   -l 'be' \
   -l 'fe' \
   -l 'broker' \
+  -l 'audit'  \
   -l 'ui' \
   -l 'spark-dpp' \
   -l 'clean' \
@@ -124,6 +124,7 @@ PARALLEL=$[$(nproc)/4+1]
 BUILD_BE=
 BUILD_FE=
 BUILD_BROKER=
+BUILD_AUDIT=
 BUILD_UI=
 BUILD_SPARK_DPP=
 CLEAN=
@@ -135,6 +136,7 @@ if [ $# == 1 ] ; then
     BUILD_BE=1
     BUILD_FE=1
     BUILD_BROKER=1
+    BUILD_AUDIT=1
     BUILD_UI=1
     BUILD_SPARK_DPP=1
     CLEAN=0
@@ -142,6 +144,7 @@ else
     BUILD_BE=0
     BUILD_FE=0
     BUILD_BROKER=0
+    BUILD_AUDIT=0
     BUILD_UI=0
     BUILD_SPARK_DPP=0
     CLEAN=0
@@ -151,6 +154,7 @@ else
             --fe) BUILD_FE=1 ; shift ;;
             --ui) BUILD_UI=1 ; shift ;;
             --broker) BUILD_BROKER=1 ; shift ;;
+            --audit) BUILD_AUDIT=1 ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             -h) HELP=1; shift ;;
@@ -165,6 +169,7 @@ else
         BUILD_BE=1
         BUILD_FE=1
         BUILD_BROKER=1
+        BUILD_AUDIT=1
         BUILD_UI=1
         BUILD_SPARK_DPP=1
         CLEAN=0
@@ -223,6 +228,7 @@ echo "Get params:
     BUILD_BE            -- $BUILD_BE
     BUILD_FE            -- $BUILD_FE
     BUILD_BROKER        -- $BUILD_BROKER
+    BUILD_BROKER        -- $BUILD_AUDIT
     BUILD_UI            -- $BUILD_UI
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
     PARALLEL            -- $PARALLEL
@@ -403,6 +409,15 @@ if [ ${BUILD_BROKER} -eq 1 ]; then
     cd ${DORIS_HOME}
 fi
 
+if [ ${BUILD_AUDIT} -eq 1 ]; then
+    install -d ${DORIS_OUTPUT}/audit_loader
+
+    cd ${DORIS_HOME}/fe_plugins/auditloader/
+    ./build.sh
+    rm -rf ${DORIS_OUTPUT}/audit_loader/*
+    cp -r -p ${DORIS_HOME}/fe_plugins/auditloader/output/* ${DORIS_OUTPUT}/audit_loader/
+    cd ${DORIS_HOME}
+fi
 
 echo "***************************************"
 echo "Successfully build Doris"
