@@ -21,7 +21,7 @@ namespace doris::vectorized {
 
 RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
                                std::shared_ptr<FileMetaData> file_metadata,
-                               std::vector<int> column_ids)
+                               const std::vector<int>& column_ids)
         : _file_reader(file_reader),
           _file_metadata(file_metadata),
           _column_ids(column_ids),
