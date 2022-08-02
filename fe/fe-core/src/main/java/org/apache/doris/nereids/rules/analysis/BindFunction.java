@@ -95,10 +95,13 @@ public class BindFunction implements AnalysisRuleFactory {
                 return new Sum(unboundFunction.getArguments().get(0));
             } else if (name.equalsIgnoreCase("count")) {
                 List<Expression> arguments = unboundFunction.getArguments();
-                if (arguments.size() != 1) {
+                if (arguments.size() > 1 || (arguments.size() == 0 && !unboundFunction.isStar())) {
                     return unboundFunction;
                 }
-                return new Count(unboundFunction.isStar(), unboundFunction.getArguments().get(0));
+                if (unboundFunction.isStar()) {
+                    return new Count();
+                }
+                return new Count(unboundFunction.getArguments().get(0));
             } else if (name.equalsIgnoreCase("min")) {
                 List<Expression> arguments = unboundFunction.getArguments();
                 if (arguments.size() != 1) {

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.UnaryExpression;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 
@@ -51,6 +52,6 @@ public class Avg extends AggregateFunction implements UnaryExpression {
 
     @Override
     public DataType getIntermediateType() {
-        return getDataType();
+        return VarcharType.createVarcharType(-1);
     }
 }

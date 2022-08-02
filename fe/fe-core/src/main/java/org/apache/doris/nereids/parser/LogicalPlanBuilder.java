@@ -465,18 +465,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             //      the function information is obtained by parsing the catalog. This method is more scalable.
             String functionName = ctx.identifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
-            boolean isStar = ctx.ASTERISK() != null;
-            List<Expression> tempParams = visit(ctx.expression(), Expression.class);
-            List<Expression> params = new ArrayList<>();
-            // Transform COUNT(*) into COUNT(1).
-            tempParams.stream().forEach(expression -> {
+            List<Expression> params = visit(ctx.expression(), Expression.class);
+            for (Expression expression : params) {
                 if (expression instanceof UnboundStar && functionName.equalsIgnoreCase("count") && !isDistinct) {
-                    params.add(new IntegerLiteral(1));
-                } else {
-                    params.add(expression);
+                    return new UnboundFunction(functionName, false, true, new ArrayList<>());
                 }
-            });
-            return new UnboundFunction(functionName, isDistinct, isStar, params);
+            }
+            return new UnboundFunction(functionName, isDistinct, false, params);
         });
     }
 

@@ -34,7 +34,6 @@ public class UnboundFunction extends Expression implements Unbound {
 
     private final String name;
     private final boolean isDistinct;
-
     private final boolean isStar;
 
     public UnboundFunction(String name, boolean isDistinct, boolean isStar, List<Expression> arguments) {

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.UnaryExpression;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 
@@ -29,13 +28,18 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /** count agg function. */
-public class Count extends AggregateFunction implements UnaryExpression {
+public class Count extends AggregateFunction {
 
     private final boolean isStar;
 
-    public Count(boolean isStar, Expression child) {
+    public Count() {
+        super("count");
+        this.isStar = true;
+    }
+
+    public Count(Expression child) {
         super("count", child);
-        this.isStar = isStar;
+        this.isStar = false;
     }
 
     public boolean isStar() {
@@ -54,8 +58,11 @@ public class Count extends AggregateFunction implements UnaryExpression {
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Count(isStar, children.get(0));
+        Preconditions.checkArgument(children.size() == 0 || children.size() == 1);
+        if (children.size() == 0) {
+            return new Count();
+        }
+        return new Count(children.get(0));
     }
 
     @Override
