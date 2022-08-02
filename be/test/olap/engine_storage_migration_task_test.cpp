@@ -67,7 +67,6 @@ static void set_up() {
     options.store_paths = paths;
     Status s = doris::StorageEngine::open(options, &k_engine);
     EXPECT_TRUE(s.ok()) << s.to_string();
-
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
     k_engine->start_bg_threads();
@@ -259,7 +258,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     EXPECT_NE(tablet3, tablet);
     // test case 2 end
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }

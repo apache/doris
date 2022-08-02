@@ -86,3 +86,10 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 1. Confirm that the new version of the file is deployed. Restart FE and BE instances one by one.
 2. It is suggested that BE be restarted one by one and FE be restarted one by one. Because Doris usually guarantees backward compatibility between FE and BE, that is, the old version of FE can access the new version of BE. However, the old version of BE may not be supported to access the new version of FE.
 3. It is recommended to restart the next instance after confirming the previous instance started successfully. Refer to the Installation Deployment Document for the identification of successful instance startup.
+
+## About version rollback
+Because the database is a stateful service, Doris cannot support version rollback (version downgrade) in most cases. In some cases, the rollback of the 3-bit or 4-bit version can be supported, but the rollback of the 2-bit version will not be supported.
+
+Therefore, it is recommended to upgrade some nodes and observe the business operation (gray upgrade) to reduce the upgrade risk.
+
+**Illegal rollback operation may cause data loss and damage.** 

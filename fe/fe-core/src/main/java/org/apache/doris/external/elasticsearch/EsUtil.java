@@ -36,6 +36,7 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.Type;
@@ -132,16 +133,33 @@ public class EsUtil {
         }
     }
 
-    /**
-     * Get mapping properties JSONObject.
-     **/
-    public static JSONObject getMappingProps(String sourceIndex, String indexMapping, String mappingType) {
+    public static List<String> getArrayFields(String indexMapping) {
+        JSONObject mappings = getMapping(indexMapping);
+        if (!mappings.containsKey("_meta")) {
+            return new ArrayList<>();
+        }
+        JSONObject meta = (JSONObject) mappings.get("_meta");
+        if (!meta.containsKey("doris")) {
+            return new ArrayList<>();
+        }
+        JSONObject dorisMeta = (JSONObject) meta.get("doris");
+        return (List<String>) dorisMeta.get("array_field");
+    }
+
+    private static JSONObject getMapping(String indexMapping) {
         JSONObject jsonObject = (JSONObject) JSONValue.parse(indexMapping);
         // the indexName use alias takes the first mapping
         Iterator<String> keys = jsonObject.keySet().iterator();
         String docKey = keys.next();
         JSONObject docData = (JSONObject) jsonObject.get(docKey);
-        JSONObject mappings = (JSONObject) docData.get("mappings");
+        return (JSONObject) docData.get("mappings");
+    }
+
+    /**
+     * Get mapping properties JSONObject.
+     **/
+    public static JSONObject getMappingProps(String sourceIndex, String indexMapping, String mappingType) {
+        JSONObject mappings = getMapping(indexMapping);
         JSONObject rootSchema = (JSONObject) mappings.get(mappingType);
         JSONObject properties;
         // Elasticsearch 7.x, type was removed from ES mapping, default type is `_doc`
@@ -373,7 +391,8 @@ public class EsUtil {
      **/
     public static List<Column> genColumnsFromEs(EsRestClient client, String indexName, String mappingType) {
         String mapping = client.getMapping(indexName);
-        JSONObject mappingProps = EsUtil.getMappingProps(indexName, mapping, mappingType);
+        JSONObject mappingProps = getMappingProps(indexName, mapping, mappingType);
+        List<String> arrayFields = getArrayFields(mapping);
         Set<String> keys = (Set<String>) mappingProps.keySet();
         List<Column> columns = new ArrayList<>();
         for (String key : keys) {
@@ -384,9 +403,13 @@ public class EsUtil {
                 if (!type.isInvalid()) {
                     Column column = new Column();
                     column.setName(key);
-                    column.setType(type);
                     column.setIsKey(true);
                     column.setIsAllowNull(true);
+                    if (arrayFields.contains(key)) {
+                        column.setType(ArrayType.create(type, true));
+                    } else {
+                        column.setType(type);
+                    }
                     columns.add(column);
                 }
             }

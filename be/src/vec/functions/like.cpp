@@ -117,12 +117,15 @@ Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const StringValue& va
 Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expression,
                                     hs_database_t** database, hs_scratch_t** scratch) {
     hs_compile_error_t* compile_err;
-    if (hs_compile(expression, HS_FLAG_DOTALL, HS_MODE_BLOCK, NULL, database, &compile_err) !=
-        HS_SUCCESS) {
-        hs_free_compile_error(compile_err);
+
+    if (hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY, HS_MODE_BLOCK, NULL, database,
+                   &compile_err) != HS_SUCCESS) {
         *database = nullptr;
         if (context) context->set_error("hs_compile regex pattern error");
-        return Status::RuntimeError("hs_compile regex pattern error");
+        auto status = Status::RuntimeError("hs_compile regex pattern error:" +
+                                           std::string(compile_err->message));
+        hs_free_compile_error(compile_err);
+        return status;
     }
     hs_free_compile_error(compile_err);
 

@@ -28,11 +28,14 @@ class RuntimeState;
 class Status;
 
 namespace vectorized {
+class VExprContext;
+
 class VRepeatNode : public RepeatNode {
 public:
     VRepeatNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VRepeatNode() override = default;
 
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     virtual Status prepare(RuntimeState* state) override;
     virtual Status open(RuntimeState* state) override;
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
@@ -45,13 +48,12 @@ private:
     using RepeatNode::get_next;
     Status get_repeated_block(Block* child_block, int repeat_id_idx, Block* output_block);
 
-    std::unique_ptr<Block> _child_block;
-    std::vector<SlotDescriptor*> _child_slots;
+    std::unique_ptr<Block> _child_block {};
+    std::unique_ptr<Block> _intermediate_block {};
+
     std::vector<SlotDescriptor*> _output_slots;
 
-    // _virtual_tuple_id id used for GROUPING_ID().
-    TupleId _virtual_tuple_id;
-    const TupleDescriptor* _virtual_tuple_desc;
+    std::vector<VExprContext*> _expr_ctxs;
 };
 } // namespace vectorized
 } // namespace doris

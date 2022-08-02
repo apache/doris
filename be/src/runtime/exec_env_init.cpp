@@ -114,6 +114,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         LOG(INFO) << "scan thread pool use PriorityThreadPool";
     }
 
+    _remote_scan_thread_pool =
+            new PriorityThreadPool(config::doris_remote_scanner_thread_pool_thread_num,
+                                   config::doris_remote_scanner_thread_pool_queue_size);
+
     ThreadPoolBuilder("LimitedScanThreadPool")
             .set_min_threads(1)
             .set_max_threads(config::doris_scanner_thread_pool_thread_num)
@@ -189,7 +193,8 @@ Status ExecEnv::_init_mem_tracker() {
                      << ". Using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
-    _process_mem_tracker = new MemTrackerLimiter(global_memory_limit_bytes, "Process");
+    _process_mem_tracker =
+            std::make_shared<MemTrackerLimiter>(global_memory_limit_bytes, "Process");
     thread_context()->_thread_mem_tracker_mgr->init();
     thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
@@ -199,10 +204,12 @@ Status ExecEnv::_init_mem_tracker() {
     }
 #endif
 
-    _query_pool_mem_tracker = new MemTrackerLimiter(-1, "QueryPool", _process_mem_tracker);
+    _query_pool_mem_tracker =
+            std::make_shared<MemTrackerLimiter>(-1, "QueryPool", _process_mem_tracker);
     REGISTER_HOOK_METRIC(query_mem_consumption,
                          [this]() { return _query_pool_mem_tracker->consumption(); });
-    _load_pool_mem_tracker = new MemTrackerLimiter(-1, "LoadPool", _process_mem_tracker);
+    _load_pool_mem_tracker =
+            std::make_shared<MemTrackerLimiter>(-1, "LoadPool", _process_mem_tracker);
     REGISTER_HOOK_METRIC(load_mem_consumption,
                          [this]() { return _load_pool_mem_tracker->consumption(); });
     LOG(INFO) << "Using global memory limit: "
@@ -347,6 +354,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_cgroups_mgr);
     SAFE_DELETE(_etl_thread_pool);
     SAFE_DELETE(_scan_thread_pool);
+    SAFE_DELETE(_remote_scan_thread_pool);
     SAFE_DELETE(_thread_mgr);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
@@ -358,9 +366,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
-    SAFE_DELETE(_process_mem_tracker);
-    SAFE_DELETE(_query_pool_mem_tracker);
-    SAFE_DELETE(_load_pool_mem_tracker);
     SAFE_DELETE(_task_pool_mem_tracker_registry);
     SAFE_DELETE(_buffer_reservation);
 

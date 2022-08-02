@@ -249,7 +249,11 @@ public final class ExprSubstitutionMap {
     }
 
     public void substituteLhs(ExprSubstitutionMap lhsSmap, Analyzer analyzer) {
-        lhs = Expr.substituteList(lhs, lhsSmap, analyzer, false);
+        substituteLhs(lhsSmap, analyzer, false);
+    }
+
+    public void substituteLhs(ExprSubstitutionMap lhsSmap, Analyzer analyzer, boolean preserveRootTypes) {
+        lhs = Expr.substituteList(lhs, lhsSmap, analyzer, preserveRootTypes);
     }
 
     public List<Expr> getLhs() {

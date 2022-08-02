@@ -56,7 +56,9 @@ struct WriteRequest {
 class DeltaWriter {
 public:
     static Status open(WriteRequest* req, DeltaWriter** writer,
-                       MemTrackerLimiter* parent_tracker = nullptr, bool is_vec = false);
+                       const std::shared_ptr<MemTrackerLimiter>& parent_tracker =
+                               std::shared_ptr<MemTrackerLimiter>(),
+                       bool is_vec = false);
 
     ~DeltaWriter();
 
@@ -101,8 +103,8 @@ public:
     int64_t get_mem_consumption_snapshot() const;
 
 private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, MemTrackerLimiter* parent_tracker,
-                bool is_vec);
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine,
+                const std::shared_ptr<MemTrackerLimiter>& parent_tracker, bool is_vec);
 
     // push a full memtable to flush executor
     Status _flush_memtable_async();
@@ -128,13 +130,13 @@ private:
     // tablet schema owned by delta writer, all write will use this tablet schema
     // it's build from tablet_schema（stored when create tablet） and OlapTableSchema
     // every request will have it's own tablet schema so simple schema change can work
-    std::unique_ptr<TabletSchema> _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
     bool _delta_written_success;
 
     StorageEngine* _storage_engine;
     std::unique_ptr<FlushToken> _flush_token;
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
-    MemTrackerLimiter* _parent_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _parent_tracker;
 
     // The counter of number of segment flushed already.
     int64_t _segment_counter = 0;
