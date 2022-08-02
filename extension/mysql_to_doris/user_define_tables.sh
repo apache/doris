@@ -53,7 +53,7 @@ for table in $(awk -F '\n' '{print $1}' ./conf/tables)
         echo "print ${table} sql to tables.sql in the user_file dir"
 done
 
-echo '==============================start to transform mysql table for doris extral table==========================='
+echo '==============================start to transform mysql table for doris extral table======================'
 
 #adjust sql
 awk -F '\t' '{print $2}' ./user_files/tables.sql |awk '!(NR%2)' |awk '{print $0 ";"}' > ./user_files/tables1.sql
