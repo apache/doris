@@ -188,7 +188,7 @@ public class ConnectProcessor {
         ctx.getAuditEventBuilder()
                 .setTimestamp(System.currentTimeMillis())
                 .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
-                .setUser(ctx.getQualifiedUser())
+                .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
                 .setDb(ctx.getDatabase())
                 .setSqlHash(ctx.getSqlHash());
 
