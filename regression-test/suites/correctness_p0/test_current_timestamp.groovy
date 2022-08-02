@@ -15,7 +15,7 @@
  // specific language governing permissions and limitations
  // under the License.
 
-suite("test_current_timestamp", "correctness") {
+suite("test_current_timestamp") {
     def tableName = "test_current_timestamp"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
