@@ -89,7 +89,7 @@ public class StatisticProcNode implements ProcNodeInterface {
             this.db = db;
             this.dbNum = 1;
 
-            this.db.getTables().stream().filter(t -> t != null).forEach(t -> {
+            this.db.getTables().stream().filter(Objects::nonNull).forEach(t -> {
                 ++tableNum;
                 if (t.getType() == TableType.OLAP) {
                     OlapTable olapTable = (OlapTable) t;
