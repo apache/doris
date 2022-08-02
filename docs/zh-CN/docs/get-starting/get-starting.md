@@ -239,7 +239,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
   > 关于 Create-DataBase 使用的更多详细语法及最佳实践，请参阅 [Create-DataBase](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-DATABASE.md) 命令手册。
   >
-  > 如果不清楚命令的全名，可以使用 "help 命令某一字段" 进行模糊查询。如键入 'HELP CREATE'，可以匹配到 `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` 等命令。
+  > 如果不清楚命令的全名，可以使用 "help 命令某一字段" 进行模糊查询。如键入 `HELP CREATE`，可以匹配到 `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` 等命令。
 
   数据库创建完成之后，可以通过 `SHOW DATABASES;` 查看数据库信息。
 
