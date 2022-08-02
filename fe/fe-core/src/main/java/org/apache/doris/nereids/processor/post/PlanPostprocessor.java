@@ -15,22 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
 /**
- * JoinReorderRulesJob
+ * pr
  */
-public class JoinReorderRulesJob extends BatchRulesJob {
-
-    public JoinReorderRulesJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                topDownBatch(ImmutableList.of(new ReorderJoin()))
-        ));
-    }
+public class PlanPostprocessor extends DefaultPlanRewriter<CascadesContext> {
 }

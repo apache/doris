@@ -15,22 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import com.google.common.collect.ImmutableList;
 
-/**
- * JoinReorderRulesJob
- */
-public class JoinReorderRulesJob extends BatchRulesJob {
+import java.util.List;
+import java.util.Objects;
 
-    public JoinReorderRulesJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                topDownBatch(ImmutableList.of(new ReorderJoin()))
-        ));
+/**
+ * pr
+ */
+public class PlanPostprocessors {
+    private final CascadesContext cascadesContext;
+
+    public PlanPostprocessors(CascadesContext cascadesContext) {
+        this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not be null");
+    }
+
+    public PhysicalPlan process(PhysicalPlan physicalPlan) {
+        PhysicalPlan resultPlan = physicalPlan;
+        for (PlanPostprocessor processor : getProcessors()) {
+            resultPlan = (PhysicalPlan) physicalPlan.accept(processor, cascadesContext);
+        }
+        return resultPlan;
+    }
+
+    public List<PlanPostprocessor> getProcessors() {
+        // add processor if we need
+        return ImmutableList.of();
     }
 }

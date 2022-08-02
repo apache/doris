@@ -37,9 +37,7 @@ public interface Plan extends TreeNode<Plan> {
     // cache GroupExpression for fast exit from Memo.copyIn.
     Optional<GroupExpression> getGroupExpression();
 
-    default <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        throw new RuntimeException("accept() is not implemented by plan " + this.getClass().getSimpleName());
-    }
+    <R, C> R accept(PlanVisitor<R, C> visitor, C context);
 
     List<Expression> getExpressions();
 

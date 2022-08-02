@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.Scope;
@@ -26,18 +27,19 @@ import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 
 import java.util.Optional;
 
 /**
  * Use the visitor to iterate sub expression.
  */
-public class DefaultSubExprRewriter<C> extends DefaultExpressionRewriter<C> {
+public class SubqueryExprRewriter<C> extends DefaultExpressionRewriter<C> {
     private final Scope scope;
+    private final CascadesContext cascadesContext;
 
-    public DefaultSubExprRewriter(Scope scope) {
+    public SubqueryExprRewriter(Scope scope, CascadesContext cascadesContext) {
         this.scope = scope;
+        this.cascadesContext = cascadesContext;
     }
 
     @Override
@@ -61,10 +63,8 @@ public class DefaultSubExprRewriter<C> extends DefaultExpressionRewriter<C> {
     }
 
     private LogicalPlan analyzeSubquery(SubqueryExpr expr) {
-        NereidsAnalyzer subAnalyzer = new NereidsAnalyzer(ConnectContext.get());
-        LogicalPlan analyzed = subAnalyzer.analyze(
-                expr.getQueryPlan(), Optional.ofNullable(scope));
-        return analyzed;
+        NereidsAnalyzer analyzer = new NereidsAnalyzer(cascadesContext);
+        return (LogicalPlan) analyzer.analyze(expr.getQueryPlan(), Optional.ofNullable(scope));
     }
 
     public Scope getScope() {

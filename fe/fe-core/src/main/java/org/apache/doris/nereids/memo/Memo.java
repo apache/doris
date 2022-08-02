@@ -19,12 +19,12 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -100,27 +100,32 @@ public class Memo {
     }
 
     public Plan copyOut() {
-        return groupToTreeNode(root);
+        return copyOut(root);
     }
 
     /**
-     * Utility function to create a new {@link PlannerContext} with this Memo.
+     * copyOut the group.
+     * @param group the group what want to copyOut
+     * @return plan
      */
-    public PlannerContext newPlannerContext(ConnectContext connectContext) {
-        return new PlannerContext(this, connectContext);
-    }
-
-    private Plan groupToTreeNode(Group group) {
+    public Plan copyOut(Group group) {
         GroupExpression logicalExpression = group.getLogicalExpression();
         List<Plan> childrenNode = Lists.newArrayList();
         for (Group child : logicalExpression.children()) {
-            childrenNode.add(groupToTreeNode(child));
+            childrenNode.add(copyOut(child));
         }
         Plan result = logicalExpression.getPlan();
         if (result.children().size() == 0) {
             return result;
         }
         return result.withChildren(childrenNode);
+    }
+
+    /**
+     * Utility function to create a new {@link CascadesContext} with this Memo.
+     */
+    public CascadesContext newCascadesContext(StatementContext statementContext) {
+        return new CascadesContext(this, statementContext);
     }
 
     /**

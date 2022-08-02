@@ -17,17 +17,19 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Base class for executing all jobs.
@@ -35,11 +37,17 @@ import java.util.Objects;
  * Each batch of rules will be uniformly executed.
  */
 public abstract class BatchRulesJob {
-    protected PlannerContext plannerContext;
+    protected Optional<Group> rootGroup;
+    protected CascadesContext cascadesContext;
     protected List<Job> rulesJob = new ArrayList<>();
 
-    BatchRulesJob(PlannerContext plannerContext) {
-        this.plannerContext = Objects.requireNonNull(plannerContext, "plannerContext can not null");
+    BatchRulesJob(CascadesContext cascadesContext) {
+        this(cascadesContext, Optional.empty());
+    }
+
+    BatchRulesJob(CascadesContext cascadesContext, Optional<Group> rootGroup) {
+        this.cascadesContext = Objects.requireNonNull(cascadesContext, "plannerContext can not null");
+        this.rootGroup = Objects.requireNonNull(rootGroup, "rootGroup can not be null");
     }
 
     protected Job bottomUpBatch(List<RuleFactory> ruleFactories) {
@@ -48,9 +56,9 @@ public abstract class BatchRulesJob {
             rules.addAll(ruleFactory.buildRules());
         }
         return new RewriteBottomUpJob(
-                plannerContext.getMemo().getRoot(),
+                rootGroup.orElseGet(() -> cascadesContext.getMemo().getRoot()),
                 rules,
-                plannerContext.getCurrentJobContext());
+                cascadesContext.getCurrentJobContext());
     }
 
     protected Job topDownBatch(List<RuleFactory> ruleFactories) {
@@ -59,21 +67,21 @@ public abstract class BatchRulesJob {
             rules.addAll(ruleFactory.buildRules());
         }
         return new RewriteTopDownJob(
-                plannerContext.getMemo().getRoot(),
+                rootGroup.orElseGet(() -> cascadesContext.getMemo().getRoot()),
                 rules,
-                plannerContext.getCurrentJobContext());
+                cascadesContext.getCurrentJobContext());
     }
 
     protected Job optimize() {
         return new OptimizeGroupJob(
-                plannerContext.getMemo().getRoot(),
-                plannerContext.getCurrentJobContext());
+                rootGroup.orElseGet(() -> cascadesContext.getMemo().getRoot()),
+                cascadesContext.getCurrentJobContext());
     }
 
     public void execute() {
         for (Job job : rulesJob) {
-            plannerContext.pushJob(job);
-            plannerContext.getJobScheduler().executeJobPool(plannerContext);
+            cascadesContext.pushJob(job);
+            cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         }
     }
 }

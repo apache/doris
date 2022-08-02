@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Arithmetic;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -187,6 +188,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitIntegerLiteral(IntegerLiteral integerLiteral, PlanTranslatorContext context) {
         return new IntLiteral(integerLiteral.getValue());
+    }
+
+    @Override
+    public Expr visitBigIntLiteral(BigIntLiteral bigIntLiteral, PlanTranslatorContext context) {
+        return new IntLiteral(bigIntLiteral.getValue());
     }
 
     @Override

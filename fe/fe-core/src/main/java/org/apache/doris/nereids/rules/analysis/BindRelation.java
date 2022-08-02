@@ -40,7 +40,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
-            ConnectContext connectContext = ctx.plannerContext.getConnectContext();
+            ConnectContext connectContext = ctx.cascadesContext.getConnectContext();
             List<String> nameParts = ctx.root.getNameParts();
             switch (nameParts.size()) {
                 case 1: {
