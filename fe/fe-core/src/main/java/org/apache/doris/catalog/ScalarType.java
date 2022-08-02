@@ -437,7 +437,7 @@ public class ScalarType extends Type {
      * create a wider decimal type.
      */
     public static ScalarType createWiderDecimalV3Type(int precision, int scale) {
-        ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
+        ScalarType type = new ScalarType(getSuitableDecimalType(precision, false));
         if (precision <= MAX_DECIMAL32_PRECISION) {
             type.precision = MAX_DECIMAL32_PRECISION;
         } else if (precision <= MAX_DECIMAL64_PRECISION) {
