@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <parquet/api/reader.h>
-#include <parquet/api/writer.h>
-#include <parquet/exception.h>
 #include <stdint.h>
 
 #include <string>
@@ -27,9 +24,6 @@
 
 #include "common/status.h"
 #include "exprs/expr_context.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/parquet_types.h"
 #include "io/file_reader.h"
 #include "vec/core/block.h"
@@ -46,51 +40,47 @@ namespace doris::vectorized {
 //        int64_t total_bytes = 0;
 //    };
 
-    class ParquetReader {
-    public:
-        ParquetReader(FileReader *file_reader, int32_t num_of_columns_from_file,
-                      int64_t range_start_offset, int64_t range_size);
+class ParquetReader {
+public:
+    ParquetReader(FileReader* file_reader, int32_t num_of_columns_from_file,
+                  int64_t range_start_offset, int64_t range_size);
 
-        ~ParquetReader();
+    ~ParquetReader();
 
-        Status init_reader(const TupleDescriptor *tuple_desc,
-                           const std::vector<SlotDescriptor *> &tuple_slot_descs,
-                           const std::vector<ExprContext *> &conjunct_ctxs,
-                           const std::string &timezone);
+    Status init_reader(const TupleDescriptor* tuple_desc,
+                       const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                       const std::vector<ExprContext*>& conjunct_ctxs, const std::string& timezone);
 
-        Status read_next_batch(Block *block);
+    Status read_next_batch(Block* block);
 
-        bool has_next() const { return !_batch_eof; };
+    bool has_next() const { return !_batch_eof; };
 
-        //        std::shared_ptr<Statistics>& statistics() { return _statistics; }
-        void close();
+    //        std::shared_ptr<Statistics>& statistics() { return _statistics; }
+    void close();
 
-        int64_t size() const { return _file_reader->size(); }
+    int64_t size() const { return _file_reader->size(); }
 
-    private:
-        int64_t _get_row_group_start_offset(const tparquet::RowGroup &row_group);
+private:
+    int64_t _get_row_group_start_offset(const tparquet::RowGroup& row_group);
+    Status _column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs);
+    void _init_row_group_reader();
+    void _fill_block_data();
+    void _init_page_index();
+    Status _process_page_index();
 
-        Status _column_indices(const std::vector<SlotDescriptor *> &tuple_slot_descs);
-
-        void _init_row_group_reader();
-
-        void _fill_block_data();
-
-    private:
-        FileReader *_file_reader;
-        std::shared_ptr <FileMetaData> _file_metadata;
-        int _total_groups; // num of groups(stripes) of a parquet(orc) file
-        //    int _current_group;                     // current group(stripe)
-        //        std::shared_ptr<Statistics> _statistics;
-        const int32_t _num_of_columns_from_file;
-        std::map<std::string, int> _map_column; // column-name <---> column-index
-        std::vector<int> _include_column_ids;   // columns that need to get from file
-        // parquet file reader object
-        Block *_batch;
-        bool *_batch_eof;
-        //    int64_t _range_start_offset;
-        //    int64_t _range_size;
-
-    };
-
+private:
+    FileReader* _file_reader;
+    std::shared_ptr<FileMetaData> _file_metadata;
+    int _total_groups; // num of groups(stripes) of a parquet(orc) file
+    //    int _current_group;                     // current group(stripe)
+    //        std::shared_ptr<Statistics> _statistics;
+    const int32_t _num_of_columns_from_file;
+    std::map<std::string, int> _map_column; // column-name <---> column-index
+    std::vector<int> _include_column_ids;   // columns that need to get from file
+    // parquet file reader object
+    Block* _batch;
+    //    bool *_batch_eof;
+    //    int64_t _range_start_offset;
+    //    int64_t _range_size;
+};
 } // namespace doris::vectorized

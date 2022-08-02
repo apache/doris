@@ -15,30 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 #pragma once
-
 #include <common/status.h>
 
+#include "io/file_reader.h"
+#include "vparquet_file_metadata.h"
+
 namespace doris::vectorized {
+class RowGroupReader {
+public:
+    RowGroupReader(doris::FileReader* file_reader, std::shared_ptr<FileMetaData> file_metadata,
+                   std::vector<int> column_ids);
 
-    class RowGroupReader {
+    ~RowGroupReader() = default;
 
-    public:
-        Status read_next_row_group();
+    Status read_next_row_group(int32_t* group_id);
 
-        void init_chunk_dicts();
+private:
+    void _init_column_readers();
 
-        Status process_dict_filter();
+    Status _process_row_group_filter(bool* filter_group);
 
-        void init_bloom_filter();
+    void _init_chunk_dicts();
 
-        Status process_bloom_filter();
+    Status _process_dict_filter();
 
-        void init_page_index();
+    void _init_bloom_filter();
 
-        Status process_page_index();
+    Status _process_bloom_filter();
 
-    private:
-        void _init_column_chunk_readers();
-    };
-
+private:
+    doris::FileReader* _file_reader;
+    std::shared_ptr<FileMetaData> _file_metadata;
+    std::vector<int> _column_ids;
+    int32_t _current_row_group;
+};
 } // namespace doris::vectorized

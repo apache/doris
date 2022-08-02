@@ -14,27 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "vparquet_column_chunk_reader.h"
 
-namespace doris::vectorized {
+#include "vparquet_column_reader.h"
 
-Status ColumnChunkReader::init() {
-    return Status();
-}
-
-Status ColumnChunkReader::read_min_max_stat() {
-    return Status();
-}
-
-Status ColumnChunkReader::decode_dict_page() {
-    return Status();
-}
-
-Status ColumnChunkReader::decode_nested_page() {
-    return Status();
-}
-
-Status ColumnChunkReader::read_next_page() {
-    return Status();
-}
-} // namespace doris::vectorized
+namespace doris::vectorized {}
