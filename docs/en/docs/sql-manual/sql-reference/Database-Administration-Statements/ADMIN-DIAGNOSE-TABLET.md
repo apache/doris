@@ -22,8 +22,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ADMIN DIAGNOSE TABLET
-## description
+## ADMIN DIAGNOSE TABLET
+### Description
 
     This statement is used to diagnose the specified tablet. The results will show information about the tablet and some potential problems.
 
@@ -47,11 +47,11 @@ under the License.
         11.ReplicaStatus:                       Whether the replica status is normal.
         12.ReplicaCompactionStatus:             Whether the replica Compaction status is normal.
 
-## example
+### Example
 
     1. Diagnose tablet 10001
 
         ADMIN DIAGNOSE TABLET 10001;
 
-## keywords
+### Keywords
     ADMIN,DIAGNOSE,TABLET
