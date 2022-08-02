@@ -102,7 +102,7 @@ public class UnboundRelation extends LogicalLeaf implements Unbound {
 
     @Override
     public String toString() {
-        return "UnresolvedRelation" + "(" + StringUtils.join(nameParts, ".") + ")";
+        return "UnboundRelation" + "(" + StringUtils.join(nameParts, ".") + ")";
     }
 
     @Override
