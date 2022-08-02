@@ -310,15 +310,14 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
         break;
     }
 
-    if (parse_result == StringParser::PARSE_FAILURE) {
+    if (UNLIKELY(parse_result == StringParser::PARSE_FAILURE)) {
         if (true == slot_desc->is_nullable()) {
-            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
+            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(nullable_col_ptr);
             size_t size = nullable_column->get_null_map_data().size();
             doris::vectorized::NullMap& null_map_data = nullable_column->get_null_map_data();
             null_map_data[size - 1] = 1;
-        } else {
-            return false;
         }
+        return false;
     }
     return true;
 }
