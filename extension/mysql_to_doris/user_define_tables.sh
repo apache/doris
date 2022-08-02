@@ -140,6 +140,5 @@ for table in $(awk -F '\n' '{print $1}' ./conf/tables)
 done
 
 echo '==========================================start to write database========================================'
-echo "create database if not exists $d_doris; use $d_doris; source ./user_files/tables.sql;" |mysql -h$master_host -P$master_port -uroot -p$doris_password 2>/dev/null
-
+echo "create database if not exists $d_doris; use $d_doris; source ./user_files/tables.sql;" |mysql -h$master_host -P$master_port -uroot -p$doris_password
 echo '==========================================write database success========================================='
