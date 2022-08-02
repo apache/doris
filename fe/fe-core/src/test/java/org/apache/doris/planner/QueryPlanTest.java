@@ -454,7 +454,7 @@ public class QueryPlanTest {
     public void testFunctionViewGroupingSet() throws Exception {
         String queryStr = "select query_id, client_ip, concat from test.function_view group by rollup(query_id, client_ip, concat);";
         String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(explainStr.contains("repeat: repeat 3 lines [[], [0], [0, 1], [0, 1, 2, 3]]"));
+        Assert.assertTrue(explainStr.contains("repeat: repeat 3 lines [[], [8], [8, 9], [8, 9, 10]]"));
     }
 
     @Test
