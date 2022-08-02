@@ -376,6 +376,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .stream()
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
+
+        TupleDescriptor desc = generateTupleDesc(project.getOutput(), null, context);
+        project.getOutput().forEach(slot ->
+                context.addExprIdPair(slot.getExprId(),
+                        new SlotRef(context.createSlotDesc(desc, (SlotReference) slot))));
+
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
         List<Expr> predicateList = inputPlanNode.getConjuncts();
         Set<Integer> requiredSlotIdList = new HashSet<>();
