@@ -48,6 +48,7 @@ import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.Data;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
@@ -130,11 +131,11 @@ public class ConnectProcessor {
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
-            if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR
+            if (ctx.getState().getStateType() == MysqlStateType.ERR
                     && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
                 // err query
                 MetricRepo.COUNTER_QUERY_ERR.increase(1L);
-            } else {
+            } else if (ctx.getState().getStateType() == MysqlStateType.OK) {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
                 if (elapseMs > Config.qe_slow_log_ms) {

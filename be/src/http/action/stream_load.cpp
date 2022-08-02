@@ -64,7 +64,6 @@
 namespace doris {
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_requests_total, MetricUnit::REQUESTS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
@@ -127,7 +126,6 @@ StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
     _stream_load_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
     INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_bytes);
     INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_duration_ms);
     INT_GAUGE_METRIC_REGISTER(_stream_load_entity, streaming_load_current_processing);
 }
@@ -175,7 +173,6 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // update statstics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
-    streaming_load_bytes->increment(ctx->receive_bytes);
     streaming_load_current_processing->increment(-1);
 }
 
