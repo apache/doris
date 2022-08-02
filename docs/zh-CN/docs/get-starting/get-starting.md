@@ -125,7 +125,7 @@ under the License.
 
    > 1. 检查是否启动成功, JPS 命令下有没有 PaloFe 进程 
    > 2. FE 进程启动后，会先加载元数据，根据 FE ⻆⾊的不同，在志中会看到 transfer from UNKNOWN to MASTER/FOLLOWER/OBSERVER 。最终会看到 thrift server started 日志，并且可以通过 mysql 客户端连接到 FE，则 表示 FE 启动成功。
-   > 3. 也可以通过如下连接查看是否启动成功： http://fe_host:fe_http_port/api/bootstrap 如果返回： {"status":"OK","msg":"Success"} 则表示启动成功，其余情况，则可能存在问题。
+   > 3. 也可以通过如下连接查看是否启动成功： http://fe_host:fe_http_port/api/bootstrap (fe_http_port默认8030)如果返回： {"status":"OK","msg":"Success"} 则表示启动成功，其余情况，则可能存在问题。
    > 4. 外网环境访问 http://fe_host:fe_http_port 查看是否可以访问WebUI界面，登录账号默认为root，密码为空
    >
    > **注：如果在 fe.log 中查看不到启动失败的信息，也许在 fe.out 中可以看到。**
@@ -135,8 +135,8 @@ under the License.
    > 1. BE 进程启动后，如果之前有数据，则可能有数分钟不等的数据索引加载时 间。 
    > 2. 如果是 BE 的第一次启动，或者该 BE 尚未加载任何集群，则 BE 日志会定期滚动 waiting to receive first heartbeat from frontend 字样。表示 BE 还未通过 FE 的⼼跳收到 Master 的地址，正在被动等待。这种错误日志， 在 FE 中 ADD BACKEND 并发送⼼跳后，就会消失。如果在接到⼼跳后，重复出现 master client, get client from cache failed.host: , port: 0, code: 7 字样，说明 FE 成功连接了 BE，但 BE 无法主动连接 FE，可能需要检查 BE 到 FE 的 rpc_port 的连通性。 
    > 3. 如果 BE 已经被加⼊集群，日志中应该每隔 5 秒滚动来检测 FE 的心跳日志： get heartbeat, host: xx.xx.xx.xx, port: 9020, cluster id: xxxxxx ，表示⼼跳正常。 
-   > 4. 其次，⽇志中应该每隔 10 秒滚动 finish report task success. return code: 0 的字样，表示 BE 向 FE 的通信正常。 
-   > 5. 同时，如果有数据查询，应该能看到不停滚动的⽇志，并且有 execute time is xxx ⽇志，表示 BE 启动成功，并且查询正常。 
+   > 4. 其次，日志中应该每隔 10 秒滚动 finish report task success. return code: 0 的字样，表示 BE 向 FE 的通信正常。 
+   > 5. 同时，如果有数据查询，应该能看到不停滚动的日志，并且有 execute time is xxx 日志，表示 BE 启动成功，并且查询正常。 
    > 6. 也可以通过如下连接查看是否启动成功： http://be_host:be_http_port/api/health 如果返回： {"status": "OK","msg": "To Be Added"} 则表示启动成功，其余情况，则可能存在问题。 
    >
    > **注：如果在 be.INFO 中查看不到启动失败的信息，也许在 be.out 中可以看到。**
@@ -467,6 +467,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
      > 1. FE_HOST 是任一 FE 所在节点 IP，8030 为 fe.conf 中的 http_port。
      > 2. 可以使用任一 BE 的 IP，以及 be.conf 中的 webserver_port 进行导入。如：`BE_HOST:8040`
+     > 3. example_db 是你导入表所在的数据库
 
      本地文件 `table1_data` 以 `,` 作为数据之间的分隔，具体内容如下：
 
