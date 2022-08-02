@@ -335,7 +335,7 @@ public class StatisticsJob {
                     if (baseSchema.size() == cols.size()) {
                         scope.add(table.getName() + "(*)");
                     } else {
-                        scope.add(table.getName() + "(" + StringUtils.join(cols.toArray(), ",") + ")");
+                        scope.add(table.getName() + "(" + StringUtils.join(cols.toArray(), ", ") + ")");
                     }
                 }
             } catch (AnalysisException e) {
