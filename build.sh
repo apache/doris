@@ -46,8 +46,6 @@ Usage: $0 <options>
      --broker           build Broker
      --audit            build audit loader
      --spark-dpp        build Spark DPP application
-     --hive-udf         build Hive UDF library for Spark Load
-     --java-udf         build Java UDF library
      --clean            clean and build target
      -j                 build Backend parallel
 
@@ -63,7 +61,7 @@ Usage: $0 <options>
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
     $0 --spark-dpp                          build Spark DPP application alone
     $0 --broker                             build Broker
-    $0 --be --fe --java-udf                 build Backend, Frontend, Spark Dpp application and Java UDF library
+    $0 --audit                             build audit loader
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -107,8 +105,6 @@ OPTS=$(getopt \
   -l 'audit' \
   -l 'meta-tool' \
   -l 'spark-dpp' \
-  -l 'java-udf' \
-  -l 'hive-udf' \
   -l 'clean' \
   -l 'help' \
   -o 'hj:' \
@@ -121,14 +117,12 @@ fi
 eval set -- "$OPTS"
 
 PARALLEL=$[$(nproc)/4+1]
-BUILD_FE=0
-BUILD_BE=0
-BUILD_BROKER=0
-BUILD_AUDIT=0
+BUILD_FE=1
+BUILD_BE=1
+BUILD_BROKER=1
+BUILD_AUDIT=1
 BUILD_META_TOOL=OFF
 BUILD_SPARK_DPP=0
-BUILD_JAVA_UDF=0
-BUILD_HIVE_UDF=0
 CLEAN=0
 HELP=0
 PARAMETER_COUNT=$#
@@ -141,8 +135,6 @@ if [ $# == 1 ] ; then
     BUILD_AUDIT=1
     BUILD_META_TOOL=OFF
     BUILD_SPARK_DPP=1
-    BUILD_JAVA_UDF=0 # TODO: open it when ready
-    BUILD_HIVE_UDF=1
     CLEAN=0
 else
     while true; do
@@ -153,8 +145,6 @@ else
             --audit)  BUILD_AUDIT=1 ; shift ;;
             --meta-tool) BUILD_META_TOOL=ON ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
-            --java-udf) BUILD_JAVA_UDF=1 BUILD_FE=1 BUILD_SPARK_DPP=1 ; shift ;;
-            --hive-udf) BUILD_HIVE_UDF=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             -h) HELP=1; shift ;;
             --help) HELP=1; shift ;;
@@ -171,7 +161,6 @@ else
         BUILD_AUDIT=1
         BUILD_META_TOOL=ON
         BUILD_SPARK_DPP=1
-        BUILD_HIVE_UDF=1
         CLEAN=0
     fi
 fi
@@ -210,21 +199,18 @@ fi
 if [[ -z ${USE_LIBCPP} ]]; then
     USE_LIBCPP=OFF
 fi
+if [[ -z ${BUILD_META_TOOL} ]]; then
+    BUILD_META_TOOL=OFF
+fi
+if [[ -z ${USE_LLD} ]]; then
+    USE_LLD=OFF
+fi
 if [[ -z ${STRIP_DEBUG_INFO} ]]; then
     STRIP_DEBUG_INFO=OFF
 fi
-if [[ -z ${USE_MEM_TRACKER} ]]; then
-    USE_MEM_TRACKER=ON
-fi
-if [[ -z ${USE_JEMALLOC} ]]; then
-    USE_JEMALLOC=OFF
-fi
+
 if [[ -z ${STRICT_MEMORY_USE} ]]; then
     STRICT_MEMORY_USE=OFF
-fi
-
-if [[ -z ${USE_DWARF} ]]; then
-    USE_DWARF=OFF
 fi
 
 echo "Get params:
@@ -232,10 +218,8 @@ echo "Get params:
     BUILD_BE            -- $BUILD_BE
     BUILD_BROKER        -- $BUILD_BROKER
     BUILD_AUDIT         -- $BUILD_AUDIT
-    BUILD_META_TOOL     -- $BUILD_META_TOOL
+    BUILD_UI            -- $BUILD_UI
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
-    BUILD_JAVA_UDF      -- $BUILD_JAVA_UDF
-    BUILD_HIVE_UDF      -- $BUILD_HIVE_UDF
     PARALLEL            -- $PARALLEL
     CLEAN               -- $CLEAN
     WITH_MYSQL          -- $WITH_MYSQL
@@ -243,10 +227,9 @@ echo "Get params:
     GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY
     USE_AVX2            -- $USE_AVX2
     USE_LIBCPP          -- $USE_LIBCPP
-    USE_DWARF           -- $USE_DWARF
+    BUILD_META_TOOL     -- $BUILD_META_TOOL
+    USE_LLD             -- $USE_LLD
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
-    USE_MEM_TRACKER     -- $USE_MEM_TRACKER
-    USE_JEMALLOC        -- $USE_JEMALLOC
     STRICT_MEMORY_USE   -- $STRICT_MEMORY_USE
 "
 
@@ -409,29 +392,18 @@ if [ ${BUILD_BE} -eq 1 ]; then
 
     cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
-    cp -r -p ${DORIS_HOME}/be/output/lib/doris_be ${DORIS_OUTPUT}/be/lib/
+    cp -r -p ${DORIS_HOME}/be/output/lib/* ${DORIS_OUTPUT}/be/lib/
     # make a soft link palo_be point to doris_be, for forward compatibility
     cd ${DORIS_OUTPUT}/be/lib && rm -f palo_be && ln -s doris_be palo_be && cd -
-
-    if [ "${BUILD_META_TOOL}" = "ON" ]; then
-        cp -r -p ${DORIS_HOME}/be/output/lib/meta_tool ${DORIS_OUTPUT}/be/lib/
-    fi
-
     cp -r -p ${DORIS_HOME}/be/output/udf/*.a ${DORIS_OUTPUT}/udf/lib/
     cp -r -p ${DORIS_HOME}/be/output/udf/include/* ${DORIS_OUTPUT}/udf/include/
     cp -r -p ${DORIS_HOME}/webroot/be/* ${DORIS_OUTPUT}/be/www/
-    if [ "${STRIP_DEBUG_INFO}" = "ON" ]; then
-        cp -r -p ${DORIS_HOME}/be/output/lib/debug_info ${DORIS_OUTPUT}/be/lib/
-    fi
-
-    java_udf_path=${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar
-    if [ -f ${java_udf_path} ];then
-        cp ${java_udf_path} ${DORIS_OUTPUT}/be/lib/
-    fi
 
     cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/be/www/
     mkdir -p ${DORIS_OUTPUT}/be/log
     mkdir -p ${DORIS_OUTPUT}/be/storage
+
+
 fi
 
 if [ ${BUILD_BROKER} -eq 1 ]; then
