@@ -52,7 +52,8 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
             "SELECT T1.ID ID FROM T1",
             "SELECT T.ID FROM T1 T",
             "SELECT A.ID FROM T1 A, T2 B WHERE A.ID = B.ID GROUP BY A.ID ORDER BY A.ID",
-            "SELECT * FROM T1 JOIN T1 T2 ON T1.ID = T2.ID"
+            "SELECT * FROM T1 JOIN T1 T2 ON T1.ID = T2.ID",
+            "SELECT Y.S FROM (SELECT SUM(ID) ID1 FROM T1 A GROUP BY A.ID) X JOIN (SELECT SCORE S FROM T2) Y ON X.ID1 = Y.S"
     );
 
     @Override
@@ -107,7 +108,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testFinalizeAnalyze() {
-        finalizeAnalyze(testSql.get(9));
+        finalizeAnalyze(testSql.get(10));
     }
 
     @Test
@@ -120,7 +121,8 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testPlan() throws AnalysisException {
-        PhysicalPlan plan = testPlanCase(testSql.get(8));
+        PhysicalPlan plan = testPlanCase(testSql.get(10));
+        System.out.println(plan.treeString());
         PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
         System.out.println(root.getPlanRoot());
     }
