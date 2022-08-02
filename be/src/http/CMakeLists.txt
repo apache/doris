@@ -52,4 +52,5 @@ add_library(Webserver STATIC
   action/config_action.cpp
   action/check_rpc_channel_action.cpp
   action/reset_rpc_channel_action.cpp
+  action/check_tablet_segment_action.cpp
 )
