@@ -309,7 +309,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             totalFileSize += split.getLength();
 
             List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
-                    partitionKeys);
+                    partitionKeys, false);
 
             TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath);
 
