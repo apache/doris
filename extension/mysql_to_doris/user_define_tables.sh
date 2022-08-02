@@ -82,7 +82,7 @@ sed -i -e '$!N;/\n.*ENGINE=MYSQL/!P;D' ./user_files/tables.sql
 #replace mysql password、database、table、host
 for t_name in $(awk -F '\n' '{print $1}' ./conf/tables)
         do
-        sed -i "0,/ApacheDorisHostIp/s/ApacheDorisHostIp/${mysql}/" ./user_files/tables.sql
+        sed -i "0,/ApacheDorisHostIp/s/ApacheDorisHostIp/${mysql_host}/" ./user_files/tables.sql
         sed -i "0,/ApacheDorisHostPassword/s/ApacheDorisHostPassword/${mysql_password}/" ./user_files/tables.sql
         sed -i "0,/ApacheDorisDataBases/s/ApacheDorisDataBases/${d_mysql}/" ./user_files/tables.sql
         sed -i "0,/ApacheDorisTables/s/ApacheDorisTables/${t_name}/" ./user_files/tables.sql
