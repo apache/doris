@@ -44,6 +44,7 @@ Usage: $0 <options>
      --be               build Backend
      --meta-tool        build Backend meta tool
      --broker           build Broker
+     --audit            build audit loader
      --spark-dpp        build Spark DPP application
      --hive-udf         build Hive UDF library for Spark Load
      --java-udf         build Java UDF library
@@ -103,6 +104,7 @@ OPTS=$(getopt \
   -l 'fe' \
   -l 'be' \
   -l 'broker' \
+  -l 'audit' \
   -l 'meta-tool' \
   -l 'spark-dpp' \
   -l 'java-udf' \
@@ -122,6 +124,7 @@ PARALLEL=$[$(nproc)/4+1]
 BUILD_FE=0
 BUILD_BE=0
 BUILD_BROKER=0
+BUILD_AUDIT=0
 BUILD_META_TOOL=OFF
 BUILD_SPARK_DPP=0
 BUILD_JAVA_UDF=0
@@ -135,6 +138,7 @@ if [ $# == 1 ] ; then
     BUILD_FE=1
     BUILD_BE=1
     BUILD_BROKER=1
+    BUILD_AUDIT=1
     BUILD_META_TOOL=OFF
     BUILD_SPARK_DPP=1
     BUILD_JAVA_UDF=0 # TODO: open it when ready
@@ -146,6 +150,7 @@ else
             --fe) BUILD_FE=1 BUILD_SPARK_DPP=1 ; shift ;;
             --be) BUILD_BE=1 ; shift ;;
             --broker) BUILD_BROKER=1 ; shift ;;
+            --audit)  BUILD_AUDIT=1 ; shift ;;
             --meta-tool) BUILD_META_TOOL=ON ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
             --java-udf) BUILD_JAVA_UDF=1 BUILD_FE=1 BUILD_SPARK_DPP=1 ; shift ;;
@@ -163,6 +168,7 @@ else
         BUILD_FE=1
         BUILD_BE=1
         BUILD_BROKER=1
+        BUILD_AUDIT=1
         BUILD_META_TOOL=ON
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
@@ -225,6 +231,7 @@ echo "Get params:
     BUILD_FE            -- $BUILD_FE
     BUILD_BE            -- $BUILD_BE
     BUILD_BROKER        -- $BUILD_BROKER
+    BUILD_AUDIT         -- $BUILD_AUDIT
     BUILD_META_TOOL     -- $BUILD_META_TOOL
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
     BUILD_JAVA_UDF      -- $BUILD_JAVA_UDF
@@ -434,6 +441,16 @@ if [ ${BUILD_BROKER} -eq 1 ]; then
     ./build.sh
     rm -rf ${DORIS_OUTPUT}/apache_hdfs_broker/*
     cp -r -p ${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker/* ${DORIS_OUTPUT}/apache_hdfs_broker/
+    cd ${DORIS_HOME}
+fi
+
+if [ ${BUILD_AUDIT} -eq 1 ]; then
+    install -d ${DORIS_OUTPUT}/audit_loader
+
+    cd ${DORIS_HOME}/fe_plugins/auditloader/
+    ./build.sh
+    rm -rf ${DORIS_OUTPUT}/audit_loader/*
+    cp -r -p ${DORIS_HOME}/fe_plugins/auditloader/output/* ${DORIS_OUTPUT}/audit_loader/
     cd ${DORIS_HOME}
 fi
 
