@@ -91,6 +91,22 @@ Parameter Description:
    Query OK, 0 rows affected (0.01 sec)
    ````
 
+3. Create SQL BLOCK RULE with special chars
+
+    ```sql
+    CREATE SQL_BLOCK_RULE test_rule3
+    PROPERTIES
+    ( 
+    "sql" = "select count\\(1\\) from db1.tbl1"
+    );
+
+    CREATE SQL_BLOCK_RULE test_rule4
+    PROPERTIES
+    ( 
+    "sql" = "select \\* from db1.tbl1"
+    );
+    ```
+
 ### Keywords
 
 ````text
