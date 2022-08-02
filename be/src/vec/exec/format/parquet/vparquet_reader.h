@@ -28,6 +28,8 @@
 #include "io/file_reader.h"
 #include "vec/core/block.h"
 #include "vparquet_file_metadata.h"
+#include "vparquet_group_reader.h"
+#include "vparquet_page_index.h"
 
 namespace doris::vectorized {
 
@@ -61,16 +63,17 @@ public:
     int64_t size() const { return _file_reader->size(); }
 
 private:
-    int64_t _get_row_group_start_offset(const tparquet::RowGroup& row_group);
     Status _column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs);
     void _init_row_group_reader();
-    void _fill_block_data();
-    void _init_page_index();
-    Status _process_page_index();
+    void _fill_block_data(std::vector<tparquet::ColumnChunk> columns);
+    bool _has_page_index(std::vector<tparquet::ColumnChunk> columns);
+    Status _process_page_index(std::vector<tparquet::ColumnChunk> columns);
 
 private:
     FileReader* _file_reader;
     std::shared_ptr<FileMetaData> _file_metadata;
+    std::shared_ptr<RowGroupReader> _row_group_reader;
+    std::shared_ptr<PageIndex> _page_index;
     int _total_groups; // num of groups(stripes) of a parquet(orc) file
     //    int _current_group;                     // current group(stripe)
     //        std::shared_ptr<Statistics> _statistics;

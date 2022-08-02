@@ -72,19 +72,4 @@ Status parse_thrift_footer(FileReader* file, std::shared_ptr<FileMetaData>& file
 //        uint8_t* page_buf;
 //
 //    }
-
-Status parse_column_index(const tparquet::ColumnChunk& chunk, tparquet::ColumnIndex* columnIndex) {
-    // get colum index start offset
-    // int64_t buffer_offset = chunk.column_index_offset - column_index_start;
-    // uint32_t length = chunk.column_index_length;
-    // deserialize_thrift_msg(buff + buffer_offset, &length, true, column_index);
-    return Status::OK();
-}
-
-Status parse_offset_index(const tparquet::ColumnChunk& chunk, tparquet::OffsetIndex* offsetIndex) {
-    // int64_t buffer_offset = chunk.offset_index_offset - offset_index_start + column_index_size;
-    // uint32_t length = chunk.o4ffset_index_length;
-    // deserialize_thrift_msg(buff + buffer_offset, &length, true, offset_index);
-    return Status::OK();
-}
 } // namespace doris::vectorized

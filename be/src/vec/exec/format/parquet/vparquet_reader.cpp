@@ -18,7 +18,6 @@
 #include "vparquet_reader.h"
 
 #include "parquet_thrift_util.h"
-#include "vparquet_page_index.h"
 
 namespace doris::vectorized {
 doris::vectorized::ParquetReader::ParquetReader(doris::FileReader* file_reader, int64_t batch_size,
@@ -71,13 +70,6 @@ Status ParquetReader::init_reader(const TupleDescriptor* tuple_desc,
     return Status::OK();
 }
 
-int64_t ParquetReader::_get_row_group_start_offset(const tparquet::RowGroup& row_group) {
-    if (row_group.__isset.file_offset) {
-        return row_group.file_offset;
-    }
-    return row_group.columns[0].meta_data.data_page_offset;
-}
-
 Status ParquetReader::_column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
     DCHECK(_num_of_columns_from_file <= tuple_slot_descs.size());
     _include_column_ids.clear();
@@ -98,32 +90,51 @@ Status ParquetReader::_column_indices(const std::vector<SlotDescriptor*>& tuple_
 }
 
 Status ParquetReader::read_next_batch(Block* block) {
-    // todo: build block and push scanner queue
-    _fill_block_data();
-    block = _batch;
-    return Status();
-}
-
-void ParquetReader::_fill_block_data() {
-    // read column chunk
-    _init_page_index();
-    Status st = _process_page_index();
-    if (st.ok()) {
-        // process filter page
-        return;
+    int32_t group_id;
+    RETURN_IF_ERROR(_row_group_reader->read_next_row_group(&group_id));
+    auto metadata = _file_metadata->to_thrift_metadata();
+    auto column_chunks = metadata.row_groups[group_id].columns;
+    if (_has_page_index(column_chunks)) {
+        Status st = _process_page_index(column_chunks);
+        if (st.ok()) {
+            // todo: process filter page
+            return Status::OK();
+        } else {
+            // todo: record profile
+            LOG(WARNING) << "";
+        }
     }
+    // metadata has been processed, fill parquet data to block
+    _fill_block_data(column_chunks);
+    block = _batch;
+    // push to scanner queue
+    return Status::OK();
 }
 
-void ParquetReader::_init_row_group_reader() {}
-
-void ParquetReader::_init_page_index(const tparquet::ColumnChunk& chunk) {
-    PageIndex pageIndex;
-
-    parse_column_index(chunk, &pageIndex._column_index);
-    parse_offset_index(chunk, &pageIndex._offset_index);
+void ParquetReader::_fill_block_data(std::vector<tparquet::ColumnChunk> columns) {
+    // read column chunk
+    // _batch =
 }
 
-Status ParquetReader::_process_page_index() {
-    return Status();
+void ParquetReader::_init_row_group_reader() {
+    _row_group_reader.reset(new RowGroupReader(_file_reader, _file_metadata, _include_column_ids));
+}
+
+bool ParquetReader::_has_page_index(std::vector<tparquet::ColumnChunk> columns) {
+    _page_index.reset(new PageIndex());
+    return _page_index->check_and_get_page_index_ranges(columns);
+}
+
+Status ParquetReader::_process_page_index(std::vector<tparquet::ColumnChunk> columns) {
+    int64_t buffer_size = _page_index->_column_index_size + _page_index->_offset_index_size;
+    uint8_t buff[buffer_size];
+    for (auto col_id : _include_column_ids) {
+        auto chunk = columns[col_id];
+        RETURN_IF_ERROR(_page_index->parse_column_index(chunk, buff, buffer_size));
+        // todo: use page index filter min/max val
+        RETURN_IF_ERROR(_page_index->parse_offset_index(chunk, buff, buffer_size));
+        // todo: calculate row range
+    }
+    return Status::OK();
 }
 } // namespace doris::vectorized

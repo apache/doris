@@ -28,7 +28,7 @@ public:
 
     ~RowGroupReader() = default;
 
-    Status read_next_row_group(int32_t* group_id);
+    Status read_next_row_group(const int32_t* group_id);
 
 private:
     void _init_column_readers();
@@ -42,6 +42,8 @@ private:
     void _init_bloom_filter();
 
     Status _process_bloom_filter();
+
+    int64_t _get_row_group_start_offset(const tparquet::RowGroup& row_group);
 
 private:
     doris::FileReader* _file_reader;

@@ -34,7 +34,7 @@ RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
 
 void RowGroupReader::_init_column_readers() {}
 
-Status RowGroupReader::read_next_row_group(int32_t* group_id) {
+Status RowGroupReader::read_next_row_group(const int32_t* group_id) {
     int32_t total_group = _file_metadata->num_row_groups();
     while (_current_row_group < total_group) {
         bool filter_group = false;
@@ -44,7 +44,7 @@ Status RowGroupReader::read_next_row_group(int32_t* group_id) {
         }
         _current_row_group++;
     }
-    return Status();
+    return Status::OK();
 }
 
 Status RowGroupReader::_process_row_group_filter(bool* filter_group) {
@@ -64,5 +64,12 @@ void RowGroupReader::_init_bloom_filter() {}
 
 Status RowGroupReader::_process_bloom_filter() {
     return Status();
+}
+
+int64_t RowGroupReader::_get_row_group_start_offset(const tparquet::RowGroup& row_group) {
+    if (row_group.__isset.file_offset) {
+        return row_group.file_offset;
+    }
+    return row_group.columns[0].meta_data.data_page_offset;
 }
 } // namespace doris::vectorized
