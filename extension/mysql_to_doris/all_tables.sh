@@ -59,7 +59,7 @@ for table in $(awk -F '\n' '{print $1}' ./files/tables)
 
 done
 
-echo '==============================start to transform mysql table for doris extral table==========================='
+echo '==============================start to transform mysql table for doris extral table======================'
 #adjust sql
 awk -F '\t' '{print $2}' ./files/tables.sql |awk '!(NR%2)' |awk '{print $0 ";"}' > ./files/tables1.sql
 sed -i 's/\\n/\n/g' ./files/tables1.sql
