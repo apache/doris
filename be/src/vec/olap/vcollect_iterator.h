@@ -83,7 +83,7 @@ private:
         LevelIterator(TabletReader* reader) : _schema(reader->tablet_schema()) {
             _num_compare_columns = _schema.num_key_columns();
             if (reader->_reader_context.read_orderby_key_columns > 0) {
-                // _num_compare_columns = reader->_reader_context.read_orderby_key_columns;
+                _num_compare_columns = reader->_reader_context.read_orderby_key_columns;
             }
         };
 

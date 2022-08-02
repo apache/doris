@@ -128,7 +128,7 @@ public:
               _num_columns(iter->schema().num_column_ids()),
               _num_compare_columns(iter->schema().num_key_columns()) {
         if (read_orderby_key_columns > 0) {
-            // _num_compare_columns = read_orderby_key_columns;
+            _num_compare_columns = read_orderby_key_columns;
         }
     }
 
