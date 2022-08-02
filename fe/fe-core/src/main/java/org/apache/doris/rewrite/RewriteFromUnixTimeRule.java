@@ -105,7 +105,7 @@ public class RewriteFromUnixTimeRule implements ExprRewriteRule {
             return expr;
         }
         // definition: from_unixtime(int, format)
-        if (params.exprs().size() != 1 && params.exprs().size() != 2) {
+        if (params.exprs().size() != 1) {
             return expr;
         }
         Expr paramSlot = params.exprs().get(0);
