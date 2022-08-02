@@ -706,7 +706,8 @@ public class InsertStmt extends DdlStmt {
             return dataSink;
         }
         if (targetTable instanceof OlapTable) {
-            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds);
+            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
+                    analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof BrokerTable) {
             BrokerTable table = (BrokerTable) targetTable;
