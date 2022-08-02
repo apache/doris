@@ -615,7 +615,6 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
     // a.2 Calculate the left row num
     uint32_t new_row_num = row_num - *filtered_rows;
 
-    const bool need_filter_data = (new_row_num != row_num);
     const bool filter_all = (new_row_num == 0);
 
     MemPool* mem_pool = mutable_block->mem_pool();
