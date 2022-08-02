@@ -53,12 +53,6 @@ public:
 
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
-    Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range, int block_row_count,
-                     bool is_begin_include, bool is_end_include,
-                     const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
-                     std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
-                     RuntimeProfile* profile);
-
 private:
     // In order to ensure the accuracy of the query result
     // only key column conjuncts will be remove as idle conjunct
@@ -116,7 +110,7 @@ private:
     Status _submit_scanner(RuntimeState* state, ThreadPoolToken* thread_token,
                            PriorityThreadPool* thread_pool, PriorityThreadPool* remote_thread_pool,
                            VOlapScanner* scanner, const OpentelemetrySpan& cur_span);
-    
+
     void _update_nice() {
         // 16k * 10 * 12 * 8 = 15M(>2s)  --> nice=10
         // 16k * 20 * 22 * 8 = 55M(>6s)  --> nice=0
@@ -133,13 +127,9 @@ private:
     const TupleDescriptor* _tuple_desc;
     // tuple index
     int _tuple_idx;
-    // string slots
-    std::vector<SlotDescriptor*> _string_slots;
     // conjunct's index which already be push down storage engine
     // should be remove in olap_scan_node, no need check this conjunct again
     std::set<uint32_t> _pushed_conjuncts_index;
-    // collection slots
-    std::vector<SlotDescriptor*> _collection_slots;
 
     bool _eos;
 
@@ -180,9 +170,6 @@ private:
     // to limit _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2
     std::atomic_size_t _scan_row_batches_bytes = 0;
 
-    std::list<VOlapScanner*> _olap_scanners;
-
-    int _max_materialized_row_batches;
     // to limit _scan_row_batches_bytes
     size_t _max_scanner_queue_size_bytes;
     bool _start;

@@ -200,22 +200,6 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
-    const std::vector<SlotDescriptor*>& slots = _tuple_desc->slots();
-
-    for (int i = 0; i < slots.size(); ++i) {
-        if (!slots[i]->is_materialized()) {
-            continue;
-        }
-
-        if (slots[i]->type().is_collection_type()) {
-            _collection_slots.push_back(slots[i]);
-        }
-
-        if (slots[i]->type().is_string_type()) {
-            _string_slots.push_back(slots[i]);
-        }
-    }
-
     _runtime_state = state;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
@@ -404,7 +388,6 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         if (UNLIKELY(state->is_cancelled())) {
             eos = true;
             status = Status::Cancelled("Cancelled");
-            LOG(INFO) << "Scan thread cancelled.";
             break;
         }
 
@@ -480,7 +463,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
 
         // If eos is true, we will process out of this lock block.
-        // 1. no more data for this scanner: global_status_ok = true or false 
+        // 1. no more data for this scanner: global_status_ok = true or false
         // 2. read return error for this scanner: global_status_ok = false
         // 3. query is canceled: global_status_ok = false
         // 4. error occured for any other scanners: global_status_ok = false
@@ -490,23 +473,28 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
 
             if (global_status_ok && !reached_limit) {
                 std::lock_guard<std::mutex> l(_volap_scanners_lock);
-                if (!_volap_scanners.empty()) {
+                if (!_volap_scanners.empty() &&
+                    _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
                     auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
                     auto s = _submit_scanner(state, thread_token, thread_pool, remote_thread_pool,
                                              _volap_scanners.front(), cur_span);
                     if (!s.ok()) {
-                        LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s.get_error_msg();
+                        LOG(FATAL) << "Failed to assign scanner task to thread pool! "
+                                   << s.get_error_msg();
                     }
                     _volap_scanners.pop_front();
                 }
             }
         } else {
             // status is ok and more data to read
-            auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
-            auto s = _submit_scanner(state, thread_token, thread_pool, remote_thread_pool, scanner,
-                                     cur_span);
-            if (!s.ok()) {
-                LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s.get_error_msg();
+            if (_scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
+                auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
+                auto s = _submit_scanner(state, thread_token, thread_pool, remote_thread_pool,
+                                         scanner, cur_span);
+                if (!s.ok()) {
+                    LOG(FATAL) << "Failed to assign scanner task to thread pool! "
+                               << s.get_error_msg();
+                }
             }
         }
     }
@@ -1484,12 +1472,6 @@ Status VOlapScanNode::init_scanners(RuntimeState* state) {
     if (cond_ranges.empty()) {
         cond_ranges.emplace_back(new OlapScanRange());
     }
-    bool need_split = true;
-    // If we have ranges more than 64, there is no need to call
-    // ShowHint to split ranges
-    if (limit() != -1 || cond_ranges.size() > 64) {
-        need_split = false;
-    }
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
     std::unordered_set<std::string> disk_set;
@@ -1507,14 +1489,6 @@ Status VOlapScanNode::init_scanners(RuntimeState* state) {
 
         std::vector<std::unique_ptr<OlapScanRange>>* ranges = &cond_ranges;
         std::vector<std::unique_ptr<OlapScanRange>> split_ranges;
-        if (need_split && !tablet->all_beta()) {
-            auto st = get_hints(tablet, *scan_range, config::doris_scan_range_row_count,
-                                _scan_keys.begin_include(), _scan_keys.end_include(), cond_ranges,
-                                &split_ranges, _runtime_profile.get());
-            if (st.ok()) {
-                ranges = &split_ranges;
-            }
-        }
         int size_based_scanners_per_tablet = 1;
 
         if (config::doris_scan_range_max_mb > 0) {
@@ -1603,9 +1577,9 @@ Status VOlapScanNode::init_scanners(RuntimeState* state) {
 }
 
 Status VOlapScanNode::_submit_scanner(RuntimeState* state, ThreadPoolToken* thread_token,
-                                      PriorityThreadPool* thread_pool, PriorityThreadPool* remote_thread_pool,
-                                      VOlapScanner* scanner, const OpentelemetrySpan& cur_span) {
-
+                                      PriorityThreadPool* thread_pool,
+                                      PriorityThreadPool* remote_thread_pool, VOlapScanner* scanner,
+                                      const OpentelemetrySpan& cur_span) {
     Status s = Status::OK();
     if (thread_token != nullptr) {
         s = thread_token->submit_func([this, scanner, parent_span = cur_span] {
@@ -1628,7 +1602,7 @@ Status VOlapScanNode::_submit_scanner(RuntimeState* state, ThreadPoolToken* thre
         } else {
             ret = remote_thread_pool->offer(task);
         }
-        
+
         if (!ret) {
             s = Status::InternalError("Failed to schedule olap scanner");
         }
@@ -1719,7 +1693,7 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         *eos = true;
         return Status::OK();
     }
-    
+
     _start_scanner_thread_task(state);
 
     _update_nice();
@@ -1888,68 +1862,6 @@ Status VOlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
         COUNTER_UPDATE(_tablet_counter, 1);
     }
     telemetry::set_current_span_attribute(_tablet_counter);
-
-    return Status::OK();
-}
-
-Status VOlapScanNode::get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range,
-                                int block_row_count, bool is_begin_include, bool is_end_include,
-                                const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
-                                std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
-                                RuntimeProfile* profile) {
-    RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime_V1");
-    std::vector<std::vector<OlapTuple>> ranges;
-    bool have_valid_range = false;
-    for (auto& key_range : scan_key_range) {
-        if (key_range->begin_scan_range.size() == 1 &&
-            key_range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
-            continue;
-        }
-        SCOPED_TIMER(show_hints_timer);
-
-        Status res = Status::OK();
-        std::vector<OlapTuple> range;
-        res = table->split_range(key_range->begin_scan_range, key_range->end_scan_range,
-                                 block_row_count, &range);
-        if (!res.ok()) {
-            return Status::InternalError("fail to show hints");
-        }
-        ranges.emplace_back(std::move(range));
-        have_valid_range = true;
-    }
-
-    if (!have_valid_range) {
-        std::vector<OlapTuple> range;
-        auto res = table->split_range({}, {}, block_row_count, &range);
-        if (!res.ok()) {
-            return Status::InternalError("fail to show hints");
-        }
-        ranges.emplace_back(std::move(range));
-    }
-
-    for (int i = 0; i < ranges.size(); ++i) {
-        for (int j = 0; j < ranges[i].size(); j += 2) {
-            std::unique_ptr<OlapScanRange> range(new OlapScanRange);
-            range->begin_scan_range.reset();
-            range->begin_scan_range = ranges[i][j];
-            range->end_scan_range.reset();
-            range->end_scan_range = ranges[i][j + 1];
-
-            if (0 == j) {
-                range->begin_include = is_begin_include;
-            } else {
-                range->begin_include = true;
-            }
-
-            if (j + 2 == ranges[i].size()) {
-                range->end_include = is_end_include;
-            } else {
-                range->end_include = false;
-            }
-
-            sub_scan_range->emplace_back(std::move(range));
-        }
-    }
 
     return Status::OK();
 }
