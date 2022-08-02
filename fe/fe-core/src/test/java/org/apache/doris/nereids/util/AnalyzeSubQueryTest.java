@@ -99,10 +99,15 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     }
 
     @Test
-    public void testParse() {
+    public void testParseAllCase() {
         for (String sql : testSql) {
             System.out.println(parser.parseSingle(sql).treeString());
         }
+    }
+
+    @Test
+    public void testParse() {
+        System.out.println(parser.parseSingle(testSql.get(10)).treeString());
     }
 
     @Test
