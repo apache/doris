@@ -30,6 +30,7 @@
 #include <iomanip>
 #include <sstream>
 
+#include "common/config.h"
 #include "geo/wkt_parse.h"
 
 namespace doris {
@@ -74,7 +75,7 @@ static bool is_loop_closed(const std::vector<S2Point>& points) {
     if (points.empty()) {
         return false;
     }
-    if (points[0] != points[points.size() - 1]) {
+    if (!points[0].aequal(points[points.size() - 1], config::s2geo_eps)) {
         return false;
     }
     return true;
@@ -85,7 +86,7 @@ static void remove_duplicate_points(std::vector<S2Point>* points) {
     int lhs = 0;
     int rhs = 1;
     for (; rhs < points->size(); ++rhs) {
-        if ((*points)[rhs] != (*points)[lhs]) {
+        if (!(*points)[rhs].aequal((*points)[lhs], config::s2geo_eps)) {
             lhs++;
             if (lhs != rhs) {
                 (*points)[lhs] = (*points)[rhs];
@@ -155,7 +156,7 @@ static GeoParseStatus to_s2polygon(const GeoCoordinateListList& coords_list,
         if (res != GEO_PARSE_OK) {
             return res;
         }
-        if (i != 0 && !loops[0]->Contains(loops[i].get())) {
+        if (i != 0 && !loops[0]->Contains(*loops[i].get())) {
             return GEO_PARSE_POLYGON_NOT_HOLE;
         }
     }
@@ -355,7 +356,7 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = (const GeoPolygon*)rhs;
-        return _polygon->Contains(other->polygon());
+        return _polygon->Contains(*other->polygon());
     }
     default:
         return false;

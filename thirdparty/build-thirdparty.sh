@@ -898,6 +898,23 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
 }
 
+# abseil
+build_abseil() {
+    check_if_source_exist $ABSEIL_SOURCE
+    cd $TP_SOURCE_DIR/$ABSEIL_SOURCE
+
+    CXXFLAGS="-O3" \
+    LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
+    ${CMAKE_CMD} -B $BUILD_DIR -DCMAKE_INSTALL_PREFIX=${TP_INSTALL_DIR} \
+    -DABSL_ENABLE_INSTALL=ON \
+    -DBUILD_DEPS=ON \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_CXX_STANDARD=11
+
+    cmake --build $BUILD_DIR
+    cmake --install $BUILD_DIR --prefix $TP_INSTALL_DIR
+}
+
 # s2
 build_s2() {
     check_if_source_exist "${S2_SOURCE}"
@@ -915,16 +932,11 @@ build_s2() {
     fi
 
     CXXFLAGS="-O3" \
-        LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
-        -DBUILD_SHARED_LIBS=OFF \
-        -DGFLAGS_ROOT_DIR="${TP_INSTALL_DIR}/include" \
-        -DWITH_GFLAGS=ON \
-        -DGLOG_ROOT_DIR="${TP_INSTALL_DIR}/include" \
-        -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" \
-        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}/include" \
-        -DWITH_GLOG=ON ..
+    LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
+    ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_LIBRARY_PATH=$TP_INSTALL_DIR ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install

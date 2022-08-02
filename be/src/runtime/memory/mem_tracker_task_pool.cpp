@@ -32,8 +32,9 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_task_mem_tracker
     // Name for task MemTrackers. '$0' is replaced with the task id.
     std::shared_ptr<MemTrackerLimiter> tracker;
     bool new_emplace = _task_mem_trackers.try_emplace_l(
-            task_id, [&](const std::shared_ptr<MemTrackerLimiter>& v) { tracker = v; },
+            task_id, [&](const auto& v) { tracker = v.second; },
             std::make_shared<MemTrackerLimiter>(mem_limit, label, parent));
+
     if (new_emplace) {
         LOG(INFO) << "Register query/load memory tracker, query/load id: " << task_id
                   << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
@@ -62,8 +63,7 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::get_task_mem_tracker(
     DCHECK(!task_id.empty());
     std::shared_ptr<MemTrackerLimiter> tracker = nullptr;
     // Avoid using locks to resolve erase conflicts
-    _task_mem_trackers.if_contains(
-            task_id, [&tracker](const std::shared_ptr<MemTrackerLimiter>& v) { tracker = v; });
+    _task_mem_trackers.if_contains(task_id, [&tracker](const auto& v) { tracker = v.second; });
     return tracker;
 }
 
@@ -96,9 +96,8 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
     }
     for (auto tid : expired_task_ids) {
         // Verify the condition again to make sure the tracker is not being used again.
-        _task_mem_trackers.erase_if(tid, [&](const std::shared_ptr<MemTrackerLimiter>& v) {
-            return !v || v.use_count() == 1;
-        });
+        _task_mem_trackers.erase_if(
+                tid, [&](const auto& v) { return !v.second || v.second.use_count() == 1; });
     }
 }
 

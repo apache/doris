@@ -24,10 +24,7 @@
 
 namespace doris {
 
-void GeoFunctions::init() {
-    // set s2debug to false to avoid crash
-    FLAGS_s2debug = false;
-}
+void GeoFunctions::init() {}
 
 DoubleVal GeoFunctions::st_distance_sphere(FunctionContext* ctx, const DoubleVal& x_lng,
                                            const DoubleVal& x_lat, const DoubleVal& y_lng,

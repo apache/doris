@@ -5,6 +5,10 @@ This file contains version of the third-party dependency libraries in the build-
 ## v20220812
 
 - Modified: libhdfs3 2.3.1 -> 2.3.2
+## v20220807
+- Modified: update parallel-hashmap from 1.33 to 1.35
+- Modified: s2geometry 0.9.0 -> 0.10.0
+- Added: Abseil, it is dependency of new s2geometry
 
 ## v20220718
 

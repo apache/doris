@@ -243,11 +243,17 @@ ARROW_NAME="apache-arrow-7.0.0.tar.gz"
 ARROW_SOURCE="apache-arrow-7.0.0"
 ARROW_MD5SUM="316ade159901646849b3b4760fa52816"
 
+# Abseil
+ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20220623.0.tar.gz"
+ABSEIL_NAME=abseil-cpp-20220623.0.tar.gz
+ABSEIL_SOURCE=abseil-cpp-20220623.0
+ABSEIL_MD5SUM="955b6faedf32ec2ce1b7725561d15618"
+
 # S2
-S2_DOWNLOAD="https://github.com/google/s2geometry/archive/v0.9.0.tar.gz"
-S2_NAME=s2geometry-0.9.0.tar.gz
-S2_SOURCE=s2geometry-0.9.0
-S2_MD5SUM="293552c7646193b8b4a01556808fe155"
+S2_DOWNLOAD="https://github.com/google/s2geometry/archive/refs/tags/v0.10.0.tar.gz"
+S2_NAME=s2geometry-0.10.0.tar.gz
+S2_SOURCE=s2geometry-0.10.0
+S2_MD5SUM="c68f3c5d326dde9255681b9201393a9f"
 
 # bitshuffle
 BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.3.5.tar.gz"
@@ -268,10 +274,10 @@ FMT_SOURCE="fmt-7.1.3"
 FMT_MD5SUM="2522ec65070c0bda0ca288677ded2831"
 
 # parallel-hashmap
-PARALLEL_HASHMAP_DOWNLOAD="https://github.com/greg7mdp/parallel-hashmap/archive/1.33.tar.gz"
-PARALLEL_HASHMAP_NAME="parallel-hashmap-1.33.tar.gz"
-PARALLEL_HASHMAP_SOURCE="parallel-hashmap-1.33"
-PARALLEL_HASHMAP_MD5SUM="7626b5215f745c4ce59b5a4e41d16235"
+PARALLEL_HASHMAP_DOWNLOAD="https://github.com/greg7mdp/parallel-hashmap/archive/1.35.tar.gz"
+PARALLEL_HASHMAP_NAME="parallel-hashmap-1.35.tar.gz"
+PARALLEL_HASHMAP_SOURCE="parallel-hashmap-1.35"
+PARALLEL_HASHMAP_MD5SUM="3e6e05aa032bd6f5f085bc3129ac4228"
 
 # orc
 ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.7.2/orc-1.7.2.tar.gz"
@@ -452,6 +458,7 @@ FLATBUFFERS
 ARROW
 BROTLI
 ZSTD
+ABSEIL
 S2
 BITSHUFFLE
 CROARINGBITMAP
