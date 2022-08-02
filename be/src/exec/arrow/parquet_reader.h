@@ -64,7 +64,7 @@ public:
     // batch_size is not use here
     ParquetReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file,
                       int64_t range_start_offset, int64_t range_size);
-    ~ParquetReaderWrap() override;
+    ~ParquetReaderWrap() override = default;
 
     // Read
     Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
@@ -75,7 +75,6 @@ public:
                        const std::vector<ExprContext*>& conjunct_ctxs,
                        const std::string& timezone) override;
     Status init_parquet_type();
-    Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
 
 private:
     void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value,
@@ -86,8 +85,9 @@ private:
                             int32_t* wbtyes);
 
 private:
-    void prefetch_batch();
     Status read_next_batch();
+    void read_batches(arrow::RecordBatchVector& batches, int current_group) override;
+    bool filter_row_group(int current_group) override;
 
 private:
     // parquet file reader object
@@ -104,16 +104,7 @@ private:
     int64_t _range_size;
 
 private:
-    std::atomic<bool> _closed = false;
-    std::atomic<bool> _batch_eof = false;
-    arrow::Status _status;
-    std::mutex _mtx;
-    std::condition_variable _queue_reader_cond;
-    std::condition_variable _queue_writer_cond;
-    std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
     std::unique_ptr<doris::RowGroupReader> _row_group_reader;
-    const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
-    std::thread _thread;
 };
 
 } // namespace doris

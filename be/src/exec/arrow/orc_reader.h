@@ -40,11 +40,12 @@ public:
                        const std::vector<SlotDescriptor*>& tuple_slot_descs,
                        const std::vector<ExprContext*>& conjunct_ctxs,
                        const std::string& timezone) override;
-    Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
 
 private:
     Status _next_stripe_reader(bool* eof);
     Status _seek_start_stripe();
+    void read_batches(arrow::RecordBatchVector& batches, int current_group) override;
+    bool filter_row_group(int current_group) override;
 
 private:
     // orc file reader object

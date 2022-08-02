@@ -71,11 +71,7 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
     }
     RETURN_IF_ERROR(column_indices(tuple_slot_descs));
 
-    bool eof = false;
-    RETURN_IF_ERROR(_next_stripe_reader(&eof));
-    if (eof) {
-        return Status::EndOfFile("end of file");
-    }
+    _thread = std::thread(&ArrowReaderWrap::prefetch_batch, this);
 
     return Status::OK();
 }
@@ -143,23 +139,23 @@ Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
     return Status::OK();
 }
 
-Status ORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) {
-    *eof = false;
-    do {
-        auto st = _rb_reader->ReadNext(batch);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to get next batch, errmsg=" << st;
-            return Status::InternalError(st.ToString());
-        }
-        if (*batch == nullptr) {
-            // try next stripe
-            RETURN_IF_ERROR(_next_stripe_reader(eof));
-            if (*eof) {
-                break;
-            }
-        }
-    } while (*batch == nullptr);
-    return Status::OK();
+void ORCReaderWrap::read_batches(arrow::RecordBatchVector& batches, int current_group) {
+    bool eof = false;
+    Status status = _next_stripe_reader(&eof);
+    if (!status.ok()) {
+        _closed = true;
+        return;
+    }
+    if (eof) {
+        _closed = true;
+        return;
+    }
+
+    _status = _rb_reader->ReadAll(&batches);
+}
+
+bool ORCReaderWrap::filter_row_group(int current_group) {
+    return false;
 }
 
 } // namespace doris

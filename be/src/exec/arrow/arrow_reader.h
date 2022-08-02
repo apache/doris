@@ -92,13 +92,17 @@ public:
         return Status::NotSupported("Not Implemented read");
     }
     // for vec
-    virtual Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) = 0;
+    Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof);
     std::shared_ptr<Statistics>& statistics() { return _statistics; }
     void close();
     virtual Status size(int64_t* size) { return Status::NotSupported("Not Implemented size"); }
 
+    void prefetch_batch();
+
 protected:
     virtual Status column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs);
+    virtual void read_batches(arrow::RecordBatchVector& batches, int current_group) = 0;
+    virtual bool filter_row_group(int current_group) = 0;
 
 protected:
     const int64_t _batch_size;
@@ -110,6 +114,16 @@ protected:
     std::map<std::string, int> _map_column; // column-name <---> column-index
     std::vector<int> _include_column_ids;   // columns that need to get from file
     std::shared_ptr<Statistics> _statistics;
+
+    std::atomic<bool> _closed = false;
+    std::atomic<bool> _batch_eof = false;
+    arrow::Status _status;
+    std::mutex _mtx;
+    std::condition_variable _queue_reader_cond;
+    std::condition_variable _queue_writer_cond;
+    std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
+    const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
+    std::thread _thread;
 };
 
 } // namespace doris
