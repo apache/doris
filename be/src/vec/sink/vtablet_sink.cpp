@@ -384,6 +384,7 @@ size_t VOlapTableSink::get_pending_bytes() const {
     }
     return mem_consumption;
 }
+
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
