@@ -115,11 +115,11 @@ The detailed syntax for creating a routine load task can be connected to Doris a
 
     `desired_concurrent_number` is used to specify the degree of concurrency expected for a routine job. That is, a job, at most how many tasks are executing at the same time. For Kafka load, the current actual concurrency is calculated as follows:
 
-    ```
-    Min(partition num, desired_concurrent_number, Config.max_routine_load_task_concurrrent_num)
+    ``` 
+    Min(partition num, desired_concurrent_number, Config.max_routine_load_task_concurrent_num)
     ```
 
-    Where `Config.max_routine_load_task_concurrrent_num` is a default maximum concurrency limit for the system. This is a FE configuration that can be adjusted by changing the configuration. The default is 5.
+    Where `Config.max_routine_load_task_concurrent_num` is a default maximum concurrency limit for the system. This is a FE configuration that can be adjusted by changing the configuration. The default is 5.
 
     Where partition num refers to the number of partitions for the Kafka topic subscribed to.
 
