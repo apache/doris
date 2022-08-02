@@ -41,7 +41,6 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_group_concat.cpp
   aggregate_functions/aggregate_function_percentile_approx.cpp
   aggregate_functions/aggregate_function_simple_factory.cpp
-  aggregate_functions/aggregate_function_java_udaf.h
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
   columns/column.cpp
   columns/column_array.cpp
@@ -221,7 +220,15 @@ set(VEC_FILES
   exec/file_arrow_scanner.cpp
   exec/file_scanner.cpp
   exec/file_scan_node.cpp
-  exec/file_text_scanner.cpp)
+  exec/file_text_scanner.cpp
+  exec/file_hdfs_scanner.cpp
+  exec/format/parquet/vparquet_column_chunk_reader.cpp
+  exec/format/parquet/vparquet_group_reader.cpp
+  exec/format/parquet/vparquet_page_index.cpp
+  exec/format/parquet/vparquet_reader.cpp
+  exec/format/parquet/vparquet_file_metadata.cpp
+  exec/format/parquet/vparquet_page_reader.cpp
+  exec/format/parquet/schema_desc.cpp)
 
 add_library(Vec STATIC
     ${VEC_FILES}

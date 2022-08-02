@@ -16,24 +16,24 @@
 #
 
 github:
-  description: Apache Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
-  homepage: https://doris.apache.org/
+  description: Apache Doris is an easy-to-use, high performance and unified analytics database. 
+  homepage: https://doris.apache.org
   labels:
     - data-warehousing
     - mpp
     - olap
     - dbms
-    - apache
-    - doris
     - database
-    - distributed-system
+    - sql
     - big-data
+    - real-time
+    - analytics
+    - distributed-database
     - iceberg
     - hudi
     - datalake
     - hive
     - hadoop
-    - analytics
     - tpch
     - ssb
     - vectorized

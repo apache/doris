@@ -17,10 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.rules.Rule;
@@ -31,13 +27,13 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.util.PlanConstructor;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
@@ -48,22 +44,12 @@ public class JoinLAsscomTest {
     private static List<LogicalOlapScan> scans = Lists.newArrayList();
     private static List<List<SlotReference>> outputs = Lists.newArrayList();
 
-    @BeforeClass
+    @BeforeAll
     public static void init() {
-        Table t1 = new Table(0L, "t1", Table.TableType.OLAP,
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "0", "")));
-        LogicalOlapScan scan1 = new LogicalOlapScan(t1, ImmutableList.of());
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScanWithTable("t1");
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScanWithTable("t2");
+        LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScanWithTable("t3");
 
-        Table t2 = new Table(0L, "t2", Table.TableType.OLAP,
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "0", "")));
-        LogicalOlapScan scan2 = new LogicalOlapScan(t2, ImmutableList.of());
-
-        Table t3 = new Table(0L, "t3", Table.TableType.OLAP,
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, "0", "")));
-        LogicalOlapScan scan3 = new LogicalOlapScan(t3, ImmutableList.of());
         scans.add(scan1);
         scans.add(scan2);
         scans.add(scan3);
@@ -88,7 +74,7 @@ public class JoinLAsscomTest {
          *  /    \                  /    \
          * A      B                A      C
          */
-        Assert.assertEquals(3, scans.size());
+        Assertions.assertEquals(3, scans.size());
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> bottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                 Optional.of(bottomJoinOnCondition), scans.get(0), scans.get(1));
         LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> topJoin = new LogicalJoin<>(
@@ -96,8 +82,8 @@ public class JoinLAsscomTest {
 
         Rule rule = new JoinLAsscom().build();
         List<Plan> transform = rule.transform(topJoin, plannerContext);
-        Assert.assertEquals(1, transform.size());
-        Assert.assertTrue(transform.get(0) instanceof LogicalJoin);
+        Assertions.assertEquals(1, transform.size());
+        Assertions.assertTrue(transform.get(0) instanceof LogicalJoin);
         LogicalJoin newTopJoin = (LogicalJoin) transform.get(0);
         return new Pair<>(topJoin, newTopJoin);
     }
@@ -131,10 +117,12 @@ public class JoinLAsscomTest {
         LogicalJoin newTopJoin = pair.second;
 
         // Join reorder successfully.
-        Assert.assertNotEquals(oldJoin, newTopJoin);
-        Assert.assertEquals("t1", ((LogicalOlapScan) ((LogicalJoin) newTopJoin.left()).left()).getTable().getName());
-        Assert.assertEquals("t3", ((LogicalOlapScan) ((LogicalJoin) newTopJoin.left()).right()).getTable().getName());
-        Assert.assertEquals("t2", ((LogicalOlapScan) newTopJoin.right()).getTable().getName());
+        Assertions.assertNotEquals(oldJoin, newTopJoin);
+        Assertions.assertEquals("t1",
+                ((LogicalOlapScan) ((LogicalJoin) newTopJoin.left()).left()).getTable().getName());
+        Assertions.assertEquals("t3",
+                ((LogicalOlapScan) ((LogicalJoin) newTopJoin.left()).right()).getTable().getName());
+        Assertions.assertEquals("t2", ((LogicalOlapScan) newTopJoin.right()).getTable().getName());
     }
 
     @Test
@@ -171,6 +159,6 @@ public class JoinLAsscomTest {
         // |
         // t3
         // then, we can LAsscom for this star-join.
-        Assert.assertEquals(oldJoin, newTopJoin);
+        Assertions.assertEquals(oldJoin, newTopJoin);
     }
 }

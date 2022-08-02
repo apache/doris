@@ -581,12 +581,12 @@ public class Env {
 
         // The pendingLoadTaskScheduler's queue size should not less than Config.desired_max_waiting_jobs.
         // So that we can guarantee that all submitted load jobs can be scheduled without being starved.
-        this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending_load_task_scheduler",
+        this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending-load-task-scheduler",
                 Config.async_pending_load_task_pool_size, Config.desired_max_waiting_jobs, !isCheckpointCatalog);
         // The loadingLoadTaskScheduler's queue size is unlimited, so that it can receive all loading tasks
         // created after pending tasks finish. And don't worry about the high concurrency, because the
         // concurrency is limited by Config.desired_max_waiting_jobs and Config.async_loading_load_task_pool_size.
-        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading_load_task_scheduler",
+        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading-load-task-scheduler",
                 Config.async_loading_load_task_pool_size, Integer.MAX_VALUE, !isCheckpointCatalog);
 
         this.loadJobScheduler = new LoadJobScheduler();
@@ -3647,6 +3647,9 @@ public class Env {
 
                 String oldTableName = table.getName();
                 String newTableName = tableRenameClause.getNewTableName();
+                if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(newTableName)) {
+                    newTableName = newTableName.toLowerCase();
+                }
                 if (oldTableName.equals(newTableName)) {
                     throw new DdlException("Same table name");
                 }

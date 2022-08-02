@@ -49,7 +49,7 @@ When clone is completed, origin defaults to the remote fork address on github.
 #### (2) Add apache/incubator-doris to the remote branch upstream of the local warehouse:
 
 ```
-cd  incubator-doris
+cd doris
 git remote add upstream https://github.com/apache/doris.git
 ```
 

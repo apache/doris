@@ -19,7 +19,6 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -39,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.Statistics;
@@ -47,10 +47,11 @@ import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
 
 import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -105,7 +106,7 @@ public class StatsCalculatorTest {
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
         statsCalculator.estimate();
-        Assert.assertEquals(groupExpression.getOwnerGroup().getStatistics().getRowCount(), 10);
+        Assertions.assertEquals(groupExpression.getOwnerGroup().getStatistics().getRowCount(), 10);
     }
 
     @Test
@@ -149,7 +150,7 @@ public class StatsCalculatorTest {
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
         statsCalculator.estimate();
-        Assert.assertEquals((long) (10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals((long) (10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter logicalFilterOr = new LogicalFilter(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr);
@@ -158,7 +159,7 @@ public class StatsCalculatorTest {
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
         StatsCalculator statsCalculator2 = new StatsCalculator(groupExpressionOr);
         statsCalculator2.estimate();
-        Assert.assertEquals((long) (10000 * (0.1 + 0.05 - 0.1 * 0.05)),
+        Assertions.assertEquals((long) (10000 * (0.1 + 0.05 - 0.1 * 0.05)),
                 ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
 
@@ -190,10 +191,10 @@ public class StatsCalculatorTest {
         EqualTo equalTo = new EqualTo(slot1, slot2);
         StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats,
                 rightStats, equalTo, JoinType.LEFT_SEMI_JOIN);
-        Assert.assertEquals(leftRowCount, semiJoinStats.getRowCount());
+        Assertions.assertEquals(leftRowCount, semiJoinStats.getRowCount());
         StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats,
                 rightStats, equalTo, JoinType.INNER_JOIN);
-        Assert.assertEquals(2500000, innerJoinStats.getRowCount());
+        Assertions.assertEquals(2500000, innerJoinStats.getRowCount());
     }
 
     @Test
@@ -202,14 +203,11 @@ public class StatsCalculatorTest {
         columnStats1.setNdv(10);
         columnStats1.setNumNulls(5);
         long tableId1 = 0;
-        String tableName1 = "t1";
         TableStats tableStats1 = new TableStats();
         tableStats1.putColumnStats("c1", columnStats1);
         Statistics statistics = new Statistics();
         statistics.putTableStats(tableId1, tableStats1);
-        List<String> qualifier = new ArrayList<>();
-        qualifier.add("test");
-        qualifier.add("t");
+        List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
         new Expectations() {{
                 ConnectContext.get();
@@ -222,7 +220,7 @@ public class StatsCalculatorTest {
                 result = statistics;
             }};
 
-        Table table1 = new Table(tableId1, tableName1, TableType.OLAP, Collections.emptyList());
+        Table table1 = PlanConstructor.newTable(tableId1, "t1");
         LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(table1, Collections.emptyList()).withLogicalProperties(
                 Optional.of(new LogicalProperties(new Supplier<List<Slot>>() {
                     @Override
@@ -237,8 +235,8 @@ public class StatsCalculatorTest {
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
         statsCalculator.estimate();
         StatsDeriveResult stats = ownerGroup.getStatistics();
-        Assert.assertEquals(1, stats.getSlotToColumnStats().size());
-        Assert.assertNotNull(stats.getSlotToColumnStats().get(slot1));
+        Assertions.assertEquals(1, stats.getSlotToColumnStats().size());
+        Assertions.assertNotNull(stats.getSlotToColumnStats().get(slot1));
     }
 
 }

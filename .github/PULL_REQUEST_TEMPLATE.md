@@ -2,7 +2,9 @@
 
 Issue Number: close #xxx
 
-## Problem Summary:
+## Problem summary
+
+Describe your changes.
 
 ## Checklist(Required)
 
@@ -22,7 +24,7 @@ Issue Number: close #xxx
     - [ ] Yes
     - [ ] No
 5. Are there any changes that cannot be rolled back:
-    - [ ] Yes
+    - [ ] Yes (If Yes, please explain WHY)
     - [ ] No
 
 ## Further comments
