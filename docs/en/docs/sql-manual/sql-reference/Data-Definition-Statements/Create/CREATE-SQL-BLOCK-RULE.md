@@ -61,35 +61,49 @@ Parameter Description:
 
 1. Create a block rule named test_rule
 
-   ```sql
-   mysql> CREATE SQL_BLOCK_RULE test_rule
-       -> PROPERTIES(
-       -> "sql"="select \\* from order_analysis;",
-       -> "global"="false",
-       -> "enable"="true"
-       -> );
-   Query OK, 0 rows affected (0.01 sec)
-   ````
+    ```sql
+    CREATE SQL_BLOCK_RULE test_rule
+    PROPERTIES(
+    "sql"="select \\* from order_analysis;",
+    "global"="false",
+    "enable"="true"
+    );
+    ````
 
-   When we execute the sql we just defined in the rule, an exception error will be returned. The example is as follows:
+    When we execute the sql we just defined in the rule, an exception error will be returned. The example is as follows:
 
-   ```sql
-   mysql> select * from order_analysis;
-   ERROR 1064 (HY000): errCode = 2, detailMessage = sql match regex sql block rule: order_analysis_rule
-   ````
+    ```sql
+    select * from order_analysis;
+    ERROR 1064 (HY000): errCode = 2, detailMessage = sql match regex sql block rule: order_analysis_rule
+    ````
 
 2. Create test_rule2, limit the maximum number of scanned partitions to 30, and limit the maximum scan base to 10 billion rows. The example is as follows:
 
-   ```sql
-   mysql> CREATE SQL_BLOCK_RULE test_rule2
-       -> PROPERTIES (
-       -> "partition_num" = "30",
-       -> "cardinality" = "10000000000",
-       -> "global" = "false",
-       -> "enable" = "true"
-       -> );
-   Query OK, 0 rows affected (0.01 sec)
-   ````
+    ```sql
+    CREATE SQL_BLOCK_RULE test_rule2
+    PROPERTIES (
+    "partition_num" = "30",
+    "cardinality" = "10000000000",
+    "global" = "false",
+    "enable" = "true"
+    );
+    ````
+
+3. Create SQL BLOCK RULE with special chars
+
+    ```sql
+    CREATE SQL_BLOCK_RULE test_rule3
+    PROPERTIES
+    ( 
+    "sql" = "select count\\(1\\) from db1.tbl1"
+    );
+
+    CREATE SQL_BLOCK_RULE test_rule4
+    PROPERTIES
+    ( 
+    "sql" = "select \\* from db1.tbl1"
+    );
+    ```
 
 ### Keywords
 
