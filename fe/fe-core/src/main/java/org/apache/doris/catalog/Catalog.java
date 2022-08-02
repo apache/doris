@@ -5379,6 +5379,9 @@ public class Catalog {
 
                 String oldTableName = table.getName();
                 String newTableName = tableRenameClause.getNewTableName();
+                if (Catalog.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(newTableName)) {
+                    newTableName = newTableName.toLowerCase();
+                }
                 if (oldTableName.equals(newTableName)) {
                     throw new DdlException("Same table name");
                 }
