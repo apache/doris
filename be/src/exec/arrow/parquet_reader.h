@@ -64,7 +64,7 @@ public:
     // batch_size is not use here
     ParquetReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file,
                       int64_t range_start_offset, int64_t range_size, bool caseSensitive = true);
-    ~ParquetReaderWrap() override  = default;
+    ~ParquetReaderWrap() override = default;
 
     // Read
     Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
