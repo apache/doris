@@ -710,6 +710,9 @@ private:
         }
     }
 
+    void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
+                                  const size_t num_rows);
+
     void release_tracker();
 
     using vectorized_execute = std::function<Status(Block* block)>;
