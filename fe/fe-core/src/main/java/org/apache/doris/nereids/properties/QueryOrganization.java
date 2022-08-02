@@ -51,7 +51,7 @@ public class QueryOrganization {
     }
 
     public boolean hasLimitClause() {
-        return limit != Long.MAX_VALUE;
+        return limit != -1;
     }
 
 }

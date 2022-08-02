@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.Scan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -70,14 +72,23 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
      * Do estimate.
      */
     public void estimate() {
+
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
         groupExpression.getOwnerGroup().setStatistics(stats);
-        Plan plan = groupExpression.getPlan();
-        long limit = plan.getLimit();
-        if (limit != -1) {
-            stats.setRowCount(Math.min(limit, stats.getRowCount()));
-        }
         groupExpression.setStatDerived(true);
+
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalLimit(LogicalLimit<Plan> limit, Void context) {
+        StatsDeriveResult stats = groupExpression.getCopyOfChildStats(0);
+        return stats.updateRowCountByLimit(limit.getLimit() + limit.getOffset());
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalLimit(PhysicalLimit<Plan> limit, Void context) {
+        StatsDeriveResult stats = groupExpression.getCopyOfChildStats(0);
+        return stats.updateRowCountByLimit(limit.getLimit() + limit.getOffset());
     }
 
     @Override
@@ -157,7 +168,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         FilterSelectivityCalculator selectivityCalculator =
                 new FilterSelectivityCalculator(stats.getSlotToColumnStats());
         double selectivity = selectivityCalculator.estimate(filter.getPredicates());
-        stats.multiplyDouble(selectivity);
+        stats.updateRowCountBySelectivity(selectivity);
         return stats;
     }
 

@@ -35,7 +35,6 @@ import java.util.Optional;
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
 
     protected StatsDeriveResult statsDeriveResult;
-    protected long limit = -1;
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;
     protected final LogicalProperties logicalProperties;
@@ -119,9 +118,5 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public int hashCode() {
         return Objects.hash(statsDeriveResult, logicalProperties);
-    }
-
-    public long getLimit() {
-        return limit;
     }
 }

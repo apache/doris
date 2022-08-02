@@ -245,9 +245,17 @@ public class ColumnStats {
         return new ColumnStats(this);
     }
 
-    public ColumnStats multiplyDouble(double selectivity) {
+    public ColumnStats updateBySelectivity(double selectivity) {
         ndv *= selectivity;
         numNulls *= selectivity;
+        return this;
+    }
+
+    public ColumnStats updateByLimit(long limit) {
+        if (limit > 0) {
+            ndv = Math.min(ndv, limit);
+            numNulls = Math.min(numNulls, limit);
+        }
         return this;
     }
 }

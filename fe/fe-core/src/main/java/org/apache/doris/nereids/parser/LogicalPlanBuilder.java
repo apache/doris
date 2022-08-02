@@ -577,7 +577,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 orderKeys = ImmutableList.of();
             }
             Token token = ctx.limitClause().limit;
-            long limit = (token == null) ? Long.MAX_VALUE : Long.parseLong(token.getText());
+            long limit = (token == null) ? -1 : Long.parseLong(token.getText());
             token = ctx.limitClause().offset;
             long offset = (token == null) ? 0 : Long.parseLong(token.getText());
             return new QueryOrganization(orderKeys, limit, offset);

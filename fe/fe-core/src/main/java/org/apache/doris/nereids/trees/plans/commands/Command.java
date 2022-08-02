@@ -92,9 +92,4 @@ public interface Command extends LogicalPlan {
     default Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         throw new RuntimeException("Command do not implement withLogicalProperties");
     }
-
-    @Override
-    default long getLimit() {
-        throw new RuntimeException("Command do not implement getLimit");
-    }
 }

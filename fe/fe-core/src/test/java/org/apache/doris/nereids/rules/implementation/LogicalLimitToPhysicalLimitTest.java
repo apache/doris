@@ -26,8 +26,8 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -37,8 +37,8 @@ public class LogicalLimitToPhysicalLimitTest {
         Plan logicalPlan = new LogicalLimit<>(3, 4, new GroupPlan(group));
         Rule rule = new LogicalLimitToPhysicalLimit().build();
         List<Plan> physicalPlans = rule.transform(logicalPlan, plannerContext);
-        Assert.assertEquals(1, physicalPlans.size());
+        Assertions.assertEquals(1, physicalPlans.size());
         Plan impl = physicalPlans.get(0);
-        Assert.assertEquals(PlanType.PHYSICAL_LIMIT, impl.getType());
+        Assertions.assertEquals(PlanType.PHYSICAL_LIMIT, impl.getType());
     }
 }
