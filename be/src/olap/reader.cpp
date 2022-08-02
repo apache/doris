@@ -235,11 +235,9 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
 
-    if (config::enable_rowblockv2_reuse) {
-        Schema schema(_reader_context.tablet_schema->columns(), *(_reader_context.return_columns));
-        _reader_context.reuse_block =
-                std::make_shared<RowBlockV2>(schema, std::min(1024, _reader_context.batch_size));
-    }
+    Schema schema(_reader_context.tablet_schema->columns(), *(_reader_context.return_columns));
+    _reader_context.reuse_block =
+            std::make_shared<RowBlockV2>(schema, std::min(1024, _reader_context.batch_size));
 
     *valid_rs_readers = *rs_readers;
 
