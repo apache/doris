@@ -49,7 +49,7 @@ clone 完成后，origin 会默认指向 github 上的远程 fork 地址。
 #### （2）将 apache/doris 添加为本地仓库的远程分支 upstream：
 
 ```
-cd  incubator-doris
+cd doris
 git remote add upstream https://github.com/apache/doris.git
 ```
 
