@@ -318,6 +318,8 @@ public:
     void record_unused_remote_rowset(const RowsetId& rowset_id, const io::ResourceId& resource,
                                      int64_t num_segments);
 
+    bool check_all_rowset_segment();
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;

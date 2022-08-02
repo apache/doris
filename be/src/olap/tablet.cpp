@@ -1422,6 +1422,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         tablet_info->__set_used(false);
     }
 
+    if (tablet_state() == TABLET_SHUTDOWN) {
+        tablet_info->__set_used(false);
+    }
+
     // the report version is the largest continuous version, same logic as in FE side
     tablet_info->version = cversion.second;
     // Useless but it is a required filed in TTabletInfo
@@ -1937,6 +1941,17 @@ void Tablet::update_self_owned_remote_rowsets(
             }
         }
     }
+}
+
+bool Tablet::check_all_rowset_segment() {
+    for (auto& version_rowset : _rs_version_map) {
+        RowsetSharedPtr rowset = version_rowset.second;
+        if (!rowset->check_rowset_segment()) {
+            LOG(WARNING) << "Tablet Segment Check. find a bad tablet, tablet_id=" << tablet_id();
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace doris

@@ -138,6 +138,8 @@ public:
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
 
+    std::set<int64_t> check_all_tablet_segment(bool repair);
+
 private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one

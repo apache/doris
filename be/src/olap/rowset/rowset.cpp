@@ -76,4 +76,9 @@ void Rowset::make_visible(Version version) {
     make_visible_extra(version);
 }
 
+bool Rowset::check_rowset_segment() {
+    std::lock_guard<std::mutex> load_lock(_lock);
+    return check_current_rowset_segment();
+}
+
 } // namespace doris

@@ -87,6 +87,8 @@ protected:
 
     void do_close() override;
 
+    bool check_current_rowset_segment() override;
+
 private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
