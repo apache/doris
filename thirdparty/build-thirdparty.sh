@@ -59,7 +59,14 @@ fi
 
 eval set -- "$OPTS"
 
-PARALLEL=$(($(nproc) / 4 + 1))
+KERNEL="$(uname -s)"
+
+if [[ "${KERNEL}" == 'Darwin' ]]; then
+    PARALLEL=$(($(sysctl -n hw.logicalcpu) / 4 + 1))
+else
+    PARALLEL=$(($(nproc) / 4 + 1))
+fi
+
 if [[ $# -ne 1 ]]; then
     while true; do
         case "$1" in
@@ -141,8 +148,6 @@ elif [[ "$CC" == *clang ]]; then
     boost_toolset=clang
     libhdfs_cxx17=-std=c++1z
 fi
-
-KERNEL="$(uname -s)"
 
 # prepare installed prefix
 mkdir -p "${TP_DIR}/installed/lib64"
