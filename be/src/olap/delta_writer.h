@@ -72,7 +72,13 @@ public:
     Status close();
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
-    Status close_wait();
+    Status close_wait(const PSlaveTabletNodes& slave_tablet_nodes, const bool write_single_replica);
+
+    bool check_slave_replicas_done(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
+                                           success_slave_tablet_node_ids);
+
+    void add_finished_slave_replicas(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
+                                             success_slave_tablet_node_ids);
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
@@ -102,6 +108,8 @@ public:
 
     int64_t get_mem_consumption_snapshot() const;
 
+    void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
+
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine,
                 const std::shared_ptr<MemTrackerLimiter>& parent_tracker, bool is_vec);
@@ -116,6 +124,8 @@ private:
     void _build_current_tablet_schema(int64_t index_id,
                                       const POlapTableSchemaParam& table_schema_param,
                                       const TabletSchema& ori_tablet_schema);
+
+    void _request_slave_tablet_pull_rowset(PNodeInfo node_info);
 
     bool _is_init = false;
     bool _is_cancelled = false;
@@ -148,6 +158,10 @@ private:
 
     //only used for std::sort more detail see issue(#9237)
     int64_t _mem_consumption_snapshot = 0;
+
+    std::unordered_set<int64_t> _unfinished_slave_node;
+    PSuccessSlaveTabletNodeIds _success_slave_node_ids;
+    std::shared_mutex _slave_node_lock;
 };
 
 } // namespace doris
