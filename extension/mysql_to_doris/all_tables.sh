@@ -108,7 +108,7 @@ sed -i 's/unsigned//g' ./files/tables.sql
 sed -i 's/zerofill//g' ./files/tables.sql
 sed -i 's/json/varchar(65535)/g' ./files/tables.sql
 sed -i 's/enum([^)]*)/varchar(65535)/g' ./files/tables.sql
-sed -i 's/set/varchar(65535)/g' ./files/tables.sql
+sed -i 's/\<set\>/varchar(65535)/g' ./files/tables.sql
 sed -i 's/bit/varchar(65535)/g' ./files/tables.sql
 sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci//g'  ./files/tables.sql
 sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8_general_ci//g' ./files/tables.sql
