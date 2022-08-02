@@ -146,5 +146,5 @@ sed -i 's/\<varbinary\>/varchar(65535)/g' ./files/tables.sql
 #######################################
 #import doris
 echo '==========================================start to write database========================================'
-echo " create database if not exists $d_doris ;use $d_doris ; source ./files/tables.sql;" |mysql -h$master_host -P$master_port -uroot -p$doris_password 2>/dev/null
+echo " create database if not exists $d_doris ;use $d_doris ; source ./files/tables.sql;" |mysql -h$master_host -P$master_port -uroot -p$doris_password
 echo '==========================================write database success========================================='
