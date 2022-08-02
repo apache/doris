@@ -43,11 +43,11 @@ public class MetricsAction {
         String type = request.getParameter(TYPE_PARAM);
         MetricVisitor visitor = null;
         if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {
-            visitor = new SimpleCoreMetricVisitor("doris_fe");
+            visitor = new SimpleCoreMetricVisitor();
         } else if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("json")) {
-            visitor = new JsonMetricVisitor("doris_fe");
+            visitor = new JsonMetricVisitor();
         } else {
-            visitor = new PrometheusMetricVisitor("doris_fe");
+            visitor = new PrometheusMetricVisitor();
         }
         response.setContentType("text/plain");
         try {

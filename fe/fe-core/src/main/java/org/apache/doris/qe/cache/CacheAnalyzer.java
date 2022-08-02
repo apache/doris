@@ -234,7 +234,7 @@ public class CacheAnalyzer {
                     Config.cache_last_version_interval_second * 1000);
             cache = new SqlCache(this.queryId, this.selectStmt);
             ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
-            MetricRepo.COUNTER_CACHE_MODE_SQL.increase(1L);
+            MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
             return CacheMode.Sql;
         }
 
@@ -284,7 +284,7 @@ public class CacheAnalyzer {
         cache = new PartitionCache(this.queryId, this.selectStmt);
         ((PartitionCache) cache).setCacheInfo(this.latestTable, this.partitionInfo, this.partColumn,
                 this.partitionPredicate, allViewExpandStmtListStr);
-        MetricRepo.COUNTER_CACHE_MODE_PARTITION.increase(1L);
+        MetricRepo.COUNTER_CACHE_ADDED_PARTITION.increase(1L);
         return CacheMode.Partition;
     }
 

@@ -38,6 +38,7 @@ LocalFileReader::~LocalFileReader() {
 Status LocalFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        DorisMetrics::instance()->local_file_open_reading->increment(-1);
         auto res = ::close(_fd);
         if (-1 == res) {
             return Status::IOError("failed to close {}: {}", _path.native(), std::strerror(errno));

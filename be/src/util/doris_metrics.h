@@ -46,8 +46,6 @@ class DorisMetrics {
 public:
     IntCounter* fragment_requests_total;
     IntCounter* fragment_request_duration_us;
-    IntCounter* http_requests_total;
-    IntCounter* http_request_send_bytes;
     IntCounter* query_scan_bytes;
     IntCounter* query_scan_rows;
 
@@ -109,15 +107,10 @@ public:
     IntCounter* segment_read_total;
     // total number of rows in queried segments (before index pruning)
     IntCounter* segment_row_total;
-    // total number of rows selected by short key index
-    IntCounter* segment_rows_by_short_key;
-    // total number of rows selected by zone map index
-    IntCounter* segment_rows_read_by_zone_map;
 
-    IntCounter* txn_begin_request_total;
-    IntCounter* txn_commit_request_total;
-    IntCounter* txn_rollback_request_total;
-    IntCounter* txn_exec_plan_total;
+    IntCounter* stream_load_txn_begin_request_total;
+    IntCounter* stream_load_txn_commit_request_total;
+    IntCounter* stream_load_txn_rollback_request_total;
     IntCounter* stream_receive_bytes_total;
     IntCounter* stream_load_rows_total;
     IntCounter* load_rows;
@@ -153,7 +146,6 @@ public:
 
     // The following metrics will be calculated
     // by metric calculator
-    IntGauge* push_request_write_bytes_per_second;
     IntGauge* query_scan_bytes_per_second;
     IntGauge* max_disk_io_util_percent;
     IntGauge* max_network_send_bytes_rate;
@@ -203,7 +195,6 @@ public:
     UIntGauge* query_cache_partition_total_count;
 
     UIntGauge* scanner_thread_pool_queue_size;
-    UIntGauge* etl_thread_pool_queue_size;
     UIntGauge* add_batch_task_queue_size;
     UIntGauge* send_batch_thread_pool_thread_num;
     UIntGauge* send_batch_thread_pool_queue_size;

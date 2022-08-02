@@ -166,8 +166,6 @@ public class LoadJobTest {
     public void testUpdateStateToFinished(@Mocked MetricRepo metricRepo,
                                           @Injectable LoadTask loadTask1,
                                           @Mocked LongCounterMetric longCounterMetric) {
-
-        MetricRepo.COUNTER_LOAD_FINISHED = longCounterMetric;
         LoadJob loadJob = new BrokerLoadJob();
         loadJob.idToTasks.put(1L, loadTask1);
 

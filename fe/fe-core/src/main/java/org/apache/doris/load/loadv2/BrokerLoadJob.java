@@ -41,7 +41,6 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.service.FrontendOptions;
@@ -95,7 +94,6 @@ public class BrokerLoadJob extends BulkLoadJob {
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
-        MetricRepo.COUNTER_LOAD_ADD.increase(1L);
         transactionId = Env.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
                         new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
@@ -294,7 +292,6 @@ public class BrokerLoadJob extends BulkLoadJob {
                     .add("txn_id", transactionId)
                     .add("msg", "Load job try to commit txn")
                     .build());
-            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             Env.getCurrentGlobalTransactionMgr().commitTransaction(
                     dbId, tableList, transactionId, commitInfos,
                     new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,

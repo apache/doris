@@ -52,10 +52,10 @@ public final class ExportChecker extends MasterDaemon {
         checkers.put(JobState.EXPORTING, new ExportChecker(JobState.EXPORTING, intervalMs));
 
         int poolSize = Config.export_running_job_num_limit == 0 ? 5 : Config.export_running_job_num_limit;
-        MasterTaskExecutor pendingTaskExecutor = new MasterTaskExecutor("export_pending_job", poolSize, true);
+        MasterTaskExecutor pendingTaskExecutor = new MasterTaskExecutor("export-pending-job", poolSize, true);
         executors.put(JobState.PENDING, pendingTaskExecutor);
 
-        MasterTaskExecutor exportingTaskExecutor = new MasterTaskExecutor("export_exporting_job", poolSize, true);
+        MasterTaskExecutor exportingTaskExecutor = new MasterTaskExecutor("export-exporting-job", poolSize, true);
         executors.put(JobState.EXPORTING, exportingTaskExecutor);
     }
 

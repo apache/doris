@@ -30,8 +30,6 @@ namespace doris {
 DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(fragment_requests_total, MetricUnit::REQUESTS,
                                      "Total fragment requests received.");
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(fragment_request_duration_us, MetricUnit::MICROSECONDS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_requests_total, MetricUnit::REQUESTS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_request_send_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_rows, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_count, MetricUnit::NOUNIT);
@@ -100,28 +98,18 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(meta_read_request_duration_us, MetricUnit::
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(segment_read_total, MetricUnit::OPERATIONS,
                                      "(segment_v2) total number of segments read", segment_read,
-                                     Labels({{"type", "segment_total_read_times"}}));
+                                     Labels({{"type", "segment_read_total"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(
         segment_row_total, MetricUnit::ROWS,
         "(segment_v2) total number of rows in queried segments (before index pruning)",
-        segment_read, Labels({{"type", "segment_total_row_num"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(
-        segment_rows_by_short_key, MetricUnit::ROWS,
-        "(segment_v2) total number of rows selected by short key index", segment_read,
-        Labels({{"type", "segment_rows_by_short_key"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(segment_rows_read_by_zone_map, MetricUnit::ROWS,
-                                     "(segment_v2) total number of rows selected by zone map index",
-                                     segment_read,
-                                     Labels({{"type", "segment_rows_read_by_zone_map"}}));
+        segment_read, Labels({{"type", "segment_row_total"}}));
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(txn_begin_request_total, MetricUnit::OPERATIONS, "",
-                                     txn_request, Labels({{"type", "begin"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(txn_commit_request_total, MetricUnit::OPERATIONS, "",
-                                     txn_request, Labels({{"type", "commit"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(txn_rollback_request_total, MetricUnit::OPERATIONS, "",
-                                     txn_request, Labels({{"type", "rollback"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(txn_exec_plan_total, MetricUnit::OPERATIONS, "", txn_request,
-                                     Labels({{"type", "exec"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_begin_request_total, MetricUnit::OPERATIONS,
+                                     "", stream_load_txn_request, Labels({{"type", "begin"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_commit_request_total, MetricUnit::OPERATIONS,
+                                     "", stream_load_txn_request, Labels({{"type", "commit"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_rollback_request_total, MetricUnit::OPERATIONS,
+                                     "", stream_load_txn_request, Labels({{"type", "rollback"}}));
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_receive_bytes_total, MetricUnit::BYTES, "", stream_load,
                                      Labels({{"type", "receive_bytes"}}));
@@ -153,7 +141,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_waitting_permits, MetricUnit::NOUN
 
 DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(tablet_version_num_distribution, MetricUnit::NOUNIT);
 
-DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(push_request_write_bytes_per_second, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_scan_bytes_per_second, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(max_disk_io_util_percent, MetricUnit::PERCENT);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(max_network_send_bytes_rate, MetricUnit::BYTES);
@@ -198,8 +185,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fragment_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fragment_request_duration_us);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, http_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, http_request_send_bytes);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_rows);
 
@@ -254,13 +239,10 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_read_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_row_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_rows_by_short_key);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_rows_read_by_zone_map);
 
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, txn_begin_request_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, txn_commit_request_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, txn_rollback_request_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, txn_exec_plan_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_load_txn_begin_request_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_load_txn_commit_request_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_load_txn_rollback_request_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_receive_bytes_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_load_rows_total);
 
@@ -281,7 +263,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     HISTOGRAM_METRIC_REGISTER(_server_metric_entity, tablet_version_num_distribution);
 
-    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, push_request_write_bytes_per_second);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_per_second);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, max_disk_io_util_percent);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, max_network_send_bytes_rate);

@@ -49,7 +49,7 @@ public class NMysqlServer extends MysqlServer {
 
     // default task service.
     private ExecutorService taskService = ThreadPoolManager.newDaemonCacheThreadPool(
-            Config.max_mysql_service_task_threads_num, "doris-mysql-nio-pool", true);
+            Config.max_mysql_service_task_threads_num, "mysql-nio-pool", true);
 
     public NMysqlServer(int port, ConnectScheduler connectScheduler) {
         this.port = port;

@@ -48,18 +48,6 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_STREQ("101", metric->to_string().c_str());
     }
     {
-        DorisMetrics::instance()->http_requests_total->increment(102);
-        auto metric = server_entity->get_metric("http_requests_total");
-        EXPECT_TRUE(metric != nullptr);
-        EXPECT_STREQ("102", metric->to_string().c_str());
-    }
-    {
-        DorisMetrics::instance()->http_request_send_bytes->increment(104);
-        auto metric = server_entity->get_metric("http_request_send_bytes");
-        EXPECT_TRUE(metric != nullptr);
-        EXPECT_STREQ("104", metric->to_string().c_str());
-    }
-    {
         DorisMetrics::instance()->query_scan_bytes->increment(104);
         auto metric = server_entity->get_metric("query_scan_bytes");
         EXPECT_TRUE(metric != nullptr);

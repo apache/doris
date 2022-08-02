@@ -45,7 +45,6 @@ import org.apache.doris.common.Version;
 import org.apache.doris.datasource.DataSourceIf;
 import org.apache.doris.datasource.InternalDataSource;
 import org.apache.doris.master.MasterImpl;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.policy.Policy;
@@ -596,7 +595,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         OlapTable table = (OlapTable) db.getTableOrMetaException(request.tbl, TableType.OLAP);
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
-        MetricRepo.COUNTER_LOAD_ADD.increase(1L);
         long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                 db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
                 new TxnCoordinator(TxnSourceType.BE, clientIp),
@@ -803,15 +801,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        boolean ret = Env.getCurrentGlobalTransactionMgr()
-                .commitAndPublishTransaction((Database) db, Lists.newArrayList(table), request.getTxnId(),
+        return Env.getCurrentGlobalTransactionMgr()
+                .commitAndPublishTransaction(db, Lists.newArrayList(table), request.getTxnId(),
                         TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
                         TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
-        if (ret) {
-            // if commit and publish is success, load can be regarded as success
-            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
-        }
-        return ret;
     }
 
     @Override

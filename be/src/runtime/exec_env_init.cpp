@@ -68,7 +68,6 @@
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(etl_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(query_mem_consumption, MetricUnit::BYTES, "", mem_consumption,
@@ -130,8 +129,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_queue_size(config::send_batch_thread_pool_queue_size)
             .build(&_send_batch_thread_pool);
 
-    _etl_thread_pool = new PriorityThreadPool(config::etl_thread_pool_size,
-                                              config::etl_thread_pool_queue_size);
     _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
@@ -317,9 +314,6 @@ void ExecEnv::_register_metrics() {
     REGISTER_HOOK_METRIC(scanner_thread_pool_queue_size,
                          [this]() { return _scan_thread_pool->get_queue_size(); });
 
-    REGISTER_HOOK_METRIC(etl_thread_pool_queue_size,
-                         [this]() { return _etl_thread_pool->get_queue_size(); });
-
     REGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num,
                          [this]() { return _send_batch_thread_pool->num_threads(); });
 
@@ -329,7 +323,6 @@ void ExecEnv::_register_metrics() {
 
 void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(etl_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
 }
@@ -352,7 +345,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_master_info);
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_cgroups_mgr);
-    SAFE_DELETE(_etl_thread_pool);
     SAFE_DELETE(_scan_thread_pool);
     SAFE_DELETE(_remote_scan_thread_pool);
     SAFE_DELETE(_thread_mgr);

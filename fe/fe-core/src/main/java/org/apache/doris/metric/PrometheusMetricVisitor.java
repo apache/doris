@@ -19,7 +19,6 @@ package org.apache.doris.metric;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.monitor.jvm.JvmStats;
-import org.apache.doris.monitor.jvm.JvmStats.BufferPool;
 import org.apache.doris.monitor.jvm.JvmStats.GarbageCollector;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
@@ -46,7 +45,6 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     private static final String JVM_NON_HEAP_SIZE_BYTES = "jvm_non_heap_size_bytes";
     private static final String JVM_YOUNG_SIZE_BYTES = "jvm_young_size_bytes";
     private static final String JVM_OLD_SIZE_BYTES = "jvm_old_size_bytes";
-    private static final String JVM_DIRECT_BUFFER_POOL_SIZE_BYTES = "jvm_direct_buffer_pool_size_bytes";
     private static final String JVM_YOUNG_GC = "jvm_young_gc";
     private static final String JVM_OLD_GC = "jvm_old_gc";
     private static final String JVM_THREAD = "jvm_thread";
@@ -54,17 +52,14 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     private static final String HELP = "# HELP ";
     private static final String TYPE = "# TYPE ";
 
-    private int ordinal = 0;
-    private int metricNumber = 0;
     private Set<String> metricNames = new HashSet();
 
-    public PrometheusMetricVisitor(String prefix) {
-        super(prefix);
+    public PrometheusMetricVisitor() {
+        super();
     }
 
     @Override
     public void setMetricNumber(int metricNumber) {
-        this.metricNumber = metricNumber;
     }
 
     @Override
@@ -72,12 +67,12 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         // heap
         sb.append(Joiner.on(" ").join(HELP, JVM_HEAP_SIZE_BYTES, "jvm heap stat\n"));
         sb.append(Joiner.on(" ").join(TYPE, JVM_HEAP_SIZE_BYTES, "gauge\n"));
-        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"max\"} ")
-                .append(jvmStats.getMem().getHeapMax().getBytes()).append("\n");
+        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"max\"} ").append(jvmStats.getMem().getHeapMax().getBytes())
+                .append("\n");
         sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"committed\"} ")
                 .append(jvmStats.getMem().getHeapCommitted().getBytes()).append("\n");
-        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"used\"} ")
-                .append(jvmStats.getMem().getHeapUsed().getBytes()).append("\n");
+        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"used\"} ").append(jvmStats.getMem().getHeapUsed().getBytes())
+                .append("\n");
         // non heap
         sb.append(Joiner.on(" ").join(HELP, JVM_NON_HEAP_SIZE_BYTES, "jvm non heap stat\n"));
         sb.append(Joiner.on(" ").join(TYPE, JVM_NON_HEAP_SIZE_BYTES, "gauge\n"));
@@ -108,23 +103,6 @@ public class PrometheusMetricVisitor extends MetricVisitor {
                         .append(memPool.getPeakUsed().getBytes()).append("\n");
                 sb.append(JVM_OLD_SIZE_BYTES).append("{type=\"max\"} "
                 ).append(memPool.getMax().getBytes()).append("\n");
-            }
-        }
-
-        // direct buffer pool
-        Iterator<BufferPool> poolIter = jvmStats.getBufferPools().iterator();
-        while (poolIter.hasNext()) {
-            BufferPool pool = poolIter.next();
-            if (pool.getName().equalsIgnoreCase("direct")) {
-                sb.append(Joiner.on(" ").join(HELP, JVM_DIRECT_BUFFER_POOL_SIZE_BYTES,
-                                              "jvm direct buffer pool stat\n"));
-                sb.append(Joiner.on(" ").join(TYPE, JVM_DIRECT_BUFFER_POOL_SIZE_BYTES, "gauge\n"));
-                sb.append(JVM_DIRECT_BUFFER_POOL_SIZE_BYTES).append("{type=\"count\"} ")
-                        .append(pool.getCount()).append("\n");
-                sb.append(JVM_DIRECT_BUFFER_POOL_SIZE_BYTES).append("{type=\"used\"} ")
-                        .append(pool.getUsed().getBytes()).append("\n");
-                sb.append(JVM_DIRECT_BUFFER_POOL_SIZE_BYTES).append("{type=\"capacity\"} ")
-                        .append(pool.getTotalCapacity().getBytes()).append("\n");
             }
         }
 
@@ -171,9 +149,9 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visit(StringBuilder sb, @SuppressWarnings("rawtypes") Metric metric) {
+    public void visit(StringBuilder sb, String prefix, @SuppressWarnings("rawtypes") Metric metric) {
         // title
-        final String fullName = prefix + "_" + metric.getName();
+        final String fullName = prefix + metric.getName();
         if (!metricNames.contains(fullName)) {
             sb.append(HELP).append(fullName).append(" ").append(metric.getDescription()).append("\n");
             sb.append(TYPE).append(fullName).append(" ").append(metric.getType().name().toLowerCase()).append("\n");
@@ -198,8 +176,8 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visitHistogram(StringBuilder sb, String name, Histogram histogram) {
-        final String fullName = prefix + "_" + name.replaceAll("\\.", "_");
+    public void visitHistogram(StringBuilder sb, String prefix, String name, Histogram histogram) {
+        final String fullName = prefix + name.replaceAll("\\.", "_");
         sb.append(HELP).append(fullName).append(" ").append("\n");
         sb.append(TYPE).append(fullName).append(" ").append("summary\n");
 

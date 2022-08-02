@@ -26,19 +26,21 @@ import com.codahale.metrics.Histogram;
  */
 public abstract class MetricVisitor {
 
-    protected String prefix;
+    // for FE metrics
+    public static final String FE_PREFIX = "doris_fe_";
+    // for system metrics
+    public static final String SYS_PREFIX = "system_";
 
-    public MetricVisitor(String prefix) {
-        this.prefix = prefix;
+    public MetricVisitor() {
     }
 
     public abstract void setMetricNumber(int metricNumber);
 
     public abstract void visitJvm(StringBuilder sb, JvmStats jvmStats);
 
-    public abstract void visit(StringBuilder sb, Metric metric);
+    public abstract void visit(StringBuilder sb, String prefix, Metric metric);
 
-    public abstract void visitHistogram(StringBuilder sb, String name, Histogram histogram);
+    public abstract void visitHistogram(StringBuilder sb, String prefix, String name, Histogram histogram);
 
     public abstract void getNodeInfo(StringBuilder sb);
 }

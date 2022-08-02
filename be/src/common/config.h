@@ -159,10 +159,6 @@ CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "5");
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 // number of olap scanner thread pool queue size
 CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
-// number of etl thread pool size
-CONF_Int32(etl_thread_pool_size, "8");
-// number of etl thread pool size
-CONF_Int32(etl_thread_pool_queue_size, "256");
 // default thrift client connect timeout(in seconds)
 CONF_mInt32(thrift_connect_timeout_seconds, "3");
 // default thrift client retry interval (in milliseconds)

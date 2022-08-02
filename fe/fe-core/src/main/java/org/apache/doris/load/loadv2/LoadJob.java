@@ -44,7 +44,6 @@ import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -690,10 +689,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         finishTimestamp = System.currentTimeMillis();
         Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
         state = JobState.FINISHED;
-
-        if (MetricRepo.isInit) {
-            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
-        }
         // when load job finished, there is no need to hold the tasks which are the biggest memory consumers.
         idToTasks.clear();
     }

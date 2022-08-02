@@ -37,7 +37,6 @@ Status k_stream_load_plan_status;
 #endif
 
 Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
-    DorisMetrics::instance()->txn_exec_plan_total->increment(1);
 // submit this params
 #ifndef BE_TEST
     ctx->ref();
@@ -132,7 +131,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
     return Status::OK();
 }
 Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
-    DorisMetrics::instance()->txn_begin_request_total->increment(1);
+    DorisMetrics::instance()->stream_load_txn_begin_request_total->increment(1);
 
     TLoadTxnBeginRequest request;
     set_request_auth(&request, ctx->auth);
@@ -256,7 +255,7 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
 }
 
 Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
-    DorisMetrics::instance()->txn_commit_request_total->increment(1);
+    DorisMetrics::instance()->stream_load_txn_commit_request_total->increment(1);
 
     TLoadTxnCommitRequest request;
     get_commit_request(ctx, request);
@@ -291,7 +290,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
 }
 
 void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
-    DorisMetrics::instance()->txn_rollback_request_total->increment(1);
+    DorisMetrics::instance()->stream_load_txn_rollback_request_total->increment(1);
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnRollbackRequest request;

@@ -93,9 +93,8 @@ public class ThreadPoolManager {
                     }
                 }
             };
-            gauge.addLabel(new MetricLabel("name", poolName))
-                    .addLabel(new MetricLabel("type", poolMetricType));
-            MetricRepo.PALO_METRIC_REGISTER.addPaloMetrics(gauge);
+            gauge.addLabel(new MetricLabel("name", poolName)).addLabel(new MetricLabel("type", poolMetricType));
+            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
         }
     }
 
