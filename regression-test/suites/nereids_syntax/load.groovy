@@ -16,7 +16,7 @@
 // under the License.
 
 suite("load") {
-    def tables = ["customer", "lineorder", "part", "date", "supplier"]
+    def tables = ["customer", "lineorder", "part", "dates", "supplier"]
 
     for (String table in tables) {
         sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text

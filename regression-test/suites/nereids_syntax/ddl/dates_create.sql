@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS `date` (
+CREATE TABLE IF NOT EXISTS `dates` (
   `d_datekey` int(11) NOT NULL COMMENT "",
   `d_date` varchar(20) NOT NULL COMMENT "",
   `d_dayofweek` varchar(10) NOT NULL COMMENT "",
