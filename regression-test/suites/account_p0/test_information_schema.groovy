@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_information_schema", "columns") {
+suite("test_information_schema") {
     def dbPrefix = "db_test_schema_"
     def tablePrefix = "tb_test_schema_"
 

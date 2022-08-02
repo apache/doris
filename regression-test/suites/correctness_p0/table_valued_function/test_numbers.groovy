@@ -16,7 +16,7 @@
  // under the License.
 
 
- suite("test_numbers", "correctness") {
+ suite("test_numbers") {
     // Test basic features
     qt_basic1 """ select * from numbers("1"); """
     qt_basic2 """ select * from numbers("10"); """
