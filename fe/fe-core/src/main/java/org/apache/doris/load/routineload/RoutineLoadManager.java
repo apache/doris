@@ -203,7 +203,7 @@ public class RoutineLoadManager implements Writable {
             Map<String, List<RoutineLoadJob>> labelToRoutineLoadJob = dbToNameToRoutineLoadJob.get(dbId);
             if (labelToRoutineLoadJob.containsKey(name)) {
                 List<RoutineLoadJob> routineLoadJobList = labelToRoutineLoadJob.get(name);
-                Optional<RoutineLoadJob> optional = routineLoadJobList.parallelStream()
+                Optional<RoutineLoadJob> optional = routineLoadJobList.stream()
                         .filter(entity -> entity.getName().equals(name))
                         .filter(entity -> !entity.getState().isFinalState()).findFirst();
                 if (optional.isPresent()) {
