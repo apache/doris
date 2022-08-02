@@ -36,6 +36,7 @@ import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
+import org.apache.doris.nereids.DorisParser.LimitClauseContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
 import org.apache.doris.nereids.DorisParser.MultiStatementsContext;
@@ -53,6 +54,7 @@ import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
+import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
@@ -188,8 +190,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             // TODO: need to add withQueryResultClauses and withCTE
             LogicalPlan query = plan(ctx.queryTerm());
-            LogicalPlan queryOrganization = withQueryOrganization(query, ctx.queryOrganization());
-            return queryOrganization;
+            return withQueryOrganization(query, ctx.queryOrganization());
         });
     }
 
@@ -670,19 +671,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return typedVisit(ctx);
     }
 
-    private LogicalPlan withQueryOrganization(LogicalPlan children, QueryOrganizationContext ctx) {
-        QueryOrganization queryOrganization = visitQueryOrganization(ctx);
-        List<OrderKey> orderKeys = queryOrganization.getOrderKeys();
-        LogicalPlan root = orderKeys.isEmpty() ? children : new LogicalSort(orderKeys, children);
-        if (queryOrganization.hasLimitClause()) {
-            if (queryOrganization.getOffset() != 0 && orderKeys.size() == 0) {
-                throw new IllegalStateException("OFFSET requires an ORDER BY clause");
+    private LogicalPlan withQueryOrganization(LogicalPlan inputPlan, QueryOrganizationContext ctx) {
+        Optional<SortClauseContext> sortClauseContext = Optional.ofNullable(ctx.sortClause());
+        Optional<LimitClauseContext> limitClauseContext = Optional.ofNullable(ctx.limitClause());
+        LogicalPlan sort = withSort(inputPlan, sortClauseContext);
+        return withLimit(sort, limitClauseContext);
+    }
+
+    private LogicalPlan withSort(LogicalPlan input, Optional<SortClauseContext> sortCtx) {
+        return input.optionalMap(sortCtx, () -> {
+            List<OrderKey> orderKeys = visit(sortCtx.get().sortItem(), OrderKey.class);
+            return new LogicalSort(orderKeys, input);
+        });
+    }
+
+    private LogicalPlan withLimit(LogicalPlan input, Optional<LimitClauseContext> limitCtx) {
+        return input.optionalMap(limitCtx, () -> {
+            long limit = Long.parseLong(limitCtx.get().limit.getText());
+            long offset = 0;
+            Token offsetToken = limitCtx.get().offset;
+            if (offsetToken != null) {
+                if (input instanceof LogicalSort) {
+                    offset = Long.parseLong(offsetToken.getText());
+                } else {
+                    throw new IllegalStateException("OFFSET requires an ORDER BY clause");
+                }
             }
-            root = new LogicalLimit<>(queryOrganization.getLimit(),
-                    queryOrganization.getOffset(),
-                    root);
-        }
-        return root;
+            return new LogicalLimit<>(limit, offset, input);
+        });
     }
 
     /**

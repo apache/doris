@@ -91,9 +91,18 @@ public class LimitClauseTest {
 
     @Test
     public void testNoLimit() {
-        //no exception means the limit-clause feature does not affect existing parser functions.
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "select a from tbl order by x";
-        nereidsParser.parseSingle(sql);
+        LogicalPlan root = nereidsParser.parseSingle(sql);
+        Assertions.assertTrue(root instanceof LogicalSort);
+    }
+
+
+    @Test
+    public void testNoQueryOrganization() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "select a from tbl";
+        LogicalPlan root = nereidsParser.parseSingle(sql);
+        Assertions.assertTrue(root instanceof LogicalProject);
     }
 }
