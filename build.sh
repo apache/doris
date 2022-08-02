@@ -20,6 +20,14 @@
 # This script is used to compile Apache Doris
 # Usage:
 #    sh build.sh --help
+# Eg:
+#    sh build.sh                            build all
+#    sh build.sh  --be                      build Backend without clean
+#    sh build.sh  --fe --clean              clean and build Frontend and Spark Dpp application, without web UI
+#    sh build.sh  --fe --be --clean         clean and build Frontend, Spark Dpp application and Backend, without web UI
+#    sh build.sh  --spark-dpp               build Spark DPP application alone
+#    sh build.sh  --fe --ui                 build Frontend web ui with npm
+#    sh build.sh  --fe --be --ui --clean    clean and build Frontend, Spark Dpp application, Backend and web UI
 #
 # You need to make sure all thirdparty libraries have been
 # compiled and installed correctly.
@@ -39,32 +47,29 @@ usage() {
   echo "
 Usage: $0 <options>
   Optional options:
-     [no option]        build all components
-     --fe               build Frontend and Spark DPP application
      --be               build Backend
-     --meta-tool        build Backend meta tool
+     --fe               build Frontend and Spark Dpp application
      --broker           build Broker
-     --audit            build audit loader
+     --audit            build auditloader
+     --ui               build Frontend web ui with npm
      --spark-dpp        build Spark DPP application
      --clean            clean and build target
      -j                 build Backend parallel
-
   Environment variables:
     USE_AVX2            If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
+    BUILD_META_TOOL     If set BUILD_META_TOOL=OFF, the output meta_tools binaries will not be compiled. Default is OFF.
     STRIP_DEBUG_INFO    If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
-
   Eg.
     $0                                      build all
-    $0 --be                                 build Backend
-    $0 --meta-tool                          build Backend meta tool
-    $0 --fe --clean                         clean and build Frontend and Spark Dpp application
-    $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
+    $0 --be                                 build Backend without clean
+    $0 --fe --clean                         clean and build Frontend and Spark Dpp application, without web UI
+    $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend, without web UI
     $0 --spark-dpp                          build Spark DPP application alone
+    $0 --fe --ui                            build Frontend web ui with npm
     $0 --broker                             build Broker
-    $0 --audit                             build audit loader
-
+    $0 --audit                              build auditloader
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
-    USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
+    USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info.
   "
   exit 1
 }
@@ -72,7 +77,6 @@ Usage: $0 <options>
 clean_gensrc() {
     pushd ${DORIS_HOME}/gensrc
     make clean
-    rm -rf ${DORIS_HOME}/fe/fe-common/target
     rm -rf ${DORIS_HOME}/fe/fe-core/target
     popd
 }
@@ -99,11 +103,11 @@ clean_fe() {
 OPTS=$(getopt \
   -n $0 \
   -o '' \
-  -l 'fe' \
   -l 'be' \
+  -l 'fe' \
   -l 'broker' \
-  -l 'audit' \
-  -l 'meta-tool' \
+  -l 'audit'  \
+  -l 'ui' \
   -l 'spark-dpp' \
   -l 'clean' \
   -l 'help' \
@@ -117,33 +121,40 @@ fi
 eval set -- "$OPTS"
 
 PARALLEL=$[$(nproc)/4+1]
-BUILD_FE=1
-BUILD_BE=1
-BUILD_BROKER=1
-BUILD_AUDIT=1
-BUILD_META_TOOL=OFF
-BUILD_SPARK_DPP=0
-CLEAN=0
+BUILD_BE=
+BUILD_FE=
+BUILD_BROKER=
+BUILD_AUDIT=
+BUILD_UI=
+BUILD_SPARK_DPP=
+CLEAN=
 HELP=0
 PARAMETER_COUNT=$#
 PARAMETER_FLAG=0
 if [ $# == 1 ] ; then
     # default
-    BUILD_FE=1
     BUILD_BE=1
+    BUILD_FE=1
     BUILD_BROKER=1
     BUILD_AUDIT=1
-    BUILD_META_TOOL=OFF
+    BUILD_UI=1
     BUILD_SPARK_DPP=1
     CLEAN=0
 else
+    BUILD_BE=0
+    BUILD_FE=0
+    BUILD_BROKER=0
+    BUILD_AUDIT=0
+    BUILD_UI=0
+    BUILD_SPARK_DPP=0
+    CLEAN=0
     while true; do
         case "$1" in
-            --fe) BUILD_FE=1 BUILD_SPARK_DPP=1 ; shift ;;
             --be) BUILD_BE=1 ; shift ;;
+            --fe) BUILD_FE=1 ; shift ;;
+            --ui) BUILD_UI=1 ; shift ;;
             --broker) BUILD_BROKER=1 ; shift ;;
-            --audit)  BUILD_AUDIT=1 ; shift ;;
-            --meta-tool) BUILD_META_TOOL=ON ; shift ;;
+            --audit) BUILD_AUDIT=1 ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             -h) HELP=1; shift ;;
@@ -153,13 +164,13 @@ else
             *) echo "Internal error" ; exit 1 ;;
         esac
     done
-    #only ./build.sh -j xx then build all
+    #only ./build.sh -j xx then build all 
     if [[ ${PARAMETER_COUNT} -eq 3 ]] && [[ ${PARAMETER_FLAG} -eq 1 ]];then
-        BUILD_FE=1
         BUILD_BE=1
+        BUILD_FE=1
         BUILD_BROKER=1
         BUILD_AUDIT=1
-        BUILD_META_TOOL=ON
+        BUILD_UI=1
         BUILD_SPARK_DPP=1
         CLEAN=0
     fi
@@ -214,10 +225,10 @@ if [[ -z ${STRICT_MEMORY_USE} ]]; then
 fi
 
 echo "Get params:
-    BUILD_FE            -- $BUILD_FE
     BUILD_BE            -- $BUILD_BE
+    BUILD_FE            -- $BUILD_FE
     BUILD_BROKER        -- $BUILD_BROKER
-    BUILD_AUDIT         -- $BUILD_AUDIT
+    BUILD_BROKER        -- $BUILD_AUDIT
     BUILD_UI            -- $BUILD_UI
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
     PARALLEL            -- $PARALLEL
@@ -240,33 +251,11 @@ fi
 echo "Build generated code"
 cd ${DORIS_HOME}/gensrc
 # DO NOT using parallel make(-j) for gensrc
+python --version
 make
-
-# Assesmble FE modules
-FE_MODULES=
-BUILD_DOCS=OFF
-modules=("")
-if [ ${BUILD_FE} -eq 1 ]; then
-    modules+=("fe-common")
-    modules+=("fe-core")
-    BUILD_DOCS=ON
-fi
-if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
-    modules+=("fe-common")
-    modules+=("spark-dpp")
-fi
-if [ ${BUILD_JAVA_UDF} -eq 1 ]; then
-    modules+=("java-udf")
-fi
-if [ ${BUILD_HIVE_UDF} -eq 1 ]; then
-    modules+=("fe-common")
-    modules+=("hive-udf")
-fi
-FE_MODULES=$(IFS=, ; echo "${modules[*]}")
 
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
-    if [ -e ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ]; then rm -f ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ; fi
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
     echo "Build Backend: ${CMAKE_BUILD_TYPE}"
     CMAKE_BUILD_DIR=${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}
@@ -275,8 +264,6 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     fi
     MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
     echo "-- Make program: ${MAKE_PROGRAM}"
-    echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
-
     mkdir -p ${CMAKE_BUILD_DIR}
     cd ${CMAKE_BUILD_DIR}
     ${CMAKE_CMD} -G "${GENERATOR}"  \
@@ -289,25 +276,31 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DWITH_LZO=${WITH_LZO} \
             -DUSE_LIBCPP=${USE_LIBCPP} \
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \
-            -DBUILD_JAVA_UDF=${BUILD_JAVA_UDF} \
+            -DUSE_LLD=${USE_LLD} \
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
-            -DUSE_DWARF=${USE_DWARF} \
-            -DUSE_MEM_TRACKER=${USE_MEM_TRACKER} \
-            -DUSE_JEMALLOC=${USE_JEMALLOC} \
             -DSTRICT_MEMORY_USE=${STRICT_MEMORY_USE} \
             -DUSE_AVX2=${USE_AVX2} \
-            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ${DORIS_HOME}/be/
+            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
     cd ${DORIS_HOME}
 fi
 
-if [ "${BUILD_DOCS}" = "ON" ] ; then
-    # Build docs, should be built before Frontend
-    echo "Build docs"
-    cd ${DORIS_HOME}/docs
-    ./build_help_zip.sh
-    cd ${DORIS_HOME}
+# Build docs, should be built before Frontend
+echo "Build docs"
+cd ${DORIS_HOME}/docs
+./build_help_zip.sh
+cd ${DORIS_HOME}
+
+# Assesmble FE modules
+FE_MODULES=
+if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
+    if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
+        FE_MODULES="fe-common,spark-dpp"
+    fi
+    if [ ${BUILD_FE} -eq 1 ]; then
+        FE_MODULES="fe-common,spark-dpp,fe-core"
+    fi
 fi
 
 function build_ui() {
@@ -338,7 +331,7 @@ function build_ui() {
 }
 
 # FE UI must be built before building FE
-if [ ${BUILD_FE} -eq 1 ] ; then
+if [ ${BUILD_UI} -eq 1 ] ; then
     build_ui
 fi
 
