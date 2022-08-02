@@ -21,6 +21,8 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
+import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
+import org.apache.doris.nereids.DorisParser.AliasedRelationContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
@@ -57,6 +59,7 @@ import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
+import org.apache.doris.nereids.DorisParser.TableAliasContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
@@ -116,6 +119,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -599,21 +603,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         });
     }
 
+    private LogicalPlan visitRelation(List<RelationContext> relations) {
+        LogicalPlan left = null;
+        for (RelationContext relation : relations) {
+            LogicalPlan right = plan(relation.relationPrimary());
+            if (relation.LATERAL() != null) {
+                if (!(right instanceof LogicalSubQueryAlias)) {
+                    throw new IllegalStateException("lateral join right table should be sub-query");
+                }
+            }
+            // build left deep join tree
+            left = left == null ? right : new LogicalJoin<>(JoinType.INNER_JOIN, Optional.empty(), left, right);
+            left = withJoinRelations(left, relation);
+            // TODO: pivot and lateral view
+        }
+        return left;
+    }
+
     @Override
     public LogicalPlan visitFromClause(FromClauseContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
-            LogicalPlan left = null;
-            // build left deep join tree
-            for (RelationContext relation : ctx.relation()) {
-                LogicalPlan right = plan(relation.relationPrimary());
-                left = left == null
-                        ? right
-                        : new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), left, right);
-                left = withJoinRelations(left, relation);
-            }
-            // TODO: pivot and lateral view
-            return left;
-        });
+        return ParserUtils.withOrigin(ctx, () -> visitRelation(ctx.relation()));
     }
 
     /* ********************************************************************************************
@@ -733,31 +742,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan last = input;
         for (JoinRelationContext join : ctx.joinRelation()) {
             JoinType joinType;
-            if (join.joinType().CROSS() != null) {
-                joinType = JoinType.CROSS_JOIN;
-            } else if (join.joinType().FULL() != null) {
-                joinType = JoinType.FULL_OUTER_JOIN;
-            } else if (join.joinType().SEMI() != null) {
-                if (join.joinType().LEFT() != null) {
-                    joinType = JoinType.LEFT_SEMI_JOIN;
-                } else {
-                    joinType = JoinType.RIGHT_SEMI_JOIN;
-                }
-            } else if (join.joinType().ANTI() != null) {
-                if (join.joinType().LEFT() != null) {
-                    joinType = JoinType.LEFT_ANTI_JOIN;
-                } else {
-                    joinType = JoinType.RIGHT_ANTI_JOIN;
-                }
-            } else if (join.joinType().LEFT() != null) {
+            if (join.joinType().LEFT() != null) {
                 joinType = JoinType.LEFT_OUTER_JOIN;
             } else if (join.joinType().RIGHT() != null) {
                 joinType = JoinType.RIGHT_OUTER_JOIN;
+            } else if (join.joinType().FULL() != null) {
+                joinType = JoinType.FULL_OUTER_JOIN;
+            } else if (join.joinType().SEMI() != null) {
+                joinType = JoinType.LEFT_SEMI_JOIN;
+            } else if (join.joinType().ANTI() != null) {
+                joinType = JoinType.LEFT_ANTI_JOIN;
+            } else if (join.joinType().CROSS() != null) {
+                joinType = JoinType.CROSS_JOIN;
             } else {
                 joinType = JoinType.INNER_JOIN;
             }
 
-            // TODO: natural join, lateral join, using join, union join
+            // TODO: natural join, lateral join, using join
             JoinCriteriaContext joinCriteria = join.joinCriteria();
             Expression condition;
             if (joinCriteria == null) {
@@ -766,7 +767,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 condition = getExpression(joinCriteria.booleanExpression());
             }
 
-            last = new LogicalJoin<>(joinType, Optional.ofNullable(condition), last, plan(join.relationPrimary()));
+            last = new LogicalJoin(joinType, Optional.ofNullable(condition), last, plan(join.relationPrimary()));
         }
         return last;
     }
