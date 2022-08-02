@@ -112,7 +112,7 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
         InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(configuration, inputFormatName, false);
         List<InputSplit> splits;
         if (!hivePartitions.isEmpty()) {
-            splits = hivePartitions.parallelStream()
+            splits = hivePartitions.stream()
                     .flatMap(x -> getSplitsByPath(inputFormat, configuration, x.getSd().getLocation()).stream())
                     .collect(Collectors.toList());
         } else {

@@ -131,7 +131,7 @@ public class LoadManager implements Writable {
     }
 
     private long unprotectedGetUnfinishedJobNum() {
-        return idToLoadJob.values().parallelStream()
+        return idToLoadJob.values().stream()
                 .filter(j -> (j.getState() != JobState.FINISHED && j.getState() != JobState.CANCELLED)).count();
     }
 

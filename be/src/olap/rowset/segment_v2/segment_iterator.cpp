@@ -143,7 +143,7 @@ Status SegmentIterator::_init(bool is_vec) {
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
     // z-order can not use prefix index
-    if (_segment->_tablet_schema.sort_type() != SortType::ZORDER) {
+    if (_segment->_tablet_schema->sort_type() != SortType::ZORDER) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
@@ -195,7 +195,6 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     size_t pre_size = _row_bitmap.cardinality();
     _row_bitmap = RowRanges::ranges_to_roaring(result_ranges);
     _opts.stats->rows_key_range_filtered += (pre_size - _row_bitmap.cardinality());
-    DorisMetrics::instance()->segment_rows_by_short_key->increment(_row_bitmap.cardinality());
 
     return Status::OK();
 }
@@ -315,7 +314,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                        &zone_map_row_ranges);
     }
 
-    DorisMetrics::instance()->segment_rows_read_by_zone_map->increment(zone_map_row_ranges.count());
     pre_size = condition_row_ranges->count();
     RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                    condition_row_ranges);
@@ -393,7 +391,7 @@ int compare_row_with_lhs_columns(const LhsRowType& lhs, const RhsRowType& rhs) {
 
 Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
                                         rowid_t* rowid) {
-    if (_segment->_tablet_schema.keys_type() == UNIQUE_KEYS &&
+    if (_segment->_tablet_schema->keys_type() == UNIQUE_KEYS &&
         _segment->get_primary_key_index() != nullptr) {
         return _lookup_ordinal_from_pk_index(key, is_include, rowid);
     }
@@ -415,7 +413,7 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
     DCHECK(sk_index_decoder != nullptr);
 
     std::string index_key;
-    encode_key_with_padding(&index_key, key, _segment->_tablet_schema.num_short_key_columns(),
+    encode_key_with_padding(&index_key, key, _segment->_tablet_schema->num_short_key_columns(),
                             is_include);
 
     uint32_t start_block_id = 0;
@@ -467,13 +465,13 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
 
 Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool is_include,
                                                       rowid_t* rowid) {
-    DCHECK(_segment->_tablet_schema.keys_type() == UNIQUE_KEYS);
+    DCHECK(_segment->_tablet_schema->keys_type() == UNIQUE_KEYS);
     const PrimaryKeyIndexReader* pk_index_reader = _segment->get_primary_key_index();
     DCHECK(pk_index_reader != nullptr);
 
     std::string index_key;
     encode_key_with_padding<RowCursor, true, true>(
-            &index_key, key, _segment->_tablet_schema.num_key_columns(), is_include);
+            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include);
     bool exact_match = false;
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;

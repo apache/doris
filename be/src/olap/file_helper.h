@@ -44,7 +44,6 @@ public:
     ~FileHandler();
 
     Status open(const std::string& file_name, int flag);
-    Status open_with_cache(const std::string& file_name, int flag);
     // The argument mode specifies the permissions to use in case a new file is created.
     Status open_with_mode(const std::string& file_name, int flag, int mode);
     Status close();
@@ -91,18 +90,13 @@ public:
         SAFE_DELETE(file_desc);
     }
 
-    static Cache* get_fd_cache() { return _s_fd_cache; }
-
 private:
     Status _release();
-    static Cache* _s_fd_cache;
 
     int _fd;
     off_t _wr_length;
     const int64_t _cache_threshold = 1 << 19;
     std::string _file_name;
-    bool _is_using_cache;
-    Cache::Handle* _cache_handle;
 };
 
 class FileHandlerWithBuf {

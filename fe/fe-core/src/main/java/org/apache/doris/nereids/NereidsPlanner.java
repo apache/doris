@@ -28,6 +28,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.DisassembleRulesJob;
 import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
 import org.apache.doris.nereids.jobs.batch.JoinReorderRulesJob;
+import org.apache.doris.nereids.jobs.batch.NormalizeExpressionRulesJob;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.batch.PredicatePushDownRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
@@ -113,7 +114,6 @@ public class NereidsPlanner extends Planner {
             deriveStats();
         }
         optimize();
-
         // Get plan directly. Just for SSB.
         return getRoot().extractPlan();
     }
@@ -126,6 +126,7 @@ public class NereidsPlanner extends Planner {
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
+        new NormalizeExpressionRulesJob(plannerContext).execute();
         new JoinReorderRulesJob(plannerContext).execute();
         new PredicatePushDownRulesJob(plannerContext).execute();
         new DisassembleRulesJob(plannerContext).execute();

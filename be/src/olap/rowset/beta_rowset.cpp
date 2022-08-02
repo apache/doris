@@ -28,6 +28,7 @@
 #include "io/fs/s3_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/doris_metrics.h"
 
@@ -59,7 +60,7 @@ std::string BetaRowset::remote_segment_path(int64_t tablet_id, const RowsetId& r
                        segment_id);
 }
 
-BetaRowset::BetaRowset(const TabletSchema* schema, const std::string& tablet_path,
+BetaRowset::BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
                        RowsetMetaSharedPtr rowset_meta)
         : Rowset(schema, tablet_path, std::move(rowset_meta)) {}
 
@@ -227,6 +228,23 @@ bool BetaRowset::check_file_exist() {
         if (!Env::Default()->path_exists(seg_path).ok()) {
             LOG(WARNING) << "data file not existed: " << seg_path
                          << " for rowset_id: " << rowset_id();
+            return false;
+        }
+    }
+    return true;
+}
+
+bool BetaRowset::check_current_rowset_segment() {
+    auto fs = _rowset_meta->fs();
+    if (!fs) {
+        return false;
+    }
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        auto seg_path = segment_file_path(seg_id);
+        std::shared_ptr<segment_v2::Segment> segment;
+        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, _schema, &segment);
+        if (!s.ok()) {
+            LOG(WARNING) << "segment can not be opened. file=" << seg_path;
             return false;
         }
     }
