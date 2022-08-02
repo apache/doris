@@ -60,13 +60,15 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
 
     DescriptorTbl::create(&_pool, _request.desc_tbl, &_desc_tbl);
 
-    std::vector<TabletVars> tablet_vars(1);
-    tablet_vars[0].tablet = tablet;
-    res = _do_streaming_ingestion(tablet, request, push_type, &tablet_vars, tablet_info_vec);
+    res = _do_streaming_ingestion(tablet, request, push_type, tablet_info_vec);
 
     if (res.ok()) {
         if (tablet_info_vec != nullptr) {
-            _get_tablet_infos(tablet_vars, tablet_info_vec);
+            TTabletInfo tablet_info;
+            tablet_info.tablet_id = tablet->tablet_id();
+            tablet_info.schema_hash = tablet->schema_hash();
+            StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info);
+            tablet_info_vec->push_back(tablet_info);
         }
         LOG(INFO) << "process realtime push successfully. "
                   << "tablet=" << tablet->full_name() << ", partition_id=" << request.partition_id
@@ -78,7 +80,6 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
 
 Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
                                             PushType push_type,
-                                            std::vector<TabletVars>* tablet_vars,
                                             std::vector<TTabletInfo>* tablet_info_vec) {
     // add transaction in engine, then check sc status
     // lock, prevent sc handler checking transaction concurrently
@@ -99,10 +100,6 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 request.partition_id, tablet, request.transaction_id, load_id));
     }
 
-    if (tablet_vars->size() == 1) {
-        tablet_vars->resize(2);
-    }
-
     // not call validate request here, because realtime load does not
     // contain version info
 
@@ -110,117 +107,79 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     // check delete condition if push for delete
     std::queue<DeletePredicatePB> del_preds;
     if (push_type == PUSH_FOR_DELETE) {
-        for (TabletVars& tablet_var : *tablet_vars) {
-            if (tablet_var.tablet == nullptr) {
-                continue;
+        DeletePredicatePB del_pred;
+        TabletSchema tablet_schema;
+        tablet_schema.copy_from(*tablet->tablet_schema());
+        if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
+            tablet_schema.clear_columns();
+            for (const auto& column_desc : request.columns_desc) {
+                tablet_schema.append_column(TabletColumn(column_desc));
             }
-
-            DeletePredicatePB del_pred;
-            TabletSchema tablet_schema;
-            tablet_schema.copy_from(*tablet_var.tablet->tablet_schema());
-            if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
-                tablet_schema.clear_columns();
-                for (const auto& column_desc : request.columns_desc) {
-                    tablet_schema.append_column(TabletColumn(column_desc));
-                }
-            }
-            res = DeleteHandler::generate_delete_predicate(tablet_schema, request.delete_conditions,
-                                                           &del_pred);
-            del_preds.push(del_pred);
-            if (!res.ok()) {
-                LOG(WARNING) << "fail to generate delete condition. res=" << res
-                             << ", tablet=" << tablet_var.tablet->full_name();
-                return res;
-            }
+        }
+        res = DeleteHandler::generate_delete_predicate(tablet_schema, request.delete_conditions,
+                                                       &del_pred);
+        del_preds.push(del_pred);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to generate delete condition. res=" << res
+                         << ", tablet=" << tablet->full_name();
+            return res;
         }
     }
 
     // check if version number exceed limit
-    if (tablet_vars->at(0).tablet->version_count() > config::max_tablet_version_num) {
-        LOG(WARNING) << "failed to push data. version count: "
-                     << tablet_vars->at(0).tablet->version_count()
+    if (tablet->version_count() > config::max_tablet_version_num) {
+        LOG(WARNING) << "failed to push data. version count: " << tablet->version_count()
                      << ", exceed limit: " << config::max_tablet_version_num
-                     << ". tablet: " << tablet_vars->at(0).tablet->full_name();
+                     << ". tablet: " << tablet->full_name();
         return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_VERSION);
     }
     auto tablet_schema = std::make_shared<TabletSchema>();
-    tablet_schema->copy_from(*tablet_vars->at(0).tablet->tablet_schema());
+    tablet_schema->copy_from(*tablet->tablet_schema());
     if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
         tablet_schema->clear_columns();
         for (const auto& column_desc : request.columns_desc) {
             tablet_schema->append_column(TabletColumn(column_desc));
         }
     }
-
+    RowsetSharedPtr rowset_to_add;
     // writes
     if (push_type == PUSH_NORMAL_V2) {
-        res = _convert_v2(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
-                          &(tablet_vars->at(0).rowset_to_add), &(tablet_vars->at(1).rowset_to_add),
-                          tablet_schema);
+        res = _convert_v2(tablet, &rowset_to_add, tablet_schema);
 
     } else {
-        res = _convert(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
-                       &(tablet_vars->at(0).rowset_to_add), &(tablet_vars->at(1).rowset_to_add),
-                       tablet_schema);
+        res = _convert(tablet, &rowset_to_add, tablet_schema);
     }
     if (!res.ok()) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
                      << ", failed to process realtime push."
                      << ", tablet=" << tablet->full_name()
                      << ", transaction_id=" << request.transaction_id;
-        for (TabletVars& tablet_var : *tablet_vars) {
-            if (tablet_var.tablet == nullptr) {
-                continue;
-            }
 
-            Status rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(
-                    request.partition_id, tablet_var.tablet, request.transaction_id);
-            // has to check rollback status to ensure not delete a committed rowset
-            if (rollback_status.ok()) {
-                StorageEngine::instance()->add_unused_rowset(tablet_var.rowset_to_add);
-            }
+        Status rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(
+                request.partition_id, tablet, request.transaction_id);
+        // has to check rollback status to ensure not delete a committed rowset
+        if (rollback_status.ok()) {
+            StorageEngine::instance()->add_unused_rowset(rowset_to_add);
         }
         return res;
     }
 
     // add pending data to tablet
-    for (TabletVars& tablet_var : *tablet_vars) {
-        if (tablet_var.tablet == nullptr) {
-            continue;
-        }
 
-        if (push_type == PUSH_FOR_DELETE) {
-            tablet_var.rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
-            del_preds.pop();
-        }
-        Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
-                request.partition_id, tablet_var.tablet, request.transaction_id, load_id,
-                tablet_var.rowset_to_add, false);
-        if (commit_status != Status::OK() &&
-            commit_status.precise_code() != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-            res = commit_status;
-        }
+    if (push_type == PUSH_FOR_DELETE) {
+        rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
+        del_preds.pop();
+    }
+    Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
+            request.partition_id, tablet, request.transaction_id, load_id, rowset_to_add, false);
+    if (commit_status != Status::OK() &&
+        commit_status.precise_code() != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+        res = commit_status;
     }
     return res;
 }
 
-void PushHandler::_get_tablet_infos(const std::vector<TabletVars>& tablet_vars,
-                                    std::vector<TTabletInfo>* tablet_info_vec) {
-    for (const TabletVars& tablet_var : tablet_vars) {
-        if (tablet_var.tablet.get() == nullptr) {
-            continue;
-        }
-
-        TTabletInfo tablet_info;
-        tablet_info.tablet_id = tablet_var.tablet->tablet_id();
-        tablet_info.schema_hash = tablet_var.tablet->schema_hash();
-        StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info);
-        tablet_info_vec->push_back(tablet_info);
-    }
-}
-
-Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet,
-                                RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset,
+Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
                                 TabletSchemaSPtr tablet_schema) {
     Status res = Status::OK();
     uint32_t num_rows = 0;
@@ -325,18 +284,6 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_
 
         _write_bytes += (*cur_rowset)->data_disk_size();
         _write_rows += (*cur_rowset)->num_rows();
-
-        // 5. Convert data for schema change tables
-        VLOG_TRACE << "load to related tables of schema_change if possible.";
-        if (new_tablet != nullptr) {
-            res = SchemaChangeHandler::schema_version_convert(
-                    cur_tablet, new_tablet, cur_rowset, new_rowset, *_desc_tbl, tablet_schema);
-            if (!res.ok()) {
-                LOG(WARNING) << "failed to change schema version for delta."
-                             << "[res=" << res << " new_tablet='" << new_tablet->full_name()
-                             << "']";
-            }
-        }
     } while (false);
 
     VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
@@ -344,8 +291,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_
     return res;
 }
 
-Status PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet,
-                             RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset,
+Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
                              TabletSchemaSPtr tablet_schema) {
     Status res = Status::OK();
     RowCursor row;
@@ -466,18 +412,6 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tab
 
         _write_bytes += (*cur_rowset)->data_disk_size();
         _write_rows += (*cur_rowset)->num_rows();
-
-        // 7. Convert data for schema change tables
-        VLOG_TRACE << "load to related tables of schema_change if possible.";
-        if (new_tablet != nullptr) {
-            res = SchemaChangeHandler::schema_version_convert(
-                    cur_tablet, new_tablet, cur_rowset, new_rowset, *_desc_tbl, tablet_schema);
-            if (!res.ok()) {
-                LOG(WARNING) << "failed to change schema version for delta."
-                             << "[res=" << res << " new_tablet='" << new_tablet->full_name()
-                             << "']";
-            }
-        }
     } while (false);
 
     SAFE_DELETE(reader);
