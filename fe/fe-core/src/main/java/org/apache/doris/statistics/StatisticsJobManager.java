@@ -38,7 +38,6 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -224,7 +223,7 @@ public class StatisticsJobManager {
         List<List<String>> rows = Lists.newArrayList();
         for (List<Comparable> result : results) {
             List<String> row = result.stream().map(Object::toString)
-                    .collect(Collectors.toCollection(() -> new ArrayList<>(result.size())));
+                    .collect(Collectors.toList());
             rows.add(row);
         }
 
