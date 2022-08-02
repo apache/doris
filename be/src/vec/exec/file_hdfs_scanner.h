@@ -17,10 +17,29 @@
 
 #pragma once
 
+#include "common/status.h"
+
 namespace doris::vectorized {
 
-class HdfsFileScanner {};
+class HdfsFileScanner {
+public:
+    virtual Status open() = 0;
 
-class ParquetFileHdfsScanner : public HdfsFileScanner {};
+    virtual Status get_next(vectorized::Block* block, bool* eof) = 0;
+
+    virtual void close() = 0;
+};
+
+class ParquetFileHdfsScanner : public HdfsFileScanner {
+public:
+    Status open() override;
+
+    Status get_next(vectorized::Block* block, bool* eof);
+
+    void close() override;
+
+private:
+    void _prefetch_batch();
+};
 
 } // namespace doris::vectorized

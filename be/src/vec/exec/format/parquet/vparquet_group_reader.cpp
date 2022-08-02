@@ -19,36 +19,50 @@
 
 namespace doris::vectorized {
 
-
-    Status RowGroupReader::read_next_row_group() {
-        return Status();
+RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
+                               std::shared_ptr<FileMetaData> file_metadata,
+                               std::vector<int> column_ids)
+        : _file_reader(file_reader),
+          _file_metadata(file_metadata),
+          _column_ids(column_ids),
+          _current_row_group(0) {
+    DCHECK_LE(column_ids.size(), file_metadata->num_columns());
+    for (auto col_id : column_ids) {
+        _init_column_readers();
     }
+}
 
-    void RowGroupReader::init_chunk_dicts() {
+void RowGroupReader::_init_column_readers() {}
 
+Status RowGroupReader::read_next_row_group(int32_t* group_id) {
+    int32_t total_group = _file_metadata->num_row_groups();
+    while (_current_row_group < total_group) {
+        bool filter_group = false;
+        _process_row_group_filter(&filter_group);
+        if (!filter_group) {
+            group_id = &_current_row_group;
+        }
+        _current_row_group++;
     }
+    return Status();
+}
 
-    Status RowGroupReader::process_dict_filter() {
-        return Status();
-    }
+Status RowGroupReader::_process_row_group_filter(bool* filter_group) {
+    _init_chunk_dicts();
+    RETURN_IF_ERROR(_process_dict_filter());
+    _init_bloom_filter();
+    RETURN_IF_ERROR(_process_bloom_filter());
+}
 
-    void RowGroupReader::init_bloom_filter() {
+void RowGroupReader::_init_chunk_dicts() {}
 
-    }
+Status RowGroupReader::_process_dict_filter() {
+    return Status();
+}
 
-    Status RowGroupReader::process_bloom_filter() {
-        return Status();
-    }
+void RowGroupReader::_init_bloom_filter() {}
 
-    void RowGroupReader::init_page_index() {
-
-    }
-
-    Status RowGroupReader::process_page_index() {
-        return Status();
-    }
-
-    void RowGroupReader::_init_column_chunk_readers() {
-
-    }
+Status RowGroupReader::_process_bloom_filter() {
+    return Status();
+}
 } // namespace doris::vectorized
