@@ -312,13 +312,8 @@ public class StatisticsJob {
                     if (Strings.isNullOrEmpty(col)) {
                         continue;
                     }
-                    if (tblIdToCols.containsKey(tblId)) {
-                        tblIdToCols.get(tblId).add(col);
-                    } else {
-                        Set<String> cols = Sets.newHashSet();
-                        cols.add(col);
-                        tblIdToCols.put(tblId, cols);
-                    }
+                    tblIdToCols.computeIfAbsent(tblId,
+                            (key) -> Sets.newHashSet()).add(col);
                 }
             }
         }

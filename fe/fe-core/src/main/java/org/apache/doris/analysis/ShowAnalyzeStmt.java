@@ -141,7 +141,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         if (dbTableName != null) {
@@ -184,18 +184,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
 
         // analyze where clause if not null
         if (whereClause != null) {
-            if (whereClause instanceof CompoundPredicate) {
-                CompoundPredicate cp = (CompoundPredicate) whereClause;
-                if (cp.getOp() != CompoundPredicate.Operator.AND) {
-                    throw new AnalysisException("Only allow compound predicate with operator AND");
-                }
-                // check whether left.columnName equals to right.columnName
-                checkPredicateName(cp.getChild(0), cp.getChild(1));
-                analyzeSubPredicate(cp.getChild(0));
-                analyzeSubPredicate(cp.getChild(1));
-            } else {
-                analyzeSubPredicate(whereClause);
-            }
+            analyzeSubPredicate(whereClause);
         }
 
         // analyze order by
@@ -237,14 +226,6 @@ public class ShowAnalyzeStmt extends ShowStmt {
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
                     dbName + ": " + tblName);
-        }
-    }
-
-    private void checkPredicateName(Expr leftChild, Expr rightChild) throws AnalysisException {
-        String leftChildColumnName = ((SlotRef) leftChild.getChild(0)).getColumnName();
-        String rightChildColumnName = ((SlotRef) rightChild.getChild(0)).getColumnName();
-        if (leftChildColumnName.equals(rightChildColumnName)) {
-            throw new AnalysisException("column names on both sides of operator AND should be different");
         }
     }
 
@@ -300,8 +281,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like: "
-                    + "STATE = \"PENDING|SCHEDULING|RUNNING|FINISHED|FAILED|CANCELLED\", "
-                    + "or compound predicate with operator AND");
+                    + "STATE = \"PENDING|SCHEDULING|RUNNING|FINISHED|FAILED|CANCELLED\"");
         }
     }
 
