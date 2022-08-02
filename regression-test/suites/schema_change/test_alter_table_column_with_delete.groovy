@@ -59,5 +59,5 @@ suite("test_alter_table_column_with_delete", "schema_change") {
 
     sql "insert into ${tbName1} values(5,'abc');"
     qt_sql "select * from ${tbName1};"
-    sql "DROP TABLE ${tbName2} FORCE;"
+    sql "DROP TABLE ${tbName1} FORCE;"
 }
