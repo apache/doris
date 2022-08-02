@@ -2890,8 +2890,8 @@ public class Env {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
-            // show lightSchemaChange only when it is set false
-            if (!olapTable.getUseLightSchemaChange()) {
+            // show lightSchemaChange only when it is set true
+            if (olapTable.getUseLightSchemaChange()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
                 sb.append(olapTable.getUseLightSchemaChange()).append("\"");
             }

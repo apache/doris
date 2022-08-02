@@ -315,9 +315,9 @@ distribution_info
     
     * `light_schema_change`
 
-        Doris默认使用light schema change优化。如果不想使用该优化需要指定为false。
+        Doris默认不使用light schema change优化。如果想使用该优化需要指定为true。
     
-        `"light_schema_change" = 'false'`
+        `"light_schema_change" = 'true'`
 
     * 动态分区相关
     

@@ -314,9 +314,9 @@ distribution_info
 
     * `light_schema_change`
 
-        Doris would use light schema change optimization by default. It is supported to turn off the optimization by set the property as false.
+        Doris would not use light schema change optimization by default. It is supported to turn on the optimization by set the property as true.
     
-        `"light_schema_change"="false"`
+        `"light_schema_change"="true"`
     
     * Dynamic partition related
     
