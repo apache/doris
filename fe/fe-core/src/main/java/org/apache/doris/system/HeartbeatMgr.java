@@ -245,6 +245,10 @@ public class HeartbeatMgr extends MasterDaemon {
                     if (tBackendInfo.isSetBrpcPort()) {
                         brpcPort = tBackendInfo.getBrpcPort();
                     }
+                    int singleReplicaLoadBrpcPort = -1;
+                    if (tBackendInfo.isSetSingleReplicaLoadBrpcPort()) {
+                        singleReplicaLoadBrpcPort = tBackendInfo.getSingleReplicaLoadBrpcPort();
+                    }
                     String version = "";
                     if (tBackendInfo.isSetVersion()) {
                         version = tBackendInfo.getVersion();
@@ -252,7 +256,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     long beStartTime = tBackendInfo.isSetBeStartTime()
                             ? tBackendInfo.getBeStartTime() : System.currentTimeMillis();
                     // backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
-                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
+                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort, singleReplicaLoadBrpcPort,
                             System.currentTimeMillis(), beStartTime, version);
                 } else {
                     return new BackendHbResponse(backendId, backend.getHost(),

@@ -128,6 +128,8 @@ public class Backend implements Writable {
     @SerializedName("tagMap")
     private Map<String, String> tagMap = Maps.newHashMap();
 
+    private volatile int singleReplicaLoadBrpcPort = -1; // brpc port for single replica load to notify slave replica
+
     public Backend() {
         this.host = "";
         this.version = "";
@@ -198,6 +200,10 @@ public class Backend implements Writable {
 
     public int getBrpcPort() {
         return brpcPort;
+    }
+
+    public int getSingleReplicaLoadBrpcPort() {
+        return singleReplicaLoadBrpcPort;
     }
 
     public String getHeartbeatErrMsg() {
@@ -283,6 +289,10 @@ public class Backend implements Writable {
 
     public void setBrpcPort(int brpcPort) {
         this.brpcPort = brpcPort;
+    }
+
+    public void setSingleReplicaLoadBrpcPort(int singleReplicaLoadBrpcPort) {
+        this.singleReplicaLoadBrpcPort = singleReplicaLoadBrpcPort;
     }
 
     public long getLastUpdateMs() {
@@ -672,6 +682,12 @@ public class Backend implements Writable {
                 this.isAlive.set(true);
             } else if (this.lastStartTime <= 0) {
                 this.lastStartTime = hbResponse.getBeStartTime();
+            }
+
+            if (this.singleReplicaLoadBrpcPort != hbResponse.getSingleReplicaLoadBrpcPort()
+                    && !FeConstants.runningUnitTest) {
+                isChanged = true;
+                this.singleReplicaLoadBrpcPort = hbResponse.getSingleReplicaLoadBrpcPort();
             }
 
             heartbeatErrMsg = "";

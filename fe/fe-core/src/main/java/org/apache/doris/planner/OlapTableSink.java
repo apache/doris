@@ -392,7 +392,9 @@ public class OlapTableSink extends DataSink {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         for (Long id : systemInfoService.getBackendIds(false)) {
             Backend backend = systemInfoService.getBackend(id);
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+            TNodeInfo nodeInfo = new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort());
+            nodeInfo.setSingleReplicaLoadBrpcPort(backend.getSingleReplicaLoadBrpcPort());
+            nodesInfo.addToNodes(nodeInfo);
         }
         return nodesInfo;
     }

@@ -341,6 +341,7 @@ struct NodeInfo {
     int64_t option;
     std::string host;
     int32_t brpc_port;
+    int32_t single_replica_load_brpc_port;
 
     NodeInfo() = default;
 
@@ -348,7 +349,8 @@ struct NodeInfo {
             : id(tnode.id),
               option(tnode.option),
               host(tnode.host),
-              brpc_port(tnode.async_internal_port) {}
+              brpc_port(tnode.async_internal_port),
+              single_replica_load_brpc_port(tnode.single_replica_load_brpc_port) {}
 };
 
 class DorisNodesInfo {

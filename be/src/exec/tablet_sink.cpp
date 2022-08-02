@@ -545,7 +545,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
                     pnode->set_id(node->id);
                     pnode->set_option(node->option);
                     pnode->set_host(node->host);
-                    pnode->set_async_internal_port(config::single_replica_load_brpc_port);
+                    pnode->set_async_internal_port(node->single_replica_load_brpc_port);
                 }
                 request.mutable_slave_tablet_nodes()->insert({iter->first, slave_tablet_nodes});
             }

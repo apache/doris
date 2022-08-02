@@ -31,6 +31,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private int bePort;
     private int httpPort;
     private int brpcPort;
+    private int singleReplicaLoadBrpcPort;
     private long beStartTime;
     private String host;
     private String version = "";
@@ -39,7 +40,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         super(HeartbeatResponse.Type.BACKEND);
     }
 
-    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort,
+    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, int singleReplicaLoadBrpcPort,
             long hbTime, long beStartTime, String version) {
         super(HeartbeatResponse.Type.BACKEND);
         this.beId = beId;
@@ -47,6 +48,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.bePort = bePort;
         this.httpPort = httpPort;
         this.brpcPort = brpcPort;
+        this.singleReplicaLoadBrpcPort = singleReplicaLoadBrpcPort;
         this.hbTime = hbTime;
         this.beStartTime = beStartTime;
         this.version = version;
@@ -81,6 +83,10 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public int getBrpcPort() {
         return brpcPort;
+    }
+
+    public int getSingleReplicaLoadBrpcPort() {
+        return singleReplicaLoadBrpcPort;
     }
 
     public long getBeStartTime() {

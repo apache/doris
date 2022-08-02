@@ -214,6 +214,7 @@ struct TNodeInfo {
     3: required string host
     // used to transfer data between nodes
     4: required i32 async_internal_port
+    5: optional i32 single_replica_load_brpc_port
 }
 
 struct TPaloNodesInfo {
