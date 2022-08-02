@@ -66,6 +66,7 @@ Status RowGroupReader::_process_dict_filter() {
 void RowGroupReader::_init_bloom_filter() {}
 
 Status RowGroupReader::_process_bloom_filter() {
+    RETURN_IF_ERROR(_file_reader->seek(0));
     return Status();
 }
 
