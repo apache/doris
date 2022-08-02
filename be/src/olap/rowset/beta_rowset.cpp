@@ -234,4 +234,21 @@ bool BetaRowset::check_file_exist() {
     return true;
 }
 
+bool BetaRowset::check_current_rowset_segment() {
+    auto fs = _rowset_meta->fs();
+    if (!fs) {
+        return false;
+    }
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        auto seg_path = segment_file_path(seg_id);
+        std::shared_ptr<segment_v2::Segment> segment;
+        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, _schema, &segment);
+        if (!s.ok()) {
+            LOG(WARNING) << "segment can not be opened. file=" << seg_path;
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace doris
