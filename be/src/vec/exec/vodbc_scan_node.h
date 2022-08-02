@@ -82,8 +82,6 @@ private:
     ODBCConnectorParam _odbc_param;
     // Helper class for converting text to other types;
     std::unique_ptr<TextConverter> _text_converter;
-    // Current tuple.
-    doris::Tuple* _tuple = nullptr;
 };
 } // namespace vectorized
 } // namespace doris
