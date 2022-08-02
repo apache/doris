@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/status.h"
+#include "vec/core/block.h"
 
 namespace doris::vectorized {
 
@@ -34,7 +35,7 @@ class ParquetFileHdfsScanner : public HdfsFileScanner {
 public:
     Status open() override;
 
-    Status get_next(vectorized::Block* block, bool* eof);
+    Status get_next(vectorized::Block* block, bool* eof) override;
 
     void close() override;
 

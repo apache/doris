@@ -20,10 +20,9 @@
 #include "parquet_thrift_util.h"
 
 namespace doris::vectorized {
-doris::vectorized::ParquetReader::ParquetReader(doris::FileReader* file_reader, int64_t batch_size,
-                                                int32_t num_of_columns_from_file,
-                                                int64_t range_start_offset, int64_t range_size) {
-    //        : _batch_size(batch_size), _num_of_columns_from_file(num_of_columns_from_file) {
+ParquetReader::ParquetReader(FileReader* file_reader, int32_t num_of_columns_from_file,
+                             int64_t range_start_offset, int64_t range_size)
+        : _num_of_columns_from_file(num_of_columns_from_file) {
     _file_reader = file_reader;
     _total_groups = 0;
     //    _current_group = 0;
@@ -90,7 +89,7 @@ Status ParquetReader::_column_indices(const std::vector<SlotDescriptor*>& tuple_
 }
 
 Status ParquetReader::read_next_batch(Block* block) {
-    int32_t group_id;
+    int32_t group_id = 0;
     RETURN_IF_ERROR(_row_group_reader->read_next_row_group(&group_id));
     auto metadata = _file_metadata->to_thrift_metadata();
     auto column_chunks = metadata.row_groups[group_id].columns;
@@ -130,7 +129,7 @@ Status ParquetReader::_process_page_index(std::vector<tparquet::ColumnChunk> col
     uint8_t buff[buffer_size];
     for (auto col_id : _include_column_ids) {
         auto chunk = columns[col_id];
-        RETURN_IF_ERROR(_page_index->parse_column_index(chunk, buff, buffer_size));
+        RETURN_IF_ERROR(_page_index->parse_column_index(chunk, buff));
         // todo: use page index filter min/max val
         RETURN_IF_ERROR(_page_index->parse_offset_index(chunk, buff, buffer_size));
         // todo: calculate row range

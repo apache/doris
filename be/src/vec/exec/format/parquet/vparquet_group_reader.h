@@ -31,7 +31,7 @@ public:
     Status read_next_row_group(const int32_t* group_id);
 
 private:
-    void _init_column_readers();
+    void _init_column_readers(std::vector<int> column_ids);
 
     Status _process_row_group_filter(bool* filter_group);
 

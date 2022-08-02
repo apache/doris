@@ -27,12 +27,14 @@ RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
           _column_ids(column_ids),
           _current_row_group(0) {
     DCHECK_LE(column_ids.size(), file_metadata->num_columns());
-    for (auto col_id : column_ids) {
-        _init_column_readers();
-    }
+    _init_column_readers(column_ids);
 }
 
-void RowGroupReader::_init_column_readers() {}
+void RowGroupReader::_init_column_readers(std::vector<int> column_ids) {
+    //    for (int col_id: column_ids) {
+    //
+    //    }
+}
 
 Status RowGroupReader::read_next_row_group(const int32_t* group_id) {
     int32_t total_group = _file_metadata->num_row_groups();
@@ -52,6 +54,7 @@ Status RowGroupReader::_process_row_group_filter(bool* filter_group) {
     RETURN_IF_ERROR(_process_dict_filter());
     _init_bloom_filter();
     RETURN_IF_ERROR(_process_bloom_filter());
+    return Status::OK();
 }
 
 void RowGroupReader::_init_chunk_dicts() {}
