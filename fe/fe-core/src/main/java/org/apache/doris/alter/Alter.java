@@ -139,7 +139,7 @@ public class Alter {
     }
 
     public void processRefreshMaterializedView(RefreshMaterializedViewStmt stmt) throws DdlException {
-        throw new DdlException("DROP MATERIALIZED VIEW is not implemented: " + stmt.toSql());
+        throw new DdlException("Refresh materialized view is not implemented: " + stmt.toSql());
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,

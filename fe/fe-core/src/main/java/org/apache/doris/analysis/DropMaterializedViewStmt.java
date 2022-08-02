@@ -58,10 +58,12 @@ public class DropMaterializedViewStmt extends DdlStmt {
     }
 
     public String getMvName() {
-        if (mtmvName != null) {
+        if (tableName != null) {
             return mvName;
-        } else {
+        } else if (mtmvName != null ) {
             return mtmvName.toString();
+        } else {
+            return null;
         }
     }
 
