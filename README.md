@@ -143,7 +143,7 @@ Currently, the Apache Doris community has gathered more than 350 contributors fr
 
 [![Contributor over time](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorOverTime&repo=apache/doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorOverTime&repo=apache/doris)
 
-We deeply appreciate 🔗[community contributors](https://github.com/apache/doris/graphs/contributors) for their dedication to Apache Doris.
+We deeply appreciate 🔗[community contributors](https://github.com/apache/doris/graphs/contributors) for their contribution to Apache Doris.
 
 ## 👨‍👩‍👧‍👦 Users
 
