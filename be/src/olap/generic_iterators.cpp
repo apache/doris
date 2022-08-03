@@ -288,7 +288,7 @@ Status MergeIterator::init(const StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
-    _schema.reset(new Schema((*(_origin_iters.begin()))->schema()));
+    _schema.reset(new Schema((_origin_iters.begin())->schema()));
 
     for (auto iter : _origin_iters) {
         std::unique_ptr<MergeIteratorContext> ctx(new MergeIteratorContext(iter));
@@ -367,7 +367,7 @@ Status UnionIterator::init(const StorageReadOptions& opts) {
     for (auto iter : _origin_iters) {
         RETURN_IF_ERROR(iter->init(opts));
     }
-    _schema.reset(new Schema((*(_origin_iters.begin()))->schema()));
+    _schema.reset(new Schema((_origin_iters.begin())->schema()));
     _cur_iter = *(_origin_iters.begin());
     return Status::OK();
 }

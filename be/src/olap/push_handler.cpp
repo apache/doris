@@ -220,7 +220,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             }
 
             // init schema
-            std::unique_ptr<Schema> schema(new (std::nothrow) Schema(*tablet_schema));
+            std::unique_ptr<Schema> schema(new (std::nothrow) Schema(tablet_schema));
             if (schema == nullptr) {
                 LOG(WARNING) << "fail to create schema. tablet=" << cur_tablet->full_name();
                 res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
