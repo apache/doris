@@ -551,7 +551,6 @@ public class Column implements Writable {
         if (StringUtils.isNotBlank(comment)) {
             sb.append(" COMMENT '").append(getComment(true)).append("'");
         }
-
         return sb.toString();
     }
 

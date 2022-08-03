@@ -79,7 +79,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_TIMEOUT = "timeout";
     public static final String PROPERTIES_COMPRESSION = "compression";
 
-    public static final String PROPERTIES_USE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
+    public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
     public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
@@ -457,18 +457,18 @@ public class PropertyAnalyzer {
         if (properties == null || properties.isEmpty()) {
             return false;
         }
-        String value = properties.get(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE);
+        String value = properties.get(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE);
         // set light schema change false by default
         if (null == value) {
             return false;
         }
-        properties.remove(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE);
+        properties.remove(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE);
         if (value.equalsIgnoreCase("true")) {
             return true;
         } else if (value.equalsIgnoreCase("false")) {
             return false;
         }
-        throw new AnalysisException(PROPERTIES_USE_LIGHT_SCHEMA_CHANGE
+        throw new AnalysisException(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE
                 + " must be `true` or `false`");
     }
 
