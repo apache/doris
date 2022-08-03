@@ -2810,7 +2810,7 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             // Year for the week where Sunday is the first day of the week,
             // numeric, four digits; used with %V
             uint16_t year = 0;
-            calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(3),
+            calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(2),
                       &year);
             pos = int_to_str(year, buf);
             to = append_with_prefix(buf, pos - buf, '0', 4, to);
