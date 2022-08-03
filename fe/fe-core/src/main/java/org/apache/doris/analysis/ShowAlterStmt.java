@@ -130,7 +130,8 @@ public class ShowAlterStmt extends ShowStmt {
             if (binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
                 LOG.info("sub opeator not match");
             }
-            throw new AnalysisException("The columns of TableName/IndexName/CreateTime/FinishTime/State are supported.");
+            throw new AnalysisException(
+                    "The columns of TableName/IndexName/CreateTime/FinishTime/State are supported.");
         }
         filterMap.put(leftKey, subExpr);
     }
