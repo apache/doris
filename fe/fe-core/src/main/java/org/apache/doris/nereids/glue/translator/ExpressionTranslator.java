@@ -156,28 +156,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     inPredicate.getCompareExpr().accept(this, context),
                     inList,
                     true);
-        } else if (not.child() instanceof Like) {
-            Like like = (Like) not.child();
-            LikePredicate likePredicate = (LikePredicate) visitLike(like, context);
-            CompoundPredicate compoundPredicate = new CompoundPredicate(CompoundPredicate.Operator.NOT,
-                    likePredicate,
-                    null);
-            return compoundPredicate;
-        } else if (not.child() instanceof Regexp) {
-            Regexp regexp = (Regexp) not.child();
-            LikePredicate likePredicate = (LikePredicate) visitRegexp(regexp, context);
-            CompoundPredicate compoundPredicate = new CompoundPredicate(CompoundPredicate.Operator.NOT,
-                    likePredicate,
-                    null);
-            return compoundPredicate;
-        } else if (not.child() instanceof Between) {
-            Between between = (Between) not.child();
-            BetweenPredicate betweenPredicate = new BetweenPredicate(
-                    between.getCompareExpr().accept(this, context),
-                    between.getLowerBound().accept(this, context),
-                    between.getUpperBound().accept(this, context),
-                    true);
-            return betweenPredicate;
         } else if (not.child() instanceof EqualTo) {
             EqualTo equalTo = (EqualTo) not.child();
             BinaryPredicate binaryPredicate =  new BinaryPredicate(Operator.NE,
@@ -238,10 +216,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitBetween(Between between, PlanTranslatorContext context) {
-        return new BetweenPredicate(between.getCompareExpr().accept(this, context),
-                between.getLowerBound().accept(this, context),
-                between.getUpperBound().accept(this, context),
-                false);
+        throw new RuntimeException("Unexpected invocation");
     }
 
     @Override
@@ -305,8 +280,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         List<Expr> inList = inPredicate.getOptions().stream()
                 .map(e -> translate(e, context))
                 .collect(Collectors.toList());
-        return new org.apache.doris.analysis.InPredicate(
-                inPredicate.getCompareExpr().accept(this, context),
+        return new org.apache.doris.analysis.InPredicate(inPredicate.getCompareExpr().accept(this, context),
                 inList,
                 false);
     }

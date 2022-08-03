@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
@@ -55,6 +56,12 @@ public class InPredicate extends Expression {
     @Override
     public boolean nullable() throws UnboundException {
         return children().stream().anyMatch(Expression::nullable);
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() > 1);
+        return new InPredicate(children.get(0), ImmutableList.copyOf(children).subList(1, children.size()));
     }
 
     @Override
