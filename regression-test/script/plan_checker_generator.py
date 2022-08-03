@@ -20,7 +20,31 @@ import sys
 import re
 import os
 
-# line format is "sql_name, groovy_name"
+params = sys.argv
+
+sql_dir = params[1]
+
+output_dir = params[2]
+
+# TODO: optimize params process
+
+db_name = "regression_test_tpch_sf1"
+if len(params) > 3:
+    db_name = params[3]
+
+suite_name_prefix = "test_explain_tpch_sf_1_q"
+
+if len(params) > 4:
+    suite_name_prefix = params[4]
+
+host = "127.0.0.1"
+if len(params) > 5:
+    host = params[5]
+
+port = "9030"
+
+if len(params) > 6:
+    host = params[6]
 
 suite = """// Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
@@ -39,19 +63,13 @@ suite = """// Licensed to the Apache Software Foundation (ASF) under one
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_explain_tpch_sf_1_q{}", "tpch_sf1") {{
+suite("{}{}", "tpch_sf1") {{
     String realDb = context.config.getDbNameByFile(context.file)
     // get parent directory's group
     realDb = realDb.substring(0, realDb.lastIndexOf("_"))
 
     sql "use ${{realDb}}"
 """
-
-params = sys.argv
-
-sql_dir = params[1]
-
-output_dir = params[2]
 
 if not os.path.exists(output_dir):
     os.mkdir(output_dir)
@@ -84,6 +102,7 @@ patterns = [
     'predicates.*$',
 ]
 
+skip_sqls = []
 for task in tasks:
 
     print(task)
@@ -92,12 +111,22 @@ for task in tasks:
     f = open(f1, 'r')
     oldsql = f.read()
     f.close()
+    sql_lines = oldsql.split("\n")
+    skip = False
+    # TODO: Need more accurate way to control it
+    for l in sql_lines:
+        if l.startswith("/*") or l.startswith("--"):
+            skip = True
+            continue
 
+    if skip:
+        skip_sqls.append(num)
+        continue
     f = open(f1, 'w')
     f.write('explain\n' + oldsql + ';')
     f.close()
 
-    conn = 'mysql -h 127.0.0.1 -P 9030 -uroot regression_test_tpch_sf1 <'
+    conn = 'mysql -h {} -P {} -uroot {} <'.format(host, port, db_name)
 
     print(conn + f1)
 
@@ -183,6 +212,7 @@ for task in tasks:
     sql = ''
     for line in sqls[1:]:
         sql = sql + '\t\t' + line
-
     # print(suite.format(num) + pattern + sql + pattern1 + chkstr + pattern2)
-    open(f2, 'w').write(suite.format(num) + pattern + sql + pattern1 + chkstr + pattern2)
+    print(sql)
+    open(f2, 'w').write(suite.format(suite_name_prefix, num) + pattern + sql + pattern1 + chkstr + pattern2)
+print(skip_sqls)
