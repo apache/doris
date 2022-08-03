@@ -186,7 +186,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         EXPECT_EQ(Status::OK(), s);
 
         RowCursor input_row;
-        input_row.init(*tablet_schema);
+        input_row.init(tablet_schema);
 
         // for segment "i", row "rid"
         // k1 := rid*10 + i

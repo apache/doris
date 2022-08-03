@@ -129,7 +129,7 @@ public:
     }
 
     void init_row_block(TabletSchemaSPtr tablet_schema, int size) {
-        _schema = std::make_unique<Schema>(*tablet_schema);
+        _schema = std::make_unique<Schema>(tablet_schema);
         _row_block.reset(new RowBlockV2(*_schema, size));
     }
 
