@@ -56,6 +56,7 @@ public enum RuleType {
     REWRITE_JOIN_EXPRESSION(RuleTypeClass.REWRITE),
     REORDER_JOIN(RuleTypeClass.REWRITE),
     MERGE_CONSECUTIVE_FILTERS(RuleTypeClass.REWRITE),
+    MERGE_CONSECUTIVE_PROJECTS(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // exploration rules

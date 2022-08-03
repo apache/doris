@@ -481,6 +481,14 @@ public class GlobalTransactionMgr implements Writable {
         return dbTransactionMgr.getTxnStateInfoList(status);
     }
 
+    public long getTxnNumByStatus(TransactionStatus status) {
+        long counter = 0;
+        for (DatabaseTransactionMgr dbMgr : dbIdToDatabaseTransactionMgrs.values()) {
+            counter += dbMgr.getTxnNumByStatus(status);
+        }
+        return counter;
+    }
+
     // get show info of a specified txnId
     public List<List<String>> getSingleTranInfo(long dbId, long txnId) throws AnalysisException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);

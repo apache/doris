@@ -148,8 +148,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         if (tcolumn.col_unique_id >= 0) {
             unique_id = tcolumn.col_unique_id;
         } else {
-            unique_id = col_ordinal_to_unique_id.at(col_ordinal++);
+            unique_id = col_ordinal_to_unique_id.at(col_ordinal);
         }
+        col_ordinal++;
         init_column_from_tcolumn(unique_id, tcolumn, column);
 
         if (column->is_key()) {

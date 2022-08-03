@@ -498,6 +498,11 @@ public class MaterializedViewHandler extends AlterHandler {
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
             newMVColumns.add(new Column(olapTable.getSequenceCol()));
         }
+
+        // set MV column unique id to Column.COLUMN_UNIQUE_ID_INIT_VALUE support old unique id rule.
+        newMVColumns.stream().forEach(column -> {
+            column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
+        });
         return newMVColumns;
     }
 
@@ -909,8 +914,15 @@ public class MaterializedViewHandler extends AlterHandler {
         if (!alterJob.isDone()) {
             addAlterJobV2ToTableNotFinalStateJobMap(alterJob);
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.ROLLUP);
+            LOG.info("set table's state to ROLLUP, table id: {}, job id: {}", alterJob.getTableId(),
+                    alterJob.getJobId());
         } else if (removeAlterJobV2FromTableNotFinalStateJobMap(alterJob)) {
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
+            LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
+                    alterJob.getJobId());
+        } else {
+            LOG.info("not set table's state, table id: {}, is job done: {}, job id: {}", alterJob.getTableId(),
+                    alterJob.isDone(), alterJob.getJobId());
         }
     }
 
@@ -983,6 +995,11 @@ public class MaterializedViewHandler extends AlterHandler {
         removeJobFromRunningQueue(alterJob);
         if (removeAlterJobV2FromTableNotFinalStateJobMap(alterJob)) {
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
+            LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
+                    alterJob.getJobId());
+        } else {
+            LOG.info("not set table's state, table id: {}, is job done: {}, job id: {}", alterJob.getTableId(),
+                    alterJob.isDone(), alterJob.getJobId());
         }
     }
 

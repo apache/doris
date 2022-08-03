@@ -249,11 +249,6 @@ private:
 
 class SchemaChangeHandler {
 public:
-    static Status schema_version_convert(TabletSharedPtr base_tablet, TabletSharedPtr new_tablet,
-                                         RowsetSharedPtr* base_rowset, RowsetSharedPtr* new_rowset,
-                                         DescriptorTbl desc_tbl,
-                                         TabletSchemaSPtr base_schema_change);
-
     // schema change v2, it will not set alter task in base tablet
     static Status process_alter_tablet_v2(const TAlterTabletReqV2& request);
 

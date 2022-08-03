@@ -268,33 +268,29 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
     return &(_schema_mapping[column_index]);
 }
 
-#define TYPE_REINTERPRET_CAST(FromType, ToType)                             \
-    {                                                                       \
-        size_t row_num = ref_block->row_block_info().row_num;               \
-        for (size_t row = 0, mutable_row = 0; row < row_num; ++row) {       \
-            if (is_data_left_vec[row] != 0) {                               \
-                char* ref_ptr = ref_block->field_ptr(row, ref_column);      \
-                char* new_ptr = mutable_block->field_ptr(mutable_row++, i); \
-                *new_ptr = *ref_ptr;                                        \
-                *(ToType*)(new_ptr + 1) = *(FromType*)(ref_ptr + 1);        \
-            }                                                               \
-        }                                                                   \
-        break;                                                              \
+#define TYPE_REINTERPRET_CAST(FromType, ToType)                         \
+    {                                                                   \
+        size_t row_num = ref_block->row_block_info().row_num;           \
+        for (size_t row = 0, mutable_row = 0; row < row_num; ++row) {   \
+            char* ref_ptr = ref_block->field_ptr(row, ref_column);      \
+            char* new_ptr = mutable_block->field_ptr(mutable_row++, i); \
+            *new_ptr = *ref_ptr;                                        \
+            *(ToType*)(new_ptr + 1) = *(FromType*)(ref_ptr + 1);        \
+        }                                                               \
+        break;                                                          \
     }
 
-#define LARGEINT_REINTERPRET_CAST(FromType, ToType)                         \
-    {                                                                       \
-        size_t row_num = ref_block->row_block_info().row_num;               \
-        for (size_t row = 0, mutable_row = 0; row < row_num; ++row) {       \
-            if (is_data_left_vec[row] != 0) {                               \
-                char* ref_ptr = ref_block->field_ptr(row, ref_column);      \
-                char* new_ptr = mutable_block->field_ptr(mutable_row++, i); \
-                *new_ptr = *ref_ptr;                                        \
-                ToType new_value = *(FromType*)(ref_ptr + 1);               \
-                memcpy(new_ptr + 1, &new_value, sizeof(ToType));            \
-            }                                                               \
-        }                                                                   \
-        break;                                                              \
+#define LARGEINT_REINTERPRET_CAST(FromType, ToType)                     \
+    {                                                                   \
+        size_t row_num = ref_block->row_block_info().row_num;           \
+        for (size_t row = 0, mutable_row = 0; row < row_num; ++row) {   \
+            char* ref_ptr = ref_block->field_ptr(row, ref_column);      \
+            char* new_ptr = mutable_block->field_ptr(mutable_row++, i); \
+            *new_ptr = *ref_ptr;                                        \
+            ToType new_value = *(FromType*)(ref_ptr + 1);               \
+            memcpy(new_ptr + 1, &new_value, sizeof(ToType));            \
+        }                                                               \
+        break;                                                          \
     }
 
 #define CONVERT_FROM_TYPE(from_type)                                                            \
@@ -615,27 +611,10 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
     // a.1 First determine whether the data needs to be filtered, and finally only those marked as 1 are left as needed
     // For those without filter, it is equivalent to leave after setting all to 1
     const uint32_t row_num = ref_block->row_block_info().row_num;
-    // (0 means no need to filter out, 1 means yes, during the process 2 means that this row needs to be cut and there is no need to compare other columns later)
-    std::vector<int8_t> is_data_left_vec(row_num, 1);
-
-    // Compare each row
-    for (size_t row_index = 0; row_index < row_num; ++row_index) {
-        ref_block->get_row(row_index, &read_helper);
-
-        // filter data according to delete conditions specified in DeleteData command
-        if (is_data_left_vec[row_index] == 1) {
-            if (_delete_handler != nullptr &&
-                _delete_handler->is_filter_data(data_version, read_helper)) {
-                is_data_left_vec[row_index] = 0;
-                (*filtered_rows)++;
-            }
-        }
-    }
 
     // a.2 Calculate the left row num
     uint32_t new_row_num = row_num - *filtered_rows;
 
-    const bool need_filter_data = (new_row_num != row_num);
     const bool filter_all = (new_row_num == 0);
 
     MemPool* mem_pool = mutable_block->mem_pool();
@@ -662,10 +641,6 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
                             << _schema_mapping[i].materialized_function;
                 for (size_t row_index = 0, new_row_index = 0;
                      row_index < ref_block->row_block_info().row_num; ++row_index) {
-                    // No need row, need to be filter
-                    if (need_filter_data && is_data_left_vec[row_index] == 0) {
-                        continue;
-                    }
                     mutable_block->get_row(new_row_index++, &write_helper);
                     ref_block->get_row(row_index, &read_helper);
 
@@ -686,11 +661,6 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
                 // Low efficiency, you can also directly calculate the variable length domain copy, but it will still destroy the package
                 for (size_t row_index = 0, new_row_index = 0;
                      row_index < ref_block->row_block_info().row_num; ++row_index) {
-                    // Unneeded row, skip every time this row is processed
-                    if (need_filter_data && is_data_left_vec[row_index] == 0) {
-                        continue;
-                    }
-
                     // Specify the new row index to be written (different from the read row_index)
                     mutable_block->get_row(new_row_index++, &write_helper);
                     ref_block->get_row(row_index, &read_helper);
@@ -720,10 +690,6 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
             } else if (ConvertTypeResolver::instance()->get_convert_type_info(reftype, newtype)) {
                 for (size_t row_index = 0, new_row_index = 0;
                      row_index < ref_block->row_block_info().row_num; ++row_index) {
-                    // Skip filtered rows
-                    if (need_filter_data && is_data_left_vec[row_index] == 0) {
-                        continue;
-                    }
                     mutable_block->get_row(new_row_index++, &write_helper);
                     ref_block->get_row(row_index, &read_helper);
                     if (read_helper.is_null(ref_column)) {
@@ -786,11 +752,6 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
             // New column, write default value
             for (size_t row_index = 0, new_row_index = 0;
                  row_index < ref_block->row_block_info().row_num; ++row_index) {
-                // Unneeded row, skip every time this row is processed
-                if (need_filter_data && is_data_left_vec[row_index] == 0) {
-                    continue;
-                }
-
                 mutable_block->get_row(new_row_index++, &write_helper);
 
                 if (_schema_mapping[i].default_value->is_null()) {
@@ -2037,105 +1998,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
 bool SchemaChangeHandler::tablet_in_converting(int64_t tablet_id) {
     std::shared_lock rdlock(_mutex);
     return _tablet_ids_in_converting.find(tablet_id) != _tablet_ids_in_converting.end();
-}
-
-Status SchemaChangeHandler::schema_version_convert(
-        TabletSharedPtr base_tablet, TabletSharedPtr new_tablet, RowsetSharedPtr* base_rowset,
-        RowsetSharedPtr* new_rowset, DescriptorTbl desc_tbl, TabletSchemaSPtr base_schema_change) {
-    Status res = Status::OK();
-    LOG(INFO) << "begin to convert delta version for schema changing. "
-              << "base_tablet=" << base_tablet->full_name()
-              << ", new_tablet=" << new_tablet->full_name();
-
-    // a. Parse the Alter request and convert it into an internal representation
-    // Do not use the delete condition specified by the DELETE_DATA command
-    RowBlockChanger rb_changer(*new_tablet->tablet_schema(), desc_tbl);
-    bool sc_sorting = false;
-    bool sc_directly = false;
-
-    const std::unordered_map<std::string, AlterMaterializedViewParam> materialized_function_map;
-    if (res = _parse_request(base_tablet, new_tablet, &rb_changer, &sc_sorting, &sc_directly,
-                             materialized_function_map, desc_tbl, base_schema_change.get());
-        !res) {
-        LOG(WARNING) << "failed to parse the request. res=" << res;
-        return res;
-    }
-
-    // NOTE split_table if row_block is used, the original block will become smaller
-    // But since the historical data will become normal after the subsequent base/cumulative, it is also possible to use directly
-    // b. Generate historical data converter
-    auto sc_procedure = get_sc_procedure(rb_changer, sc_sorting, sc_directly);
-
-    // c. Convert data
-    DeleteHandler delete_handler;
-    std::vector<ColumnId> return_columns;
-    size_t num_cols = base_schema_change->num_columns();
-    return_columns.resize(num_cols);
-    for (int i = 0; i < num_cols; ++i) {
-        return_columns[i] = i;
-    }
-
-    RowsetReaderContext reader_context;
-    reader_context.reader_type = READER_ALTER_TABLE;
-    reader_context.tablet_schema = base_schema_change.get();
-    reader_context.need_ordered_result = true;
-    reader_context.delete_handler = &delete_handler;
-    reader_context.return_columns = &return_columns;
-    reader_context.seek_columns = &return_columns;
-    reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
-    reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
-    reader_context.is_vec = config::enable_vectorized_alter_table;
-
-    RowsetReaderSharedPtr rowset_reader;
-    RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));
-    RETURN_NOT_OK(rowset_reader->init(&reader_context));
-    PUniqueId load_id;
-    load_id.set_hi((*base_rowset)->load_id().hi());
-    load_id.set_lo((*base_rowset)->load_id().lo());
-    std::unique_ptr<RowsetWriter> rowset_writer;
-    RETURN_NOT_OK(new_tablet->create_rowset_writer(
-            (*base_rowset)->txn_id(), load_id, PREPARED,
-            (*base_rowset)->rowset_meta()->segments_overlap(), base_schema_change, &rowset_writer));
-
-    auto schema_version_convert_error = [&]() -> Status {
-        if (*new_rowset != nullptr) {
-            StorageEngine::instance()->add_unused_rowset(*new_rowset);
-        }
-
-        LOG(WARNING) << "failed to convert rowsets. "
-                     << " base_tablet=" << base_tablet->full_name()
-                     << ", new_tablet=" << new_tablet->full_name() << " res = " << res;
-        return res;
-    };
-
-    if (res = sc_procedure->process(rowset_reader, rowset_writer.get(), new_tablet, base_tablet);
-        !res) {
-        if ((*base_rowset)->is_pending()) {
-            LOG(WARNING) << "failed to process the transaction when schema change. "
-                         << "tablet=" << new_tablet->full_name() << "'"
-                         << ", transaction=" << (*base_rowset)->txn_id();
-        } else {
-            LOG(WARNING) << "failed to process the version. "
-                         << "version=" << (*base_rowset)->version().first << "-"
-                         << (*base_rowset)->version().second;
-        }
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
-        return schema_version_convert_error();
-    }
-    *new_rowset = rowset_writer->build();
-    new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                               rowset_writer->rowset_id().to_string());
-    if (*new_rowset == nullptr) {
-        LOG(WARNING) << "build rowset failed.";
-        res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
-        return schema_version_convert_error();
-    }
-
-    LOG(INFO) << "successfully convert rowsets. "
-              << " base_tablet=" << base_tablet->full_name()
-              << ", new_tablet=" << new_tablet->full_name();
-    return res;
 }
 
 Status SchemaChangeHandler::_get_versions_to_be_changed(

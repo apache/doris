@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ForkJoinPool;
 
 /*
  * TabletStatMgr is for collecting tablet(replica) statistics from backends.
@@ -41,6 +42,8 @@ import java.util.Map;
  */
 public class TabletStatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletStatMgr.class);
+
+    private ForkJoinPool taskPool = new ForkJoinPool(Runtime.getRuntime().availableProcessors());
 
     public TabletStatMgr() {
         super("tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
@@ -50,27 +53,30 @@ public class TabletStatMgr extends MasterDaemon {
     protected void runAfterCatalogReady() {
         ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getIdToBackend();
         long start = System.currentTimeMillis();
-        backends.values().parallelStream().forEach(backend -> {
-            BackendService.Client client = null;
-            TNetworkAddress address = null;
-            boolean ok = false;
-            try {
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
-                client = ClientPool.backendPool.borrowObject(address);
-                TTabletStatResult result = client.getTabletStat();
-                LOG.debug("get tablet stat from backend: {}, num: {}", backend.getId(), result.getTabletsStatsSize());
-                updateTabletStat(backend.getId(), result);
-                ok = true;
-            } catch (Exception e) {
-                LOG.warn("task exec error. backend[{}]", backend.getId(), e);
-            } finally {
-                if (ok) {
-                    ClientPool.backendPool.returnObject(address, client);
-                } else {
-                    ClientPool.backendPool.invalidateObject(address, client);
+        taskPool.submit(() -> {
+            backends.values().parallelStream().forEach(backend -> {
+                BackendService.Client client = null;
+                TNetworkAddress address = null;
+                boolean ok = false;
+                try {
+                    address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                    client = ClientPool.backendPool.borrowObject(address);
+                    TTabletStatResult result = client.getTabletStat();
+                    LOG.debug("get tablet stat from backend: {}, num: {}", backend.getId(),
+                            result.getTabletsStatsSize());
+                    updateTabletStat(backend.getId(), result);
+                    ok = true;
+                } catch (Exception e) {
+                    LOG.warn("task exec error. backend[{}]", backend.getId(), e);
+                } finally {
+                    if (ok) {
+                        ClientPool.backendPool.returnObject(address, client);
+                    } else {
+                        ClientPool.backendPool.invalidateObject(address, client);
+                    }
                 }
-            }
-        });
+            });
+        }).join();
         LOG.debug("finished to get tablet stat of all backends. cost: {} ms",
                 (System.currentTimeMillis() - start));
 
