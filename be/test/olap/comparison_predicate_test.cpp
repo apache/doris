@@ -258,7 +258,7 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
     SetTabletSchema(std::string("STRING_COLUMN"), "CHAR", "REPLACE", 5, true, true,
                     char_tablet_schema);
     // test WrapperField.from_string() for char type
-    WrapperField* field = WrapperField::create(char_tablet_schema.column(0));
+    WrapperField* field = WrapperField::create(char_tablet_schema->column(0));
     EXPECT_EQ(Status::OK(), field->from_string("true"));
     const std::string tmp = field->to_string();
     EXPECT_EQ(5, tmp.size());
