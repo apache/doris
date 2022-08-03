@@ -18,6 +18,10 @@
 suite("sub_query_alias") {
 
     sql """
+        use regression_test_nereids_syntax
+    """
+
+    sql """
         SET enable_vectorized_engine=true
     """
 
@@ -25,23 +29,16 @@ suite("sub_query_alias") {
         SET enable_nereids_planner=true
     """
 
-    sql """
-        SELECT * FROM lineorder, customer, dates, parts, supplier
+    List<List<Object>> res = sql """
+        SELECT * FROM customer c join lineorder l on c.c_custkey = l.lo_custkey
     """
 
     sql """
-    SELECT sum(l2.lo_tax) tax FROM (
         SELECT * FROM 
         customer c JOIN (
-            SELECT l.lo_custkey, sum(l.lo_tax) lo_tax 
+            SELECT l.lo_custkey, l.lo_tax 
             FROM lineorder l 
-            GROUP BY l.lo_custkey
         ) l1
         ON c.c_custkey = l1.lo_custkey
-    ) l2 WHERE l2.c_custkey > 1308 
-    GROUP BY l2.c_custkey
-    ORDER BY tax desc
     """
-
-    sql 
 }
