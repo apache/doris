@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJoin;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -35,19 +35,19 @@ import java.util.stream.Collectors;
  * Utils for join
  */
 public class JoinUtils {
-    public static boolean onlyBroadcast(PhysicalHashJoin join) {
+    public static boolean onlyBroadcast(PhysicalJoin join) {
         // Cross-join only can be broadcast join.
         return join.getJoinType().isCrossJoin();
     }
 
-    public static boolean onlyShuffle(PhysicalHashJoin join) {
+    public static boolean onlyShuffle(PhysicalJoin join) {
         return join.getJoinType().isRightJoin() || join.getJoinType().isFullOuterJoin();
     }
 
     /**
      * Get all equalTo from onClause of join
      */
-    public static List<EqualTo> getEqualTo(PhysicalHashJoin<Plan, Plan> join) {
+    public static List<EqualTo> getEqualTo(PhysicalJoin<Plan, Plan> join) {
         List<EqualTo> eqConjuncts = Lists.newArrayList();
         if (!join.getCondition().isPresent()) {
             return eqConjuncts;
@@ -89,7 +89,7 @@ public class JoinUtils {
      * Return pair of left used slots and right used slots.
      */
     public static Pair<List<SlotReference>, List<SlotReference>> getOnClauseUsedSlots(
-            PhysicalHashJoin<Plan, Plan> join) {
+            PhysicalJoin<Plan, Plan> join) {
         Pair<List<SlotReference>, List<SlotReference>> childSlots =
                 new Pair<>(Lists.newArrayList(), Lists.newArrayList());
 

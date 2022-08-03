@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -110,7 +111,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     public StatsDeriveResult visitLogicalJoin(LogicalJoin<Plan, Plan> join, Void context) {
         return JoinEstimation.estimate(groupExpression.getCopyOfChildStats(0),
                 groupExpression.getCopyOfChildStats(1),
-                join.getCondition().get(), join.getJoinType());
+                join.getCondition(), join.getJoinType());
     }
 
     @Override
@@ -132,7 +133,15 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     public StatsDeriveResult visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, Void context) {
         return JoinEstimation.estimate(groupExpression.getCopyOfChildStats(0),
                 groupExpression.getCopyOfChildStats(1),
-                hashJoin.getCondition().get(), hashJoin.getJoinType());
+                hashJoin.getCondition(), hashJoin.getJoinType());
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<Plan, Plan> nestedLoopJoin,
+            Void context) {
+        return JoinEstimation.estimate(groupExpression.getCopyOfChildStats(0),
+                groupExpression.getCopyOfChildStats(1),
+                nestedLoopJoin.getCondition(), nestedLoopJoin.getJoinType());
     }
 
     // TODO: We should subtract those pruned column, and consider the expression transformations in the node.

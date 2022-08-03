@@ -190,10 +190,10 @@ public class StatsCalculatorTest {
 
         EqualTo equalTo = new EqualTo(slot1, slot2);
         StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats,
-                rightStats, equalTo, JoinType.LEFT_SEMI_JOIN);
+                rightStats, Optional.of(equalTo), JoinType.LEFT_SEMI_JOIN);
         Assertions.assertEquals(leftRowCount, semiJoinStats.getRowCount());
         StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats,
-                rightStats, equalTo, JoinType.INNER_JOIN);
+                rightStats, Optional.of(equalTo), JoinType.INNER_JOIN);
         Assertions.assertEquals(2500000, innerJoinStats.getRowCount());
     }
 

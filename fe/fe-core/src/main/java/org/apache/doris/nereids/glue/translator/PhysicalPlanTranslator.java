@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -53,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
+import org.apache.doris.planner.CrossJoinNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
@@ -370,6 +372,30 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
             leftFragment.setPlanRoot(hashJoinNode);
             return leftFragment;
+        }
+    }
+
+    @Override
+    public PlanFragment visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<Plan, Plan> nestedLoopJoin,
+            PlanTranslatorContext context) {
+        // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
+        PlanFragment rightFragment = nestedLoopJoin.child(1).accept(this, context);
+        PlanFragment leftFragment = nestedLoopJoin.child(0).accept(this, context);
+        PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
+        PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
+        JoinType joinType = nestedLoopJoin.getJoinType();
+
+        if (joinType.equals(JoinType.CROSS_JOIN)
+                || (joinType.equals(JoinType.INNER_JOIN) && !nestedLoopJoin.getCondition().isPresent())) {
+            CrossJoinNode crossJoinNode =
+                    new CrossJoinNode(context.nextPlanNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot, null);
+            rightFragment.getPlanRoot().setCompactData(false);
+            crossJoinNode.setChild(0, leftFragment.getPlanRoot());
+            connectChildFragment(crossJoinNode, 1, leftFragment, rightFragment, context);
+            leftFragment.setPlanRoot(crossJoinNode);
+            return leftFragment;
+        } else {
+            throw new RuntimeException("Physical nested loop join could not execute with equal join condition.");
         }
     }
 

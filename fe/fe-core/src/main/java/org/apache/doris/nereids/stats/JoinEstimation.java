@@ -27,9 +27,11 @@ import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Estimate hash join stats.
@@ -41,10 +43,11 @@ public class JoinEstimation {
      * Do estimate.
      */
     public static StatsDeriveResult estimate(StatsDeriveResult leftStats, StatsDeriveResult rightStats,
-            Expression eqCondition, JoinType joinType) {
+            Optional<Expression> eqCondition, JoinType joinType) {
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(leftStats);
         statsDeriveResult.merge(rightStats);
-        List<Expression> eqConjunctList = ExpressionUtils.extractConjunction(eqCondition);
+        List<Expression> eqConjunctList = Lists.newArrayList();
+        eqCondition.ifPresent(e -> eqConjunctList.addAll(ExpressionUtils.extractConjunction(e)));
         long rowCount = -1;
         if (joinType.isSemiOrAntiJoin()) {
             rowCount = getSemiJoinRowCount(leftStats, rightStats, eqConjunctList, joinType);

@@ -19,22 +19,22 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 
 /**
- * Implementation rule that convert logical join to physical hash join.
+ * Implementation rule that convert logical join to physical nested loop join.
  */
-public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
+public class LogicalJoinToNestedLoopJoin extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
-                .when(join -> join.getCondition().isPresent())
-                .then(join -> new PhysicalHashJoin<>(
-            join.getJoinType(),
-            join.getCondition(),
-            join.getLogicalProperties(),
-            join.left(),
-            join.right())
-        ).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
+                .when(join -> !join.getCondition().isPresent())
+                .then(join -> new PhysicalNestedLoopJoin<>(
+                        join.getJoinType(),
+                        join.getCondition(),
+                        join.getLogicalProperties(),
+                        join.left(),
+                        join.right())
+                ).toRule(RuleType.LOGICAL_JOIN_TO_NESTED_LOOP_JOIN_RULE);
     }
 }
