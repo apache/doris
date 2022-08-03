@@ -811,8 +811,8 @@ protected:
         EXPECT_TRUE(tablet != nullptr);
         _tablet_path = tablet->tablet_path();
 
-        _data_row_cursor.init(*tablet->tablet_schema());
-        _data_row_cursor.allocate_memory_for_string_type(*tablet->tablet_schema());
+        _data_row_cursor.init(tablet->tablet_schema());
+        _data_row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
     }
 
     void TearDown() {
