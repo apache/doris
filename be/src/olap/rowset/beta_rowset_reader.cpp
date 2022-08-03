@@ -72,7 +72,6 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
                                               read_context->predicates->begin(),
                                               read_context->predicates->end());
     }
-
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
     // until the max read version, which is read_context->version.second
     if (read_context->delete_bitmap != nullptr) {
