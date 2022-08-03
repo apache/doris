@@ -78,6 +78,7 @@ private:
     PathTrie<HttpHandler*> _delete_handlers;
     PathTrie<HttpHandler*> _head_handlers;
     PathTrie<HttpHandler*> _options_handlers;
+    bool _started = false;
 };
 
 } // namespace doris

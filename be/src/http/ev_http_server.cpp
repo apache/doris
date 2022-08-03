@@ -83,10 +83,13 @@ EvHttpServer::EvHttpServer(const std::string& host, int port, int num_workers)
 }
 
 EvHttpServer::~EvHttpServer() {
-    stop();
+    if (_started) {
+        stop();
+    }
 }
 
 void EvHttpServer::start() {
+    _started = true;
     // bind to
     auto s = _bind();
     CHECK(s.ok()) << s.to_string();
@@ -137,6 +140,7 @@ void EvHttpServer::stop() {
     }
     _workers->shutdown();
     close(_server_fd);
+    _started = false;
 }
 
 void EvHttpServer::join() {}
