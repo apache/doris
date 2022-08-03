@@ -179,7 +179,7 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema,
         LOG(WARNING)
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << scan_key_size
-                << ", schema.num_columns=" << schema.num_columns();
+                << ", schema.num_columns=" << schema->num_columns();
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 

@@ -363,7 +363,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
                     << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
 
         // 4. Init RowCursor
-        if (!(res = row.init(*tablet_schema))) {
+        if (!(res = row.init(tablet_schema))) {
             LOG(WARNING) << "fail to init rowcursor. res=" << res;
             break;
         }

@@ -293,39 +293,39 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
         break;                                                          \
     }
 
-#define CONVERT_FROM_TYPE(from_type)                                                            \
-    {                                                                                           \
-        switch (newtype) {                                                                      \
-        case OLAP_FIELD_TYPE_TINYINT:                                                           \
-            TYPE_REINTERPRET_CAST(from_type, int8_t);                                           \
-        case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:                                                  \
-            TYPE_REINTERPRET_CAST(from_type, uint8_t);                                          \
-        case OLAP_FIELD_TYPE_SMALLINT:                                                          \
-            TYPE_REINTERPRET_CAST(from_type, int16_t);                                          \
-        case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:                                                 \
-            TYPE_REINTERPRET_CAST(from_type, uint16_t);                                         \
-        case OLAP_FIELD_TYPE_INT:                                                               \
-            TYPE_REINTERPRET_CAST(from_type, int32_t);                                          \
-        case OLAP_FIELD_TYPE_UNSIGNED_INT:                                                      \
-            TYPE_REINTERPRET_CAST(from_type, uint32_t);                                         \
-        case OLAP_FIELD_TYPE_BIGINT:                                                            \
-            TYPE_REINTERPRET_CAST(from_type, int64_t);                                          \
-        case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:                                                   \
-            TYPE_REINTERPRET_CAST(from_type, uint64_t);                                         \
-        case OLAP_FIELD_TYPE_LARGEINT:                                                          \
-            LARGEINT_REINTERPRET_CAST(from_type, int128_t);                                     \
-        case OLAP_FIELD_TYPE_FLOAT:                                                             \
-            TYPE_REINTERPRET_CAST(from_type, float);                                            \
-        case OLAP_FIELD_TYPE_DOUBLE:                                                            \
-            TYPE_REINTERPRET_CAST(from_type, double);                                           \
-        default:                                                                                \
-            LOG(WARNING) << "the column type which was altered to was unsupported."             \
-                         << " origin_type="                                                     \
-                         << ref_block->tablet_schema().column(ref_column).type()                \
-                         << ", alter_type=" << mutable_block->tablet_schema().column(i).type(); \
-            return Status::OLAPInternalError(OLAP_ERR_SCHEMA_CHANGE_INFO_INVALID);              \
-        }                                                                                       \
-        break;                                                                                  \
+#define CONVERT_FROM_TYPE(from_type)                                                             \
+    {                                                                                            \
+        switch (newtype) {                                                                       \
+        case OLAP_FIELD_TYPE_TINYINT:                                                            \
+            TYPE_REINTERPRET_CAST(from_type, int8_t);                                            \
+        case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:                                                   \
+            TYPE_REINTERPRET_CAST(from_type, uint8_t);                                           \
+        case OLAP_FIELD_TYPE_SMALLINT:                                                           \
+            TYPE_REINTERPRET_CAST(from_type, int16_t);                                           \
+        case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:                                                  \
+            TYPE_REINTERPRET_CAST(from_type, uint16_t);                                          \
+        case OLAP_FIELD_TYPE_INT:                                                                \
+            TYPE_REINTERPRET_CAST(from_type, int32_t);                                           \
+        case OLAP_FIELD_TYPE_UNSIGNED_INT:                                                       \
+            TYPE_REINTERPRET_CAST(from_type, uint32_t);                                          \
+        case OLAP_FIELD_TYPE_BIGINT:                                                             \
+            TYPE_REINTERPRET_CAST(from_type, int64_t);                                           \
+        case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:                                                    \
+            TYPE_REINTERPRET_CAST(from_type, uint64_t);                                          \
+        case OLAP_FIELD_TYPE_LARGEINT:                                                           \
+            LARGEINT_REINTERPRET_CAST(from_type, int128_t);                                      \
+        case OLAP_FIELD_TYPE_FLOAT:                                                              \
+            TYPE_REINTERPRET_CAST(from_type, float);                                             \
+        case OLAP_FIELD_TYPE_DOUBLE:                                                             \
+            TYPE_REINTERPRET_CAST(from_type, double);                                            \
+        default:                                                                                 \
+            LOG(WARNING) << "the column type which was altered to was unsupported."              \
+                         << " origin_type="                                                      \
+                         << ref_block->tablet_schema()->column(ref_column).type()                \
+                         << ", alter_type=" << mutable_block->tablet_schema()->column(i).type(); \
+            return Status::OLAPInternalError(OLAP_ERR_SCHEMA_CHANGE_INFO_INVALID);               \
+        }                                                                                        \
+        break;                                                                                   \
     }
 
 #define ASSIGN_DEFAULT_VALUE(length)                                            \
@@ -645,7 +645,7 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
                     ref_block->get_row(row_index, &read_helper);
 
                     if (!_do_materialized_transform(&read_helper, &write_helper,
-                                                    ref_block->tablet_schema().column(ref_column),
+                                                    ref_block->tablet_schema()->column(ref_column),
                                                     i, _schema_mapping[i].ref_column, mem_pool)) {
                         return Status::OLAPInternalError(OLAP_ERR_DATA_QUALITY_ERR);
                     }
@@ -655,8 +655,8 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
 
             // new column will be assigned as referenced column
             // check if the type of new column is equal to the older's.
-            FieldType reftype = ref_block->tablet_schema().column(ref_column).type();
-            FieldType newtype = mutable_block->tablet_schema().column(i).type();
+            FieldType reftype = ref_block->tablet_schema()->column(ref_column).type();
+            FieldType newtype = mutable_block->tablet_schema()->column(i).type();
             if (newtype == reftype) {
                 // Low efficiency, you can also directly calculate the variable length domain copy, but it will still destroy the package
                 for (size_t row_index = 0, new_row_index = 0;
@@ -673,7 +673,7 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
                             // if modify length of CHAR type, the size of slice should be equal
                             // to new length.
                             Slice* src = (Slice*)(read_helper.cell_ptr(ref_column));
-                            size_t size = mutable_block->tablet_schema().column(i).length();
+                            size_t size = mutable_block->tablet_schema()->column(i).length();
                             char* buf = reinterpret_cast<char*>(mem_pool->allocate(size));
                             memset(buf, 0, size);
                             size_t copy_size = (size < src->size) ? size : src->size;
@@ -735,17 +735,17 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
                 default:
                     LOG(WARNING) << "the column type which was altered from was unsupported."
                                  << " from_type="
-                                 << ref_block->tablet_schema().column(ref_column).type();
+                                 << ref_block->tablet_schema()->column(ref_column).type();
                     return Status::OLAPInternalError(OLAP_ERR_SCHEMA_CHANGE_INFO_INVALID);
                 }
 
                 if (newtype < reftype) {
                     VLOG_NOTICE << "type degraded while altering column. "
-                                << "column=" << mutable_block->tablet_schema().column(i).name()
+                                << "column=" << mutable_block->tablet_schema()->column(i).name()
                                 << ", origin_type="
-                                << ref_block->tablet_schema().column(ref_column).type()
+                                << ref_block->tablet_schema()->column(ref_column).type()
                                 << ", alter_type="
-                                << mutable_block->tablet_schema().column(i).type();
+                                << mutable_block->tablet_schema()->column(i).type();
                 }
             }
         } else {
@@ -1041,7 +1041,7 @@ bool RowBlockMerger::merge(const std::vector<RowBlock*>& row_block_arr, RowsetWr
         return false;
     };
 
-    if (row_cursor.init(*_tablet->tablet_schema()) != Status::OK()) {
+    if (row_cursor.init(_tablet->tablet_schema()) != Status::OK()) {
         LOG(WARNING) << "fail to init row cursor.";
         return merge_error();
     }
@@ -1201,7 +1201,7 @@ Status SchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
                                             RowsetWriter* rowset_writer, TabletSharedPtr new_tablet,
                                             TabletSharedPtr base_tablet) {
     if (_row_block_allocator == nullptr) {
-        _row_block_allocator = new RowBlockAllocator(*new_tablet->tablet_schema(), 0);
+        _row_block_allocator = new RowBlockAllocator(new_tablet->tablet_schema(), 0);
         if (_row_block_allocator == nullptr) {
             LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);

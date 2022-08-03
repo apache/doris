@@ -54,7 +54,7 @@ class RowBlock {
     friend class RowBlockChanger;
 
 public:
-    RowBlock(const TabletSchema* schema);
+    RowBlock(TabletSchemaSPtr schema);
 
     // 注意回收内部buffer
     ~RowBlock();
