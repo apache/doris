@@ -495,6 +495,9 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
                     LOG(FATAL) << "Failed to assign scanner task to thread pool! "
                                << s.get_error_msg();
                 }
+            } else {
+                std::lock_guard<std::mutex> l(_volap_scanners_lock);
+                _volap_scanners.push_front(scanner);
             }
         }
     }
