@@ -954,7 +954,7 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
 RowBlockAllocator::RowBlockAllocator(TabletSchemaSPtr tablet_schema, size_t memory_limitation)
         : _tablet_schema(tablet_schema),
           _tracker(std::make_unique<MemTracker>("RowBlockAllocator")),
-          _row_len(tablet_schema.row_size()),
+          _row_len(tablet_schema->row_size()),
           _memory_limitation(memory_limitation) {
     VLOG_NOTICE << "RowBlockAllocator(). row_len=" << _row_len;
 }
@@ -1321,7 +1321,7 @@ Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_read
                                                TabletSharedPtr base_tablet) {
     if (_row_block_allocator == nullptr) {
         _row_block_allocator =
-                new (nothrow) RowBlockAllocator(*new_tablet->tablet_schema(), _memory_limitation);
+                new (nothrow) RowBlockAllocator(new_tablet->tablet_schema(), _memory_limitation);
         if (_row_block_allocator == nullptr) {
             LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
