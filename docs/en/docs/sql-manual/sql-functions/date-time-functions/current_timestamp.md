@@ -44,4 +44,5 @@ mysql> select current_timestamp();
 +---------------------+
 ```
 ### keywords
-CURRENT_TIMESTAMP,CURRENT,TIMESTAMP
+
+    CURRENT_TIMESTAMP,CURRENT,TIMESTAMP
