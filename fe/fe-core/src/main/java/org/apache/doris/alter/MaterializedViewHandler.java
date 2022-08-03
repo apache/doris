@@ -909,8 +909,15 @@ public class MaterializedViewHandler extends AlterHandler {
         if (!alterJob.isDone()) {
             addAlterJobV2ToTableNotFinalStateJobMap(alterJob);
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.ROLLUP);
+            LOG.info("set table's state to ROLLUP, table id: {}, job id: {}", alterJob.getTableId(),
+                    alterJob.getJobId());
         } else if (removeAlterJobV2FromTableNotFinalStateJobMap(alterJob)) {
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
+            LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
+                    alterJob.getJobId());
+        } else {
+            LOG.info("not set table's state, table id: {}, is job done: {}, job id: {}", alterJob.getTableId(),
+                    alterJob.isDone(), alterJob.getJobId());
         }
     }
 
@@ -983,6 +990,11 @@ public class MaterializedViewHandler extends AlterHandler {
         removeJobFromRunningQueue(alterJob);
         if (removeAlterJobV2FromTableNotFinalStateJobMap(alterJob)) {
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
+            LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
+                    alterJob.getJobId());
+        } else {
+            LOG.info("not set table's state, table id: {}, is job done: {}, job id: {}", alterJob.getTableId(),
+                    alterJob.isDone(), alterJob.getJobId());
         }
     }
 
