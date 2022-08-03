@@ -81,7 +81,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.IntSupplier;
 
 public class RollupJobV2Test {
     private static String fileName = "./RollupJobV2Test";
@@ -316,7 +315,7 @@ public class RollupJobV2Test {
 
     @Test
     public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt)
-            throws IOException, AnalysisException, UserException {
+            throws IOException {
         // prepare file
         File file = new File(fileName);
         file.createNewFile();
@@ -328,24 +327,10 @@ public class RollupJobV2Test {
         Column column = new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", "");
         columns.add(column);
 
-        Database db = masterEnv.getInternalDataSource().getDbOrDdlException(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
-
-        IntSupplier colUniqueIdSupplier = new IntSupplier() {
-            public int pendingMaxColUniqueId = olapTable.getMaxColUniqueId();
-
-            @Override
-            public int getAsInt() {
-                pendingMaxColUniqueId++;
-                return pendingMaxColUniqueId;
-            }
-        };
-
         RollupJobV2 rollupJobV2 = new RollupJobV2(1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, 1, 1,
                 KeysType.AGG_KEYS, keysCount,
                 new OriginStatement("create materialized view rollup as select bitmap_union(to_bitmap(c1)) from test",
-                        0),
-                colUniqueIdSupplier);
+                        0));
         rollupJobV2.setStorageFormat(TStorageFormat.V2);
 
         // write rollup job

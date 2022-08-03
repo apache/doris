@@ -1633,13 +1633,8 @@ bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_row
         rs_readers.push_back(rs_reader);
     }
     // get cur schema if rowset schema exist, rowset schema must be newer than tablet schema
-<<<<<<< HEAD
-    auto max_version_rowset = src_rowsets.back();
     const TabletSchema* cur_tablet_schema =
-            max_version_rowset->rowset_meta()->tablet_schema().get();
-=======
-    const TabletSchema* cur_tablet_schema = src_rowsets.back()->rowset_meta()->tablet_schema();
->>>>>>> support materialized view on vectorized engine
+            src_rowsets.back()->rowset_meta()->tablet_schema().get();
     if (cur_tablet_schema == nullptr) {
         cur_tablet_schema = new_tablet->tablet_schema().get();
     }
