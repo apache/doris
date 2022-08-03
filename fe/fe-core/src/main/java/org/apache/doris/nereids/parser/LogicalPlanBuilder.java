@@ -742,31 +742,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan last = input;
         for (JoinRelationContext join : ctx.joinRelation()) {
             JoinType joinType;
-            if (join.joinType().CROSS() != null) {
-                joinType = JoinType.CROSS_JOIN;
-            } else if (join.joinType().FULL() != null) {
-                joinType = JoinType.FULL_OUTER_JOIN;
-            } else if (join.joinType().SEMI() != null) {
-                if (join.joinType().LEFT() != null) {
-                    joinType = JoinType.LEFT_SEMI_JOIN;
-                } else {
-                    joinType = JoinType.RIGHT_SEMI_JOIN;
-                }
-            } else if (join.joinType().ANTI() != null) {
-                if (join.joinType().LEFT() != null) {
-                    joinType = JoinType.LEFT_ANTI_JOIN;
-                } else {
-                    joinType = JoinType.RIGHT_ANTI_JOIN;
-                }
-            } else if (join.joinType().LEFT() != null) {
+            if (join.joinType().LEFT() != null) {
                 joinType = JoinType.LEFT_OUTER_JOIN;
             } else if (join.joinType().RIGHT() != null) {
                 joinType = JoinType.RIGHT_OUTER_JOIN;
+            } else if (join.joinType().FULL() != null) {
+                joinType = JoinType.FULL_OUTER_JOIN;
+            } else if (join.joinType().SEMI() != null) {
+                joinType = JoinType.LEFT_SEMI_JOIN;
+            } else if (join.joinType().ANTI() != null) {
+                joinType = JoinType.LEFT_ANTI_JOIN;
+            } else if (join.joinType().CROSS() != null) {
+                joinType = JoinType.CROSS_JOIN;
             } else {
                 joinType = JoinType.INNER_JOIN;
             }
 
-            // TODO: natural join, lateral join, using join, union join
+            // TODO: natural join, lateral join, using join
             JoinCriteriaContext joinCriteria = join.joinCriteria();
             Expression condition;
             if (joinCriteria == null) {
@@ -775,7 +767,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 condition = getExpression(joinCriteria.booleanExpression());
             }
 
-            last = new LogicalJoin<>(joinType, Optional.ofNullable(condition), last, plan(join.relationPrimary()));
+            last = new LogicalJoin(joinType, Optional.ofNullable(condition), last, plan(join.relationPrimary()));
         }
         return last;
     }

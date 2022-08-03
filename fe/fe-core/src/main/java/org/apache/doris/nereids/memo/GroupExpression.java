@@ -138,19 +138,19 @@ public class GroupExpression {
     }
 
     /**
-     * Add a (outputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
+     * Add a (parentOutputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
      */
     public boolean updateLowestCostTable(
-            PhysicalProperties outputProperties,
+            PhysicalProperties parentOutputProperties,
             List<PhysicalProperties> childrenInputProperties,
             double cost) {
-        if (lowestCostTable.containsKey(outputProperties)) {
-            if (lowestCostTable.get(outputProperties).first > cost) {
-                lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+        if (lowestCostTable.containsKey(parentOutputProperties)) {
+            if (lowestCostTable.get(parentOutputProperties).first > cost) {
+                lowestCostTable.put(parentOutputProperties, new Pair<>(cost, childrenInputProperties));
                 return true;
             }
         } else {
-            lowestCostTable.put(outputProperties, new Pair<>(cost, childrenInputProperties));
+            lowestCostTable.put(parentOutputProperties, new Pair<>(cost, childrenInputProperties));
             return true;
         }
         return false;
