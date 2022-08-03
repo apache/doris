@@ -125,6 +125,7 @@ fi
 MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
 echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
+echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS}"
 
 cd ${CMAKE_BUILD_DIR}
 ${CMAKE_CMD} -G "${GENERATOR}" \
@@ -139,7 +140,9 @@ ${CMAKE_CMD} -G "${GENERATOR}" \
     -DUSE_MEM_TRACKER=ON \
     -DUSE_JEMALLOC=OFF \
     -DSTRICT_MEMORY_USE=OFF \
-    ${CMAKE_USE_CCACHE} ${DORIS_HOME}/be/
+    -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
+    ${CMAKE_USE_CCACHE} \
+    ${DORIS_HOME}/be/
 ${BUILD_SYSTEM} -j ${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then

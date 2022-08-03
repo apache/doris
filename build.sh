@@ -293,6 +293,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
     echo "-- Make program: ${MAKE_PROGRAM}"
     echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
+    echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS}"
 
     mkdir -p ${CMAKE_BUILD_DIR}
     cd ${CMAKE_BUILD_DIR}
@@ -313,7 +314,9 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DUSE_JEMALLOC=${USE_JEMALLOC} \
             -DSTRICT_MEMORY_USE=${STRICT_MEMORY_USE} \
             -DUSE_AVX2=${USE_AVX2} \
-            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ${DORIS_HOME}/be/
+            -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} \
+            -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
+            ${DORIS_HOME}/be/
     ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
     cd ${DORIS_HOME}
