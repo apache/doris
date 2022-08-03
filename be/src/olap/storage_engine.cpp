@@ -112,8 +112,10 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _index_stream_lru_cache(nullptr),
           _file_cache(nullptr),
-          _compaction_mem_tracker(MemTracker::CreateTracker(-1, "AutoCompaction", nullptr, false,
+          _compaction_mem_tracker(MemTracker::CreateTracker(-1, "OldAutoCompaction", nullptr, false,
                                                             false, MemTrackerLevel::OVERVIEW)),
+          _new_compaction_mem_tracker(
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::AutoCompaction")),
           _tablet_mem_tracker(MemTracker::CreateTracker(-1, "TabletHeader", nullptr, false, false,
                                                         MemTrackerLevel::OVERVIEW)),
           _convert_rowset_mem_tracker(MemTracker::CreateTracker(-1, "ConvertRowset", nullptr, false,

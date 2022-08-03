@@ -179,7 +179,6 @@ public:
     OLAPStatus flush() { return _writer->flush(); }
 
 private:
-    uint32_t _column_id;
     uint32_t _unique_column_id;
     OutStreamFactory* _stream_factory;
     RunLengthIntegerWriter* _writer;

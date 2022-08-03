@@ -24,6 +24,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/sorter.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "util/debug_util.h"
 #include "util/defer_op.h"
@@ -124,7 +125,7 @@ public:
     Status init(bool* done) override {
         *done = false;
         _pull_task_thread = std::thread(
-                &SortedRunMerger::ParallelBatchedRowSupplier::process_sorted_run_task, this);
+                &SortedRunMerger::ParallelBatchedRowSupplier::process_sorted_run_task, this, thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker());
 
         RETURN_IF_ERROR(next(nullptr, done));
         return Status::OK();
@@ -177,7 +178,8 @@ private:
     // signal of new batch or the eos/cancelled condition
     std::condition_variable _batch_prepared_cv;
 
-    void process_sorted_run_task() {
+    void process_sorted_run_task(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+        SCOPED_ATTACH_TASK(mem_tracker, ThreadContext::TaskType::QUERY);
         std::unique_lock<std::mutex> lock(_mutex);
         while (true) {
             _batch_prepared_cv.wait(lock, [this]() { return !_backup_ready.load(); });

@@ -239,7 +239,7 @@ private:
     CppType _last_value;
 };
 
-static Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
+static inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
                                        size_t& compressed_size, size_t& num_element_after_padding,
                                        int& size_of_element) {
     if (data.size < BITSHUFFLE_PAGE_HEADER_SIZE) {

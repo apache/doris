@@ -44,6 +44,9 @@
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/memory/chunk_allocator.h"
+#include "runtime/memory/mem_tracker_task_pool.h"
+#include "runtime/thread_context.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
@@ -64,6 +67,11 @@
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
 #include "vec/runtime/vdata_stream_mgr.h"
+
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+#include "runtime/memory/tcmalloc_hook.h"
+#endif
 
 namespace doris {
 
@@ -97,6 +105,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
+    _task_pool_mem_tracker_registry = new MemTrackerTaskPool();
     _extdatasource_client_cache =
             new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
     _pool_mem_trackers = new PoolMemTrackerRegistry();
@@ -190,10 +199,27 @@ Status ExecEnv::_init_mem_tracker() {
                      << ". Using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
-    _mem_tracker = MemTracker::CreateTracker(global_memory_limit_bytes, "Process",
+    _mem_tracker = MemTracker::CreateTracker(global_memory_limit_bytes, "OldProcess",
                                              MemTracker::GetRootTracker(), false, false,
                                              MemTrackerLevel::OVERVIEW);
     REGISTER_HOOK_METRIC(query_mem_consumption, [this]() { return _mem_tracker->consumption(); });
+
+    _process_mem_tracker =
+            std::make_shared<MemTrackerLimiter>(global_memory_limit_bytes, "Process");
+    thread_context()->_thread_mem_tracker_mgr->init();
+    thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
+#if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
+        !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+    if (doris::config::enable_tcmalloc_hook) {
+        init_hook();
+    }
+#endif
+
+    _query_pool_mem_tracker =
+            std::make_shared<MemTrackerLimiter>(-1, "QueryPool", _process_mem_tracker);
+    _load_pool_mem_tracker =
+            std::make_shared<MemTrackerLimiter>(-1, "LoadPool", _process_mem_tracker);
+
     LOG(INFO) << "Using global memory limit: "
               << PrettyPrinter::print(global_memory_limit_bytes, TUnit::BYTES)
               << ", origin config value: " << config::mem_limit;
@@ -261,8 +287,28 @@ Status ExecEnv::_init_mem_tracker() {
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
     RETURN_IF_ERROR(_tmp_file_mgr->init());
 
-    // TODO(zc): The current memory usage configuration is a bit confusing,
-    // we need to sort out the use of memory
+    // 5. init chunk allocator
+    if (!BitUtil::IsPowerOf2(config::min_chunk_reserved_bytes)) {
+        ss << "Config min_chunk_reserved_bytes must be a power-of-two: "
+           << config::min_chunk_reserved_bytes;
+        return Status::InternalError(ss.str());
+    }
+
+    int64_t chunk_reserved_bytes_limit =
+            ParseUtil::parse_mem_spec(config::chunk_reserved_bytes_limit, global_memory_limit_bytes,
+                                      MemInfo::physical_mem(), &is_percent);
+    if (chunk_reserved_bytes_limit <= 0) {
+        ss << "Invalid config chunk_reserved_bytes_limit value, must be a percentage or "
+              "positive bytes value or percentage: "
+           << config::chunk_reserved_bytes_limit;
+        return Status::InternalError(ss.str());
+    }
+    chunk_reserved_bytes_limit =
+            BitUtil::RoundDown(chunk_reserved_bytes_limit, config::min_chunk_reserved_bytes);
+    ChunkAllocator::init_instance(chunk_reserved_bytes_limit);
+    LOG(INFO) << "Chunk allocator memory limit: "
+              << PrettyPrinter::print(chunk_reserved_bytes_limit, TUnit::BYTES)
+              << ", origin config value: " << config::chunk_reserved_bytes_limit;
     return Status::OK();
 }
 
@@ -326,6 +372,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_result_queue_mgr);
     SAFE_DELETE(_stream_mgr);
     SAFE_DELETE(_stream_load_executor);
+    SAFE_DELETE(_task_pool_mem_tracker_registry);
     SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);

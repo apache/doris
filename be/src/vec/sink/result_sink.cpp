@@ -99,6 +99,9 @@ Status VResultSink::send(RuntimeState* state, RowBatch* batch) {
 }
 
 Status VResultSink::send(RuntimeState* state, Block* block) {
+    // The memory consumption in the process of sending the results is not check query memory limit.
+    // Avoid the query being cancelled when the memory limit is reached after the query result comes out.
+    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     return _writer->append_block(*block);
 }
 

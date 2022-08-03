@@ -28,6 +28,7 @@ namespace doris {
 struct Chunk;
 class ChunkArena;
 class MetricEntity;
+class MemTrackerLimiter;
 
 // Used to allocate memory with power-of-two length.
 // This Allocator allocate memory from system and cache free chunks for
@@ -79,6 +80,8 @@ private:
     std::vector<std::unique_ptr<ChunkArena>> _arenas;
 
     std::shared_ptr<MetricEntity> _chunk_allocator_metric_entity;
+
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 } // namespace doris

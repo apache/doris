@@ -443,7 +443,7 @@ void NodeChannel::cancel(const std::string& cancel_msg) {
     request.release_id();
 }
 
-int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
+int NodeChannel::try_send_and_fetch_status(RuntimeState* state, std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
     auto st = none_of({_cancelled, _send_finished});
     if (!st.ok()) {
         return 0;
@@ -456,7 +456,7 @@ int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thr
     // We are sure that try_send_batch is not running
     if (_pending_batches_num > 0) {
         auto s = thread_pool_token->submit_func(
-                std::bind(&NodeChannel::try_send_batch, this));
+                std::bind(&NodeChannel::try_send_batch, this, state));
         if (!s.ok()) {
             _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
             // clear in flight
@@ -470,8 +470,9 @@ int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thr
     return _send_finished ? 0 : 1;
 }
 
-void NodeChannel::try_send_batch() {
+void NodeChannel::try_send_batch(RuntimeState* state) {
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
+    SCOPED_ATTACH_TASK(state);
     AddBatchReq send_batch;
     {
         debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
@@ -901,7 +902,7 @@ Status OlapTableSink::open(RuntimeState* state) {
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
     RETURN_IF_ERROR(Thread::create(
-            "OlapTableSink", "send_batch_process", [this]() { this->_send_batch_process(); },
+            "OlapTableSink", "send_batch_process", [this, state]() { this->_send_batch_process(state); },
             &_sender_thread));
 
     return Status::OK();
@@ -1293,14 +1294,15 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
     return Status::OK();
 }
 
-void OlapTableSink::_send_batch_process() {
+void OlapTableSink::_send_batch_process(RuntimeState* state) {
     SCOPED_TIMER(_non_blocking_send_timer);
+    SCOPED_ATTACH_TASK(state);
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num, this](const std::shared_ptr<NodeChannel>& ch) {
+            index_channel->for_each_node_channel([&running_channels_num, this, state](const std::shared_ptr<NodeChannel>& ch) {
                 running_channels_num +=
-                        ch->try_send_and_fetch_status(this->_send_batch_thread_pool_token);
+                        ch->try_send_and_fetch_status(state, this->_send_batch_thread_pool_token);
             });
         }
 

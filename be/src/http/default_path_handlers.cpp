@@ -30,6 +30,7 @@
 #include "http/action/tablets_info_action.h"
 #include "http/web_page_handler.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/debug_util.h"
 #include "util/pretty_printer.h"
 #include "util/thread.h"
@@ -129,18 +130,19 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
                  "       data-search='true' "
                  "       class='table table-striped'>\n";
     (*output) << "<thead><tr>"
-                 "<th data-sortable='true' "
-                 ">Id</th>"
+                 "<th data-sortable='true'>Level</th>"
+                 "<th data-sortable='true'>Label</th>"
                  "<th>Parent</th>"
                  "<th>Limit</th>"
-                 "<th data-sorter='bytesSorter' "
-                 "    data-sortable='true' "
-                 ">Current Consumption</th>"
-                 "<th data-sorter='bytesSorter' "
-                 "    data-sortable='true' "
-                 ">Peak Consumption</th>"
                  "<th data-sortable='true' "
-                 ">Use Count</th></tr></thead>";
+                 ">Current Consumption(Bytes)</th>"
+                 "<th>Current Consumption(Normalize)</th>"
+                 "<th data-sortable='true' "
+                 ">Peak Consumption(Bytes)</th>"
+                 "<th>Peak Consumption(Normalize)</th>"
+                 "<th data-sortable='true' "
+                 ">Child Count</th>"
+                 "</tr></thead>";
     (*output) << "<tbody>\n";
 
     std::vector<shared_ptr<MemTracker>> trackers;
@@ -151,11 +153,39 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
         string current_consumption_str = ItoaKMGT(tracker->consumption());
         string peak_consumption_str = ItoaKMGT(tracker->peak_consumption());
         int64_t use_count = tracker.use_count();
+        string current_consumption_normalize = AccurateItoaKMGT(tracker->consumption());
+        string peak_consumption_normalize = AccurateItoaKMGT(tracker->peak_consumption());
         (*output) << strings::Substitute(
-                "<tr><td>$0</td><td>$1</td><td>$2</td>" // id, parent, limit
-                "<td>$3</td><td>$4</td><td>$5</td></tr>\n",        // current, peak
-                tracker->label(), parent, limit_str, current_consumption_str, peak_consumption_str, use_count);
+                "<tr><td>$0</td><td>$1</td><td>$2</td><td>$3</td><td>$4</td><td>$5</td><td>$6</"
+                "td><td>$7</td><td>$8</td></tr>\n",
+                -1, tracker->label(), parent, limit_str, current_consumption_str,
+                current_consumption_normalize, peak_consumption_str, peak_consumption_normalize,
+                use_count);
     }
+
+    size_t upper_level;
+    size_t cur_level = 1;
+    // the level equal or lower than upper_level will show in web page
+    auto iter = args.find("upper_level");
+    if (iter != args.end()) {
+        upper_level = std::stol(iter->second);
+    } else {
+        upper_level = 3;
+    }
+    std::vector<NewMemTracker::Snapshot> snapshots;
+    ExecEnv::GetInstance()->new_process_mem_tracker()->make_snapshot(&snapshots, cur_level, upper_level);
+    for (const auto& item : snapshots) {
+        string limit_str = item.limit == -1 ? "none" : AccurateItoaKMGT(item.limit);
+        string current_consumption_normalize = AccurateItoaKMGT(item.cur_consumption);
+        string peak_consumption_normalize = AccurateItoaKMGT(item.peak_consumption);
+        (*output) << strings::Substitute(
+                "<tr><td>$0</td><td>$1</td><td>$2</td><td>$3</td><td>$4</td><td>$5</td><td>$6</"
+                "td><td>$7</td><td>$8</td></tr>\n",
+                item.level, item.label, item.parent, limit_str, item.cur_consumption,
+                current_consumption_normalize, item.peak_consumption, peak_consumption_normalize,
+                item.child_count);
+    }
+
     (*output) << "</tbody></table>\n";
 }
 

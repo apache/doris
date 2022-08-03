@@ -27,6 +27,7 @@
 #include "exec/parquet_scanner.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
+#include "runtime/thread_context.h"
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -347,6 +348,7 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
 }
 
 void BrokerScanNode::scanner_worker(int start_idx, int length) {
+    SCOPED_ATTACH_TASK(_runtime_state);
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     auto status = Expr::clone_if_not_exists(_conjunct_ctxs, _runtime_state, &scanner_expr_ctxs);

@@ -222,4 +222,5 @@ enum PPlanFragmentCancelReason {
     INTERNAL_ERROR = 3;
     TIMEOUT = 4;
     CALL_RPC_ERROR = 5;
+    MEMORY_LIMIT_EXCEED = 6;
 }

@@ -474,8 +474,12 @@ char* SimpleItoaWithCommas(__int128_t i, char* buffer, int32_t buffer_size);
 //    e.g. 3000 -> 2K   57185920 -> 45M
 //
 //    Return value: string
+//
+// AccurateItoaKMGT()
+//    Description: preserve accuracy
 // ----------------------------------------------------------------------
 string ItoaKMGT(int64 i);
+string AccurateItoaKMGT(int64 i);
 
 // ----------------------------------------------------------------------
 // ParseDoubleRange()

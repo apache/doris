@@ -39,6 +39,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/plan_fragment_executor.h"
+#include "runtime/thread_context.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
@@ -249,6 +250,9 @@ Status FragmentExecState::execute() {
 
 Status FragmentExecState::cancel_before_execute() {
     // set status as 'abort', cuz cancel() won't effect the status arg of DataSink::close().
+#ifndef BE_TEST
+    SCOPED_ATTACH_TASK(executor()->runtime_state());
+#endif
     _executor.set_abort();
     _executor.cancel();
     if (_pipe != nullptr) {
@@ -466,6 +470,9 @@ FragmentMgr::~FragmentMgr() {
 static void empty_function(PlanFragmentExecutor* exec) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb) {
+#ifndef BE_TEST
+    SCOPED_ATTACH_TASK(exec_state->executor()->runtime_state());
+#endif
     TAG(LOG(INFO))
             .log("PlanFragmentExecutor::_exec_actual")
             .query_id(exec_state->query_id())

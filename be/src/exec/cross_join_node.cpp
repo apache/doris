@@ -52,6 +52,7 @@ Status CrossJoinNode::close(RuntimeState* state) {
 Status CrossJoinNode::construct_build_side(RuntimeState* state) {
     // Do a full scan of child(1) and store all build row batches.
     RETURN_IF_ERROR(child(1)->open(state));
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Cross join, while getting next from child 1");
 
     while (true) {
         RowBatch* batch = _build_batch_pool->add(
@@ -62,9 +63,6 @@ Status CrossJoinNode::construct_build_side(RuntimeState* state) {
         // RETURN_IF_ERROR(state->CheckQueryState());
         bool eos = false;
         RETURN_IF_ERROR(child(1)->get_next(state, batch, &eos));
-
-        // to prevent use too many memory
-        RETURN_IF_LIMIT_EXCEEDED(state, "Cross join, while getting next from the child 1.");
 
         SCOPED_TIMER(_build_timer);
         _build_batches.add_row_batch(batch);

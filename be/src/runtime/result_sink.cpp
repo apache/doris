@@ -100,6 +100,9 @@ Status ResultSink::open(RuntimeState* state) {
 }
 
 Status ResultSink::send(RuntimeState* state, RowBatch* batch) {
+    // The memory consumption in the process of sending the results is not check query memory limit.
+    // Avoid the query being cancelled when the memory limit is reached after the query result comes out.
+    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     return _writer->append_row_batch(batch);
 }
 
