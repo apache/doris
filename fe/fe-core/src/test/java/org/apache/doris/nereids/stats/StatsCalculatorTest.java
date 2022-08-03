@@ -272,10 +272,10 @@ public class StatsCalculatorTest {
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
         statsCalculator.estimate();
         StatsDeriveResult limitStats = ownerGroup.getStatistics();
-        Assertions.assertEquals((long) (3), limitStats.getRowCount());
+        Assertions.assertEquals((long) (1), limitStats.getRowCount());
         ColumnStats slot1Stats = limitStats.getSlotToColumnStats().get(slot1);
-        Assertions.assertEquals(3, slot1Stats.getNdv());
-        Assertions.assertEquals(3, slot1Stats.getNumNulls());
+        Assertions.assertEquals(1, slot1Stats.getNdv());
+        Assertions.assertEquals(1, slot1Stats.getNumNulls());
 
     }
 }
