@@ -1048,17 +1048,24 @@ public class SelectStmt extends QueryStmt {
         List<TupleId> groupingByTupleIds = new ArrayList<>();
         if (groupByClause != null) {
             groupByClause.genGroupingExprs();
+            ArrayList<Expr> groupingExprs = groupByClause.getGroupingExprs();
             if (groupingInfo != null) {
-                groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
+                groupingInfo.buildRepeat(groupingExprs, groupByClause.getGroupingSetList());
             }
-            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer);
+
+            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer);
+
+            if (!groupByClause.isGroupByExtension()) {
+                groupingExprs.removeIf(Expr::isConstant);
+            }
+
             if (groupingInfo != null) {
-                groupingInfo.genOutputTupleDescAndSMap(analyzer, groupByClause.getGroupingExprs(), aggExprs);
+                groupingInfo.genOutputTupleDescAndSMap(analyzer, groupingExprs, aggExprs);
                 // must do it before copying for createAggInfo()
                 groupingByTupleIds.add(groupingInfo.getOutputTupleDesc().getId());
             }
             groupByClause.analyze(analyzer);
-            createAggInfo(groupByClause.getGroupingExprs(), aggExprs, analyzer);
+            createAggInfo(groupingExprs, aggExprs, analyzer);
         } else {
             createAggInfo(new ArrayList<>(), aggExprs, analyzer);
         }
