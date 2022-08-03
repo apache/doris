@@ -120,6 +120,7 @@ import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -209,8 +210,6 @@ public class StmtExecutor implements ProfileWriter {
 
     // At the end of query execution, we begin to add up profile
     private void initProfile(QueryPlannerProfile plannerProfile, boolean waiteBeReport) {
-        long currentTimestamp = System.currentTimeMillis();
-        long totalTimeMs = currentTimestamp - context.getStartTime();
         RuntimeProfile queryProfile;
         // when a query hits the sql cache, `coord` is null.
         if (coord == null) {
@@ -222,38 +221,57 @@ public class StmtExecutor implements ProfileWriter {
             profile = new RuntimeProfile("Query");
             summaryProfile = new RuntimeProfile("Summary");
             profile.addChild(summaryProfile);
-            summaryProfile.addInfoString(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
             summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(context.getStartTime()));
-            summaryProfile.addInfoString(ProfileManager.END_TIME,
-                    waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
-            summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
-            summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, queryType);
-            summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
-                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK)
-                            ? "RUNNING" : context.getState().toString());
-            summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
-            summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
-            summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
-            summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
-            summaryProfile.addInfoString(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
-
+            updateSummaryProfile(waiteBeReport);
+            for (Map.Entry<String, String> entry : getSummaryInfo().entrySet()) {
+                summaryProfile.addInfoString(entry.getKey(), entry.getValue());
+            }
             summaryProfile.addInfoString(ProfileManager.TRACE_ID, context.getSessionVariable().getTraceId());
             plannerRuntimeProfile = new RuntimeProfile("Execution Summary");
             summaryProfile.addChild(plannerRuntimeProfile);
             profile.addChild(queryProfile);
         } else {
-            summaryProfile.addInfoString(ProfileManager.END_TIME,
-                    waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
-            summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
-            summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
-                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK)
-                            ? "RUNNING" : context.getState().toString());
+            updateSummaryProfile(waiteBeReport);
         }
         plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
 
         queryProfile.getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
         if (coord != null) {
             coord.endProfile(waiteBeReport);
+        }
+    }
+
+    private void updateSummaryProfile(boolean waiteBeReport) {
+        Preconditions.checkNotNull(summaryProfile);
+        long currentTimestamp = System.currentTimeMillis();
+        long totalTimeMs = currentTimestamp - context.getStartTime();
+        summaryProfile.addInfoString(ProfileManager.END_TIME,
+                waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
+        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
+        summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
+                !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK) ? "RUNNING" :
+                        context.getState().toString());
+    }
+
+    private Map<String, String> getSummaryInfo() {
+        Map<String, String> infos = Maps.newLinkedHashMap();
+        infos.put(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
+        infos.put(ProfileManager.QUERY_TYPE, queryType);
+        infos.put(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
+        infos.put(ProfileManager.USER, context.getQualifiedUser());
+        infos.put(ProfileManager.DEFAULT_DB, context.getDatabase());
+        infos.put(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
+        infos.put(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
+        return infos;
+    }
+
+    public void addProfileToSpan() {
+        Span span = Span.fromContext(Context.current());
+        if (!span.isRecording()) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : getSummaryInfo().entrySet()) {
+            span.setAttribute(entry.getKey(), entry.getValue());
         }
     }
 
@@ -326,10 +344,6 @@ public class StmtExecutor implements ProfileWriter {
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         Span executeSpan = context.getTracer().spanBuilder("execute").setParent(Context.current()).startSpan();
-        executeSpan.setAttribute("queryId", DebugUtil.printId(queryId));
-        if (originStmt != null) {
-            executeSpan.setAttribute("sql", originStmt.originStmt);
-        }
         try (Scope scope = executeSpan.makeCurrent()) {
             execute(queryId);
         } finally {
@@ -344,7 +358,6 @@ public class StmtExecutor implements ProfileWriter {
     // Exception:
     // IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
-        Span span = Span.fromContext(Context.current());
         context.setStartTime();
 
         plannerProfile.setQueryBeginTime();
@@ -431,7 +444,6 @@ public class StmtExecutor implements ProfileWriter {
                             AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
                                     DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                             context.setQueryId(newQueryId);
-                            span.setAttribute("queryId", DebugUtil.printId(newQueryId));
                         }
                         handleQueryStmt();
                         // explain query stmt do not have profile

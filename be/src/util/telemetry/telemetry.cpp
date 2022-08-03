@@ -17,16 +17,18 @@
 
 #include "telemetry.h"
 
+#include <boost/algorithm/string/case_conv.hpp>
+
 #include "common/config.h"
+#include "common/logging.h"
 #include "opentelemetry/context/propagation/global_propagator.h"
 #include "opentelemetry/context/propagation/text_map_propagator.h"
 #include "opentelemetry/exporters/otlp/otlp_http_exporter.h"
 #include "opentelemetry/exporters/zipkin/zipkin_exporter.h"
 #include "opentelemetry/nostd/shared_ptr.h"
 #include "opentelemetry/sdk/trace/batch_span_processor.h"
-#include "opentelemetry/trace/noop.h"
+#include "opentelemetry/sdk/trace/tracer_provider.h"
 #include "opentelemetry/trace/propagation/http_trace_context.h"
-#include "opentelemetry/trace/provider.h"
 #include "service/backend_options.h"
 
 namespace trace = opentelemetry::trace;
