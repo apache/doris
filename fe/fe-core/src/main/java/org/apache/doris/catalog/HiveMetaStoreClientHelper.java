@@ -245,6 +245,11 @@ public class HiveMetaStoreClientHelper {
     private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(Table table, Configuration configuration,
             boolean isSecurityEnabled, Map<String, String> properties, boolean onS3) throws DdlException {
         String location = table.getSd().getLocation();
+        LOG.warn("location 1 {}", location);
+        if (location.startsWith("oss:")) {
+            location = location.replaceFirst("oss:", "s3:");
+            LOG.warn("location 2 {}", location);
+        }
         Path path = new Path(location);
         return getRemoteIterator(path, configuration, properties, isSecurityEnabled);
     }
