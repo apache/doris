@@ -186,7 +186,7 @@ protected:
 
     TabletSharedPtr _tablet;
     RowsetReaderContext _reader_context;
-    const TabletSchema* _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
     KeysParam _keys_param;
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;

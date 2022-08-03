@@ -402,7 +402,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
         }
 
         Status res = _keys_param.start_keys[i].init_scan_key(
-                *_tablet_schema, read_params.start_key[i].values(), schema);
+                _tablet_schema, read_params.start_key[i].values(), schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -424,7 +424,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
-        Status res = _keys_param.end_keys[i].init_scan_key(*_tablet_schema,
+        Status res = _keys_param.end_keys[i].init_scan_key(_tablet_schema,
                                                            read_params.end_key[i].values(), schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
