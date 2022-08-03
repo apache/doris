@@ -20,14 +20,16 @@
 #include "parquet_thrift_util.h"
 
 namespace doris::vectorized {
-ParquetReader::ParquetReader(FileReader* file_reader, int32_t num_of_columns_from_file,
-                             int64_t range_start_offset, int64_t range_size)
-        : _num_of_columns_from_file(num_of_columns_from_file) {
-    _file_reader = file_reader;
-    _total_groups = 0;
-    //    _current_group = 0;
-    //        _statistics = std::make_shared<Statistics>();
-}
+    ParquetReader::ParquetReader(FileReader *file_reader, int32_t num_of_columns_from_file,
+                                 int64_t range_start_offset, int64_t range_size)
+            : _num_of_columns_from_file(num_of_columns_from_file),
+              _range_start_offset(range_start_offset),
+              _range_size(range_size) {
+        _file_reader = file_reader;
+        _total_groups = 0;
+        //    _current_group = 0;
+        //        _statistics = std::make_shared<Statistics>();
+    }
 
 ParquetReader::~ParquetReader() {
     close();
@@ -65,7 +67,7 @@ Status ParquetReader::init_reader(const TupleDescriptor* tuple_desc,
     }
     LOG(WARNING) << "";
     RETURN_IF_ERROR(_column_indices(tuple_slot_descs));
-    _init_row_group_reader();
+    _init_row_group_reader(range_start_offset, _range_size, conjunct_ctxs);
     return Status::OK();
 }
 
@@ -115,7 +117,8 @@ void ParquetReader::_fill_block_data(std::vector<tparquet::ColumnChunk> columns)
     // _batch =
 }
 
-void ParquetReader::_init_row_group_reader() {
+void ParquetReader::_init_row_group_reader(int64_t range_start_offset, int64_t range_size,
+                                           const std::vector<ExprContext*>& conjunct_ctxs) {
     _row_group_reader.reset(new RowGroupReader(_file_reader, _file_metadata, _include_column_ids));
 }
 
