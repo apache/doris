@@ -38,7 +38,9 @@ VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, b
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
           _version(-1),
-          _mem_tracker(tracker) {}
+          _mem_tracker(tracker) {
+    _tablet_schema = std::make_shared<TabletSchema>();
+}
 
 Status VOlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
