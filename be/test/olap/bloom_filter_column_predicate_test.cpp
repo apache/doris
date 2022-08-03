@@ -94,7 +94,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     auto* col_data = reinterpret_cast<float*>(_mem_pool->allocate(size * sizeof(float)));
 
     // for ColumnBlock no null
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);

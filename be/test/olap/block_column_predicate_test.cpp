@@ -79,7 +79,7 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN) {
     std::unique_ptr<ColumnPredicate> pred(new EqualPredicate<float>(0, value));
     SingleColumnBlockPredicate single_column_block_pred(pred.get());
 
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -137,7 +137,7 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN) {
     and_block_column_pred.add_column_predicate(single_less_pred);
     and_block_column_pred.add_column_predicate(single_great_pred);
 
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -202,7 +202,7 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN) {
     or_block_column_pred.add_column_predicate(single_less_pred);
     or_block_column_pred.add_column_predicate(single_great_pred);
 
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -262,7 +262,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN) {
     std::unique_ptr<ColumnPredicate> great_pred(new GreaterPredicate<double>(0, great_value));
     std::unique_ptr<ColumnPredicate> less_pred1(new LessPredicate<double>(0, great_value));
 
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
@@ -380,7 +380,7 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN) {
     std::unique_ptr<ColumnPredicate> great_pred(new GreaterPredicate<double>(0, great_value));
     std::unique_ptr<ColumnPredicate> less_pred1(new LessPredicate<double>(0, great_value));
 
-    init_row_block(&tablet_schema, size);
+    init_row_block(tablet_schema, size);
     ColumnBlock col_block = _row_block->column_block(0);
     auto select_size = _row_block->selected_size();
     ColumnBlockView col_block_view(&col_block);
