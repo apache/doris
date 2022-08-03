@@ -24,6 +24,9 @@ import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -211,7 +214,9 @@ public final class ExprSubstitutionMap {
                 Expr fRhs = f.getRhs().get(j);
                 if (fRhs.contains(gLhs)) {
                     Expr newRhs = fRhs.trySubstitute(g, analyzer, false);
-                    result.put(f.getLhs().get(j), newRhs);
+                    if (!result.containsMappingFor(f.getLhs().get(j))) {
+                        result.put(f.getLhs().get(j), newRhs);
+                    }
                     findGMatch = true;
                 }
             }
