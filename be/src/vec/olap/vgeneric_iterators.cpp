@@ -120,17 +120,14 @@ Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
 class VMergeIteratorContext {
 public:
     VMergeIteratorContext(RowwiseIterator* iter, int sequence_id_idx, bool is_unique,
-                          bool is_reverse, size_t read_orderby_key_columns)
+                          bool is_reverse, std::vector<uint32_t>* read_orderby_key_columns)
             : _iter(iter),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
               _num_columns(iter->schema().num_column_ids()),
-              _num_compare_columns(iter->schema().num_key_columns()) {
-        if (read_orderby_key_columns > 0) {
-            _num_compare_columns = read_orderby_key_columns;
-        }
-    }
+              _num_key_columns(iter->schema().num_key_columns()),
+              _compare_columns(read_orderby_key_columns) {}
 
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
     VMergeIteratorContext(VMergeIteratorContext&&) = delete;
@@ -167,8 +164,14 @@ public:
     Status init(const StorageReadOptions& opts);
 
     bool compare(const VMergeIteratorContext& rhs) const {
-        int cmp_res = this->_block.compare_at(_index_in_block, rhs._index_in_block,
-                                              _num_compare_columns, rhs._block, -1);
+        int cmp_res =
+            UNLIKELY(_compare_columns) ?
+                this->_block.compare_at(_index_in_block, rhs._index_in_block,
+                                              _compare_columns, rhs._block, -1)
+                :
+                this->_block.compare_at(_index_in_block, rhs._index_in_block,
+                                              _num_key_columns, rhs._block, -1);
+
         if (cmp_res != 0) {
             return UNLIKELY(_is_reverse) ? cmp_res < 0 : cmp_res > 0;
         }
@@ -240,7 +243,8 @@ private:
     size_t _index_in_block = -1;
     int _block_row_max = 4096;
     int _num_columns;
-    int _num_compare_columns;
+    int _num_key_columns;
+    std::vector<uint32_t>* _compare_columns;
     std::vector<RowLocation> _block_row_locations;
     bool _record_rowids = false;
 };

@@ -80,12 +80,8 @@ private:
     // then merged with other rowset readers.
     class LevelIterator {
     public:
-        LevelIterator(TabletReader* reader) : _schema(reader->tablet_schema()) {
-            _num_compare_columns = _schema.num_key_columns();
-            if (reader->_reader_context.read_orderby_key_columns > 0) {
-                _num_compare_columns = reader->_reader_context.read_orderby_key_columns;
-            }
-        };
+        LevelIterator(TabletReader* reader) : _schema(reader->tablet_schema()),
+            _compare_columns(reader->_reader_context.read_orderby_key_columns) {};
 
         virtual Status init() = 0;
 
@@ -105,7 +101,7 @@ private:
 
         const TabletSchema& tablet_schema() const { return _schema; };
 
-        const inline size_t num_compare_columns() const { return _num_compare_columns; };
+        const inline std::vector<uint32_t>* compare_columns() const { return _compare_columns; };
 
         virtual RowLocation current_row_location() = 0;
 
@@ -114,7 +110,7 @@ private:
     protected:
         const TabletSchema& _schema;
         IteratorRowRef _ref;
-        size_t _num_compare_columns;
+        std::vector<uint32_t>* _compare_columns;
     };
 
     // Compare row cursors between multiple merge elements,

@@ -97,8 +97,8 @@ public:
     bool record_rowids = false;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
-    // num of columns for orderby key
-    size_t read_orderby_key_columns = 0;
+    // columns for orderby keys
+    std::vector<uint32_t>* read_orderby_key_columns = nullptr;
 };
 
 // Used to read data in RowBlockV2 one by one
