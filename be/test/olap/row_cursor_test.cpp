@@ -29,7 +29,7 @@
 
 namespace doris {
 
-void set_tablet_schema_for_init(TabletSchema* tablet_schema) {
+void set_tablet_schema_for_init(TabletSchemaSPtr tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
     ColumnPB* column_1 = tablet_schema_pb.add_column();
     column_1->set_unique_id(1);
@@ -155,7 +155,7 @@ void set_tablet_schema_for_init(TabletSchema* tablet_schema) {
     tablet_schema->init_from_pb(tablet_schema_pb);
 }
 
-void set_tablet_schema_for_scan_key(TabletSchema* tablet_schema) {
+void set_tablet_schema_for_scan_key(TabletSchemaSPtr tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
 
     ColumnPB* column_1 = tablet_schema_pb.add_column();
@@ -297,7 +297,7 @@ TEST_F(TestRowCursor, InitRowCursorWithColIds) {
     set_tablet_schema_for_init(tablet_schema);
 
     std::vector<uint32_t> col_ids;
-    for (size_t i = 0; i < tablet_schema.num_columns() / 2; ++i) {
+    for (size_t i = 0; i < tablet_schema->num_columns() / 2; ++i) {
         col_ids.push_back(i * 2);
     }
 
@@ -310,7 +310,7 @@ TEST_F(TestRowCursor, InitRowCursorWithColIds) {
 
 TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_scan_key(&tablet_schema);
+    set_tablet_schema_for_scan_key(tablet_schema);
 
     std::vector<std::string> scan_keys;
     scan_keys.push_back("char_exceed_length");
