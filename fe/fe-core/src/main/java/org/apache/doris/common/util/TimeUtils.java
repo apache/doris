@@ -80,7 +80,7 @@ public class TimeUtils {
     public static Date MAX_DATETIME = null;
 
     private static ThreadLocal<SimpleDateFormat> datetimeFormatThreadLocal =
-            ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
+            ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss:S"));
 
     static {
         TIME_ZONE = new SimpleTimeZone(8 * 3600 * 1000, "");
