@@ -80,6 +80,9 @@ public class TimeUtils {
     public static Date MAX_DATETIME = null;
 
     private static ThreadLocal<SimpleDateFormat> datetimeFormatThreadLocal =
+            ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
+
+    private static ThreadLocal<SimpleDateFormat> datetimeMSFormatThreadLocal =
             ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss:S"));
 
     static {
@@ -149,11 +152,20 @@ public class TimeUtils {
         return dateFormat.format(new Date(timeStamp));
     }
 
-    public static String longToTimeString(long timeStamp) {
-        SimpleDateFormat datetimeFormatTimeZone = datetimeFormatThreadLocal.get();
+    public static String longToTimeStringProc(long timeStamp, SimpleDateFormat datetimeFormatTimeZone) {
         TimeZone timeZone = getTimeZone();
         datetimeFormatTimeZone.setTimeZone(timeZone);
         return longToTimeString(timeStamp, datetimeFormatTimeZone);
+    }
+
+    public static String longToTimeString(long timeStamp) {
+        SimpleDateFormat datetimeFormatTimeZone = datetimeFormatThreadLocal.get();
+        return longToTimeStringProc(timeStamp, datetimeFormatTimeZone);
+    }
+
+    public static String longToTimeStringWithms(long timeStamp) {
+        SimpleDateFormat datatimeFormatTimeZone = datetimeMSFormatThreadLocal.get();
+        return longToTimeStringProc(timeStamp, datatimeFormatTimeZone);
     }
 
     public static synchronized Date getTimeAsDate(String timeString) {
