@@ -580,9 +580,9 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
     if (mutable_block == nullptr) {
         LOG(FATAL) << "mutable block is uninitialized.";
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
-    } else if (mutable_block->tablet_schema().num_columns() != _schema_mapping.size()) {
+    } else if (mutable_block->tablet_schema()->num_columns() != _schema_mapping.size()) {
         LOG(WARNING) << "mutable block does not match with schema mapping rules. "
-                     << "block_schema_size=" << mutable_block->tablet_schema().num_columns()
+                     << "block_schema_size=" << mutable_block->tablet_schema()->num_columns()
                      << ", mapping_schema_size=" << _schema_mapping.size();
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
     }
@@ -619,7 +619,7 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
 
     MemPool* mem_pool = mutable_block->mem_pool();
     // b. According to the previous filtering information, only processes that are also marked as 1
-    for (size_t i = 0, len = mutable_block->tablet_schema().num_columns(); !filter_all && i < len;
+    for (size_t i = 0, len = mutable_block->tablet_schema()->num_columns(); !filter_all && i < len;
          ++i) {
         int32_t ref_column = _schema_mapping[i].ref_column;
         if (_schema_mapping[i].ref_column >= 0) {
