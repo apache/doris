@@ -71,7 +71,7 @@ private:
 
 class RowBlockAllocator {
 public:
-    RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation);
+    RowBlockAllocator(TabletSchemaSPtr tablet_schema, size_t memory_limitation);
     virtual ~RowBlockAllocator();
 
     Status allocate(RowBlock** row_block, size_t num_rows, bool null_supported);
@@ -79,7 +79,7 @@ public:
     bool is_memory_enough_for_sorting(size_t num_rows, size_t allocated_rows);
 
 private:
-    const TabletSchema& _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
     std::unique_ptr<MemTracker> _tracker;
     size_t _row_len;
     size_t _memory_limitation;

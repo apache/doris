@@ -951,7 +951,7 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
     return true;
 }
 
-RowBlockAllocator::RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation)
+RowBlockAllocator::RowBlockAllocator(TabletSchemaSPtr tablet_schema, size_t memory_limitation)
         : _tablet_schema(tablet_schema),
           _tracker(std::make_unique<MemTracker>("RowBlockAllocator")),
           _row_len(tablet_schema.row_size()),
@@ -980,7 +980,7 @@ Status RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bool n
     }
 
     // TODO(lijiao) : Why abandon the original m_row_block_buffer
-    *row_block = new (nothrow) RowBlock(&_tablet_schema);
+    *row_block = new (nothrow) RowBlock(_tablet_schema);
 
     if (*row_block == nullptr) {
         LOG(WARNING) << "failed to malloc RowBlock. size=" << sizeof(RowBlock);
@@ -1051,7 +1051,7 @@ bool RowBlockMerger::merge(const std::vector<RowBlock*>& row_block_arr, RowsetWr
         return merge_error();
     }
 
-    row_cursor.allocate_memory_for_string_type(*_tablet->tablet_schema());
+    row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
     while (_heap.size() > 0) {
         init_row_with_others(&row_cursor, *(_heap.top().row_cursor), mem_pool.get(),
                              agg_object_pool.get());
@@ -1215,7 +1215,7 @@ Status SchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
-        if (!_cursor->init(*new_tablet->tablet_schema())) {
+        if (!_cursor->init(new_tablet->tablet_schema())) {
             LOG(WARNING) << "fail to init row cursor.";
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
@@ -1670,8 +1670,8 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
 
     Merger::Statistics stats;
     RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, READER_ALTER_TABLE,
-                                           new_tablet->tablet_schema().get(), rs_readers,
-                                           rowset_writer, &stats));
+                                           new_tablet->tablet_schema(), rs_readers, rowset_writer,
+                                           &stats));
 
     _add_merged_rows(stats.merged_rows);
     _add_filtered_rows(stats.filtered_rows);
