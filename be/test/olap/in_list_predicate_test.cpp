@@ -171,9 +171,9 @@ public:
         EXPECT_EQ(*((TYPE*)column.cell_ptr(sel[2])), 6);                                          \
                                                                                                   \
         /* for has nulls */                                                                       \
-        TabletSchema tablet_schema2;                                                              \
+        TabletSchemaSPtr tablet_schema2 = std::make_shared<TabletSchema>();                       \
         SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, "REPLACE", 1, true, true,  \
-                        &tablet_schema2);                                                         \
+                        tablet_schema2);                                                          \
         Schema schema2(tablet_schema2);                                                           \
         RowBlockV2 block2(schema2, size);                                                         \
         ColumnBlock column2 = block2.column_block(0);                                             \
