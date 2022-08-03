@@ -20,7 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -291,7 +291,7 @@ public class Coordinator {
     private void setFromUserProperty(Analyzer analyzer) {
         String qualifiedUser = analyzer.getQualifiedUser();
         // set cpu resource limit
-        int cpuLimit = Catalog.getCurrentCatalog().getAuth().getCpuResourceLimit(qualifiedUser);
+        int cpuLimit = Env.getCurrentEnv().getAuth().getCpuResourceLimit(qualifiedUser);
         if (cpuLimit > 0) {
             // overwrite the cpu resource limit from session variable;
             TResourceLimit resourceLimit = new TResourceLimit();
@@ -299,7 +299,7 @@ public class Coordinator {
             this.queryOptions.setResourceLimit(resourceLimit);
         }
         // set exec mem limit
-        long memLimit = Catalog.getCurrentCatalog().getAuth().getExecMemLimit(qualifiedUser);
+        long memLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             this.queryOptions.setMemLimit(memLimit);
@@ -308,7 +308,7 @@ public class Coordinator {
             this.queryOptions.setBufferPoolLimit(memLimit);
         }
         // set load mem limit
-        memLimit = Catalog.getCurrentCatalog().getAuth().getLoadMemLimit(qualifiedUser);
+        memLimit = Env.getCurrentEnv().getAuth().getLoadMemLimit(qualifiedUser);
         if (memLimit > 0) {
             // overwrite the load_mem_limit from session variable;
             this.queryOptions.setLoadMemLimit(memLimit);
@@ -435,7 +435,7 @@ public class Coordinator {
             queryProfile.addChild(fragmentProfile.get(i));
         }
 
-        this.idToBackend = Catalog.getCurrentSystemInfo().getIdToBackend();
+        this.idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
         if (LOG.isDebugEnabled()) {
             LOG.debug("idToBackend size={}", idToBackend.size());
             for (Map.Entry<Long, Backend> entry : idToBackend.entrySet()) {
@@ -518,7 +518,7 @@ public class Coordinator {
                     && ((ResultFileSink) topDataSink).getStorageType() == StorageBackend.StorageType.BROKER) {
                 // set the broker address for OUTFILE sink
                 ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
-                FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr()
+                FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
                         .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
                 topResultFileSink.setBrokerAddr(broker.ip, broker.port);
             }
@@ -528,7 +528,7 @@ public class Coordinator {
             deltaUrls = Lists.newArrayList();
             loadCounters = Maps.newHashMap();
             List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
-            Catalog.getCurrentCatalog().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
+            Env.getCurrentEnv().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
                     relatedBackendIds);
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
@@ -1063,7 +1063,7 @@ public class Coordinator {
     }
 
     private TNetworkAddress toRpcHost(TNetworkAddress host) throws Exception {
-        Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(
+        Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(
                 host.getHostname(), host.getPort());
         if (backend == null) {
             throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
@@ -1073,7 +1073,7 @@ public class Coordinator {
     }
 
     private TNetworkAddress toBrpcHost(TNetworkAddress host) throws Exception {
-        Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(
+        Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(
                 host.getHostname(), host.getPort());
         if (backend == null) {
             throw new UserException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
@@ -1586,7 +1586,7 @@ public class Coordinator {
 
         List<TScanRangeLocation> localLocations = new ArrayList<>();
         List<TScanRangeLocation> nonlocalLocations = new ArrayList<>();
-        long localBeId = Catalog.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
+        long localBeId = Env.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
         for (final TScanRangeLocation location : seqLocation.getLocations()) {
             if (location.backend_id == localBeId) {
                 localLocations.add(location);
@@ -1708,7 +1708,7 @@ public class Coordinator {
         }
 
         if (params.isSetLoadedRows()) {
-            Catalog.getCurrentCatalog().getLoadManager().updateJobProgress(
+            Env.getCurrentEnv().getLoadManager().updateJobProgress(
                     jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
                     params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
         }
@@ -2348,7 +2348,7 @@ public class Coordinator {
                     }
                 }
                 if (queryOptions.getQueryType() == TQueryType.LOAD) {
-                    LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
+                    LoadErrorHub.Param param = Env.getCurrentEnv().getLoadInstance().getLoadErrorHubInfo();
                     if (param != null) {
                         TLoadErrorHubInfo info = param.toThrift();
                         if (info != null) {

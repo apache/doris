@@ -19,8 +19,8 @@ package org.apache.doris.analysis;
 
 
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalDataSource;
@@ -36,20 +36,20 @@ import org.junit.Test;
 public class CancelAlterStmtTest {
 
     private Analyzer analyzer;
-    private Catalog catalog;
+    private Env env;
 
     private ConnectContext ctx;
 
-    private static FakeCatalog fakeCatalog;
+    private static FakeEnv fakeEnv;
 
     @Before
     public void setUp() {
-        catalog = AccessTestUtil.fetchAdminCatalog();
+        env = AccessTestUtil.fetchAdminCatalog();
         ctx = new ConnectContext(null);
         ctx.setQualifiedUser("root");
         ctx.setRemoteIP("192.168.1.1");
 
-        analyzer = new Analyzer(catalog, ctx);
+        analyzer = new Analyzer(env, ctx);
         new Expectations(analyzer) {
             {
                 analyzer.getDefaultDb();
@@ -72,17 +72,19 @@ public class CancelAlterStmtTest {
 
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setCatalog(catalog);
+        fakeEnv = new FakeEnv();
+        FakeEnv.setEnv(env);
         // cancel alter column
-        CancelAlterTableStmt stmt = new CancelAlterTableStmt(AlterType.COLUMN, new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "testTbl"));
+        CancelAlterTableStmt stmt = new CancelAlterTableStmt(AlterType.COLUMN,
+                new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("CANCEL ALTER COLUMN FROM `testDb`.`testTbl`", stmt.toString());
         Assert.assertEquals("testDb", stmt.getDbName());
         Assert.assertEquals(AlterType.COLUMN, stmt.getAlterType());
         Assert.assertEquals("testTbl", stmt.getTableName());
 
-        stmt = new CancelAlterTableStmt(AlterType.ROLLUP, new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "testTbl"));
+        stmt = new CancelAlterTableStmt(AlterType.ROLLUP,
+                new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("CANCEL ALTER ROLLUP FROM `testDb`.`testTbl`", stmt.toString());
         Assert.assertEquals("testDb", stmt.getDbName());

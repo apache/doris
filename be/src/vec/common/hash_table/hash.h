@@ -22,6 +22,7 @@
 
 #include <type_traits>
 
+#include "parallel_hashmap/phmap_utils.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 
@@ -139,6 +140,11 @@ DEFINE_HASH(doris::vectorized::Float32)
 DEFINE_HASH(doris::vectorized::Float64)
 
 #undef DEFINE_HASH
+
+template <typename Key, typename Hash = HashCRC32<Key>>
+struct HashMixWrapper {
+    size_t operator()(Key key) const { return phmap::phmap_mix<sizeof(size_t)>()(Hash()(key)); }
+};
 
 template <>
 struct HashCRC32<doris::vectorized::UInt256> {

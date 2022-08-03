@@ -174,46 +174,6 @@ Status Cond::init(const TCondition& tcond, const TabletColumn& column) {
     return Status::OK();
 }
 
-bool Cond::eval(const RowCursorCell& cell) const {
-    if (cell.is_null() && op != OP_IS) {
-        //Any operation other than OP_IS operand and NULL is false
-        return false;
-    }
-
-    switch (op) {
-    case OP_EQ:
-        return operand_field->field()->compare_cell(*operand_field, cell) == 0;
-    case OP_NE:
-        return operand_field->field()->compare_cell(*operand_field, cell) != 0;
-    case OP_LT:
-        return operand_field->field()->compare_cell(*operand_field, cell) > 0;
-    case OP_LE:
-        return operand_field->field()->compare_cell(*operand_field, cell) >= 0;
-    case OP_GT:
-        return operand_field->field()->compare_cell(*operand_field, cell) < 0;
-    case OP_GE:
-        return operand_field->field()->compare_cell(*operand_field, cell) <= 0;
-    case OP_IN: {
-        WrapperField wrapperField(const_cast<Field*>(min_value_field->field()), cell);
-        auto ret = operand_set.find(&wrapperField) != operand_set.end();
-        wrapperField.release_field();
-        return ret;
-    }
-    case OP_NOT_IN: {
-        WrapperField wrapperField(const_cast<Field*>(min_value_field->field()), cell);
-        auto ret = operand_set.find(&wrapperField) == operand_set.end();
-        wrapperField.release_field();
-        return ret;
-    }
-    case OP_IS: {
-        return operand_field->is_null() == cell.is_null();
-    }
-    default:
-        // Unknown operation type, just return false
-        return false;
-    }
-}
-
 bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const {
     //A single query condition filtered by a single column
     // When we apply column statistic, Field can be NULL when type is Varchar,
@@ -510,18 +470,6 @@ Status CondColumn::add_cond(const TCondition& tcond, const TabletColumn& column)
     return Status::OK();
 }
 
-bool CondColumn::eval(const RowCursor& row) const {
-    auto cell = row.cell(_col_index);
-    for (auto& each_cond : _conds) {
-        // As long as there is one condition not satisfied, we can return false
-        if (!each_cond->eval(cell)) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 bool CondColumn::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const {
     for (auto& each_cond : _conds) {
         // As long as there is one condition not satisfied, we can return false
@@ -611,22 +559,6 @@ Status Conditions::append_condition(const TCondition& tcond) {
     }
 
     return cond_col->add_cond(tcond, column);
-}
-
-bool Conditions::delete_conditions_eval(const RowCursor& row) const {
-    if (_columns.empty()) {
-        return false;
-    }
-
-    for (auto& each_cond : _columns) {
-        if (_cond_column_is_key_or_duplicate(each_cond.second) && !each_cond.second->eval(row)) {
-            return false;
-        }
-    }
-
-    VLOG_NOTICE << "Row meets the delete conditions. "
-                << "condition_count=" << _columns.size() << ", row=" << row.to_string();
-    return true;
 }
 
 CondColumn* Conditions::get_column(int32_t cid) const {

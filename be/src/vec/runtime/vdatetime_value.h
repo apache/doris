@@ -166,7 +166,7 @@ static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::
 static constexpr uint8_t TIME_PART_LENGTH = 37;
 
 static constexpr uint32_t MAX_DATE_V2 = 31 | (12 << 5) | (9999 << 9);
-static constexpr uint32_t MIN_DATE_V2 = 1 | (1 << 5) | (1000 << 9);
+static constexpr uint32_t MIN_DATE_V2 = 1 | (1 << 5);
 
 static constexpr uint64_t MAX_DATETIME_V2 = ((uint64_t)MAX_DATE_V2 << TIME_PART_LENGTH) |
                                             ((uint64_t)23 << 32) | ((uint64_t)59 << 26) |
@@ -174,7 +174,7 @@ static constexpr uint64_t MAX_DATETIME_V2 = ((uint64_t)MAX_DATE_V2 << TIME_PART_
 static constexpr uint64_t MIN_DATETIME_V2 = (uint64_t)MIN_DATE_V2 << TIME_PART_LENGTH;
 
 static constexpr uint32_t MAX_YEAR = 9999;
-static constexpr uint32_t MIN_YEAR = 1000;
+static constexpr uint32_t MIN_YEAR = 0;
 
 static constexpr uint32_t DATEV2_YEAR_WIDTH = 23;
 static constexpr uint32_t DATETIMEV2_YEAR_WIDTH = 18;
@@ -237,7 +237,7 @@ public:
     // olap storage layer date data format:
     // 64 bits binary data [year(remaining bits), month(4 bits), day(5 bits)]
     // execute layer date/datetime and olap storage layer datetime data format:
-    // 8 bytes interger data [year(remaining digits), month(2 digits), day(2 digits), hour(2 digits), minute(2 digits) ,second(2 digits)]
+    // 8 bytes integer data [year(remaining digits), month(2 digits), day(2 digits), hour(2 digits), minute(2 digits) ,second(2 digits)]
 
     static VecDateTimeValue create_from_olap_date(uint64_t value) {
         VecDateTimeValue date;
@@ -801,7 +801,7 @@ public:
     // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, int len);
+    bool from_date_str(const char* str, int len, int scale = -1);
 
     // Convert this value to string
     // this will check type to decide which format to convert
@@ -829,7 +829,7 @@ public:
         return calc_daynr(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_);
     }
 
-    int hour() const {
+    uint8_t hour() const {
         if constexpr (is_datetime) {
             return date_v2_value_.hour_;
         } else {
@@ -837,7 +837,7 @@ public:
         }
     }
 
-    int minute() const {
+    uint8_t minute() const {
         if constexpr (is_datetime) {
             return date_v2_value_.minute_;
         } else {
@@ -845,7 +845,7 @@ public:
         }
     }
 
-    int second() const {
+    uint8_t second() const {
         if constexpr (is_datetime) {
             return date_v2_value_.second_;
         } else {
@@ -853,7 +853,7 @@ public:
         }
     }
 
-    int microsecond() const {
+    uint32_t microsecond() const {
         if constexpr (is_datetime) {
             return date_v2_value_.microsecond_;
         } else {
@@ -912,9 +912,7 @@ public:
     bool date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value);
 
     template <TimeUnit unit>
-    bool date_add_interval(const TimeInterval& interval) {
-        return this->date_add_interval<unit>(interval, *this);
-    }
+    bool date_add_interval(const TimeInterval& interval);
 
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
@@ -1008,10 +1006,10 @@ public:
     DateV2Value<T>& operator++() {
         if constexpr (is_datetime) {
             TimeInterval interval(SECOND, 1, false);
-            date_add_interval<SECOND>(interval, *this);
+            date_add_interval<SECOND>(interval);
         } else {
             TimeInterval interval(DAY, 1, false);
-            date_add_interval<DAY>(interval, *this);
+            date_add_interval<DAY>(interval);
         }
         return *this;
     }
@@ -1121,6 +1119,19 @@ public:
             }
         }
     }
+    operator int64_t() const { return to_int64(); }
+
+    int64_t to_int64() const {
+        if constexpr (is_datetime) {
+            return (date_v2_value_.year_ * 10000L + date_v2_value_.month_ * 100 +
+                    date_v2_value_.day_) *
+                           1000000L +
+                   date_v2_value_.hour_ * 10000 + date_v2_value_.minute_ * 100 +
+                   date_v2_value_.second_;
+        } else {
+            return date_v2_value_.year_ * 10000 + date_v2_value_.month_ * 100 + date_v2_value_.day_;
+        }
+    };
 
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
@@ -1232,37 +1243,42 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue&
 
 template <TimeUnit unit, typename T0, typename T1>
 int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& ts_value2) {
-    constexpr uint32_t minus_one = -1;
+    constexpr uint64_t uint64_minus_one = -1;
     switch (unit) {
     case YEAR: {
         int year = (ts_value2.year() - ts_value1.year());
         if constexpr (std::is_same_v<T0, T1>) {
             int year_width =
                     DateV2Value<T0>::is_datetime ? DATETIMEV2_YEAR_WIDTH : DATEV2_YEAR_WIDTH;
+            decltype(ts_value2.to_date_int_val()) minus_one = -1;
             if (year > 0) {
-                year -= ((ts_value2.to_date_int_val() & (minus_one >> year_width)) -
-                         (ts_value1.to_date_int_val() & (minus_one >> year_width))) < 0;
+                year -= ((ts_value2.to_date_int_val() & (minus_one >> year_width)) <
+                         (ts_value1.to_date_int_val() & (minus_one >> year_width)));
             } else if (year < 0) {
-                year += ((ts_value2.to_date_int_val() & (minus_one >> year_width)) -
-                         (ts_value1.to_date_int_val() & (minus_one >> year_width))) > 0;
+                year += ((ts_value2.to_date_int_val() & (minus_one >> year_width)) >
+                         (ts_value1.to_date_int_val() & (minus_one >> year_width)));
             }
         } else if constexpr (std::is_same_v<T0, DateV2ValueType>) {
-            auto ts2_int_value = (uint64_t)ts_value2.to_date_int_val() << TIME_PART_LENGTH;
+            auto ts1_int_value = ((uint64_t)ts_value1.to_date_int_val()) << TIME_PART_LENGTH;
             if (year > 0) {
-                year -= ((ts2_int_value & (minus_one >> DATETIMEV2_YEAR_WIDTH)) -
-                         (ts_value1.to_date_int_val() & (minus_one >> DATETIMEV2_YEAR_WIDTH))) < 0;
+                year -= ((ts_value2.to_date_int_val() &
+                          (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)) <
+                         (ts1_int_value & (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)));
             } else if (year < 0) {
-                year += ((ts2_int_value & (minus_one >> DATETIMEV2_YEAR_WIDTH)) -
-                         (ts_value1.to_date_int_val() & (minus_one >> DATETIMEV2_YEAR_WIDTH))) > 0;
+                year += ((ts_value2.to_date_int_val() &
+                          (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)) >
+                         (ts1_int_value & (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)));
             }
         } else {
-            auto ts1_int_value = (uint64_t)ts_value2.to_date_int_val() << TIME_PART_LENGTH;
+            auto ts2_int_value = ((uint64_t)ts_value2.to_date_int_val()) << TIME_PART_LENGTH;
             if (year > 0) {
-                year -= ((ts_value2.to_date_int_val() & (minus_one >> DATETIMEV2_YEAR_WIDTH)) -
-                         (ts1_int_value & (minus_one >> DATETIMEV2_YEAR_WIDTH))) < 0;
+                year -= ((ts2_int_value & (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)) <
+                         (ts_value1.to_date_int_val() &
+                          (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)));
             } else if (year < 0) {
-                year += ((ts_value2.to_date_int_val() & (minus_one >> DATETIMEV2_YEAR_WIDTH)) -
-                         (ts1_int_value & (minus_one >> DATETIMEV2_YEAR_WIDTH))) > 0;
+                year += ((ts2_int_value & (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)) >
+                         (ts_value1.to_date_int_val() &
+                          (uint64_minus_one >> DATETIMEV2_YEAR_WIDTH)));
             }
         }
 
@@ -1274,34 +1290,35 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
         if constexpr (std::is_same_v<T0, T1>) {
             int shift_bits = DateV2Value<T0>::is_datetime ? DATETIMEV2_YEAR_WIDTH + 5
                                                           : DATEV2_YEAR_WIDTH + 5;
+            decltype(ts_value2.to_date_int_val()) minus_one = -1;
             if (month > 0) {
-                month -= ((ts_value2.to_date_int_val() & (minus_one >> shift_bits)) -
-                          (ts_value1.to_date_int_val() & (minus_one >> shift_bits))) < 0;
+                month -= ((ts_value2.to_date_int_val() & (minus_one >> shift_bits)) <
+                          (ts_value1.to_date_int_val() & (minus_one >> shift_bits)));
             } else if (month < 0) {
-                month += ((ts_value2.to_date_int_val() & (minus_one >> shift_bits)) -
-                          (ts_value1.to_date_int_val() & (minus_one >> shift_bits))) > 0;
+                month += ((ts_value2.to_date_int_val() & (minus_one >> shift_bits)) >
+                          (ts_value1.to_date_int_val() & (minus_one >> shift_bits)));
             }
         } else if constexpr (std::is_same_v<T0, DateV2ValueType>) {
-            auto ts2_int_value = (uint64_t)ts_value2.to_date_int_val() << TIME_PART_LENGTH;
-            if (month > 0) {
-                month -= ((ts2_int_value & (minus_one >> DATETIMEV2_YEAR_WIDTH)) -
-                          (ts_value1.to_date_int_val() &
-                           (minus_one >> (DATETIMEV2_YEAR_WIDTH + 5)))) < 0;
-            } else if (month < 0) {
-                month += ((ts2_int_value & (minus_one >> DATETIMEV2_YEAR_WIDTH)) -
-                          (ts_value1.to_date_int_val() &
-                           (minus_one >> (DATETIMEV2_YEAR_WIDTH + 5)))) > 0;
-            }
-        } else {
-            auto ts1_int_value = (uint64_t)ts_value2.to_date_int_val() << TIME_PART_LENGTH;
+            auto ts1_int_value = ((uint64_t)ts_value1.to_date_int_val()) << TIME_PART_LENGTH;
             if (month > 0) {
                 month -= ((ts_value2.to_date_int_val() &
-                           (minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) -
-                          (ts1_int_value & (minus_one >> DATETIMEV2_YEAR_WIDTH))) < 0;
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) <
+                          (ts1_int_value & (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))));
             } else if (month < 0) {
                 month += ((ts_value2.to_date_int_val() &
-                           (minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) -
-                          (ts1_int_value & (minus_one >> DATETIMEV2_YEAR_WIDTH))) > 0;
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) >
+                          (ts1_int_value & (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))));
+            }
+        } else {
+            auto ts2_int_value = ((uint64_t)ts_value2.to_date_int_val()) << TIME_PART_LENGTH;
+            if (month > 0) {
+                month -= ((ts2_int_value & (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) <
+                          (ts_value1.to_date_int_val() &
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))));
+            } else if (month < 0) {
+                month += ((ts2_int_value & (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) >
+                          (ts_value1.to_date_int_val() &
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))));
             }
         }
         return month;

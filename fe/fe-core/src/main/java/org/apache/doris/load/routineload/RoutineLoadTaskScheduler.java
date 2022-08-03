@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.InternalErrorCode;
@@ -68,7 +68,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     @VisibleForTesting
     public RoutineLoadTaskScheduler() {
         super("Routine load task scheduler", 0);
-        this.routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+        this.routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
     }
 
     public RoutineLoadTaskScheduler(RoutineLoadManager routineLoadManager) {
@@ -252,7 +252,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     private void submitTask(long beId, TRoutineLoadTask tTask) throws LoadException {
-        Backend backend = Catalog.getCurrentSystemInfo().getBackend(beId);
+        Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
         if (backend == null) {
             throw new LoadException("failed to send tasks to backend " + beId + " because not exist");
         }

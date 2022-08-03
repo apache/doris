@@ -19,11 +19,17 @@
 
 #include <fmt/format.h>
 #include <parallel_hashmap/phmap.h>
+#include <service/brpc_conflict.h>
 
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+// After brpc_conflict.h
+#include <bthread/bthread.h>
 
 namespace doris {
+
+extern bthread_key_t btls_key;
+static const bthread_key_t EMPTY_BTLS_KEY = {0, 0};
 
 using ExceedCallBack = void (*)();
 struct MemExceedCallBackInfo {
@@ -71,7 +77,7 @@ public:
     // After attach, the current thread TCMalloc Hook starts to consume/release task mem_tracker
     void attach_limiter_tracker(const std::string& cancel_msg, const std::string& task_id,
                                 const TUniqueId& fragment_instance_id,
-                                MemTrackerLimiter* mem_tracker);
+                                const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
 
     void detach_limiter_tracker();
 
@@ -110,14 +116,16 @@ public:
 
     bool is_attach_task() { return _task_id != ""; }
 
-    MemTrackerLimiter* limiter_mem_tracker() { return _limiter_tracker; }
+    std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() { return _limiter_tracker; }
 
     void set_check_limit(bool check_limit) { _check_limit = check_limit; }
+    void set_check_attach(bool check_attach) { _check_attach = check_attach; }
 
     std::string print_debug_string() {
         fmt::memory_buffer consumer_tracker_buf;
         for (const auto& v : _consumer_tracker_stack) {
-            fmt::format_to(consumer_tracker_buf, "{}, ", v->log_usage());
+            fmt::format_to(consumer_tracker_buf, "{}, ",
+                           MemTracker::log_usage(v->make_snapshot(0)));
         }
         return fmt::format(
                 "ThreadMemTrackerMgr debug, _untracked_mem:{}, _task_id:{}, "
@@ -137,13 +145,14 @@ private:
     // Frequent calls to unordered_map _untracked_mems[] in consume will degrade performance.
     int64_t _untracked_mem = 0;
 
-    MemTrackerLimiter* _limiter_tracker;
+    std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
     std::vector<MemTracker*> _consumer_tracker_stack;
 
     // If true, call memtracker try_consume, otherwise call consume.
     bool _check_limit = false;
     // If there is a memory new/delete operation in the consume method, it may enter infinite recursion.
     bool _stop_consume = false;
+    bool _check_attach = true;
     std::string _task_id;
     TUniqueId _fragment_instance_id;
     MemExceedCallBackInfo _exceed_cb;
@@ -195,6 +204,16 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     _stop_consume = true;
     DCHECK(_limiter_tracker);
     if (CheckLimit) {
+#ifndef BE_TEST
+        // When all threads are started, `attach_limiter_tracker` is expected to be called to bind the limiter tracker.
+        // If _check_attach is true and it is not in the brpc server (the protobuf will be operated when bthread is started),
+        // it will check whether the tracker label is equal to the default "Process" when flushing.
+        // If you do not want this check, set_check_attach=true
+        // TODO(zxy) The current p0 test cannot guarantee that all threads are checked,
+        // so disable it and try to open it when memory tracking is not on time.
+        // DCHECK(!_check_attach || btls_key != EMPTY_BTLS_KEY ||
+        //        _limiter_tracker->label() != "Process");
+#endif
         Status st = _limiter_tracker->try_consume(_untracked_mem);
         if (!st) {
             // The memory has been allocated, so when TryConsume fails, need to continue to complete

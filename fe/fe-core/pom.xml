@@ -32,7 +32,6 @@ under the License.
         <doris.home>${basedir}/../../</doris.home>
         <fe_ut_parallel>1</fe_ut_parallel>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
-        <log4j2.version>2.17.2</log4j2.version>
         <antlr4.version>4.9.3</antlr4.version>
     </properties>
     <profiles>
@@ -608,9 +607,10 @@ under the License.
             <version>1.14.0</version>
         </dependency>
 
+        <!-- https://mvnrepository.com/artifact/io.opentelemetry/opentelemetry-exporter-otlp-http-trace -->
         <dependency>
             <groupId>io.opentelemetry</groupId>
-            <artifactId>opentelemetry-exporter-otlp-trace</artifactId>
+            <artifactId>opentelemetry-exporter-otlp-http-trace</artifactId>
             <version>1.14.0</version>
         </dependency>
 
@@ -624,6 +624,7 @@ under the License.
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
+            <scope>provided</scope>
         </dependency>
 
         <dependency>

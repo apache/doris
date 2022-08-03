@@ -27,6 +27,10 @@ public class CounterNode extends TreeNode<CounterNode> {
         counter = Pair.create(key, value);
     }
 
+    public Pair<String, String> getCounter() {
+        return counter;
+    }
+
     public String toTree(int indent) {
         StringBuilder sb = new StringBuilder();
         sb.append(debugString(indent));

@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -40,12 +38,13 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
@@ -61,7 +60,7 @@ public class PlanEqualsTest {
         );
 
         LogicalAggregate one = new LogicalAggregate(groupByExprList, outputExpressionList, child);
-        Assert.assertEquals(one, one);
+        Assertions.assertEquals(one, one);
 
         List<Expression> groupByExprList1 = Lists.newArrayList();
         List<NamedExpression> outputExpressionList1 = ImmutableList.of(
@@ -69,18 +68,18 @@ public class PlanEqualsTest {
         );
 
         LogicalAggregate two = new LogicalAggregate(groupByExprList1, outputExpressionList1, child);
-        Assert.assertNotEquals(one, two);
+        Assertions.assertNotEquals(one, two);
     }
 
     @Test
     public void testLogicalFilter(@Mocked Plan child) {
         Expression predicate = new EqualTo(Literal.of(1), Literal.of(2));
         LogicalFilter logicalFilter = new LogicalFilter(predicate, child);
-        Assert.assertEquals(logicalFilter, logicalFilter);
+        Assertions.assertEquals(logicalFilter, logicalFilter);
 
         Expression predicate1 = new EqualTo(Literal.of(1), Literal.of(1));
         LogicalFilter logicalFilter1 = new LogicalFilter(predicate1, child);
-        Assert.assertNotEquals(logicalFilter, logicalFilter1);
+        Assertions.assertNotEquals(logicalFilter, logicalFilter1);
     }
 
     @Test
@@ -90,7 +89,7 @@ public class PlanEqualsTest {
                 new SlotReference("b", new BigIntType(), true, Lists.newArrayList())
         );
         LogicalJoin innerJoin = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(condition), left, right);
-        Assert.assertEquals(innerJoin, innerJoin);
+        Assertions.assertEquals(innerJoin, innerJoin);
 
         // Notice: condition1 != condition, so following is `assertNotEquals`.
         // Because SlotReference.exprId is UUID.
@@ -99,23 +98,22 @@ public class PlanEqualsTest {
                 new SlotReference("b", new BigIntType(), true, Lists.newArrayList())
         );
         LogicalJoin innerJoin1 = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(condition1), left, right);
-        Assert.assertNotEquals(innerJoin, innerJoin1);
+        Assertions.assertNotEquals(innerJoin, innerJoin1);
 
         Expression condition2 = new EqualTo(
                 new SlotReference("a", new BigIntType(), false, Lists.newArrayList()),
                 new SlotReference("b", new BigIntType(), true, Lists.newArrayList())
         );
         LogicalJoin innerJoin2 = new LogicalJoin(JoinType.INNER_JOIN, Optional.of(condition2), left, right);
-        Assert.assertNotEquals(innerJoin, innerJoin2);
+        Assertions.assertNotEquals(innerJoin, innerJoin2);
     }
 
     @Test
     public void testLogicalOlapScan() {
-        LogicalOlapScan olapScan = new LogicalOlapScan(new Table(TableType.OLAP), Lists.newArrayList());
-        Assert.assertEquals(olapScan, olapScan);
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan("table");
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan("table");
 
-        LogicalOlapScan olapScan1 = new LogicalOlapScan(new Table(TableType.OLAP), Lists.newArrayList());
-        Assert.assertEquals(olapScan, olapScan1);
+        Assertions.assertEquals(scan1, scan2);
     }
 
     @Test
@@ -124,18 +122,18 @@ public class PlanEqualsTest {
         SlotReference aSlot = new SlotReference("a", new BigIntType(), true, Lists.newArrayList());
         List<NamedExpression> projects = ImmutableList.of(aSlot);
         LogicalProject logicalProject = new LogicalProject(projects, child);
-        Assert.assertEquals(logicalProject, logicalProject);
+        Assertions.assertEquals(logicalProject, logicalProject);
 
         LogicalProject logicalProjectWithSameSlot = new LogicalProject(ImmutableList.of(aSlot), child);
-        Assert.assertEquals(logicalProject, logicalProjectWithSameSlot);
+        Assertions.assertEquals(logicalProject, logicalProjectWithSameSlot);
 
         SlotReference a1Slot = new SlotReference("a", new BigIntType(), true, Lists.newArrayList());
         LogicalProject a1LogicalProject = new LogicalProject(ImmutableList.of(a1Slot), child);
-        Assert.assertNotEquals(logicalProject, a1LogicalProject);
+        Assertions.assertNotEquals(logicalProject, a1LogicalProject);
 
         SlotReference bSlot = new SlotReference("b", new BigIntType(), true, Lists.newArrayList());
         LogicalProject bLogicalProject1 = new LogicalProject(ImmutableList.of(bSlot), child);
-        Assert.assertNotEquals(logicalProject, bLogicalProject1);
+        Assertions.assertNotEquals(logicalProject, bLogicalProject1);
     }
 
     @Test
@@ -143,11 +141,11 @@ public class PlanEqualsTest {
         // TODO: Depend on List<OrderKey> Equals
         List<OrderKey> orderKeyList = Lists.newArrayList();
         LogicalSort logicalSort = new LogicalSort(orderKeyList, child);
-        Assert.assertEquals(logicalSort, logicalSort);
+        Assertions.assertEquals(logicalSort, logicalSort);
 
         List<OrderKey> orderKeyListClone = Lists.newArrayList();
         LogicalSort logicalSortClone = new LogicalSort(orderKeyListClone, child);
-        Assert.assertEquals(logicalSort, logicalSortClone);
+        Assertions.assertEquals(logicalSort, logicalSortClone);
     }
 
     /* *************************** Physical *************************** */
@@ -162,7 +160,7 @@ public class PlanEqualsTest {
 
         PhysicalAggregate physicalAggregate = new PhysicalAggregate(groupByExprList, outputExpressionList,
                 partitionExprList, aggPhase, usingStream, logicalProperties, child);
-        Assert.assertEquals(physicalAggregate, physicalAggregate);
+        Assertions.assertEquals(physicalAggregate, physicalAggregate);
     }
 
     @Test
@@ -170,7 +168,7 @@ public class PlanEqualsTest {
         Expression predicate = new EqualTo(Literal.of(1), Literal.of(2));
 
         PhysicalFilter physicalFilter = new PhysicalFilter(predicate, logicalProperties, child);
-        Assert.assertEquals(physicalFilter, physicalFilter);
+        Assertions.assertEquals(physicalFilter, physicalFilter);
     }
 
     @Test
@@ -180,7 +178,7 @@ public class PlanEqualsTest {
         PhysicalHashJoin innerJoin = new PhysicalHashJoin(JoinType.INNER_JOIN, Optional.of(expression),
                 logicalProperties, left,
                 right);
-        Assert.assertEquals(innerJoin, innerJoin);
+        Assertions.assertEquals(innerJoin, innerJoin);
     }
 
     @Test
@@ -189,7 +187,7 @@ public class PlanEqualsTest {
 
         PhysicalOlapScan olapScan = new PhysicalOlapScan(olapTable, qualifier, Optional.empty(), logicalProperties);
 
-        Assert.assertEquals(olapScan, olapScan);
+        Assertions.assertEquals(olapScan, olapScan);
     }
 
     @Test
@@ -199,15 +197,15 @@ public class PlanEqualsTest {
         SlotReference aSlot = new SlotReference("a", new BigIntType(), true, Lists.newArrayList());
         List<NamedExpression> projects = ImmutableList.of(aSlot);
         PhysicalProject physicalProject = new PhysicalProject(projects, logicalProperties, child);
-        Assert.assertEquals(physicalProject, physicalProject);
+        Assertions.assertEquals(physicalProject, physicalProject);
 
         PhysicalProject physicalProjectWithSameSlot = new PhysicalProject(ImmutableList.of(aSlot), logicalProperties,
                 child);
-        Assert.assertEquals(physicalProject, physicalProjectWithSameSlot);
+        Assertions.assertEquals(physicalProject, physicalProjectWithSameSlot);
 
         SlotReference a1Slot = new SlotReference("a", new BigIntType(), true, Lists.newArrayList());
         PhysicalProject a1PhysicalProject = new PhysicalProject(ImmutableList.of(a1Slot), logicalProperties, child);
-        Assert.assertNotEquals(physicalProject, a1PhysicalProject);
+        Assertions.assertNotEquals(physicalProject, a1PhysicalProject);
     }
 
     @Test
@@ -216,11 +214,11 @@ public class PlanEqualsTest {
         List<OrderKey> orderKeyList = Lists.newArrayList();
 
         PhysicalHeapSort physicalHeapSort = new PhysicalHeapSort(orderKeyList, -1, 0, logicalProperties, child);
-        Assert.assertEquals(physicalHeapSort, physicalHeapSort);
+        Assertions.assertEquals(physicalHeapSort, physicalHeapSort);
 
         List<OrderKey> orderKeyListClone = Lists.newArrayList();
         PhysicalHeapSort physicalHeapSortClone = new PhysicalHeapSort(orderKeyListClone, -1, 0, logicalProperties,
                 child);
-        Assert.assertEquals(physicalHeapSort, physicalHeapSortClone);
+        Assertions.assertEquals(physicalHeapSort, physicalHeapSortClone);
     }
 }

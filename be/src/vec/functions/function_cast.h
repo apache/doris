@@ -146,11 +146,13 @@ struct ConvertImpl {
                         }
                     } else if constexpr (IsDateV2Type<ToDataType>) {
                         auto date_v2 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(vec_to[i]);
-                        date_v2.from_date_int64(vec_from[i]);
+                        date_v2.from_date_int64(
+                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
                     } else if constexpr (IsDateTimeV2Type<ToDataType>) {
                         auto date_v2 =
                                 binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(vec_to[i]);
-                        date_v2.from_date_int64(vec_from[i]);
+                        date_v2.from_date_int64(
+                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
                     } else {
                         vec_to[i] =
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();
@@ -163,8 +165,8 @@ struct ConvertImpl {
                                              IsDateV2Type<ToDataType>) {
                             DataTypeDateTimeV2::cast_to_date_v2(vec_from[i], vec_to[i]);
                         } else {
-                            // TODO: conversion between datetimev2 with different scales
-                            vec_to[i] = vec_from[i];
+                            UInt32 scale = additions;
+                            vec_to[i] = vec_from[i] / std::pow(10, 6 - scale);
                         }
                     } else if constexpr (IsTimeType<ToDataType>) {
                         if constexpr (IsDateTimeType<ToDataType> && IsDateV2Type<FromDataType>) {
@@ -180,14 +182,14 @@ struct ConvertImpl {
                             DataTypeDateTimeV2::cast_to_date(vec_from[i], vec_to[i]);
                         }
                     } else {
-                        if constexpr (IsDateTimeV2Type<ToDataType>) {
+                        if constexpr (IsDateTimeV2Type<FromDataType>) {
                             vec_to[i] = reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
                                                 vec_from[i])
-                                                .to_date_int_val();
+                                                .to_int64();
                         } else {
                             vec_to[i] = reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
                                                 vec_from[i])
-                                                .to_date_int_val();
+                                                .to_int64();
                         }
                     }
                 } else {
@@ -420,7 +422,8 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
     }
 
     if constexpr (IsDateTimeV2Type<DataType>) {
-        return try_read_datetime_v2_text(x, rb);
+        UInt32 scale = additions;
+        return try_read_datetime_v2_text(x, rb, scale);
     }
 
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
@@ -669,9 +672,16 @@ private:
 
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             block, arguments, result, input_rows_count, scale);
-                } else
+                } else if constexpr (IsDataTypeDateTimeV2<RightDataType>) {
+                    const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
+                    auto type =
+                            check_and_get_data_type<DataTypeDateTimeV2>(scale_column.type.get());
+                    ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
+                            block, arguments, result, input_rows_count, type->get_scale());
+                } else {
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             block, arguments, result, input_rows_count);
+                }
                 return true;
             };
 
@@ -894,6 +904,11 @@ struct ConvertThroughParsing {
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone,
                                                     vec_to.get_scale());
+            } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
+                auto type = check_and_get_data_type<DataTypeDateTimeV2>(
+                        block.get_by_position(result).type.get());
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone,
+                                                    type->get_scale());
             } else {
                 parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone);
             }

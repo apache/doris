@@ -20,7 +20,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
@@ -293,10 +293,10 @@ public class CastExpr extends Expr {
         Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
         if (type.isScalarType()) {
             if (isImplicit) {
-                fn = Catalog.getCurrentCatalog().getFunction(
+                fn = Env.getCurrentEnv().getFunction(
                         searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             } else {
-                fn = Catalog.getCurrentCatalog().getFunction(
+                fn = Env.getCurrentEnv().getFunction(
                         searchDesc, Function.CompareMode.IS_IDENTICAL);
             }
         } else if (type.isArrayType()) {
@@ -311,7 +311,12 @@ public class CastExpr extends Expr {
                     + " from " + childType + " to " + type);
         }
 
-        Preconditions.checkState(type.matchesType(fn.getReturnType()), type + " != " + fn.getReturnType());
+        if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
+            Preconditions.checkState(type.getPrimitiveType() == fn.getReturnType().getPrimitiveType(),
+                    type + " != " + fn.getReturnType());
+        } else {
+            Preconditions.checkState(type.matchesType(fn.getReturnType()), type + " != " + fn.getReturnType());
+        }
     }
 
     @Override
@@ -528,5 +533,25 @@ public class CastExpr extends Expr {
         return children.get(0).isNullable()
                 || (children.get(0).getType().isStringType() && !getType().isStringType())
                 || (!children.get(0).getType().isDateType() && getType().isDateType());
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        FunctionName fnName = new FunctionName(getFnName(type));
+        Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
+        if (type.isScalarType()) {
+            if (isImplicit) {
+                fn = Env.getCurrentEnv().getFunction(
+                        searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            } else {
+                fn = Env.getCurrentEnv().getFunction(
+                        searchDesc, Function.CompareMode.IS_IDENTICAL);
+            }
+        } else if (type.isArrayType()) {
+            fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
+                    type, Function.NullableMode.ALWAYS_NULLABLE,
+                    Lists.newArrayList(Type.VARCHAR), false,
+                    "doris::CastFunctions::cast_to_array_val", null, null, true);
+        }
     }
 }

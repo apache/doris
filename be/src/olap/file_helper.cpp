@@ -35,25 +35,7 @@ using std::string;
 
 namespace doris {
 
-Cache* FileHandler::_s_fd_cache = nullptr;
-
-FileHandler::FileHandler()
-        : _fd(-1), _wr_length(0), _file_name(""), _is_using_cache(false), _cache_handle(nullptr) {
-    static std::once_flag once_flag;
-#ifdef BE_TEST
-    std::call_once(once_flag, [] {
-        _s_fd_cache = new_lru_cache("FileHandlerCacheTest", config::file_descriptor_cache_capacity);
-    });
-#else
-    // storage engine may not be opened when doris try to read and write
-    // temp file under the storage root path. So we need to check it.
-    if (StorageEngine::instance() != nullptr &&
-        StorageEngine::instance()->file_cache() != nullptr) {
-        std::call_once(once_flag,
-                       [] { _s_fd_cache = StorageEngine::instance()->file_cache().get(); });
-    }
-#endif
-}
+FileHandler::FileHandler() : _fd(-1), _wr_length(0), _file_name("") {}
 
 FileHandler::~FileHandler() {
     this->close();
@@ -82,49 +64,6 @@ Status FileHandler::open(const string& file_name, int flag) {
 
     VLOG_NOTICE << "success to open file. file_name=" << file_name << ", mode=" << flag
                 << " fd=" << _fd;
-    _is_using_cache = false;
-    _file_name = file_name;
-    return Status::OK();
-}
-
-Status FileHandler::open_with_cache(const string& file_name, int flag) {
-    if (_s_fd_cache == nullptr) {
-        return open(file_name, flag);
-    }
-
-    if (_fd != -1 && _file_name == file_name) {
-        return Status::OK();
-    }
-
-    if (!this->close()) {
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
-    }
-
-    CacheKey key(file_name.c_str(), file_name.size());
-    _cache_handle = _s_fd_cache->lookup(key);
-    if (nullptr != _cache_handle) {
-        FileDescriptor* file_desc =
-                reinterpret_cast<FileDescriptor*>(_s_fd_cache->value(_cache_handle));
-        _fd = file_desc->fd;
-        VLOG_NOTICE << "success to open file with cache. file_name=" << file_name
-                    << ", mode=" << flag << " fd=" << _fd;
-    } else {
-        _fd = ::open(file_name.c_str(), flag);
-        if (_fd < 0) {
-            char errmsg[64];
-            LOG(WARNING) << "failed to open file. [err=" << strerror_r(errno, errmsg, 64)
-                         << " file_name='" << file_name << "' flag=" << flag << "]";
-            if (errno == EEXIST) {
-                return Status::OLAPInternalError(OLAP_ERR_FILE_ALREADY_EXIST);
-            }
-            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
-        }
-        FileDescriptor* file_desc = new FileDescriptor(_fd);
-        _cache_handle = _s_fd_cache->insert(key, file_desc, 1, &_delete_cache_file_descriptor);
-        VLOG_NOTICE << "success to open file with cache. "
-                    << "file_name=" << file_name << ", mode=" << flag << ", fd=" << _fd;
-    }
-    _is_using_cache = true;
     _file_name = file_name;
     return Status::OK();
 }
@@ -157,9 +96,6 @@ Status FileHandler::open_with_mode(const string& file_name, int flag, int mode) 
 }
 
 Status FileHandler::_release() {
-    _s_fd_cache->release(_cache_handle);
-    _cache_handle = nullptr;
-    _is_using_cache = false;
     return Status::OK();
 }
 
@@ -168,24 +104,20 @@ Status FileHandler::close() {
         return Status::OK();
     }
 
-    if (_is_using_cache && _s_fd_cache != nullptr) {
-        _release();
-    } else {
-        // try to sync page cache if have written some bytes
-        if (_wr_length > 0) {
-            posix_fadvise(_fd, 0, 0, POSIX_FADV_DONTNEED);
-            // Clean dirty pages and wait for io queue empty and return
-            sync_file_range(_fd, 0, 0, SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER);
-            _wr_length = 0;
-        }
+    // try to sync page cache if have written some bytes
+    if (_wr_length > 0) {
+        posix_fadvise(_fd, 0, 0, POSIX_FADV_DONTNEED);
+        // Clean dirty pages and wait for io queue empty and return
+        sync_file_range(_fd, 0, 0, SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER);
+        _wr_length = 0;
+    }
 
-        // In some extreme cases (fd is available, but fsync fails) can cause handle leaks
-        if (::close(_fd) < 0) {
-            char errmsg[64];
-            LOG(WARNING) << "failed to close file. [err= " << strerror_r(errno, errmsg, 64)
-                         << " file_name='" << _file_name << "' fd=" << _fd << "]";
-            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
-        }
+    // In some extreme cases (fd is available, but fsync fails) can cause handle leaks
+    if (::close(_fd) < 0) {
+        char errmsg[64];
+        LOG(WARNING) << "failed to close file. [err= " << strerror_r(errno, errmsg, 64)
+                     << " file_name='" << _file_name << "' fd=" << _fd << "]";
+        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
     }
 
     VLOG_NOTICE << "finished to close file. "

@@ -20,7 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SysVariableDesc;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -272,7 +272,7 @@ public class VariableMgr {
             setValue(ctx.getObj(), ctx.getField(), value);
             // write edit log
             GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(name));
-            Catalog.getCurrentCatalog().getEditLog().logGlobalVariableV2(info);
+            Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
         } finally {
             wlock.unlock();
         }
@@ -286,7 +286,7 @@ public class VariableMgr {
     // global variable persistence
     public static void write(DataOutputStream out) throws IOException {
         SessionVariable variablesToWrite = defaultSessionVariable;
-        if (Catalog.isCheckpointThread()) {
+        if (Env.isCheckpointThread()) {
             // If this is checkpoint thread, we should write value in `defaultSessionVariableForCkpt` to the image
             // instead of `defaultSessionVariable`.
             variablesToWrite = defaultSessionVariableForCkpt;
@@ -302,7 +302,7 @@ public class VariableMgr {
         wlock.lock();
         try {
             SessionVariable variablesToRead = defaultSessionVariable;
-            if (Catalog.isCheckpointThread()) {
+            if (Env.isCheckpointThread()) {
                 // If this is checkpoint thread, we should read value to set them to `defaultSessionVariableForCkpt`
                 // instead of `defaultSessionVariable`.
                 // This approach ensures that checkpoint threads do not modify the values in serving catalog.
@@ -324,7 +324,7 @@ public class VariableMgr {
             JSONObject root = (JSONObject) JSONValue.parse(json);
             for (Object varName : root.keySet()) {
                 VarContext varContext = ctxByVarName.get((String) varName);
-                if (Catalog.isCheckpointThread()) {
+                if (Env.isCheckpointThread()) {
                     // If this is checkpoint thread, we should write value in `ctxByVarNameForCkpt` to the image
                     // instead of `ctxByVarName`.
                     varContext = ctxByVarNameForCkpt.get((String) varName);

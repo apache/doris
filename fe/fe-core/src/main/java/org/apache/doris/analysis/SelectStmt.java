@@ -21,9 +21,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -314,12 +314,12 @@ public class SelectStmt extends QueryStmt {
                     continue;
                 }
                 tblRef.getName().analyze(analyzer);
-                DatabaseIf db = analyzer.getCatalog().getDataSourceMgr()
+                DatabaseIf db = analyzer.getEnv().getDataSourceMgr()
                         .getCatalogOrAnalysisException(tblRef.getName().getCtl()).getDbOrAnalysisException(dbName);
                 TableIf table = db.getTableOrAnalysisException(tableName);
 
                 // check auth
-                if (!Catalog.getCurrentCatalog().getAuth()
+                if (!Env.getCurrentEnv().getAuth()
                         .checkTblPriv(ConnectContext.get(), tblRef.getName(), PrivPredicate.SELECT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                             ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
@@ -1047,15 +1047,16 @@ public class SelectStmt extends QueryStmt {
 
         List<TupleId> groupingByTupleIds = new ArrayList<>();
         if (groupByClause != null) {
-            // must do it before copying for createAggInfo()
-            if (groupingInfo != null) {
-                groupingByTupleIds.add(groupingInfo.getVirtualTuple().getId());
-            }
             groupByClause.genGroupingExprs();
             if (groupingInfo != null) {
                 groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
             }
             substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer);
+            if (groupingInfo != null) {
+                groupingInfo.genOutputTupleDescAndSMap(analyzer, groupByClause.getGroupingExprs(), aggExprs);
+                // must do it before copying for createAggInfo()
+                groupingByTupleIds.add(groupingInfo.getOutputTupleDesc().getId());
+            }
             groupByClause.analyze(analyzer);
             createAggInfo(groupByClause.getGroupingExprs(), aggExprs, analyzer);
         } else {

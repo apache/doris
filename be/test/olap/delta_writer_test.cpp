@@ -25,6 +25,7 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "olap/field.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
@@ -393,20 +394,20 @@ TEST_F(TestDeltaWriter, open) {
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait();
+    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
     EXPECT_EQ(Status::OK(), res);
     SAFE_DELETE(delta_writer);
 
     // test vec delta writer
-    DeltaWriter::open(&write_req, &delta_writer, true);
+    DeltaWriter::open(&write_req, &delta_writer, nullptr, true);
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait();
+    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
     EXPECT_EQ(Status::OK(), res);
     SAFE_DELETE(delta_writer);
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
 }
 
@@ -504,7 +505,7 @@ TEST_F(TestDeltaWriter, write) {
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait();
+    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success
@@ -527,7 +528,7 @@ TEST_F(TestDeltaWriter, write) {
     }
     EXPECT_EQ(1, tablet->num_rows());
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }
@@ -551,7 +552,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     WriteRequest write_req = {10004, 270068376, WriteType::LOAD, 20002,
                               30002, load_id,   tuple_desc,      &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer, true);
+    DeltaWriter::open(&write_req, &delta_writer, nullptr, true);
     ASSERT_NE(delta_writer, nullptr);
 
     MemPool pool;
@@ -643,7 +644,7 @@ TEST_F(TestDeltaWriter, vec_write) {
 
     res = delta_writer->close();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->close_wait();
+    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
     ASSERT_TRUE(res.ok());
 
     // publish version success
@@ -673,7 +674,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     }
     ASSERT_EQ(1, tablet->num_rows());
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
     delete delta_writer;
 }
@@ -717,7 +718,7 @@ TEST_F(TestDeltaWriter, sequence_col) {
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait();
+    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success
@@ -740,7 +741,7 @@ TEST_F(TestDeltaWriter, sequence_col) {
     }
     EXPECT_EQ(1, tablet->num_rows());
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }
@@ -764,7 +765,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
                               30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer, true);
+    DeltaWriter::open(&write_req, &delta_writer, nullptr, true);
     ASSERT_NE(delta_writer, nullptr);
 
     MemPool pool;
@@ -803,7 +804,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 
     res = delta_writer->close();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->close_wait();
+    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
     ASSERT_TRUE(res.ok());
 
     // publish version success
@@ -833,7 +834,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     }
     ASSERT_EQ(1, tablet->num_rows());
 
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
     delete delta_writer;
 }

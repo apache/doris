@@ -21,11 +21,11 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "io/fs/file_system_map.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/delta_writer.h"
 #include "olap/storage_engine.h"
-#include "olap/storage_policy_mgr.h"
 #include "olap/tablet.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/tuple.h"
@@ -39,25 +39,18 @@ static StorageEngine* k_engine = nullptr;
 static const std::string kTestDir = "./ut_dir/tablet_cooldown_test";
 static const std::string kResourceId = "TabletCooldownTest";
 
-static const std::string AK = "ak";
-static const std::string SK = "sk";
-static const std::string ENDPOINT = "endpoint";
-static const std::string REGION = "region";
-static const std::string BUCKET = "bucket";
-static const std::string PREFIX = "tablet_cooldown_test";
-
 // remove DISABLED_ when need run this test
 #define TabletCooldownTest DISABLED_TabletCooldownTest
 class TabletCooldownTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
         S3Conf s3_conf;
-        s3_conf.ak = AK;
-        s3_conf.sk = SK;
-        s3_conf.endpoint = ENDPOINT;
-        s3_conf.region = REGION;
-        s3_conf.bucket = BUCKET;
-        s3_conf.prefix = PREFIX;
+        s3_conf.ak = config::test_s3_ak;
+        s3_conf.sk = config::test_s3_sk;
+        s3_conf.endpoint = config::test_s3_endpoint;
+        s3_conf.region = config::test_s3_region;
+        s3_conf.bucket = config::test_s3_bucket;
+        s3_conf.prefix = "tablet_cooldown_test";
         auto s3_fs = std::make_shared<io::S3FileSystem>(std::move(s3_conf), kResourceId);
         ASSERT_TRUE(s3_fs->connect().ok());
         io::FileSystemMap::instance()->insert(kResourceId, s3_fs);
@@ -167,7 +160,8 @@ TEST_F(TabletCooldownTest, normal) {
     DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
 
-    MemPool pool;
+    MemTracker tracker;
+    MemPool pool(&tracker);
     // Tuple 1
     {
         Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
@@ -184,7 +178,7 @@ TEST_F(TabletCooldownTest, normal) {
 
     st = delta_writer->close();
     ASSERT_EQ(Status::OK(), st);
-    st = delta_writer->close_wait();
+    st = delta_writer->close_wait(PSlaveTabletNodes(), false);
     ASSERT_EQ(Status::OK(), st);
 
     // publish version success
@@ -200,15 +194,15 @@ TEST_F(TabletCooldownTest, normal) {
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
         st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                  write_req.tablet_id, write_req.schema_hash,
-                                                  tablet_rs.first.tablet_uid, version);
+                                                  tablet->tablet_id(), tablet->schema_hash(),
+                                                  tablet->tablet_uid(), version);
         ASSERT_EQ(Status::OK(), st);
         st = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);
     }
     EXPECT_EQ(1, tablet->num_rows());
 
-    tablet->set_cooldown_resource(kResourceId);
+    tablet->set_storage_policy(kResourceId);
     st = tablet->cooldown(); // rowset [0-1]
     ASSERT_EQ(Status::OK(), st);
     st = tablet->cooldown(); // rowset [2-2]

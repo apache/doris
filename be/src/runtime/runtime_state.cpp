@@ -241,9 +241,10 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
                 print_id(query_id), bytes_limit);
     } else {
         DCHECK(false);
+        _query_mem_tracker = ExecEnv::GetInstance()->query_pool_mem_tracker();
     }
 
-    _instance_mem_tracker = std::make_unique<MemTrackerLimiter>(
+    _instance_mem_tracker = std::make_shared<MemTrackerLimiter>(
             bytes_limit, "RuntimeState:instance:" + print_id(_fragment_instance_id),
             _query_mem_tracker, &_profile);
 
@@ -258,14 +259,12 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
         _instance_buffer_reservation->InitChildTracker(&_profile, _buffer_reservation,
                                                        std::numeric_limits<int64_t>::max());
     }
-
-    // filter manager depends _instance_mem_tracker
-    _runtime_filter_mgr->init(_instance_mem_tracker.get());
     return Status::OK();
 }
 
 Status RuntimeState::init_instance_mem_tracker() {
-    _instance_mem_tracker = std::make_unique<MemTrackerLimiter>(-1, "RuntimeState:instance");
+    _query_mem_tracker = nullptr;
+    _instance_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "RuntimeState:instance");
     return Status::OK();
 }
 

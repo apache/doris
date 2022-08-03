@@ -67,7 +67,7 @@ void DataTypeDateV2::cast_to_date(const UInt32 from, Int64& to) {
 }
 
 void DataTypeDateV2::cast_to_date_time_v2(const UInt32 from, UInt64& to) {
-    to = (UInt64)from << TIME_PART_LENGTH;
+    to = ((UInt64)from) << TIME_PART_LENGTH;
 }
 
 bool DataTypeDateTimeV2::equals(const IDataType& rhs) const {

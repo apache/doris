@@ -396,8 +396,7 @@ void test_decimalv2(std::shared_ptr<arrow::Decimal128Type> type,
     MutableColumnPtr data_column = data_type->create_column();
     ColumnWithTypeAndName column(std::move(data_column), data_type, "test_numeric_column");
     for (auto& str : test_cases) {
-        DecimalV2Value decimal_value(str);
-        int128_t value = binary_cast<DecimalV2Value, int128_t>(decimal_value);
+        int128_t value = DecimalV2Value(str).value();
         int128_t expect_value =
                 convert_decimals<vectorized::DataTypeDecimal<vectorized::Decimal128>,
                                  vectorized::DataTypeDecimal<vectorized::Decimal128>>(

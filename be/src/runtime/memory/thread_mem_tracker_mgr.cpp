@@ -24,11 +24,12 @@
 
 namespace doris {
 
-void ThreadMemTrackerMgr::attach_limiter_tracker(const std::string& cancel_msg,
-                                                 const std::string& task_id,
-                                                 const TUniqueId& fragment_instance_id,
-                                                 MemTrackerLimiter* mem_tracker) {
+void ThreadMemTrackerMgr::attach_limiter_tracker(
+        const std::string& cancel_msg, const std::string& task_id,
+        const TUniqueId& fragment_instance_id,
+        const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
+    flush_untracked_mem<false>();
     _task_id = task_id;
     _fragment_instance_id = fragment_instance_id;
     _exceed_cb.cancel_msg = cancel_msg;

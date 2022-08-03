@@ -121,7 +121,7 @@ public class ShowAlterStmt extends ShowStmt {
                     + "\"2019-12-02|2019-12-02 14:54:00\"");
             }
             subExpr.setChild(1, (subExpr.getChild(1)).castTo(
-                    DateLiteral.getDefaultDateType(Type.DATETIME)));
+                    ScalarType.getDefaultDateType(Type.DATETIME)));
         } else {
             throw new AnalysisException("The columns of TableName/CreateTime/FinishTime/State are supported.");
         }
@@ -191,7 +191,7 @@ public class ShowAlterStmt extends ShowStmt {
     }
 
     public void handleShowAlterTable(Analyzer analyzer) throws UserException {
-        DatabaseIf db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbName);
+        DatabaseIf db = analyzer.getEnv().getInternalDataSource().getDbOrAnalysisException(dbName);
 
         // build proc path
         StringBuilder sb = new StringBuilder();

@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.DdlException;
@@ -149,8 +148,8 @@ public abstract class Type {
         supportedTypes.add(QUANTILE_STATE);
 
         arraySubTypes = Lists.newArrayList();
-        arraySubTypes.addAll(integerTypes);
         arraySubTypes.add(BOOLEAN);
+        arraySubTypes.addAll(integerTypes);
         arraySubTypes.add(FLOAT);
         arraySubTypes.add(DOUBLE);
         arraySubTypes.add(DECIMALV2);
@@ -1375,6 +1374,8 @@ public abstract class Type {
         compatibilityMatrix[TIME.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TIME.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TIME.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIME.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TIME.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         compatibilityMatrix[TIMEV2.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TIMEV2.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1529,13 +1530,13 @@ public abstract class Type {
 
     private static Type getDateComparisonResultType(ScalarType t1, ScalarType t2) {
         if (t1.isDate() && t2.isDate()) {
-            return DateLiteral.getDefaultDateType(Type.DATE);
+            return ScalarType.getDefaultDateType(Type.DATE);
         } else if ((t1.isDateV2() && t2.isDate()) || t1.isDate() && t2.isDateV2()) {
             return Type.DATEV2;
         } else if (t1.isDateV2() && t2.isDateV2()) {
             return Type.DATEV2;
         } else if (t1.isDatetime() && t2.isDatetime()) {
-            return DateLiteral.getDefaultDateType(Type.DATETIME);
+            return ScalarType.getDefaultDateType(Type.DATETIME);
         } else if (t1.isDatetime() && t2.isDatetimeV2()) {
             return t2;
         } else if (t1.isDatetimeV2() && t2.isDatetime()) {
@@ -1547,7 +1548,7 @@ public abstract class Type {
         } else if (t2.isDatetimeV2()) {
             return t2;
         } else {
-            return DateLiteral.getDefaultDateType(Type.DATETIME);
+            return ScalarType.getDefaultDateType(Type.DATETIME);
         }
     }
 

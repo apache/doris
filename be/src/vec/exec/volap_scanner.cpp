@@ -68,7 +68,7 @@ Status VOlapScanner::prepare(
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-        _tablet_schema = _tablet->tablet_schema();
+        _tablet_schema.copy_from(*_tablet->tablet_schema());
         if (!_parent->_olap_scan_node.columns_desc.empty() &&
             _parent->_olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             // Originally scanner get TabletSchema from tablet object in BE.
@@ -135,6 +135,23 @@ Status VOlapScanner::open() {
         return Status::InternalError(ss.str().c_str());
     }
     return Status::OK();
+}
+
+TabletStorageType VOlapScanner::get_storage_type() {
+    int local_reader = 0;
+    for (const auto& reader : _tablet_reader_params.rs_readers) {
+        if (reader->rowset()->rowset_meta()->resource_id().empty()) {
+            local_reader++;
+        }
+    }
+    int total_reader = _tablet_reader_params.rs_readers.size();
+
+    if (local_reader == total_reader) {
+        return TabletStorageType::STORAGE_TYPE_LOCAL;
+    } else if (local_reader == 0) {
+        return TabletStorageType::STORAGE_TYPE_REMOTE;
+    }
+    return TabletStorageType::STORAGE_TYPE_REMOTE_AND_LOCAL;
 }
 
 // it will be called under tablet read lock because capture rs readers need
@@ -224,6 +241,8 @@ Status VOlapScanner::_init_tablet_reader_params(
     if (!config::disable_storage_page_cache) {
         _tablet_reader_params.use_page_cache = true;
     }
+
+    _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
 
     return Status::OK();
 }
@@ -385,6 +404,7 @@ void VOlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(_parent->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_del_filtered);
+    COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_del_by_bitmap);
     COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_vec_del_cond_filtered);
 
     COUNTER_UPDATE(_parent->_conditions_filtered_counter, stats.rows_conditions_filtered);

@@ -21,8 +21,8 @@ import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.analysis.PauseSyncJobStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -59,7 +59,7 @@ public class SyncJobManagerTest {
     @Mocked
     EditLog editLog;
     @Mocked
-    Catalog catalog;
+    Env env;
     @Mocked
     InternalDataSource ds;
     @Mocked
@@ -71,10 +71,10 @@ public class SyncJobManagerTest {
     public void setUp() throws DdlException {
         new Expectations() {
             {
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
                 ds.getDbNullable(anyString);
@@ -83,9 +83,9 @@ public class SyncJobManagerTest {
                 database.getId();
                 minTimes = 0;
                 result = dbId;
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
     }

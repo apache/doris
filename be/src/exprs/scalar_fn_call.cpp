@@ -435,7 +435,7 @@ FloatVal ScalarFnCall::get_float_val(ExprContext* context, TupleRow* row) {
 }
 
 DoubleVal ScalarFnCall::get_double_val(ExprContext* context, TupleRow* row) {
-    DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME);
+    DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME || _type.type == TYPE_TIMEV2);
     DCHECK(context != nullptr);
     if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<DoubleVal>(context, row);

@@ -83,6 +83,7 @@ void VLiteral::init(const TExprNode& node) {
             break;
         }
         case TYPE_TIME:
+        case TYPE_TIMEV2:
         case TYPE_DOUBLE: {
             DCHECK_EQ(node.node_type, TExprNodeType::FLOAT_LITERAL);
             DCHECK(node.__isset.float_literal);
@@ -212,6 +213,7 @@ std::string VLiteral::debug_string() const {
                 break;
             }
             case TYPE_TIME:
+            case TYPE_TIMEV2:
             case TYPE_DOUBLE: {
                 out << *(reinterpret_cast<const double_t*>(ref.data));
                 break;

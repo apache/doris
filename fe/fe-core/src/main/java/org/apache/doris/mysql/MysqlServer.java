@@ -17,7 +17,7 @@
 
 package org.apache.doris.mysql;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
@@ -112,7 +112,7 @@ public class MysqlServer {
                     // submit this context to scheduler
                     ConnectContext context = new ConnectContext(clientChannel);
                     // Set catalog here.
-                    context.setCatalog(Catalog.getCurrentCatalog());
+                    context.setEnv(Env.getCurrentEnv());
                     if (!scheduler.submit(context)) {
                         LOG.warn("Submit one connect request failed. Client=" + clientChannel.toString());
                         // clear up context

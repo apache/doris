@@ -63,11 +63,7 @@ Status OlapScanner::prepare(
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     set_tablet_reader();
     // set limit to reduce end of rowset and segment mem use
-    _tablet_reader->set_batch_size(
-            _parent->limit() == -1
-                    ? _parent->_runtime_state->batch_size()
-                    : std::min(static_cast<int64_t>(_parent->_runtime_state->batch_size()),
-                               _parent->limit()));
+    _tablet_reader->set_batch_size(_parent->_batch_size);
 
     // Get olap table
     TTabletId tablet_id = scan_range.tablet_id;
@@ -83,7 +79,7 @@ Status OlapScanner::prepare(
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-        _tablet_schema = _tablet->tablet_schema();
+        _tablet_schema.copy_from(*_tablet->tablet_schema());
         if (!_parent->_olap_scan_node.columns_desc.empty() &&
             _parent->_olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             _tablet_schema.clear_columns();
@@ -125,6 +121,23 @@ Status OlapScanner::prepare(
     }
 
     return Status::OK();
+}
+
+TabletStorageType OlapScanner::get_storage_type() {
+    int local_reader = 0;
+    for (const auto& reader : _tablet_reader_params.rs_readers) {
+        if (reader->rowset()->rowset_meta()->resource_id().empty()) {
+            local_reader++;
+        }
+    }
+    int total_reader = _tablet_reader_params.rs_readers.size();
+
+    if (local_reader == total_reader) {
+        return TabletStorageType::STORAGE_TYPE_LOCAL;
+    } else if (local_reader == 0) {
+        return TabletStorageType::STORAGE_TYPE_REMOTE;
+    }
+    return TabletStorageType::STORAGE_TYPE_REMOTE_AND_LOCAL;
 }
 
 Status OlapScanner::open() {
@@ -246,6 +259,8 @@ Status OlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.use_page_cache = true;
     }
 
+    _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
+
     return Status::OK();
 }
 
@@ -270,7 +285,7 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
     }
 
     // expand the sequence column
-    if (_tablet->tablet_schema().has_sequence_col() && need_seq_col) {
+    if (_tablet_schema.has_sequence_col() && need_seq_col) {
         bool has_replace_col = false;
         for (auto col : _return_columns) {
             if (_tablet_schema.column(col).aggregation() ==
@@ -295,9 +310,15 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
 Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     // 2. Allocate Row's Tuple buf
+    Status st = Status::OK();
     uint8_t* tuple_buf =
-            batch->tuple_data_pool()->allocate(state->batch_size() * _tuple_desc->byte_size());
-    bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
+            batch->tuple_data_pool()->allocate(_batch_size * _tuple_desc->byte_size(), &st);
+    RETURN_NOT_OK_STATUS_WITH_WARN(st, "Allocate mem for row batch failed");
+    if (tuple_buf == nullptr) {
+        LOG(WARNING) << "Allocate mem for row batch failed.";
+        return Status::RuntimeError("Allocate mem for row batch failed.");
+    }
+    bzero(tuple_buf, _batch_size * _tuple_desc->byte_size());
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
     std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker));
@@ -310,10 +331,16 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
         ObjectPool tmp_object_pool;
         // release the memory of the object which can't pass the conjuncts.
         ObjectPool unused_object_pool;
+        if (batch->tuple_data_pool()->total_reserved_bytes() >= raw_bytes_threshold) {
+            return Status::RuntimeError(
+                    "Scanner row bytes buffer is too small, please try to increase be config "
+                    "'doris_scanner_row_bytes'.");
+        }
         while (true) {
             // Batch is full or reach raw_rows_threshold or raw_bytes_threshold, break
             if (batch->is_full() ||
-                batch->tuple_data_pool()->total_reserved_bytes() >= raw_bytes_threshold ||
+                (batch->tuple_data_pool()->total_allocated_bytes() >= raw_bytes_threshold &&
+                 batch->num_rows() > 0) ||
                 raw_rows_read() >= raw_rows_threshold) {
                 _update_realtime_counter();
                 break;
@@ -569,6 +596,7 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(_parent->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_del_filtered);
+    COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_del_by_bitmap);
     COUNTER_UPDATE(_parent->_del_filtered_counter, stats.rows_vec_del_cond_filtered);
 
     COUNTER_UPDATE(_parent->_conditions_filtered_counter, stats.rows_conditions_filtered);
@@ -610,6 +638,7 @@ void OlapScanner::_update_realtime_counter() {
     COUNTER_UPDATE(_parent->_raw_rows_counter, stats.raw_rows_read);
     // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
     _raw_rows_read += stats.raw_rows_read;
+
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
 }
 
