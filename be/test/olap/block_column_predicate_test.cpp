@@ -40,7 +40,7 @@ public:
 
     void SetTabletSchema(std::string name, const std::string& type, const std::string& aggregation,
                          uint32_t length, bool is_allow_null, bool is_key,
-                         TabletSchema* tablet_schema) {
+                         TabletSchemaSPtr tablet_schema) {
         TabletSchemaPB tablet_schema_pb;
         static int id = 0;
         ColumnPB* column = tablet_schema_pb.add_column();
@@ -57,8 +57,8 @@ public:
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
-    void init_row_block(const TabletSchema* tablet_schema, int size) {
-        Schema schema(*tablet_schema);
+    void init_row_block(TabletSchemaSPtr tablet_schema, int size) {
+        Schema schema(tablet_schema);
         _row_block.reset(new RowBlockV2(schema, size));
     }
 
@@ -67,11 +67,11 @@ public:
 };
 
 TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN) {
-    TabletSchema tablet_schema;
-    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, &tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     float value = 5.0;
@@ -118,12 +118,12 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
 }
 
 TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     double less_value = 5.0;
@@ -183,12 +183,12 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
 }
 
 TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     double less_value = 5.0;
@@ -248,12 +248,12 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
 }
 
 TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     double less_value = 5.0;
@@ -366,12 +366,12 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
 }
 
 TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN) {
-    TabletSchema tablet_schema;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE", "REPLACE", 1, true, true,
-                    &tablet_schema);
+                    tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
     double less_value = 5.0;
