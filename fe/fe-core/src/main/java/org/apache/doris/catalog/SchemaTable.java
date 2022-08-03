@@ -386,7 +386,8 @@ public class SchemaTable extends Table {
                                     .column("COLLATION_CONNECTION", ScalarType.createVarchar(32))
                                     .column("DATABASE_COLLATION", ScalarType.createVarchar(32)).build()))
             .put("segments", new SchemaTable(SystemIdGenerator.getNextId(), "segments", TableType.SCHEMA,
-                            builder().column("ROWSET_ID", ScalarType.createVarchar(64))
+                            builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ROWSET_ID", ScalarType.createVarchar(64))
                                     .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("ROWSET_NUM_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("TXN_ID", ScalarType.createType(PrimitiveType.BIGINT))

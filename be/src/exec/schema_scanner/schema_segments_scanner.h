@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
 #include "common/status.h"
@@ -42,13 +43,12 @@ private:
 
 private:
     static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    int64_t backend_id_ = 0;
     std::vector<RowsetSharedPtr> rowsets_;
-    // std::vector<std::vector<SegmentFooterPBPtr>> segment_footer_PBs_;
     std::vector<segment_v2::SegmentSharedPtr> segments_;
     // used for traversing rowsets_
     int rowsets_idx_ = 0;
-    // used for traversing segment_footer_PBs_
-    // int segment_footer_PB_idx_ = 0;
+    // used for traversing segment_
     int segments_idx_ = 0;
 };
 } // namespace doris

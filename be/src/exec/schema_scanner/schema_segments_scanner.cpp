@@ -33,6 +33,7 @@
 namespace doris {
 SchemaScanner::ColumnDesc SchemaSegmentsScanner::_s_tbls_columns[] = {
         //   name,       type,          size,     is_null
+        {"BACKEND_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"ROWSET_ID", TYPE_VARCHAR, sizeof(StringValue), true},
         {"TABLET_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"ROWSET_NUM_ROWS", TYPE_BIGINT, sizeof(int64_t), true},
@@ -51,14 +52,15 @@ SchemaScanner::ColumnDesc SchemaSegmentsScanner::_s_tbls_columns[] = {
 SchemaSegmentsScanner::SchemaSegmentsScanner()
         : SchemaScanner(_s_tbls_columns,
                         sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
+          backend_id_(0),
           rowsets_idx_(0),
-          //   segment_footer_PB_idx_(0),
           segments_idx_(0) {};
 
 Status SchemaSegmentsScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
+    backend_id_ = state->backend_id();
     RETURN_IF_ERROR(get_all_rowsets());
     return Status::OK();
 }
@@ -108,23 +110,6 @@ Status SchemaSegmentsScanner::get_all_rowsets() {
         for (const auto& version_and_rowset : all_rowsets) {
             RowsetSharedPtr rowset = version_and_rowset.second;
             rowsets_.emplace_back(rowset);
-
-            // get segments of rowset
-            // SegmentCacheHandle cache_handle;
-            // Status st = SegmentLoader::instance()->load_segments(
-            //         std::dynamic_pointer_cast<BetaRowset>(rowset), &cache_handle);
-            // if (!st.ok()) {
-            //     return st;
-            // }
-
-            // std::vector<SegmentFooterPBPtr> segments;
-            // for (auto& seg_ptr : cache_handle.get_segments()) {
-            //     // must handle all segments
-            //     SegmentFooterPBPtr segment_footer =
-            //             std::make_shared<SegmentFooterPB>(seg_ptr->footer());
-            //     segments.emplace_back(segment_footer);
-            // }
-            // segment_footer_PBs_.emplace_back(segments);
         }
     }
     return Status::OK();
@@ -145,9 +130,14 @@ Status SchemaSegmentsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     RowsetSharedPtr rowset = rowsets_[rowsets_idx_ - 1];
     SegmentSharedPtr segment = segments_[segments_idx_];
     const SegmentFooterPB& segment_footer = segment->footer();
-    // ROWSET_ID
+    // BACKEND_ID
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = backend_id_;
+    }
+    // ROWSET_ID
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         std::string rowset_id = rowset->rowset_meta()->rowset_id().to_string();
         str_slot->ptr = (char*)pool->allocate(rowset_id.size());
@@ -156,57 +146,57 @@ Status SchemaSegmentsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     }
     // TABLET_ID
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = rowset->rowset_meta()->tablet_id();
     }
     // ROWSET_NUM_ROWS
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = rowset->num_rows();
     }
     // TXN_ID
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = rowset->txn_id();
     }
     // PARTITION_ID
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[5]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = rowset->partition_id();
     }
     // NUM_SEGMENTS
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[5]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[6]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = rowset->num_segments();
     }
     // START_VERSION
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[6]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = rowset->start_version();
     }
     // END_VERSION
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = rowset->end_version();
     }
     // INDEX_DISK_SIZE
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
         *(reinterpret_cast<size_t*>(slot)) = rowset->index_disk_size();
     }
     // DATA_DISK_SIZE
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[10]->tuple_offset());
         *(reinterpret_cast<size_t*>(slot)) = rowset->data_disk_size();
     }
     // SEGMENT_VERSION
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[10]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[11]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = static_cast<int64_t>(segment_footer.version());
     }
     // SEGMENTS_NUM_ROWS
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[11]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[12]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = segment_footer.num_rows();
     }
     // ++segment_footer_PB_idx_;

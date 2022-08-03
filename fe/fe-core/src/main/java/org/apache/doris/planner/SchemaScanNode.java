@@ -19,7 +19,6 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -27,18 +26,13 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TScanRange;
-import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaScanNode;
 import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -124,36 +118,11 @@ public class SchemaScanNode extends ScanNode {
      */
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        if (tableName.equalsIgnoreCase("segments")) {
-            List<TScanRangeLocations> result = Lists.newArrayList();
-            for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
-                if (!be.isAlive()) {
-                    continue;
-                }
-                TScanRangeLocations locations = new TScanRangeLocations();
-                TScanRangeLocation location = new TScanRangeLocation();
-                location.setBackendId(be.getId());
-                location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
-                locations.addToLocations(location);
-                locations.setScanRange(new TScanRange());
-                result.add(locations);
-            }
-            return result;
-        }
         return null;
     }
 
     @Override
     public int getNumInstances() {
-        if (tableName.equalsIgnoreCase("segments")) {
-            int beNum = 0;
-            for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
-                if (be.isAlive()) {
-                    ++beNum;
-                }
-            }
-            return beNum;
-        }
         return 1;
     }
 }
