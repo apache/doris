@@ -140,7 +140,7 @@ protected:
         EXPECT_TRUE(st.ok());
 
         RowCursor row;
-        auto olap_st = row.init(*build_schema);
+        auto olap_st = row.init(build_schema);
         EXPECT_EQ(Status::OK(), olap_st);
 
         for (size_t rid = 0; rid < nrows; ++rid) {

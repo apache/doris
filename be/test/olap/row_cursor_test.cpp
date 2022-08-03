@@ -317,7 +317,7 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     scan_keys.push_back("varchar_exceed_length");
 
     std::vector<uint32_t> columns {0, 1};
-    std::shared_ptr<Schema> schema = std::make_shared<Schema>(tablet_schema.columns(), columns);
+    std::shared_ptr<Schema> schema = std::make_shared<Schema>(tablet_schema->columns(), columns);
 
     RowCursor row;
     Status res = row.init_scan_key(tablet_schema, scan_keys, schema);
