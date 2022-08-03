@@ -71,7 +71,6 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
         std::lock_guard<std::mutex> l(_lock);
         return _load_channels.size();
     });
-    _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024, _mem_tracker);
 }
 
 LoadChannelMgr::~LoadChannelMgr() {
@@ -90,6 +89,7 @@ Status LoadChannelMgr::init(int64_t process_mem_limit) {
     REGISTER_HOOK_METRIC(load_mem_consumption, [this]() {
         return _mem_tracker->consumption();
     });
+    _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }

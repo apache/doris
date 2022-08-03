@@ -20,7 +20,6 @@
 
 #pragma once
 
-// TODO: Tracker
 // TODO: Readable
 
 #include <fmt/format.h>
@@ -29,6 +28,7 @@
 #include <exception>
 
 #include "common/status.h"
+#include "runtime/thread_context.h"
 
 #ifdef NDEBUG
 #define ALLOCATOR_ASLR 0
@@ -137,15 +137,18 @@ public:
         } else if (old_size >= MMAP_THRESHOLD && new_size >= MMAP_THRESHOLD) {
             /// Resize mmap'd memory region.
             // CurrentMemoryTracker::realloc(old_size, new_size);
+            CONSUME_THREAD_MEM_TRACKER(new_size - old_size);
 
             // On apple and freebsd self-implemented mremap used (common/mremap.h)
             buf = clickhouse_mremap(buf, old_size, new_size, MREMAP_MAYMOVE, PROT_READ | PROT_WRITE,
                                     mmap_flags, -1, 0);
-            if (MAP_FAILED == buf)
+            if (MAP_FAILED == buf){
+                RELEASE_THREAD_MEM_TRACKER(new_size - old_size);
                 doris::vectorized::throwFromErrno("Allocator: Cannot mremap memory chunk from " +
                                                           std::to_string(old_size) + " to " +
                                                           std::to_string(new_size) + ".",
                                                   doris::TStatusCode::VEC_CANNOT_MREMAP);
+            }
 
             /// No need for zero-fill, because mmap guarantees it.
 
@@ -204,10 +207,13 @@ private:
                                 alignment, size),
                         doris::TStatusCode::VEC_BAD_ARGUMENTS);
 
+            CONSUME_THREAD_MEM_TRACKER(size);
             buf = mmap(get_mmap_hint(), size, PROT_READ | PROT_WRITE, mmap_flags, -1, 0);
-            if (MAP_FAILED == buf)
+            if (MAP_FAILED == buf){
+                RELEASE_THREAD_MEM_TRACKER(size);
                 doris::vectorized::throwFromErrno(fmt::format("Allocator: Cannot mmap {}.", size),
                                                   doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
+            }
 
             /// No need for zero-fill, because mmap guarantees it.
         } else {
@@ -238,9 +244,12 @@ private:
 
     void free_no_track(void* buf, size_t size) {
         if (size >= MMAP_THRESHOLD) {
-            if (0 != munmap(buf, size))
+            if (0 != munmap(buf, size)) {
                 doris::vectorized::throwFromErrno(fmt::format("Allocator: Cannot munmap {}.", size),
                                                   doris::TStatusCode::VEC_CANNOT_MUNMAP);
+            } else {
+                RELEASE_THREAD_MEM_TRACKER(size);
+            }
         } else {
             ::free(buf);
         }

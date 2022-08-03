@@ -52,6 +52,7 @@ Status VCrossJoinNode::close(RuntimeState* state) {
 Status VCrossJoinNode::construct_build_side(RuntimeState* state) {
     // Do a full scan of child(1) and store all build row batches.
     RETURN_IF_ERROR(child(1)->open(state));
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Vec Cross join, while getting next from the child 1");
 
     bool eos = false;
     while (true) {
@@ -69,8 +70,6 @@ Status VCrossJoinNode::construct_build_side(RuntimeState* state) {
             _build_blocks.emplace_back(std::move(block));
             _mem_tracker->Consume(mem_usage);
         }
-        // to prevent use too many memory
-        RETURN_IF_LIMIT_EXCEEDED(state, "Cross join, while getting next from the child 1.");
 
         if (eos) {
             break;

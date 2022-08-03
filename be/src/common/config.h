@@ -412,10 +412,14 @@ CONF_Bool(disable_mem_pools, "false");
 // to a relative large number or the performance is very very bad.
 CONF_Bool(use_mmap_allocate_chunk, "false");
 
-// Chunk Allocator's reserved bytes limit,
-// Default value is 2GB, increase this variable can improve performance, but will
-// acquire more free memory which can not be used by other modules
-CONF_Int64(chunk_reserved_bytes_limit, "2147483648");
+// The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
+// defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
+// must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
+// increase this variable can improve performance,
+// but will acquire more free memory which can not be used by other modules.
+CONF_mString(chunk_reserved_bytes_limit, "20%");
+// 1024, The minimum chunk allocator size (in bytes)
+CONF_Int32(min_chunk_reserved_bytes, "1024");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -620,6 +624,26 @@ CONF_mInt32(remote_storage_read_buffer_mb, "16");
 //      DEBUG: 1
 // the level equal or lower than mem_tracker_level will show in web page
 CONF_Int16(mem_tracker_level, "0");
+
+// Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
+CONF_Bool(enable_tcmalloc_hook, "true");
+
+// If true, switch TLS MemTracker to count more detailed memory,
+// including caches such as ExecNode operators and TabletManager.
+//
+// At present, there is a performance problem in the frequent switch thread mem tracker.
+// This is because the mem tracker exists as a shared_ptr in the thread local. Each time it is switched,
+// the atomic variable use_count in the shared_ptr of the current tracker will be -1, and the tracker to be
+// replaced use_count +1, multi-threading Frequent changes to the same tracker shared_ptr are slow.
+// TODO: 1. Reduce unnecessary thread mem tracker switches,
+//       2. Consider using raw pointers for mem tracker in thread local
+CONF_Bool(memory_verbose_track, "false");
+
+// The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
+// smaller than this value will continue to accumulate. specified as number of bytes.
+// Decreasing this value will increase the frequency of consume/release.
+// Increasing this value will cause MemTracker statistics to be inaccurate.
+CONF_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 
 // The version information of the tablet will be stored in the memory
 // in an adjacency graph data structure.

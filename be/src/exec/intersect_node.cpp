@@ -43,6 +43,7 @@ Status IntersectNode::init(const TPlanNode& tnode, RuntimeState* state) {
 // 2 probe with child(1), then filter the hash table and find the matched item, use them to rebuild a hash table
 // repeat [2] this for all the rest child
 Status IntersectNode::open(RuntimeState* state) {
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Intersect Node, while probing the hash table.");
     RETURN_IF_ERROR(SetOperationNode::open(state));
     // if a table is empty, the result must be empty
     if (_hash_tbl->size() == 0) {
@@ -66,7 +67,6 @@ Status IntersectNode::open(RuntimeState* state) {
         while (!eos) {
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR(child(i)->get_next(state, _probe_batch.get(), &eos));
-            RETURN_IF_LIMIT_EXCEEDED(state, " Intersect , while probing the hash table.");
             for (int j = 0; j < _probe_batch->num_rows(); ++j) {
                 _hash_tbl_iterator = _hash_tbl->find(_probe_batch->get_row(j));
                 if (_hash_tbl_iterator != _hash_tbl->end()) {

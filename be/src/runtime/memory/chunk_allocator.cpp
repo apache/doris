@@ -25,6 +25,7 @@
 #include "runtime/memory/chunk.h"
 #include "runtime/memory/system_allocator.h"
 #include "util/bit_util.h"
+#include "runtime/thread_context.h"
 #include "util/cpu_info.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
@@ -114,6 +115,7 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
         : _reserve_bytes_limit(reserve_limit),
           _reserved_bytes(0),
           _arenas(CpuInfo::get_max_num_cores()) {
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(-1, "ChunkAllocator");
     for (int i = 0; i < _arenas.size(); ++i) {
         _arenas[i].reset(new ChunkArena());
     }
@@ -138,6 +140,8 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
         DCHECK_GE(_reserved_bytes, 0);
         _reserved_bytes.fetch_sub(size);
         chunk_pool_local_core_alloc_count->increment(1);
+        // transfer the memory ownership of allocate from ChunkAllocator::tracker to the tls tracker.
+        THREAD_MEM_TRACKER_TRANSFER_FROM(size, _mem_tracker.get());
         return true;
     }
     if (_reserved_bytes > size) {
@@ -150,6 +154,8 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
                 chunk_pool_other_core_alloc_count->increment(1);
                 // reset chunk's core_id to other
                 chunk->core_id = core_id % _arenas.size();
+                // transfer the memory ownership of allocate from ChunkAllocator::tracker to the tls tracker.
+                THREAD_MEM_TRACKER_TRANSFER_FROM(size, _mem_tracker.get());
                 return true;
             }
         }
@@ -190,6 +196,8 @@ void ChunkAllocator::free(const Chunk& chunk) {
         }
     } while (!_reserved_bytes.compare_exchange_weak(old_reserved_bytes, new_reserved_bytes));
 
+    // The chunk's memory ownership is transferred from tls tracker to ChunkAllocator.
+    THREAD_MEM_TRACKER_TRANSFER_TO(chunk.size, _mem_tracker.get());
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
 }
 

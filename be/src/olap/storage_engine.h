@@ -184,6 +184,7 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
+    std::shared_ptr<MemTrackerLimiter> new_compaction_mem_tracker() { return _new_compaction_mem_tracker; }
     std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
     std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
 
@@ -330,6 +331,8 @@ private:
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
     std::shared_ptr<MemTracker> _compaction_mem_tracker;
+    // Count the memory consumption of all Base and Cumulative tasks.
+    std::shared_ptr<MemTrackerLimiter> _new_compaction_mem_tracker;
     std::shared_ptr<MemTracker> _tablet_mem_tracker;
     std::shared_ptr<MemTracker> _schema_change_mem_tracker;
     std::shared_ptr<MemTracker> _convert_rowset_mem_tracker;

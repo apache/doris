@@ -51,6 +51,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
 #include "service/backend_options.h"
+#include "runtime/memory/mem_tracker_task_pool.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
 #include "service/http_service.h"
@@ -395,6 +396,10 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
+    // init exec env
+    auto exec_env = doris::ExecEnv::GetInstance();
+    doris::ExecEnv::init(exec_env, paths);
+
     // init and open storage engine
     doris::EngineOptions options;
     options.store_paths = paths;
@@ -405,10 +410,6 @@ int main(int argc, char** argv) {
         LOG(FATAL) << "fail to open StorageEngine, res=" << st.get_error_msg();
         exit(-1);
     }
-
-    // init exec env
-    auto exec_env = doris::ExecEnv::GetInstance();
-    doris::ExecEnv::init(exec_env, paths);
     exec_env->set_storage_engine(engine);
     engine->set_heartbeat_flags(exec_env->heartbeat_flags());
 
@@ -477,6 +478,9 @@ int main(int argc, char** argv) {
         doris::MemInfo::refresh_current_mem();
 #endif
         doris::PerfCounters::refresh_proc_status();
+
+        // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
+        doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
         sleep(1);
     }
 

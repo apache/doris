@@ -19,6 +19,7 @@
 
 #include "util/doris_metrics.h"
 #include "util/time.h"
+#include "runtime/thread_context.h"
 #include "util/trace.h"
 
 namespace doris {
@@ -70,6 +71,8 @@ OLAPStatus CumulativeCompaction::execute_compact_impl() {
         _tablet->set_clone_occurred(false);
         return OLAP_ERR_CUMULATIVE_CLONE_OCCURRED;
     }
+
+    SCOPED_ATTACH_TASK(StorageEngine::instance()->new_compaction_mem_tracker(), ThreadContext::TaskType::COMPACTION);
 
     // 3. do cumulative compaction, merge rowsets
     int64_t permits = get_compaction_permits();

@@ -36,6 +36,7 @@
 #include "runtime/thread_resource_mgr.h"
 #include "util/logging.h"
 #include "util/runtime_profile.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -113,6 +114,7 @@ public:
     int max_errors() const { return _query_options.max_errors; }
     int max_io_buffers() const { return _query_options.max_io_buffers; }
     int num_scanner_threads() const { return _query_options.num_scanner_threads; }
+    TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
@@ -125,6 +127,8 @@ public:
     std::shared_ptr<MemTracker> fragment_mem_tracker() { return _fragment_mem_tracker; }
     std::shared_ptr<MemTracker> query_mem_tracker() { return _query_mem_tracker; }
     std::shared_ptr<MemTracker> instance_mem_tracker() { return _instance_mem_tracker; }
+    std::shared_ptr<MemTrackerLimiter> new_query_mem_tracker() { return _new_query_mem_tracker; }
+    std::shared_ptr<MemTrackerLimiter> new_instance_mem_tracker() { return _new_instance_mem_tracker; }
     ThreadResourceMgr::ResourcePool* resource_pool() { return _resource_pool; }
 
     void set_fragment_root_id(PlanNodeId id) {
@@ -226,19 +230,11 @@ public:
         _process_status = status;
     }
 
-    // Sets query_status_ to MEM_LIMIT_EXCEEDED and logs all the registered trackers.
-    // Subsequent calls to this will be no-ops. Returns query_status_.
-    // If 'failed_allocation_size' is not 0, then it is the size of the allocation (in
-    // bytes) that would have exceeded the limit allocated for 'tracker'.
-    // This value and tracker are only used for error reporting.
+    // Sets _process_status to MEM_LIMIT_EXCEEDED.
+    // Subsequent calls to this will be no-ops. Returns _process_status.
     // If 'msg' is non-nullptr, it will be appended to query_status_ in addition to the
     // generic "Memory limit exceeded" error.
-    Status set_mem_limit_exceeded(MemTracker* tracker = nullptr, int64_t failed_allocation_size = 0,
-                                  const std::string* msg = nullptr);
-
-    Status set_mem_limit_exceeded(const std::string& msg) {
-        return set_mem_limit_exceeded(nullptr, 0, &msg);
-    }
+    Status set_mem_limit_exceeded(const std::string& msg = "Memory limit exceeded");
 
     // Returns a non-OK status if query execution should stop (e.g., the query was cancelled
     // or a mem limit was exceeded). Exec nodes should check this periodically so execution
@@ -413,6 +409,13 @@ private:
 
     // Memory usage of this fragment instance
     std::shared_ptr<MemTracker> _instance_mem_tracker;
+
+    // MemTracker that is shared by all fragment instances running on this host.
+    // The query mem tracker must be released after the _instance_mem_tracker.
+    std::shared_ptr<MemTrackerLimiter> _new_query_mem_tracker;
+
+    // Memory usage of this fragment instance
+    std::shared_ptr<MemTrackerLimiter> _new_instance_mem_tracker;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.

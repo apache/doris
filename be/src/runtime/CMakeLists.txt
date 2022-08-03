@@ -104,6 +104,10 @@ set(RUNTIME_FILES
     mysql_result_writer.cpp
     memory/system_allocator.cpp
     memory/chunk_allocator.cpp
+    memory/mem_tracker_limiter.cpp
+    memory/mem_tracker.cpp
+    memory/mem_tracker_task_pool.cpp
+    memory/thread_mem_tracker_mgr.cpp
     fold_constant_executor.cpp
     cache/result_node.cpp
     cache/result_cache.cpp

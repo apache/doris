@@ -214,7 +214,7 @@ class MergeIterator : public RowwiseIterator {
 public:
     // MergeIterator takes the ownership of input iterators
     MergeIterator(std::vector<RowwiseIterator*> iters, std::shared_ptr<MemTracker> parent, int sequence_id_idx, bool is_unique, uint64_t* merged_rows)
-        : _origin_iters(std::move(iters)), _sequence_id_idx(sequence_id_idx), _is_unique(is_unique), _merged_rows(merged_rows), _merge_heap(MergeContextComparator(_sequence_id_idx, is_unique)) {
+        : _origin_iters(std::move(iters)), _sequence_id_idx(sequence_id_idx), _merged_rows(merged_rows), _merge_heap(MergeContextComparator(_sequence_id_idx, is_unique)) {
         // use for count the mem use of Block use in Merge
         _mem_tracker = MemTracker::CreateTracker(-1, "MergeIterator", std::move(parent), false);
     }
@@ -238,7 +238,6 @@ private:
     std::vector<RowwiseIterator*> _origin_iters;
 
     int _sequence_id_idx;
-    bool _is_unique;
 
     std::unique_ptr<Schema> _schema;
     uint64_t* _merged_rows;

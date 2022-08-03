@@ -45,7 +45,9 @@ class LoadPathMgr;
 class LoadStreamMgr;
 class MemTracker;
 class StorageEngine;
+class MemTrackerLimiter;
 class PoolMemTrackerRegistry;
+class MemTrackerTaskPool;
 class PriorityThreadPool;
 class PriorityWorkStealingThreadPool;
 class ReservationTracker;
@@ -118,6 +120,12 @@ public:
 
     std::shared_ptr<MemTracker> process_mem_tracker() { return _mem_tracker; }
     PoolMemTrackerRegistry* pool_mem_trackers() { return _pool_mem_trackers; }
+
+    std::shared_ptr<MemTrackerLimiter> new_process_mem_tracker() { return _process_mem_tracker; }
+    std::shared_ptr<MemTrackerLimiter> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
+    std::shared_ptr<MemTrackerLimiter> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
+    MemTrackerTaskPool* task_pool_mem_tracker_registry() { return _task_pool_mem_tracker_registry; }
+
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
     ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
@@ -187,6 +195,15 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
     PoolMemTrackerRegistry* _pool_mem_trackers = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
+
+    // The ancestor for all trackers. Every tracker is visible from the process down.
+    // Not limit total memory by process tracker, and it's just used to track virtual memory of process.
+    std::shared_ptr<MemTrackerLimiter> _process_mem_tracker;
+    // The ancestor for all querys tracker.
+    std::shared_ptr<MemTrackerLimiter> _query_pool_mem_tracker;
+    // The ancestor for all load tracker.
+    std::shared_ptr<MemTrackerLimiter> _load_pool_mem_tracker;
+    MemTrackerTaskPool* _task_pool_mem_tracker_registry;
 
     // The following two thread pools are used in different scenarios.
     // _scan_thread_pool is a priority thread pool.

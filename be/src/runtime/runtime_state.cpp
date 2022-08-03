@@ -36,6 +36,7 @@
 #include "runtime/initial_reservations.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker_task_pool.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
@@ -206,6 +207,15 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
 Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     bool has_query_mem_tracker = _query_options.__isset.mem_limit && (_query_options.mem_limit > 0);
     int64_t bytes_limit = has_query_mem_tracker ? _query_options.mem_limit : -1;
+    if (bytes_limit > ExecEnv::GetInstance()->process_mem_tracker()->limit()) {
+        VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
+                    << " exceeds process memory limit of "
+                    << PrettyPrinter::print(ExecEnv::GetInstance()->process_mem_tracker()->limit(),
+                                            TUnit::BYTES)
+                    << ". Using process memory limit instead";
+        bytes_limit = ExecEnv::GetInstance()->process_mem_tracker()->limit();
+    }
+
     // we do not use global query-map  for now, to avoid mem-exceeded different fragments
     // running on the same machine.
     // TODO(lingbin): open it later. note that open with BufferedBlockMgr's BlockMgrsMap
@@ -222,6 +232,22 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
                                       _exec_env->process_mem_tracker(), true, false);
     _instance_mem_tracker =
             MemTracker::CreateTracker(&_profile, -1, "RuntimeState:instance:", _query_mem_tracker);
+
+    if (query_type() == TQueryType::SELECT) {
+        _new_query_mem_tracker =
+                _exec_env->task_pool_mem_tracker_registry()->register_query_mem_tracker(
+                        print_id(query_id), bytes_limit);
+    } else if (query_type() == TQueryType::LOAD) {
+        _new_query_mem_tracker = _exec_env->task_pool_mem_tracker_registry()->register_load_mem_tracker(
+                print_id(query_id), bytes_limit);
+    } else {
+        DCHECK(false);
+        _new_query_mem_tracker = ExecEnv::GetInstance()->query_pool_mem_tracker();
+    }
+
+    _new_instance_mem_tracker = std::make_shared<MemTrackerLimiter>(
+            bytes_limit, "RuntimeState:instance:" + print_id(_fragment_instance_id),
+            _new_query_mem_tracker);
 
     /*
     // TODO: this is a stopgap until we implement ExprContext
@@ -243,10 +269,7 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
         _instance_buffer_reservation->InitChildTracker(&_profile, _buffer_reservation,
                                                        _instance_mem_tracker.get(),
                                                        std::numeric_limits<int64_t>::max());
-    }
-
-    // filter manager depends _instance_mem_tracker
-    _runtime_filter_mgr->init();
+    }    
     return Status::OK();
 }
 
@@ -330,46 +353,13 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
     }
 }
 
-Status RuntimeState::set_mem_limit_exceeded(MemTracker* tracker, int64_t failed_allocation_size,
-                                            const std::string* msg) {
-    DCHECK_GE(failed_allocation_size, 0);
+Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
     {
         std::lock_guard<std::mutex> l(_process_status_lock);
         if (_process_status.ok()) {
-            if (msg != nullptr) {
-                _process_status = Status::MemoryLimitExceeded(*msg);
-            } else {
-                _process_status = Status::MemoryLimitExceeded("Memory limit exceeded");
-            }
-        } else {
-            return _process_status;
+            _process_status = Status::MemoryLimitExceeded(msg);
         }
     }
-
-    DCHECK(_query_mem_tracker.get() != nullptr);
-    std::stringstream ss;
-    ss << "Memory Limit Exceeded\n";
-    if (failed_allocation_size != 0) {
-        DCHECK(tracker != nullptr);
-        ss << "  " << tracker->label() << " could not allocate "
-           << PrettyPrinter::print(failed_allocation_size, TUnit::BYTES)
-           << " without exceeding limit." << std::endl;
-    }
-
-    // if (_exec_env->process_mem_tracker()->LimitExceeded()) {
-    //     ss << _exec_env->process_mem_tracker()->LogUsage();
-    // } else {
-    //     ss << _query_mem_tracker->LogUsage();
-    // }
-    // log_error(ErrorMsg(TErrorCode::GENERAL, ss.str()));
-    log_error(ss.str());
-    // Add warning about missing stats except for compute stats child queries.
-    // if (!query_ctx().__isset.parent_query_id &&
-    //         query_ctx().__isset.tables_missing_stats &&
-    //         !query_ctx().tables_missing_stats.empty()) {
-    //     LogError(ErrorMsg(TErrorCode::GENERAL,
-    //                 GetTablesMissingStatsWarning(query_ctx().tables_missing_stats)));
-    // }
     DCHECK(_process_status.is_mem_limit_exceeded());
     return _process_status;
 }

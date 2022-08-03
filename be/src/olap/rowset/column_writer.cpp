@@ -488,8 +488,7 @@ void ByteColumnWriter::record_position() {
 
 IntegerColumnWriter::IntegerColumnWriter(uint32_t column_id, uint32_t unique_column_id,
                                          OutStreamFactory* stream_factory, bool is_singed)
-        : _column_id(column_id),
-          _unique_column_id(unique_column_id),
+        : _unique_column_id(unique_column_id),
           _stream_factory(stream_factory),
           _writer(nullptr),
           _is_signed(is_singed) {}

@@ -193,9 +193,9 @@ public:
     // 1: running, haven't reach eos.
     // only allow 1 rpc in flight
     // plz make sure, this func should be called after open_wait().
-    int try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thread_pool_token);
+    int try_send_and_fetch_status(RuntimeState* state, std::unique_ptr<ThreadPoolToken>& thread_pool_token);
 
-    void try_send_batch();
+    void try_send_batch(RuntimeState* state);
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
                      int64_t* serialize_batch_ns, int64_t* mem_exceeded_block_ns,
@@ -403,7 +403,7 @@ private:
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
-    void _send_batch_process();
+    void _send_batch_process(RuntimeState* state);
 
 protected:
     friend class NodeChannel;

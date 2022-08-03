@@ -19,6 +19,7 @@
 
 #include "util/doris_metrics.h"
 #include "util/trace.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -63,6 +64,8 @@ OLAPStatus BaseCompaction::execute_compact_impl() {
         _tablet->set_clone_occurred(false);
         return OLAP_ERR_BE_CLONE_OCCURRED;
     }
+
+    SCOPED_ATTACH_TASK(StorageEngine::instance()->new_compaction_mem_tracker(), ThreadContext::TaskType::COMPACTION);
 
     // 2. do base compaction, merge rowsets
     int64_t permits = get_compaction_permits();

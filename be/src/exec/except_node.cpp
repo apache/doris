@@ -40,6 +40,7 @@ Status ExceptNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExceptNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(SetOperationNode::open(state));
+    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Except Node, while probing the hash table.");
     // if a table is empty, the result must be empty
     if (_hash_tbl->size() == 0) {
         _hash_tbl_iterator = _hash_tbl->begin();
@@ -63,7 +64,6 @@ Status ExceptNode::open(RuntimeState* state) {
         while (!eos) {
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR(child(i)->get_next(state, _probe_batch.get(), &eos));
-            RETURN_IF_LIMIT_EXCEEDED(state, " Except , while probing the hash table.");
             for (int j = 0; j < _probe_batch->num_rows(); ++j) {
                 _hash_tbl_iterator = _hash_tbl->find(_probe_batch->get_row(j));
                 if (_hash_tbl_iterator != _hash_tbl->end()) {

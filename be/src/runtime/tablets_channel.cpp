@@ -24,6 +24,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "util/doris_metrics.h"
+#include <boost/lexical_cast.hpp>
 
 namespace doris {
 
@@ -219,7 +220,7 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
     } else {
         PTabletError* tablet_error = tablet_errors->Add();
         tablet_error->set_tablet_id(writer->tablet_id());
-        tablet_error->set_msg("close wait failed: " + st);
+        tablet_error->set_msg("close wait failed: " + boost::lexical_cast<string>(st));
     }
 }
 
