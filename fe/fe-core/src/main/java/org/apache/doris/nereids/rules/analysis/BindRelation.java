@@ -45,26 +45,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
             switch (nameParts.size()) {
                 case 1: {
                     // Use current database name from catalog.
-                    String dbName = connectContext.getDatabase();
-                    Table table = getTable(dbName, nameParts.get(0), connectContext.getEnv());
-                    // TODO: should generate different Scan sub class according to table's type
-                    if (table.getType() == TableType.OLAP) {
-                        return new LogicalOlapScan(table, ImmutableList.of(dbName));
-                    } else if (table.getType() == TableType.VIEW) {
-                        LogicalPlan viewPlan = new NereidsAnalyzer(connectContext).analyze(table.getDdlSql());
-                        return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
-                    }
-                    throw new RuntimeException("");
+                    return useCurrentDb(connectContext, nameParts);
                 }
                 case 2: {
                     // Use database name from table name parts.
-                    // if the relation is view, nameParts.get(0) is dbName.
-                    String dbName = nameParts.get(0);
-                    if (!dbName.equals(connectContext.getDatabase())) {
-                        dbName = connectContext.getClusterName() + ":" + nameParts.get(0);
-                    }
-                    Table table = getTable(dbName, nameParts.get(1), connectContext.getEnv());
-                    return new LogicalOlapScan(table, ImmutableList.of(dbName));
+                    return useDbNameFromNamePart(connectContext, nameParts);
                 }
                 default:
                     throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
@@ -84,5 +69,32 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
+    private LogicalPlan useCurrentDb(ConnectContext ctx, List<String> nameParts) {
+        String dbName = ctx.getDatabase();
+        Table table = getTable(dbName, nameParts.get(0), ctx.getEnv());
+        // TODO: should generate different Scan sub class according to table's type
+        if (table.getType() == TableType.OLAP) {
+            return new LogicalOlapScan(table, ImmutableList.of(dbName));
+        } else if (table.getType() == TableType.VIEW) {
+            LogicalPlan viewPlan = new NereidsAnalyzer(ctx).analyze(table.getDdlSql());
+            return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
+        }
+        throw new RuntimeException("");
+    }
 
+    private LogicalPlan useDbNameFromNamePart(ConnectContext ctx, List<String> nameParts) {
+        // if the relation is view, nameParts.get(0) is dbName.
+        String dbName = nameParts.get(0);
+        if (!dbName.equals(ctx.getDatabase())) {
+            dbName = ctx.getClusterName() + ":" + nameParts.get(0);
+        }
+        Table table = getTable(dbName, nameParts.get(1), ctx.getEnv());
+        if (table.getType() == TableType.OLAP) {
+            return new LogicalOlapScan(table, ImmutableList.of(dbName));
+        } else if (table.getType() == TableType.VIEW) {
+            LogicalPlan viewPlan = new NereidsAnalyzer(ctx).analyze(table.getDdlSql());
+            return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
+        }
+        throw new RuntimeException("");
+    }
 }
