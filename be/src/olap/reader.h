@@ -58,7 +58,7 @@ public:
     // mainly include tablet, data version and fetch range.
     struct ReaderParams {
         TabletSharedPtr tablet;
-        const TabletSchema* tablet_schema;
+        TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = READER_QUERY;
         bool direct_mode = false;
         bool aggregation = false;

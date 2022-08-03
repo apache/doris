@@ -241,15 +241,15 @@ private:
     RowRefComparator _cmp;
 };
 
-RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema, DescriptorTbl desc_tbl)
+RowBlockChanger::RowBlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)
         : _desc_tbl(desc_tbl) {
-    _schema_mapping.resize(tablet_schema.num_columns());
+    _schema_mapping.resize(tablet_schema->num_columns());
 }
 
-RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
+RowBlockChanger::RowBlockChanger(TabletSchemaSPtr tablet_schema,
                                  const DeleteHandler* delete_handler, DescriptorTbl desc_tbl)
         : _desc_tbl(desc_tbl) {
-    _schema_mapping.resize(tablet_schema.num_columns());
+    _schema_mapping.resize(tablet_schema->num_columns());
     _delete_handler = delete_handler;
 }
 
@@ -1633,10 +1633,9 @@ bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_row
         rs_readers.push_back(rs_reader);
     }
     // get cur schema if rowset schema exist, rowset schema must be newer than tablet schema
-    const TabletSchema* cur_tablet_schema =
-            src_rowsets.back()->rowset_meta()->tablet_schema().get();
+    TabletSchemaSPtr cur_tablet_schema = src_rowsets.back()->rowset_meta()->tablet_schema();
     if (cur_tablet_schema == nullptr) {
-        cur_tablet_schema = new_tablet->tablet_schema().get();
+        cur_tablet_schema = new_tablet->tablet_schema();
     }
 
     Merger::Statistics stats;
@@ -1760,12 +1759,12 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     // delete handlers for new tablet
     DeleteHandler delete_handler;
     std::vector<ColumnId> return_columns;
-    TabletSchema base_tablet_schema;
-    base_tablet_schema.copy_from(*base_tablet->tablet_schema());
+    TabletSchemaSPtr base_tablet_schema = std::make_shared<TabletSchema>();
+    base_tablet_schema->copy_from(*base_tablet->tablet_schema());
     if (!request.columns.empty() && request.columns[0].col_unique_id >= 0) {
-        base_tablet_schema.clear_columns();
+        base_tablet_schema->clear_columns();
         for (const auto& column : request.columns) {
-            base_tablet_schema.append_column(TabletColumn(column));
+            base_tablet_schema->append_column(TabletColumn(column));
         }
     }
 
@@ -1778,7 +1777,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         std::lock_guard<std::shared_mutex> new_tablet_wlock(new_tablet->get_header_lock());
         // check if the tablet has alter task
         // if it has alter task, it means it is under old alter process
-        size_t num_cols = base_tablet_schema.num_columns();
+        size_t num_cols = base_tablet_schema->num_columns();
         return_columns.resize(num_cols);
         for (int i = 0; i < num_cols; ++i) {
             return_columns[i] = i;
@@ -1788,7 +1787,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         // with rs_readers
         RowsetReaderContext reader_context;
         reader_context.reader_type = READER_ALTER_TABLE;
-        reader_context.tablet_schema = &base_tablet_schema;
+        reader_context.tablet_schema = base_tablet_schema;
         reader_context.need_ordered_result = true;
         reader_context.delete_handler = &delete_handler;
         reader_context.return_columns = &return_columns;
@@ -1874,9 +1873,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             reader_params.tablet = base_tablet;
             reader_params.reader_type = READER_ALTER_TABLE;
             reader_params.rs_readers = rs_readers;
-            reader_params.tablet_schema = &base_tablet_schema;
-            const auto& schema = base_tablet_schema;
-            reader_params.return_columns.resize(schema.num_columns());
+            reader_params.tablet_schema = base_tablet_schema;
+            reader_params.return_columns.resize(base_tablet_schema->num_columns());
             std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
             reader_params.origin_return_columns = &reader_params.return_columns;
             reader_params.version = {0, end_version};
@@ -1915,7 +1913,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         sc_params.new_tablet = new_tablet;
         sc_params.ref_rowset_readers = rs_readers;
         sc_params.delete_handler = &delete_handler;
-        sc_params.base_tablet_schema = &base_tablet_schema;
+        sc_params.base_tablet_schema = base_tablet_schema;
         if (request.__isset.materialized_view_params) {
             for (auto item : request.materialized_view_params) {
                 AlterMaterializedViewParam mv_param;
@@ -2026,7 +2024,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
 
     // Add filter information in change, and filter column information will be set in _parse_request
     // And filter some data every time the row block changes
-    RowBlockChanger rb_changer(*sc_params.new_tablet->tablet_schema(), sc_params.delete_handler,
+    RowBlockChanger rb_changer(sc_params.new_tablet->tablet_schema(), sc_params.delete_handler,
                                *sc_params.desc_tbl);
 
     bool sc_sorting = false;
@@ -2140,7 +2138,7 @@ Status SchemaChangeHandler::_parse_request(
         bool* sc_sorting, bool* sc_directly,
         const std::unordered_map<std::string, AlterMaterializedViewParam>&
                 materialized_function_map,
-        DescriptorTbl desc_tbl, const TabletSchema* base_tablet_schema) {
+        DescriptorTbl desc_tbl, TabletSchemaSPtr base_tablet_schema) {
     // set column mapping
     for (int i = 0, new_schema_size = new_tablet->tablet_schema()->num_columns();
          i < new_schema_size; ++i) {
@@ -2219,9 +2217,8 @@ Status SchemaChangeHandler::_parse_request(
         }
     }
 
-    const TabletSchema& ref_tablet_schema = *base_tablet_schema;
     TabletSchemaSPtr new_tablet_schema = new_tablet->tablet_schema();
-    if (ref_tablet_schema.keys_type() != new_tablet_schema->keys_type()) {
+    if (base_tablet_schema->keys_type() != new_tablet_schema->keys_type()) {
         // only when base table is dup and mv is agg
         // the rollup job must be reagg.
         *sc_sorting = true;
@@ -2256,7 +2253,7 @@ Status SchemaChangeHandler::_parse_request(
             continue;
         } else {
             auto column_new = new_tablet_schema->column(i);
-            auto column_old = ref_tablet_schema.column(column_mapping->ref_column);
+            auto column_old = base_tablet_schema->column(column_mapping->ref_column);
             if (column_new.type() != column_old.type() ||
                 column_new.precision() != column_old.precision() ||
                 column_new.frac() != column_old.frac() ||

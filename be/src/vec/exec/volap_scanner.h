@@ -145,7 +145,7 @@ private:
     VExprContext* _vconjunct_ctx = nullptr;
     bool _need_to_close = false;
 
-    TabletSchema _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
 };
 
 } // namespace vectorized
