@@ -793,7 +793,7 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         build_segment(SegmentWriterOptions(), build_schema, query_schema, 4096, DefaultIntGenerator,
                       &segment);
 
-        Schema schema(*query_schema);
+        Schema schema(query_schema);
         OlapReaderStatistics stats;
         // scan all rows
         {
@@ -844,7 +844,7 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
         build_segment(SegmentWriterOptions(), build_schema, query_schema, 4096, DefaultIntGenerator,
                       &segment);
 
-        Schema schema(*query_schema);
+        Schema schema(query_schema);
         OlapReaderStatistics stats;
         // scan all rows
         {
