@@ -126,10 +126,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testPlan() throws AnalysisException {
-        PhysicalPlan plan = testPlanCase(testSql.get(10));
-        System.out.println(plan.treeString());
-        PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
-        System.out.println(root.getPlanRoot());
+        testPlanCase(testSql.get(10));
     }
 
     @Test
@@ -140,12 +137,15 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         }
     }
 
-    private PhysicalPlan testPlanCase(String sql) throws AnalysisException {
-        return new NereidsPlanner(connectContext).plan(
+    private void testPlanCase(String sql) throws AnalysisException {
+        PhysicalPlan plan = new NereidsPlanner(connectContext).plan(
                 parser.parseSingle(sql),
                 new PhysicalProperties(),
                 connectContext
         );
+        System.out.println(plan.treeString());
+        PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
+        System.out.println(root.getPlanRoot().getPlanTreeExplainStr());
     }
 
     private void checkAnalyze(String sql) {

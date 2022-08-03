@@ -233,7 +233,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, context);
         tupleDescriptor.setTable(olapTable);
-        OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, olapTable.getName());
+        //OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, olapTable.getName());
+        OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, "VOlapScanNode");
         // TODO: Do we really need tableName here?
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
