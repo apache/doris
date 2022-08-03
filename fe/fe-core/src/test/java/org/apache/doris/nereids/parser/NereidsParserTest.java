@@ -21,9 +21,11 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
@@ -127,5 +129,67 @@ public class NereidsParserTest {
         ExplainOptions explainOptions = statementBases.get(1).getExplainOptions();
         Assertions.assertTrue(explainOptions.isGraph());
         Assertions.assertFalse(explainOptions.isVerbose());
+    }
+
+    @Test
+    public void testParseJoin() {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan;
+        LogicalJoin logicalJoin;
+
+        String innerJoin1 = "SELECT t1.a FROM t1 INNER JOIN t2 ON t1.id = t2.id;";
+        logicalPlan = nereidsParser.parseSingle(innerJoin1);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.INNER_JOIN, logicalJoin.getJoinType());
+
+        String innerJoin2 = "SELECT t1.a FROM t1 JOIN t2 ON t1.id = t2.id;";
+        logicalPlan = nereidsParser.parseSingle(innerJoin2);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.INNER_JOIN, logicalJoin.getJoinType());
+
+        String leftJoin1 = "SELECT t1.a FROM t1 LEFT JOIN t2 ON t1.id = t2.id;";
+        logicalPlan = nereidsParser.parseSingle(leftJoin1);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, logicalJoin.getJoinType());
+
+        String leftJoin2 = "SELECT t1.a FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id;";
+        logicalPlan = nereidsParser.parseSingle(leftJoin2);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, logicalJoin.getJoinType());
+
+        String rightJoin1 = "SELECT t1.a FROM t1 RIGHT JOIN t2 ON t1.id = t2.id;";
+        logicalPlan = nereidsParser.parseSingle(rightJoin1);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, logicalJoin.getJoinType());
+
+        String rightJoin2 = "SELECT t1.a FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id;";
+        logicalPlan = nereidsParser.parseSingle(rightJoin2);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, logicalJoin.getJoinType());
+
+        String leftSemiJoin = "SELECT t1.a FROM t1 LEFT SEMI JOIN t2 ON t1.id = t2.id;";
+        logicalPlan = nereidsParser.parseSingle(leftSemiJoin);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.LEFT_SEMI_JOIN, logicalJoin.getJoinType());
+
+        String rightSemiJoin = "SELECT t2.a FROM t1 RIGHT SEMI JOIN t2 ON t1.id = t2.id;";
+        logicalPlan = nereidsParser.parseSingle(rightSemiJoin);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.RIGHT_SEMI_JOIN, logicalJoin.getJoinType());
+
+        String leftAntiJoin = "SELECT t1.a FROM t1 LEFT ANTI JOIN t2 ON t1.id = t2.id;";
+        logicalPlan = nereidsParser.parseSingle(leftAntiJoin);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.LEFT_ANTI_JOIN, logicalJoin.getJoinType());
+
+        String righAntiJoin = "SELECT t2.a FROM t1 RIGHT ANTI JOIN t2 ON t1.id = t2.id;";
+        logicalPlan = nereidsParser.parseSingle(righAntiJoin);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.RIGHT_ANTI_JOIN, logicalJoin.getJoinType());
+
+        String crossJoin = "SELECT t1.a FROM t1 CROSS JOIN t2;";
+        logicalPlan = nereidsParser.parseSingle(crossJoin);
+        logicalJoin = (LogicalJoin) logicalPlan.child(0);
+        Assertions.assertEquals(JoinType.CROSS_JOIN, logicalJoin.getJoinType());
     }
 }

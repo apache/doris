@@ -268,33 +268,29 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
     return &(_schema_mapping[column_index]);
 }
 
-#define TYPE_REINTERPRET_CAST(FromType, ToType)                             \
-    {                                                                       \
-        size_t row_num = ref_block->row_block_info().row_num;               \
-        for (size_t row = 0, mutable_row = 0; row < row_num; ++row) {       \
-            if (is_data_left_vec[row] != 0) {                               \
-                char* ref_ptr = ref_block->field_ptr(row, ref_column);      \
-                char* new_ptr = mutable_block->field_ptr(mutable_row++, i); \
-                *new_ptr = *ref_ptr;                                        \
-                *(ToType*)(new_ptr + 1) = *(FromType*)(ref_ptr + 1);        \
-            }                                                               \
-        }                                                                   \
-        break;                                                              \
+#define TYPE_REINTERPRET_CAST(FromType, ToType)                         \
+    {                                                                   \
+        size_t row_num = ref_block->row_block_info().row_num;           \
+        for (size_t row = 0, mutable_row = 0; row < row_num; ++row) {   \
+            char* ref_ptr = ref_block->field_ptr(row, ref_column);      \
+            char* new_ptr = mutable_block->field_ptr(mutable_row++, i); \
+            *new_ptr = *ref_ptr;                                        \
+            *(ToType*)(new_ptr + 1) = *(FromType*)(ref_ptr + 1);        \
+        }                                                               \
+        break;                                                          \
     }
 
-#define LARGEINT_REINTERPRET_CAST(FromType, ToType)                         \
-    {                                                                       \
-        size_t row_num = ref_block->row_block_info().row_num;               \
-        for (size_t row = 0, mutable_row = 0; row < row_num; ++row) {       \
-            if (is_data_left_vec[row] != 0) {                               \
-                char* ref_ptr = ref_block->field_ptr(row, ref_column);      \
-                char* new_ptr = mutable_block->field_ptr(mutable_row++, i); \
-                *new_ptr = *ref_ptr;                                        \
-                ToType new_value = *(FromType*)(ref_ptr + 1);               \
-                memcpy(new_ptr + 1, &new_value, sizeof(ToType));            \
-            }                                                               \
-        }                                                                   \
-        break;                                                              \
+#define LARGEINT_REINTERPRET_CAST(FromType, ToType)                     \
+    {                                                                   \
+        size_t row_num = ref_block->row_block_info().row_num;           \
+        for (size_t row = 0, mutable_row = 0; row < row_num; ++row) {   \
+            char* ref_ptr = ref_block->field_ptr(row, ref_column);      \
+            char* new_ptr = mutable_block->field_ptr(mutable_row++, i); \
+            *new_ptr = *ref_ptr;                                        \
+            ToType new_value = *(FromType*)(ref_ptr + 1);               \
+            memcpy(new_ptr + 1, &new_value, sizeof(ToType));            \
+        }                                                               \
+        break;                                                          \
     }
 
 #define CONVERT_FROM_TYPE(from_type)                                                            \
@@ -615,27 +611,10 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
     // a.1 First determine whether the data needs to be filtered, and finally only those marked as 1 are left as needed
     // For those without filter, it is equivalent to leave after setting all to 1
     const uint32_t row_num = ref_block->row_block_info().row_num;
-    // (0 means no need to filter out, 1 means yes, during the process 2 means that this row needs to be cut and there is no need to compare other columns later)
-    std::vector<int8_t> is_data_left_vec(row_num, 1);
-
-    // Compare each row
-    for (size_t row_index = 0; row_index < row_num; ++row_index) {
-        ref_block->get_row(row_index, &read_helper);
-
-        // filter data according to delete conditions specified in DeleteData command
-        if (is_data_left_vec[row_index] == 1) {
-            if (_delete_handler != nullptr &&
-                _delete_handler->is_filter_data(data_version, read_helper)) {
-                is_data_left_vec[row_index] = 0;
-                (*filtered_rows)++;
-            }
-        }
-    }
 
     // a.2 Calculate the left row num
     uint32_t new_row_num = row_num - *filtered_rows;
 
-    const bool need_filter_data = (new_row_num != row_num);
     const bool filter_all = (new_row_num == 0);
 
     MemPool* mem_pool = mutable_block->mem_pool();
@@ -662,10 +641,6 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
                             << _schema_mapping[i].materialized_function;
                 for (size_t row_index = 0, new_row_index = 0;
                      row_index < ref_block->row_block_info().row_num; ++row_index) {
-                    // No need row, need to be filter
-                    if (need_filter_data && is_data_left_vec[row_index] == 0) {
-                        continue;
-                    }
                     mutable_block->get_row(new_row_index++, &write_helper);
                     ref_block->get_row(row_index, &read_helper);
 
@@ -686,11 +661,6 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
                 // Low efficiency, you can also directly calculate the variable length domain copy, but it will still destroy the package
                 for (size_t row_index = 0, new_row_index = 0;
                      row_index < ref_block->row_block_info().row_num; ++row_index) {
-                    // Unneeded row, skip every time this row is processed
-                    if (need_filter_data && is_data_left_vec[row_index] == 0) {
-                        continue;
-                    }
-
                     // Specify the new row index to be written (different from the read row_index)
                     mutable_block->get_row(new_row_index++, &write_helper);
                     ref_block->get_row(row_index, &read_helper);
@@ -720,10 +690,6 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
             } else if (ConvertTypeResolver::instance()->get_convert_type_info(reftype, newtype)) {
                 for (size_t row_index = 0, new_row_index = 0;
                      row_index < ref_block->row_block_info().row_num; ++row_index) {
-                    // Skip filtered rows
-                    if (need_filter_data && is_data_left_vec[row_index] == 0) {
-                        continue;
-                    }
                     mutable_block->get_row(new_row_index++, &write_helper);
                     ref_block->get_row(row_index, &read_helper);
                     if (read_helper.is_null(ref_column)) {
@@ -786,11 +752,6 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
             // New column, write default value
             for (size_t row_index = 0, new_row_index = 0;
                  row_index < ref_block->row_block_info().row_num; ++row_index) {
-                // Unneeded row, skip every time this row is processed
-                if (need_filter_data && is_data_left_vec[row_index] == 0) {
-                    continue;
-                }
-
                 mutable_block->get_row(new_row_index++, &write_helper);
 
                 if (_schema_mapping[i].default_value->is_null()) {

@@ -23,6 +23,8 @@ namespace doris::vectorized {
 class ColumnChunkReader {
 public:
     Status init();
+    Status read_next_page();
+
     Status read_min_max_stat();
     Status decode_dict_page();
     Status decode_nested_page();

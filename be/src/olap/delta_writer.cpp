@@ -407,11 +407,18 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
                                                const POlapTableSchemaParam& ptable_schema_param,
                                                const TabletSchema& ori_tablet_schema) {
     _tablet_schema->copy_from(ori_tablet_schema);
-    //new tablet schame if new table
+
+    // find the right index id
+    int i = 0;
+    for (; i < ptable_schema_param.indexes_size(); i++) {
+        if (ptable_schema_param.indexes(i).id() == index_id) break;
+    }
+
     if (ptable_schema_param.indexes_size() > 0 &&
-        ptable_schema_param.indexes(0).columns_desc_size() != 0 &&
-        ptable_schema_param.indexes(0).columns_desc(0).unique_id() >= 0) {
-        _tablet_schema->build_current_tablet_schema(index_id, ptable_schema_param,
+        ptable_schema_param.indexes(i).columns_desc_size() != 0 &&
+        ptable_schema_param.indexes(i).columns_desc(0).unique_id() >= 0) {
+        _tablet_schema->build_current_tablet_schema(index_id, ptable_schema_param.version(),
+                                                    ptable_schema_param.indexes(i),
                                                     ori_tablet_schema);
     }
 }
