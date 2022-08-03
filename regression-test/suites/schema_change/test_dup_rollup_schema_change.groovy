@@ -129,14 +129,13 @@ suite ("test_dup_rollup_schema_change") {
         qt_sc """ SELECT * FROM ${tableName} WHERE user_id = 3 order by new_column """
 
         qt_sc """ select count(*) from ${tableName} """
-
         // drop column
         sql """
             ALTER TABLE ${tableName} DROP COLUMN sex
             """
         result = "null"
         while (!result.contains("FINISHED")){
-            result = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
+            result = sql "SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
             result = result.toString()
             logger.info("result: ${result}")
             if(result.contains("CANCELLED")) {
@@ -146,7 +145,7 @@ suite ("test_dup_rollup_schema_change") {
             Thread.sleep(100)
         }
 
-        qt_sc """ select * from dup_rollup where user_id = 3 order by new_column """
+        qt_sc """ select * from ${tableName} where user_id = 3 order by new_column """
 
         sql """ INSERT INTO ${tableName} VALUES
                 (4, '2017-10-01', 'Beijing', 10, '2020-01-03', '2020-01-03', '2020-01-03', 1, 32, 20, 2)
