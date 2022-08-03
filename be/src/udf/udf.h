@@ -693,7 +693,7 @@ struct DateTimeVal : public AnyVal {
 struct DateV2Val : public AnyVal {
     uint32_t datev2_value;
 
-    DateV2Val() {}
+    DateV2Val() : datev2_value(0) {}
     DateV2Val(uint32_t val) : datev2_value(val) {}
 
     static DateV2Val null() {
@@ -719,7 +719,7 @@ struct DateV2Val : public AnyVal {
 struct DateTimeV2Val : public AnyVal {
     uint64_t datetimev2_value;
 
-    DateTimeV2Val() {}
+    DateTimeV2Val() : datetimev2_value(0) {}
     DateTimeV2Val(uint64_t val) : datetimev2_value(val) {}
 
     static DateTimeV2Val null() {

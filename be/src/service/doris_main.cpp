@@ -500,7 +500,10 @@ int main(int argc, char** argv) {
         doris::PerfCounters::refresh_proc_status();
 
         // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
-        doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
+        // this will cause coredump for ASAN build when running regression test,
+        // disable temporarily.
+        // TODO: fix the coredump
+        // doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
         sleep(1);
     }
 

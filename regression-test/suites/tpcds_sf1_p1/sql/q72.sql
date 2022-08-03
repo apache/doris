@@ -1,3 +1,5 @@
+-- For ASAN build, it will take too long time to run q72, disable for now
+/*
 SELECT
   i_item_desc
 , w_warehouse_name
@@ -27,3 +29,4 @@ WHERE (d1.d_week_seq = d2.d_week_seq)
 GROUP BY i_item_desc, w_warehouse_name, d1.d_week_seq
 ORDER BY total_cnt DESC, i_item_desc ASC, w_warehouse_name ASC, d1.d_week_seq ASC
 LIMIT 100
+*/
