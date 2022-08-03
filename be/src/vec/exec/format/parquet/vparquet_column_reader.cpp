@@ -15,32 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "vparquet_column_reader.h"
 
-#include "common/status.h"
-#include "vec/core/block.h"
-
-namespace doris::vectorized {
-
-class HdfsFileScanner {
-public:
-    virtual Status open() = 0;
-
-    virtual Status get_next(vectorized::Block* block, bool* eof) = 0;
-
-    virtual void close() = 0;
-};
-
-class ParquetFileHdfsScanner : public HdfsFileScanner {
-public:
-    Status open() override;
-
-    Status get_next(vectorized::Block* block, bool* eof) override;
-
-    void close() override;
-
-private:
-    void _prefetch_batch();
-};
-
-} // namespace doris::vectorized
+namespace doris::vectorized {}
