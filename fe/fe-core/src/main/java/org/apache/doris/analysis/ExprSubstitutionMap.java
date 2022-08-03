@@ -25,8 +25,8 @@ import org.apache.doris.common.AnalysisException;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -39,7 +39,7 @@ import java.util.List;
  * See Expr.substitute() and related functions for details on the actual substitution.
  */
 public final class ExprSubstitutionMap {
-    private static final Logger LOG = LoggerFactory.getLogger(ExprSubstitutionMap.class);
+    private static final Logger LOG = LogManager.getLogger(ExprSubstitutionMap.class);
 
     private boolean checkAnalyzed = true;
     private List<Expr> lhs; // left-hand side
@@ -209,7 +209,9 @@ public final class ExprSubstitutionMap {
                 Expr fRhs = f.getRhs().get(j);
                 if (fRhs.contains(gLhs)) {
                     Expr newRhs = fRhs.trySubstitute(g, analyzer, false);
-                    result.put(f.getLhs().get(j), newRhs);
+                    if (!result.containsMappingFor(f.getLhs().get(j))) {
+                        result.put(f.getLhs().get(j), newRhs);
+                    }
                     findGMatch = true;
                 }
             }
