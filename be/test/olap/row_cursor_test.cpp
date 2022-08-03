@@ -272,7 +272,7 @@ public:
 
 TEST_F(TestRowCursor, InitRowCursor) {
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_init(&tablet_schema);
+    set_tablet_schema_for_init(tablet_schema);
     RowCursor row;
     Status res = row.init(tablet_schema);
     EXPECT_EQ(res, Status::OK());
@@ -282,7 +282,7 @@ TEST_F(TestRowCursor, InitRowCursor) {
 
 TEST_F(TestRowCursor, InitRowCursorWithColumnCount) {
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_init(&tablet_schema);
+    set_tablet_schema_for_init(tablet_schema);
     RowCursor row;
     Status res = row.init(tablet_schema, 5);
     EXPECT_EQ(res, Status::OK());
@@ -294,7 +294,7 @@ TEST_F(TestRowCursor, InitRowCursorWithColumnCount) {
 
 TEST_F(TestRowCursor, InitRowCursorWithColIds) {
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_init(&tablet_schema);
+    set_tablet_schema_for_init(tablet_schema);
 
     std::vector<uint32_t> col_ids;
     for (size_t i = 0; i < tablet_schema.num_columns() / 2; ++i) {
