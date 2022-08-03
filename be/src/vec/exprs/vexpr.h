@@ -137,6 +137,15 @@ public:
     /// expr.
     virtual ColumnPtrWrapper* get_const_col(VExprContext* context);
 
+    int fn_context_index() { return _fn_context_index; };
+
+    static const VExpr* expr_without_cast(const VExpr* expr) {
+        if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {
+            return expr_without_cast(expr->_children[0]);
+        }
+        return expr;
+    }
+
 protected:
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {

@@ -44,6 +44,8 @@ public:
         return _impl->get_const_col(context);
     }
 
+    const VExpr* impl() { return _impl; }
+
 private:
     VExpr* _impl;
 

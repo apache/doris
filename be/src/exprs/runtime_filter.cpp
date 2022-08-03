@@ -1061,6 +1061,14 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctx
     return Status::OK();
 }
 
+Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs) {
+    DCHECK(is_consumer());
+    if (!_is_ignored) {
+        return _wrapper->get_push_vexprs(&_push_down_vexprs, _state, _vprobe_ctx);
+    }
+    return Status::OK();
+}
+
 Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs,
                                           ExprContext* probe_ctx) {
     DCHECK(is_producer());
