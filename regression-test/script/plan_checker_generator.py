@@ -210,7 +210,7 @@ for task in tasks:
 }'''
 
     sql = ''
-    for line in sqls[1:]:
+    for line in sqls[0:]:
         sql = sql + '\t\t' + line
     # print(suite.format(num) + pattern + sql + pattern1 + chkstr + pattern2)
     print(sql)
