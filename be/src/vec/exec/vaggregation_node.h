@@ -674,10 +674,15 @@ private:
     bool _should_expand_hash_table = true;
     std::vector<char*> _streaming_pre_places;
 
+    bool _should_limit_output = false;
+    bool _reach_limit = false;
+
 private:
     /// Return true if we should keep expanding hash tables in the preagg. If false,
     /// the preagg should pass through any rows it can't fit in its tables.
     bool _should_expand_preagg_hash_tables();
+
+    size_t _get_hash_table_size();
 
     void _make_nullable_output_key(Block* block);
 
@@ -695,7 +700,9 @@ private:
     Status _serialize_with_serialized_key_result(RuntimeState* state, Block* block, bool* eos);
     Status _pre_agg_with_serialized_key(Block* in_block, Block* out_block);
     Status _execute_with_serialized_key(Block* block);
+    Status _execute_with_serialized_key_limited(Block* block);
     Status _merge_with_serialized_key(Block* block);
+    Status _merge_with_serialized_key_limited(Block* block);
     void _update_memusage_with_serialized_key();
     void _close_with_serialized_key();
     void _init_hash_method(std::vector<VExprContext*>& probe_exprs);
@@ -712,6 +719,8 @@ private:
 
     void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                   const size_t num_rows);
+
+    void _find_in_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns, size_t num_rows);
 
     void release_tracker();
 
