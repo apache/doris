@@ -20,9 +20,13 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -44,11 +48,21 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     String dbName = connectContext.getDatabase();
                     Table table = getTable(dbName, nameParts.get(0), connectContext.getEnv());
                     // TODO: should generate different Scan sub class according to table's type
-                    return new LogicalOlapScan(table, ImmutableList.of(dbName));
+                    if (table.getType() == TableType.OLAP) {
+                        return new LogicalOlapScan(table, ImmutableList.of(dbName));
+                    } else if (table.getType() == TableType.VIEW) {
+                        LogicalPlan viewPlan = new NereidsAnalyzer(connectContext).analyze(table.getDdlSql());
+                        return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
+                    }
+                    throw new RuntimeException("");
                 }
                 case 2: {
                     // Use database name from table name parts.
-                    String dbName = connectContext.getClusterName() + ":" + nameParts.get(0);
+                    // if the relation is view, nameParts.get(0) is dbName.
+                    String dbName = nameParts.get(0);
+                    if (!dbName.equals(connectContext.getDatabase())) {
+                        dbName = connectContext.getClusterName() + ":" + nameParts.get(0);
+                    }
                     Table table = getTable(dbName, nameParts.get(1), connectContext.getEnv());
                     return new LogicalOlapScan(table, ImmutableList.of(dbName));
                 }
@@ -69,4 +83,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
             db.readUnlock();
         }
     }
+
+
 }
