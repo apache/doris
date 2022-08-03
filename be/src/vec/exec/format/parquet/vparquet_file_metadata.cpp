@@ -19,6 +19,8 @@
 
 #include <sstream>
 
+#include "schema_desc.h"
+
 namespace doris::vectorized {
 
 FileMetaData::FileMetaData(tparquet::FileMetaData& metadata) : _metadata(metadata) {
@@ -27,11 +29,13 @@ FileMetaData::FileMetaData(tparquet::FileMetaData& metadata) : _metadata(metadat
     if (_num_groups != 0) {
         _num_columns = metadata.row_groups[0].columns.size();
     }
-    if (metadata.schema[0].num_children <= 0) {
-    }
 }
 
 Status FileMetaData::init_schema() {
+    if (_metadata.schema[0].num_children <= 0) {
+        Status::Corruption("Invalid parquet schema");
+    }
+    _schema.parse_from_thrift(_metadata.schema);
     return Status();
 }
 

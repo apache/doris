@@ -33,4 +33,8 @@ Status ColumnChunkReader::decode_dict_page() {
 Status ColumnChunkReader::decode_nested_page() {
     return Status();
 }
+
+Status ColumnChunkReader::read_next_page() {
+    return Status();
+}
 } // namespace doris::vectorized

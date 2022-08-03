@@ -17,4 +17,21 @@
 
 #include "file_hdfs_scanner.h"
 
-namespace doris::vectorized {} // namespace doris::vectorized
+namespace doris::vectorized {
+
+Status ParquetFileHdfsScanner::open() {
+    return Status();
+}
+
+Status ParquetFileHdfsScanner::get_next(vectorized::Block* block, bool* eof) {
+    return Status();
+}
+
+void ParquetFileHdfsScanner::close() {}
+
+void ParquetFileHdfsScanner::_prefetch_batch() {
+    // 1. call file reader next batch
+    // 2. push batch to queue, when get_next is called, pop batch
+}
+
+} // namespace doris::vectorized
