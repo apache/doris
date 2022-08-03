@@ -15,43 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.properties;
+package org.apache.doris.nereids.trees.plans;
 
-import java.util.List;
 /**
- * Represents order keys and limit and offset
+ * Common interface for logical/physical limit.
  */
+public interface Limit {
+    long getLimit();
 
-public class QueryOrganization {
-
-    private List<OrderKey> orderKeys;
-    private long limit;
-    private long offset;
-
-    public QueryOrganization(List<OrderKey> orderKeys, long limit, long offset) {
-        this.orderKeys = orderKeys;
-        this.limit = limit;
-        this.offset = offset;
-    }
-
-    public long getLimit() {
-        return limit;
-    }
-
-    public long getOffset() {
-        return offset;
-    }
-
-    public void setOrderKeys(List<OrderKey> orderKeys) {
-        this.orderKeys = orderKeys;
-    }
-
-    public List<OrderKey> getOrderKeys() {
-        return orderKeys;
-    }
-
-    public boolean hasLimitClause() {
-        return limit != -1;
-    }
-
+    long getOffset();
 }

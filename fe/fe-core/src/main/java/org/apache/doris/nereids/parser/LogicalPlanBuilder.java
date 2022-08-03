@@ -70,7 +70,6 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.properties.QueryOrganization;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -560,29 +559,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public List<Expression> visitNamedExpressionSeq(NamedExpressionSeqContext namedCtx) {
         return visit(namedCtx.namedExpression(), Expression.class);
-    }
-
-    /**
-     * Create OrderKey list.
-     *
-     * @param ctx QueryOrganizationContext
-     * @return List of OrderKey
-     */
-    @Override
-    public QueryOrganization visitQueryOrganization(QueryOrganizationContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
-            List<OrderKey> orderKeys;
-            if (ctx.sortClause().ORDER() != null) {
-                orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
-            } else {
-                orderKeys = ImmutableList.of();
-            }
-            Token token = ctx.limitClause().limit;
-            long limit = (token == null) ? -1 : Long.parseLong(token.getText());
-            token = ctx.limitClause().offset;
-            long offset = (token == null) ? 0 : Long.parseLong(token.getText());
-            return new QueryOrganization(orderKeys, limit, offset);
-        });
     }
 
     @Override

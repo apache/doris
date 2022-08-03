@@ -69,17 +69,22 @@ public class SortNode extends PlanNode {
     /**
      * Constructor.
      */
-    public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN) {
+    public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN,
+            boolean isDefaultLimit, long offset) {
         super(id, useTopN ? "TOP-N" : "SORT", StatisticalType.SORT_NODE);
         this.info = info;
         this.useTopN = useTopN;
-        this.isDefaultLimit = true;
+        this.isDefaultLimit = isDefaultLimit;
         this.tupleIds.addAll(Lists.newArrayList(info.getSortTupleDescriptor().getId()));
         this.tblRefIds.addAll(Lists.newArrayList(info.getSortTupleDescriptor().getId()));
         this.nullableTupleIds.addAll(input.getNullableTupleIds());
         this.children.add(input);
-        this.offset = 0;
+        this.offset = offset;
         Preconditions.checkArgument(info.getOrderingExprs().size() == info.getIsAscOrder().size());
+    }
+
+    public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN) {
+        this(id, input, info, useTopN, true, 0);
     }
 
     /**

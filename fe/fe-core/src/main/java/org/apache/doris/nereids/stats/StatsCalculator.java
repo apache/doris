@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Aggregate;
 import org.apache.doris.nereids.trees.plans.Filter;
+import org.apache.doris.nereids.trees.plans.Limit;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.Project;
 import org.apache.doris.nereids.trees.plans.Scan;
@@ -81,14 +82,12 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     @Override
     public StatsDeriveResult visitLogicalLimit(LogicalLimit<Plan> limit, Void context) {
-        StatsDeriveResult stats = groupExpression.getCopyOfChildStats(0);
-        return stats.updateRowCountByLimit(limit.getLimit() + limit.getOffset());
+        return computeLimit(limit);
     }
 
     @Override
     public StatsDeriveResult visitPhysicalLimit(PhysicalLimit<Plan> limit, Void context) {
-        StatsDeriveResult stats = groupExpression.getCopyOfChildStats(0);
-        return stats.updateRowCountByLimit(limit.getLimit() + limit.getOffset());
+        return computeLimit(limit);
     }
 
     @Override
@@ -196,6 +195,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 new HashMap<>(), new HashMap<>());
         stats.setSlotToColumnStats(slotToColumnStats);
         return stats;
+    }
+
+    private StatsDeriveResult computeLimit(Limit limit) {
+        StatsDeriveResult stats = groupExpression.getCopyOfChildStats(0);
+        return stats.updateRowCountByLimit(limit.getLimit());
     }
 
     private StatsDeriveResult computeAggregate(Aggregate aggregate) {

@@ -32,9 +32,7 @@ public interface PlanStats {
 
     void setStatsDeriveResult(StatsDeriveResult result);
 
-    default long getLimit() {
-        throw new RuntimeException("getLimit() is not implemented by " + this.getClass().getSimpleName());
-    }
+    long getLimit();
 
     List<? extends ExprStats> getConjuncts();
 

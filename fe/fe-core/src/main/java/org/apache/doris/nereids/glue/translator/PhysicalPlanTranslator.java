@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -277,6 +278,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      *       After a+1 can be parsed , reprocessing.
      */
     @Override
+    public PlanFragment visitLogicalSort(LogicalSort<Plan> sort, PlanTranslatorContext context) {
+        return super.visitLogicalSort(sort, context);
+    }
+
+    @Override
     public PlanFragment visitPhysicalHeapSort(PhysicalHeapSort<Plan> sort,
             PlanTranslatorContext context) {
         PlanFragment childFragment = sort.child(0).accept(this, context);
@@ -307,31 +313,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         SortInfo sortInfo = new SortInfo(newOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
         PlanNode childNode = childFragment.getPlanRoot();
         // TODO: notice topN
-        // TODO: (zmh) set limit info when translate PhysicalLimit
         SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, true);
         sortNode.finalizeForNereids(tupleDesc, sortTupleOutputList, oldOrderingExprList);
         childFragment.addPlanRoot(sortNode);
+        //isPartitioned()==true means there is only one instance, so no merge phase
         if (!childFragment.isPartitioned()) {
             return childFragment;
         }
         PlanFragment mergeFragment = createParentFragment(childFragment, DataPartition.UNPARTITIONED, context);
         ExchangeNode exchangeNode = (ExchangeNode) mergeFragment.getPlanRoot();
-        //TODO: set offset/limit at visitPhysicalLimit
-        exchangeNode.unsetLimit();
+        //exchangeNode.limit/offset will be set in when translating  PhysicalLimit
         exchangeNode.setMergeInfo(sortNode.getSortInfo(), 0);
-
-        // Child nodes should not process the offset. If there is a limit,
-        // the child nodes need only return (offset + limit) rows.
-        // TODO: (zmh) set limit by visitLogicalLimit(). limit <- offset + limit
-        /*
-        SortNode childSortNode = (SortNode) childFragment.getPlanRoot();
-        Preconditions.checkState(sortNode == childSortNode);
-        if (sortNode.hasLimit()) {
-            childSortNode.unsetLimit();
-            childSortNode.setLimit(limit + offset);
-        }
-        childSortNode.setOffset(0);
-        */
         return mergeFragment;
     }
 
@@ -412,11 +404,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalLimit(PhysicalLimit<Plan> physicalLimit, PlanTranslatorContext context) {
         PlanFragment inputFragment = physicalLimit.child(0).accept(this, context);
         PlanNode child = inputFragment.getPlanRoot();
-        if (child instanceof OlapScanNode) {
-            child.setLimit(physicalLimit.getLimit() + physicalLimit.getOffset());
-            return inputFragment;
-        }
 
+        // two cases for sort:
+        // 1. plan: limit->sort => set (limit and offset) on sort
+        // 2. limit->exchange->sort => set (limit and offset) on exchange, set sort.limit = limit+offset
         if (child instanceof SortNode) {
             ((SortNode) child).setOffset(physicalLimit.getOffset());
             child.setLimit(physicalLimit.getLimit());
@@ -429,10 +420,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return inputFragment;
         }
 
-        if (child instanceof AggregationNode) {
-            child.setLimit(physicalLimit.getLimit() + physicalLimit.getOffset());
+        if (child instanceof ExchangeNode) {
+            ExchangeNode exchangeNode = (ExchangeNode) child;
+            exchangeNode.setLimit(physicalLimit.getLimit());
+            //we do not check if this is a merging exchange here,
+            //since this guaranteed by translating logic plan to physical plan
+            exchangeNode.setOffset(physicalLimit.getOffset());
+            if (exchangeNode.getChild(0) instanceof SortNode) {
+                SortNode sort = (SortNode) exchangeNode.getChild(0);
+                sort.setLimit(physicalLimit.getLimit() + physicalLimit.getOffset());
+            }
             return inputFragment;
         }
+        //for other PlanNode, just set limit as limit+offset
+        child.setLimit(physicalLimit.getLimit() + physicalLimit.getOffset());
         return inputFragment;
     }
 

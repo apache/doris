@@ -131,6 +131,17 @@ public class ExchangeNode extends PlanNode {
                 : MERGING_EXCHANGE_NODE;
     }
 
+    /**
+     * This function is used to translate PhysicalLimit.
+     * Ignore the offset if this is not a merging exchange node.
+     * @param offset
+     */
+    public void setOffset(long offset) {
+        if (isMergingExchange()) {
+            this.offset = offset;
+        }
+    }
+
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.EXCHANGE_NODE;

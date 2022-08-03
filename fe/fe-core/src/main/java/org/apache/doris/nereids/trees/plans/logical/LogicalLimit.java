@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Limit;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -42,9 +43,9 @@ import java.util.Optional;
  * limit: 10
  * offset 100
  */
-public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
-    private long limit = Long.MAX_VALUE;
-    private long offset = 0L;
+public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Limit {
+    private final long limit;
+    private final long offset;
 
     public LogicalLimit(long limit, long offset, CHILD_TYPE child) {
         this(limit, offset, Optional.empty(), Optional.empty(), child);
