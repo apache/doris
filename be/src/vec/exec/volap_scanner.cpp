@@ -252,7 +252,7 @@ Status VOlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.read_orderby_key_reverse = true;
         }
         _tablet_reader_params.read_orderby_key_num_prefix_columns =
-            _parent->_olap_scan_node.sort_info.is_asc_order.size();
+                _parent->_olap_scan_node.sort_info.is_asc_order.size();
     }
 
     return Status::OK();

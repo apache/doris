@@ -211,7 +211,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
-        _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
+            _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
     _reader_context.seek_columns = &_seek_columns;
     _reader_context.load_bf_columns = &_load_bf_columns;
     _reader_context.load_bf_all_columns = &_load_bf_all_columns;

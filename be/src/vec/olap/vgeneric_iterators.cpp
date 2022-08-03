@@ -164,13 +164,11 @@ public:
     Status init(const StorageReadOptions& opts);
 
     bool compare(const VMergeIteratorContext& rhs) const {
-        int cmp_res =
-            UNLIKELY(_compare_columns) ?
-                this->_block.compare_at(_index_in_block, rhs._index_in_block,
-                                              _compare_columns, rhs._block, -1)
-                :
-                this->_block.compare_at(_index_in_block, rhs._index_in_block,
-                                              _num_key_columns, rhs._block, -1);
+        int cmp_res = UNLIKELY(_compare_columns)
+                              ? this->_block.compare_at(_index_in_block, rhs._index_in_block,
+                                                        _compare_columns, rhs._block, -1)
+                              : this->_block.compare_at(_index_in_block, rhs._index_in_block,
+                                                        _num_key_columns, rhs._block, -1);
 
         if (cmp_res != 0) {
             return UNLIKELY(_is_reverse) ? cmp_res < 0 : cmp_res > 0;
@@ -362,9 +360,8 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     _record_rowids = opts.record_rowids;
 
     for (auto iter : _origin_iters) {
-        auto ctx = std::make_unique<VMergeIteratorContext>(iter, _sequence_id_idx, _is_unique,
-                                                           _is_reverse,
-                                                           opts.read_orderby_key_columns);
+        auto ctx = std::make_unique<VMergeIteratorContext>(
+                iter, _sequence_id_idx, _is_unique, _is_reverse, opts.read_orderby_key_columns);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;

@@ -80,8 +80,9 @@ private:
     // then merged with other rowset readers.
     class LevelIterator {
     public:
-        LevelIterator(TabletReader* reader) : _schema(reader->tablet_schema()),
-            _compare_columns(reader->_reader_context.read_orderby_key_columns) {};
+        LevelIterator(TabletReader* reader)
+                : _schema(reader->tablet_schema()),
+                  _compare_columns(reader->_reader_context.read_orderby_key_columns) {};
 
         virtual Status init() = 0;
 
