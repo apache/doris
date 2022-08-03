@@ -709,6 +709,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         tbl.deleteIndexInfo(shadowIndexName);
                     }
                     tbl.setState(OlapTableState.NORMAL);
+                    LOG.info("set table's state to NORMAL when cancel job: {}", tbl.getId(), jobId);
                 } finally {
                     tbl.writeUnlock();
                 }

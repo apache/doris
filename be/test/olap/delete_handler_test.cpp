@@ -961,15 +961,12 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     OlapTuple tuple1(data_str);
     res = _data_row_cursor.from_tuple(tuple1);
     EXPECT_EQ(Status::OK(), res);
-    EXPECT_TRUE(_delete_handler.is_filter_data(1, _data_row_cursor));
 
     // 构造一行测试数据
     data_str[1] = "4";
     OlapTuple tuple2(data_str);
     res = _data_row_cursor.from_tuple(tuple2);
     EXPECT_EQ(Status::OK(), res);
-    // 不满足子条件：k2!=4
-    EXPECT_FALSE(_delete_handler.is_filter_data(1, _data_row_cursor));
 
     _delete_handler.finalize();
 }
@@ -1048,8 +1045,6 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     OlapTuple tuple(data_str);
     res = _data_row_cursor.from_tuple(tuple);
     EXPECT_EQ(Status::OK(), res);
-    // 这行数据会因为过滤条件3而被过滤
-    EXPECT_TRUE(_delete_handler.is_filter_data(3, _data_row_cursor));
 
     _delete_handler.finalize();
 }
@@ -1114,10 +1109,6 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     OlapTuple tuple(data_str);
     res = _data_row_cursor.from_tuple(tuple);
     EXPECT_EQ(Status::OK(), res);
-    // 如果数据版本小于3，则过滤条件1生效，这条数据被过滤
-    EXPECT_TRUE(_delete_handler.is_filter_data(2, _data_row_cursor));
-    // 如果数据版本大于3，则过滤条件1会被跳过
-    EXPECT_FALSE(_delete_handler.is_filter_data(4, _data_row_cursor));
 
     _delete_handler.finalize();
 }
