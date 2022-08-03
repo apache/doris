@@ -484,7 +484,7 @@ This problem can be solved by creating a materialized view with k3 as the first 
 
 ## Error
 1. DATA_QUALITY_ERR: "The data quality does not satisfy, please check your data"
-Materialized view creation failed due to data quality issues.
+Materialized view creation failed due to data quality issues or Schema Change memory usage exceeding the limit. If it is a memory problem, increase the `memory_limitation_per_thread_for_schema_change_bytes` parameter.
 Note: The bitmap type only supports positive integers. If there are negative Numbers in the original data, the materialized view will fail to be created
 
 ## More Help
