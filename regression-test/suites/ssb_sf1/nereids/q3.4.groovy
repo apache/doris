@@ -26,7 +26,7 @@ suite("ssb_sf1_q3_4_nereids") {
     // nereids need vectorized
     sql 'set enable_vectorized_engine=true'
 
-    sql 'set exec_mem_limit=2147483648*2'
+    sql 'set exec_mem_limit=2147483648*16'
 
     test {
         sql(new File(context.file.parentFile, "../sql/q3.4.sql").text)
