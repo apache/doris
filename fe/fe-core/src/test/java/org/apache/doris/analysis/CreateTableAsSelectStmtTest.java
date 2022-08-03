@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.TestWithFeService;
@@ -72,12 +73,21 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 "create table `test`.`select_decimal_table_1` PROPERTIES(\"replication_num\" = \"1\") "
                         + "as select sum(amount_decimal) from `test`.`decimal_table`";
         createTableAsSelect(selectFromDecimal1);
-        Assertions.assertEquals(
-                "CREATE TABLE `select_decimal_table_1` (\n" + "  `_col0` decimal(27, 9) NULL\n" + ") ENGINE=OLAP\n"
-                        + "DUPLICATE KEY(`_col0`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
-                        + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
-                        + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\"\n" + ")",
-                showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
+        if (Config.enable_decimal_conversion && Config.enable_decimalv3) {
+            Assertions.assertEquals(
+                    "CREATE TABLE `select_decimal_table_1` (\n" + "  `_col0` decimal(38, 2) NULL\n" + ") ENGINE=OLAP\n"
+                            + "DUPLICATE KEY(`_col0`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
+                            + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                            + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\"\n" + ")",
+                    showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
+        } else {
+            Assertions.assertEquals(
+                    "CREATE TABLE `select_decimal_table_1` (\n" + "  `_col0` decimal(27, 9) NULL\n" + ") ENGINE=OLAP\n"
+                            + "DUPLICATE KEY(`_col0`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
+                            + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                            + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\"\n" + ")",
+                    showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
+        }
     }
 
     @Test
