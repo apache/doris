@@ -63,7 +63,7 @@ suite = """// Licensed to the Apache Software Foundation (ASF) under one
 // specific language governing permissions and limitations
 // under the License.
 
-suite("{}{}", "tpch_sf1") {{
+suite("{}{}", "{}") {{
     String realDb = context.config.getDbNameByFile(context.file)
     // get parent directory's group
     realDb = realDb.substring(0, realDb.lastIndexOf("_"))
@@ -214,5 +214,5 @@ for task in tasks:
         sql = sql + '\t\t' + line
     # print(suite.format(num) + pattern + sql + pattern1 + chkstr + pattern2)
     print(sql)
-    open(f2, 'w').write(suite.format(suite_name_prefix, num) + pattern + sql + pattern1 + chkstr + pattern2)
+    open(f2, 'w').write(suite.format(suite_name_prefix, num, db_name) + pattern + sql + pattern1 + chkstr + pattern2)
 print(skip_sqls)
