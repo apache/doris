@@ -746,8 +746,13 @@ private:
         typename ResultDataType::FieldType scale_a;
         typename ResultDataType::FieldType scale_b;
 
-        // TODO(Gabriel): precision and scale need to be processed for decimalv3, now we just
-        //  keep the same behavior as before
+        if constexpr (OpTraits::is_division && IsDataTypeDecimal<RightDataType>) {
+            if (config::enable_decimalv3) {
+                scale_a = type_right.get_scale_multiplier();
+                scale_b = 1;
+                return std::make_tuple(type, scale_a, scale_b);
+            }
+        }
         scale_a = type.scale_factor_for(type_left, OpTraits::is_multiply);
         scale_b = type.scale_factor_for(type_right, OpTraits::is_multiply || OpTraits::is_division);
         return std::make_tuple(type, scale_a, scale_b);
@@ -930,7 +935,6 @@ public:
                     using ResultDataType =
                             typename BinaryOperationTraits<Operation, LeftDataType,
                                                            RightDataType>::ResultDataType;
-
                     if constexpr (!std::is_same_v<ResultDataType, InvalidType>) {
                         auto column_result = ConstOrVectorAdapter<LeftDataType, RightDataType,
                                                                   Operation, is_to_null_type>::
