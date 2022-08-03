@@ -543,8 +543,8 @@ std::string TabletSchema::to_key() const {
     return pb.SerializeAsString();
 }
 
-void TabletSchema::build_current_tablet_schema(int64_t index_id,
-                                               const POlapTableSchemaParam& ptable_schema_param,
+void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version,
+                                               const POlapTableIndexSchema& index,
                                                const TabletSchema& ori_tablet_schema) {
     // copy from ori_tablet_schema
     _keys_type = ori_tablet_schema.keys_type();
@@ -561,6 +561,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id,
     _sort_col_num = ori_tablet_schema.sort_col_num();
 
     // copy from table_schema_param
+    _schema_version = version;
     _num_columns = 0;
     _num_key_columns = 0;
     _num_null_columns = 0;
@@ -569,28 +570,24 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id,
     _field_name_to_index.clear();
     _field_id_to_index.clear();
 
-    for (const POlapTableIndexSchema& index : ptable_schema_param.indexes()) {
-        if (index.id() == index_id) {
-            for (auto& pcolumn : index.columns_desc()) {
-                TabletColumn column;
-                column.init_from_pb(pcolumn);
-                if (column.is_key()) {
-                    _num_key_columns++;
-                }
-                if (column.is_nullable()) {
-                    _num_null_columns++;
-                }
-                if (column.is_bf_column()) {
-                    has_bf_columns = true;
-                }
-                _field_name_to_index[column.name()] = _num_columns;
-                _field_id_to_index[column.unique_id()] = _num_columns;
-                _cols.emplace_back(std::move(column));
-                _num_columns++;
-            }
-            break;
+    for (auto& pcolumn : index.columns_desc()) {
+        TabletColumn column;
+        column.init_from_pb(pcolumn);
+        if (column.is_key()) {
+            _num_key_columns++;
         }
+        if (column.is_nullable()) {
+            _num_null_columns++;
+        }
+        if (column.is_bf_column()) {
+            has_bf_columns = true;
+        }
+        _field_name_to_index[column.name()] = _num_columns;
+        _field_id_to_index[column.unique_id()] = _num_columns;
+        _cols.emplace_back(std::move(column));
+        _num_columns++;
     }
+
     if (has_bf_columns) {
         _has_bf_fpp = true;
         _bf_fpp = ori_tablet_schema.bloom_filter_fpp();
@@ -598,7 +595,6 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id,
         _has_bf_fpp = false;
         _bf_fpp = BLOOM_FILTER_DEFAULT_FPP;
     }
-    _schema_version = ptable_schema_param.version();
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
