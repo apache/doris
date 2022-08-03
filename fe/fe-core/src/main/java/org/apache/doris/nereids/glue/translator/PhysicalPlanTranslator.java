@@ -323,7 +323,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment mergeFragment = createParentFragment(childFragment, DataPartition.UNPARTITIONED, context);
         ExchangeNode exchangeNode = (ExchangeNode) mergeFragment.getPlanRoot();
         //exchangeNode.limit/offset will be set in when translating  PhysicalLimit
-        exchangeNode.setMergeInfo(sortNode.getSortInfo(), 0);
+        exchangeNode.setMergeInfo(sortNode.getSortInfo());
         return mergeFragment;
     }
 
@@ -405,21 +405,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment inputFragment = physicalLimit.child(0).accept(this, context);
         PlanNode child = inputFragment.getPlanRoot();
 
-        // two cases for sort:
-        // 1. plan: limit->sort => set (limit and offset) on sort
+        // physical plan:  limit --> sort
+        // after translate, it could be:
+        // 1. limit->sort => set (limit and offset) on sort
         // 2. limit->exchange->sort => set (limit and offset) on exchange, set sort.limit = limit+offset
         if (child instanceof SortNode) {
-            ((SortNode) child).setOffset(physicalLimit.getOffset());
-            child.setLimit(physicalLimit.getLimit());
-            inputFragment.getChildren().forEach(fragment -> {
-                PlanNode root = fragment.getPlanRoot();
-                if (root instanceof SortNode) {
-                    root.setLimit(physicalLimit.getLimit() + physicalLimit.getOffset());
-                }
-            });
+            SortNode sort = (SortNode) child;
+            sort.setLimit(physicalLimit.getLimit());
+            sort.setOffset(physicalLimit.getOffset());
             return inputFragment;
         }
-
         if (child instanceof ExchangeNode) {
             ExchangeNode exchangeNode = (ExchangeNode) child;
             exchangeNode.setLimit(physicalLimit.getLimit());
@@ -429,6 +424,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (exchangeNode.getChild(0) instanceof SortNode) {
                 SortNode sort = (SortNode) exchangeNode.getChild(0);
                 sort.setLimit(physicalLimit.getLimit() + physicalLimit.getOffset());
+                sort.setOffset(0);
             }
             return inputFragment;
         }

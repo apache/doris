@@ -124,9 +124,8 @@ public class ExchangeNode extends PlanNode {
      * Set the parameters used to merge sorted input streams. This can be called
      * after init().
      */
-    public void setMergeInfo(SortInfo info, long offset) {
+    public void setMergeInfo(SortInfo info) {
         this.mergeInfo = info;
-        this.offset = offset;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + MERGING_EXCHANGE_NODE
                 : MERGING_EXCHANGE_NODE;
     }
