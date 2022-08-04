@@ -82,6 +82,9 @@ public class TimeUtils {
     private static ThreadLocal<SimpleDateFormat> datetimeFormatThreadLocal =
             ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
 
+    private static ThreadLocal<SimpleDateFormat> datetimeMSFormatThreadLocal =
+            ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss:S"));
+
     static {
         TIME_ZONE = new SimpleTimeZone(8 * 3600 * 1000, "");
 
@@ -149,11 +152,20 @@ public class TimeUtils {
         return dateFormat.format(new Date(timeStamp));
     }
 
-    public static String longToTimeString(long timeStamp) {
-        SimpleDateFormat datetimeFormatTimeZone = datetimeFormatThreadLocal.get();
+    public static String longToTimeStringWithFormat(long timeStamp, SimpleDateFormat datetimeFormatTimeZone) {
         TimeZone timeZone = getTimeZone();
         datetimeFormatTimeZone.setTimeZone(timeZone);
         return longToTimeString(timeStamp, datetimeFormatTimeZone);
+    }
+
+    public static String longToTimeString(long timeStamp) {
+        SimpleDateFormat datetimeFormatTimeZone = datetimeFormatThreadLocal.get();
+        return longToTimeStringWithFormat(timeStamp, datetimeFormatTimeZone);
+    }
+
+    public static String longToTimeStringWithms(long timeStamp) {
+        SimpleDateFormat datatimeFormatTimeZone = datetimeMSFormatThreadLocal.get();
+        return longToTimeStringWithFormat(timeStamp, datatimeFormatTimeZone);
     }
 
     public static synchronized Date getTimeAsDate(String timeString) {

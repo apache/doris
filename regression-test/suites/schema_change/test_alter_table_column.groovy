@@ -29,7 +29,7 @@ suite("test_alter_table_column", "schema_change") {
                 value1 INT
             )
             DUPLICATE KEY (k1)
-            DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
+            DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1", "light_schema_change" = "true");
         """
     sql """
             ALTER TABLE ${tbName1} 
@@ -86,7 +86,7 @@ suite("test_alter_table_column", "schema_change") {
                 value1 INT SUM
             )
             AGGREGATE KEY (k1)
-            DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
+            DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1", "light_schema_change" = "true");
         """
     sql """
             ALTER TABLE ${tbName2} 

@@ -785,22 +785,11 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
     }
 
-    // material-view or rollup task will fail now
-    if (_desc_tbl.get_row_tuples().size() != ref_block->columns()) {
-        return Status::NotSupported(
-                "_desc_tbl.get_row_tuples().size() != ref_block->columns(), maybe because rollup "
-                "not supported now. ");
-    }
-
-    std::vector<bool> nullable_tuples;
-    for (int i = 0; i < ref_block->columns(); i++) {
-        nullable_tuples.emplace_back(ref_block->get_by_position(i).column->is_nullable());
-    }
-
     ObjectPool pool;
     RuntimeState* state = pool.add(new RuntimeState());
     state->set_desc_tbl(&_desc_tbl);
-    RowDescriptor row_desc = RowDescriptor::create_default(_desc_tbl, nullable_tuples);
+    RowDescriptor row_desc =
+            RowDescriptor(_desc_tbl.get_tuple_descriptor(_desc_tbl.get_row_tuples()[0]), false);
 
     const int row_size = ref_block->rows();
     const int column_size = new_block->columns();
@@ -810,10 +799,6 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
 
     for (int idx = 0; idx < column_size; idx++) {
         int ref_idx = _schema_mapping[idx].ref_column;
-
-        if (!_schema_mapping[idx].materialized_function.empty()) {
-            return Status::NotSupported("Materialized function not supported now. ");
-        }
 
         if (ref_idx < 0) {
             // new column, write default value
@@ -1547,15 +1532,14 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
     rowset_reader->next_block(ref_block.get());
     while (ref_block->rows()) {
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
-        if (!_mem_tracker->check_limit(config::memory_limitation_per_thread_for_schema_change_bytes,
-                                       new_block->allocated_bytes())) {
+        if (!_mem_tracker->check_limit(_memory_limitation, new_block->allocated_bytes())) {
             RETURN_IF_ERROR(create_rowset());
 
-            if (!_mem_tracker->check_limit(
-                        config::memory_limitation_per_thread_for_schema_change_bytes,
-                        new_block->allocated_bytes())) {
+            if (!_mem_tracker->check_limit(_memory_limitation, new_block->allocated_bytes())) {
                 LOG(WARNING) << "Memory limitation is too small for Schema Change."
-                             << "memory_limitation=" << _memory_limitation;
+                             << " _memory_limitation=" << _memory_limitation
+                             << ", new_block->allocated_bytes()=" << new_block->allocated_bytes()
+                             << ", consumption=" << _mem_tracker->consumption();
                 return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
             }
         }
@@ -1649,9 +1633,8 @@ bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_row
         rs_readers.push_back(rs_reader);
     }
     // get cur schema if rowset schema exist, rowset schema must be newer than tablet schema
-    auto max_version_rowset = src_rowsets.back();
     const TabletSchema* cur_tablet_schema =
-            max_version_rowset->rowset_meta()->tablet_schema().get();
+            src_rowsets.back()->rowset_meta()->tablet_schema().get();
     if (cur_tablet_schema == nullptr) {
         cur_tablet_schema = new_tablet->tablet_schema().get();
     }
@@ -1678,6 +1661,12 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
         RowsetReaderSharedPtr rs_reader;
         RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
         rs_readers.push_back(rs_reader);
+    }
+
+    // get cur schema if rowset schema exist, rowset schema must be newer than tablet schema
+    auto cur_tablet_schema = src_rowsets.back()->rowset_meta()->tablet_schema();
+    if (cur_tablet_schema == nullptr) {
+        cur_tablet_schema = new_tablet->tablet_schema();
     }
 
     Merger::Statistics stats;
@@ -1717,6 +1706,7 @@ Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& req
 
 std::shared_mutex SchemaChangeHandler::_mutex;
 std::unordered_set<int64_t> SchemaChangeHandler::_tablet_ids_in_converting;
+std::set<std::string> SchemaChangeHandler::_supported_functions = {"hll_hash", "to_bitmap"};
 
 // In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
 // It will cost a lot of time to wait and the task is very difficult to understand.
@@ -1848,7 +1838,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                     LOG(WARNING) << "New tablet has a version " << pair.first
                                  << " crossing base tablet's max_version="
                                  << max_rowset->end_version();
-                    Status::OLAPInternalError(OLAP_ERR_VERSION_ALREADY_MERGED);
+                    return Status::OLAPInternalError(OLAP_ERR_VERSION_ALREADY_MERGED);
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
@@ -1949,9 +1939,14 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 if (item.__isset.mv_expr) {
                     if (item.mv_expr.nodes[0].node_type == TExprNodeType::FUNCTION_CALL) {
                         mv_param.mv_expr = item.mv_expr.nodes[0].fn.name.function_name;
+                        if (!_supported_functions.count(mv_param.mv_expr)) {
+                            return Status::NotSupported("Unknow materialized view expr " +
+                                                        mv_param.mv_expr);
+                        }
                     } else if (item.mv_expr.nodes[0].node_type == TExprNodeType::CASE_EXPR) {
                         mv_param.mv_expr = "count_field";
                     }
+
                     mv_param.expr = std::make_shared<TExpr>(item.mv_expr);
                 }
                 sc_params.materialized_params_map.insert(
@@ -2152,6 +2147,7 @@ Status SchemaChangeHandler::_parse_request(
         const TabletColumn& new_column = new_tablet->tablet_schema()->column(i);
         const string& column_name = new_column.name();
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
+        column_mapping->new_column = &new_column;
 
         if (new_column.has_reference_column()) {
             int32_t column_index = base_tablet_schema->field_index(new_column.referenced_column());
