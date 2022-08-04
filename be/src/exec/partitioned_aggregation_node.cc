@@ -404,14 +404,13 @@ Status PartitionedAggregationNode::CopyStringData(const SlotDescriptor& slot_des
         Tuple* tuple = batch_iter.get()->get_tuple(0);
         StringValue* sv = reinterpret_cast<StringValue*>(tuple->get_slot(slot_desc.tuple_offset()));
         if (sv == nullptr || sv->len == 0) continue;
-        Status rst;
-        char* new_ptr = reinterpret_cast<char*>(pool->try_allocate(sv->len, &rst));
+        char* new_ptr = reinterpret_cast<char*>(pool->try_allocate(sv->len));
         if (UNLIKELY(new_ptr == nullptr)) {
             string details = Substitute(
                     "Cannot perform aggregation at node with id $0."
                     " Failed to allocate $1 output bytes.",
                     _id, sv->len);
-            RETURN_LIMIT_EXCEEDED(state_, details, sv->len, rst);
+            RETURN_LIMIT_EXCEEDED(state_, details, sv->len);
         }
         memcpy(new_ptr, sv->ptr, sv->len);
         sv->ptr = new_ptr;
@@ -921,8 +920,7 @@ Tuple* PartitionedAggregationNode::ConstructIntermediateTuple(
     const int fixed_size = intermediate_tuple_desc_->byte_size();
     const int varlen_size = GroupingExprsVarlenSize();
     const int tuple_data_size = fixed_size + varlen_size;
-    Status rst;
-    uint8_t* tuple_data = pool->try_allocate(tuple_data_size, &rst);
+    uint8_t* tuple_data = pool->try_allocate(tuple_data_size);
     if (UNLIKELY(tuple_data == nullptr)) {
         stringstream str;
         str << "Memory exceed limit. Cannot perform aggregation at node with id $0. Failed "
@@ -937,7 +935,7 @@ Tuple* PartitionedAggregationNode::ConstructIntermediateTuple(
         string details = Substitute(str.str(), _id, tuple_data_size);
         *status = thread_context()
                           ->_thread_mem_tracker_mgr->limiter_mem_tracker()
-                          ->mem_limit_exceeded(state_, details, tuple_data_size, rst);
+                          ->mem_limit_exceeded(state_, details, tuple_data_size);
         return nullptr;
     }
     memset(tuple_data, 0, fixed_size);

@@ -310,10 +310,7 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
 Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     // 2. Allocate Row's Tuple buf
-    Status st = Status::OK();
-    uint8_t* tuple_buf =
-            batch->tuple_data_pool()->allocate(_batch_size * _tuple_desc->byte_size(), &st);
-    RETURN_NOT_OK_STATUS_WITH_WARN(st, "Allocate mem for row batch failed");
+    uint8_t* tuple_buf = batch->tuple_data_pool()->allocate(_batch_size * _tuple_desc->byte_size());
     if (tuple_buf == nullptr) {
         LOG(WARNING) << "Allocate mem for row batch failed.";
         return Status::RuntimeError("Allocate mem for row batch failed.");
