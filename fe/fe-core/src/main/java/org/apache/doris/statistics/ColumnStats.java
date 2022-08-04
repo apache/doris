@@ -250,12 +250,4 @@ public class ColumnStats {
         numNulls *= selectivity;
         return this;
     }
-
-    public ColumnStats updateByLimit(long limit) {
-        if (limit > 0) {
-            ndv = Math.min(ndv, limit);
-            numNulls = Math.min(numNulls, limit);
-        }
-        return this;
-    }
 }
