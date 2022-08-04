@@ -588,9 +588,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // build left deep join tree
             for (RelationContext relation : ctx.relation()) {
                 LogicalPlan right = plan(relation.relationPrimary());
-                left = left == null
+                left = (left == null)
                         ? right
-                        : new LogicalJoin(JoinType.INNER_JOIN, Optional.empty(), left, right);
+                        : new LogicalJoin<>(JoinType.CROSS_JOIN, Optional.empty(), left, right);
                 left = withJoinRelations(left, relation);
             }
             // TODO: pivot and lateral view
