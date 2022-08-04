@@ -1699,7 +1699,7 @@ public class SingleNodePlanner {
                 scanNode = new MysqlScanNode(ctx.getNextNodeId(), tblRef.getDesc(), (MysqlTable) tblRef.getTable());
                 break;
             case SCHEMA:
-                if (tblRef.getDesc().getTable().getName().equalsIgnoreCase(BackendSchemaScanNode.SEGMENTS)) {
+                if (BackendSchemaScanNode.isBackendSchemaTable(tblRef.getDesc().getTable().getName())) {
                     scanNode = new BackendSchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 } else {
                     scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());

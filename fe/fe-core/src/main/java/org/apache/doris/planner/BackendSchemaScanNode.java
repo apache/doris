@@ -52,6 +52,14 @@ import java.util.Map;
  */
 public class BackendSchemaScanNode extends SchemaScanNode {
     public static final String SEGMENTS = "segments";
+
+    public static boolean isBackendSchemaTable(String tableName) {
+        if (tableName.equalsIgnoreCase(SEGMENTS)) {
+            return true;
+        }
+        return false;
+    }
+
     private List<TScanRangeLocations> shardScanRanges;
     // backendPartitionInfo is set in generatePartitionInfo().
     // `backendPartitionInfo` is `List Partition` of Backend_ID, one PartitionItem only have one partitionKey
