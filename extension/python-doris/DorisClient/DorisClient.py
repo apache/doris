@@ -163,6 +163,9 @@ class DorisSession:
             if res.get('Status') == 'Success':
                 DorisLogger.info(res)
                 return True
+            elif res.get('Status') == 'Publish Timeout':
+                DorisLogger.warning(res)
+                return True
             else:
                 DorisLogger.error(res)
                 return False
