@@ -1173,8 +1173,8 @@ public class SelectStmt extends QueryStmt {
             }
         }
         final ExprSubstitutionMap result = new ExprSubstitutionMap();
-        final boolean hasMultiDistinct = AggregateInfo.estimateIfContainsMultiDistinct(distinctExprs);
-        if (!hasMultiDistinct) {
+        final boolean isUsingSetForDistinct = AggregateInfo.estimateIfUsingSetForDistinct(distinctExprs);
+        if (!isUsingSetForDistinct) {
             return result;
         }
         for (FunctionCallExpr inputExpr : distinctExprs) {
