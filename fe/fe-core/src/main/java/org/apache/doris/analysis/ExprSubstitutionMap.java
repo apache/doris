@@ -29,6 +29,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Map of expression substitutions: lhs[i] gets substituted with rhs[i].
@@ -162,7 +163,7 @@ public final class ExprSubstitutionMap {
      * f [A.id, B.id] g [A.id, C.id]
      * return: g-f [B,id, C,id]
      */
-    public static ExprSubstitutionMap subtraction(ExprSubstitutionMap f, ExprSubstitutionMap g) {
+    public static ExprSubstitutionMap subtraction(ExprSubstitutionMap f, ExprSubstitutionMap g, Analyzer analyzer) {
         if (f == null && g == null) {
             return new ExprSubstitutionMap();
         }
@@ -176,8 +177,16 @@ public final class ExprSubstitutionMap {
         for (int i = 0; i < g.size(); i++) {
             if (f.containsMappingFor(g.lhs.get(i))) {
                 result.put(f.get(g.lhs.get(i)), g.rhs.get(i));
+                if (f.get(g.lhs.get(i)) instanceof SlotRef && g.rhs.get(i) instanceof SlotRef) {
+                    analyzer.putEquivalentSlot(((SlotRef) g.rhs.get(i)).getSlotId(),
+                            ((SlotRef) Objects.requireNonNull(f.get(g.lhs.get(i)))).getSlotId());
+                }
             } else {
                 result.put(g.lhs.get(i), g.rhs.get(i));
+                if (g.lhs.get(i) instanceof SlotRef && g.rhs.get(i) instanceof SlotRef) {
+                    analyzer.putEquivalentSlot(((SlotRef) g.rhs.get(i)).getSlotId(),
+                            ((SlotRef) g.lhs.get(i)).getSlotId());
+                }
             }
         }
         return result;
