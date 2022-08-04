@@ -745,7 +745,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         try {
             return trySubstituteList(exprs, smap, analyzer, preserveRootTypes);
         } catch (Exception e) {
-            throw new IllegalStateException("Failed analysis after expr substitution.", e);
+            throw new IllegalStateException("Failed analysis after expr substitution: " + e.getMessage());
         }
     }
 
