@@ -549,13 +549,14 @@ void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Condit
                                          std::set<uint32_t>* load_bf_columns) {
     // add all columns with condition to load_bf_columns
     for (const auto& cond_column : conditions->columns()) {
-        if (!_tablet_schema->column(cond_column.first).is_bf_column()) {
+        int32_t column_id = _tablet_schema->field_index(cond_column.first);
+        if (!_tablet_schema->column(column_id).is_bf_column()) {
             continue;
         }
         for (const auto& cond : cond_column.second->conds()) {
             if (cond->op == OP_EQ ||
                 (cond->op == OP_IN && cond->operand_set.size() < MAX_OP_IN_FIELD_NUM)) {
-                load_bf_columns->insert(cond_column.first);
+                load_bf_columns->insert(column_id);
             }
         }
     }

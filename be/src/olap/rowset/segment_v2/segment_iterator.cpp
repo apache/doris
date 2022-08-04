@@ -107,8 +107,6 @@ private:
 SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema)
         : _segment(std::move(segment)),
           _schema(schema),
-          _column_iterators(_schema.num_columns(), nullptr),
-          _bitmap_index_iterators(_schema.num_columns(), nullptr),
           _cur_rowid(0),
           _lazy_materialization_read(false),
           _inited(false),
@@ -116,10 +114,10 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema&
 
 SegmentIterator::~SegmentIterator() {
     for (auto iter : _column_iterators) {
-        delete iter;
+        delete iter.second;
     }
     for (auto iter : _bitmap_index_iterators) {
-        delete iter;
+        delete iter.second;
     }
 }
 
@@ -222,13 +220,14 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
 
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
-        if (_column_iterators[cid] == nullptr) {
+        int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+        if (_column_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          &_column_iterators[cid]));
+                                                          &_column_iterators[unique_id]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.file_reader = _file_reader.get();
-            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+            RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
 
@@ -256,21 +255,21 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 }
 
 Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row_ranges) {
-    std::set<int32_t> cids;
+    std::set<int32_t> uids;
     if (_opts.conditions != nullptr) {
         for (auto& column_condition : _opts.conditions->columns()) {
-            cids.insert(column_condition.first);
+            uids.insert(column_condition.first);
         }
     }
 
     // first filter data by bloom filter index
     // bloom filter index only use CondColumn
     RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
-    for (auto& cid : cids) {
+    for (auto& uid : uids) {
         // get row ranges by bf index of this column,
         RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
-        CondColumn* column_cond = _opts.conditions->get_column(cid);
-        RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_bloom_filter(
+        CondColumn* column_cond = _opts.conditions->get_column(uid);
+        RETURN_IF_ERROR(_column_iterators[uid]->get_row_ranges_by_bloom_filter(
                 column_cond, &column_bf_row_ranges));
         RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
     }
@@ -280,14 +279,14 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
 
     RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
     // second filter data by zone map
-    for (auto& cid : cids) {
+    for (auto& uid : uids) {
         // get row ranges by zone map of this column,
         RowRanges column_row_ranges = RowRanges::create_single(num_rows());
         CondColumn* column_cond = nullptr;
         if (_opts.conditions != nullptr) {
-            column_cond = _opts.conditions->get_column(cid);
+            column_cond = _opts.conditions->get_column(uid);
         }
-        RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(column_cond, nullptr,
+        RETURN_IF_ERROR(_column_iterators[uid]->get_row_ranges_by_zone_map(column_cond, nullptr,
                                                                            &column_row_ranges));
         // intersect different columns's row ranges to get final row ranges by zone map
         RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
@@ -298,13 +297,13 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     for (auto& delete_condition : _opts.delete_conditions) {
         RowRanges delete_condition_row_ranges = RowRanges::create_single(0);
         for (auto& delete_column_condition : delete_condition->columns()) {
-            const int32_t cid = delete_column_condition.first;
+            const int32_t uid = delete_column_condition.first;
             CondColumn* column_cond = nullptr;
             if (_opts.conditions != nullptr) {
-                column_cond = _opts.conditions->get_column(cid);
+                column_cond = _opts.conditions->get_column(uid);
             }
             RowRanges single_delete_condition_row_ranges = RowRanges::create_single(num_rows());
-            RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
+            RETURN_IF_ERROR(_column_iterators[uid]->get_row_ranges_by_zone_map(
                     column_cond, delete_column_condition.second,
                     &single_delete_condition_row_ranges));
             RowRanges::ranges_union(delete_condition_row_ranges, single_delete_condition_row_ranges,
@@ -329,11 +328,13 @@ Status SegmentIterator::_apply_bitmap_index() {
     std::vector<ColumnPredicate*> remaining_predicates;
 
     for (auto pred : _col_predicates) {
-        if (_bitmap_index_iterators[pred->column_id()] == nullptr) {
+        int32_t unique_id = _schema.unique_id(pred->column_id());
+        if (_bitmap_index_iterators.count(unique_id) < 1 ||
+            _bitmap_index_iterators[unique_id] == nullptr) {
             // no bitmap index for this column
             remaining_predicates.push_back(pred);
         } else {
-            RETURN_IF_ERROR(pred->evaluate(_schema, _bitmap_index_iterators, _segment->num_rows(),
+            RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id], _segment->num_rows(),
                                            &_row_bitmap));
             if (_row_bitmap.isEmpty()) {
                 break; // all rows have been pruned, no need to process further predicates
@@ -350,14 +351,15 @@ Status SegmentIterator::_init_return_column_iterators() {
         return Status::OK();
     }
     for (auto cid : _schema.column_ids()) {
-        if (_column_iterators[cid] == nullptr) {
+        int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+        if (_column_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          &_column_iterators[cid]));
+                                                          &_column_iterators[unique_id]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
-            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+            RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
     return Status::OK();
@@ -368,9 +370,10 @@ Status SegmentIterator::_init_bitmap_index_iterators() {
         return Status::OK();
     }
     for (auto cid : _schema.column_ids()) {
-        if (_bitmap_index_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(_opts.tablet_schema->column(cid),
-                                                                &_bitmap_index_iterators[cid]));
+        int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+        if (_bitmap_index_iterators.count(unique_id) < 1) {
+            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(
+                    _opts.tablet_schema->column(cid), &_bitmap_index_iterators[unique_id]));
         }
     }
     return Status::OK();
@@ -541,7 +544,7 @@ void SegmentIterator::_init_lazy_materialization() {
 
 Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos) {
     for (auto cid : column_ids) {
-        RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(pos));
+        RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->seek_to_ordinal(pos));
     }
     return Status::OK();
 }
@@ -552,7 +555,7 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids, R
         auto column_block = block->column_block(cid);
         ColumnBlockView dst(&column_block, row_offset);
         size_t rows_read = nrows;
-        RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, &dst));
+        RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->next_batch(&rows_read, &dst));
         DCHECK_EQ(nrows, rows_read);
     }
     return Status::OK();
@@ -809,7 +812,7 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
         if (field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
             field_type == OLAP_FIELD_TYPE_STRING) {
             return config::enable_low_cardinality_optimize &&
-                   _column_iterators[cid]->is_all_dict_encoding();
+                   _column_iterators[_schema.unique_id(cid)]->is_all_dict_encoding();
         } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
             return false;
         }
@@ -836,7 +839,7 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
     for (auto cid : column_ids) {
         auto& column = column_block[cid];
         size_t rows_read = nrows;
-        RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
+        RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->next_batch(&rows_read, column));
         DCHECK_EQ(nrows, rows_read);
     }
     return Status::OK();
@@ -1008,8 +1011,8 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
         rowids[i] = rowid_vector[sel_rowid_idx[i]];
     }
     for (auto cid : read_column_ids) {
-        RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(rowids.data(), select_size,
-                                                               _current_return_columns[cid]));
+        RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->read_by_rowids(
+                rowids.data(), select_size, _current_return_columns[cid]));
     }
 
     return Status::OK();

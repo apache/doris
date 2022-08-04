@@ -82,8 +82,7 @@ public:
                               bool* flags) const = 0;
 
     //evaluate predicate on Bitmap
-    virtual Status evaluate(const Schema& schema,
-                            const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows,
+    virtual Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                             roaring::Roaring* roaring) const = 0;
 
     // evaluate predicate on IColumn
