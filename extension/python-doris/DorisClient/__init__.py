@@ -18,4 +18,5 @@
 # specific language governing permissions and limitations
 # under the License.
 
-from .DorisClient import DorisSession, Logger, logger
+from .DorisClient import DorisSession, DorisLogger, Logger
+

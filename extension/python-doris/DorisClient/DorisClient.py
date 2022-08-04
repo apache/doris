@@ -20,39 +20,58 @@
 
 import base64
 import json
-import logging
 import time
+
 import pymysql
 import requests
+import logging
 
 
-def Logger(name):
+def Logger(name=__name__, filename=None, level='INFO', filemode='a'):
+    """
+    :param name:
+    :param filename: filename string
+    :param level:
+    :param filemode:
+    :return:
+    """
+    logging.basicConfig(
+        filename=filename,
+        filemode=filemode,
+        level=level,
+        format='%(asctime)s [%(name)s] %(levelname)s: %(message)s',
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s', "%Y-%m-%d %H:%M:%S")
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
+    if filename:
+        formatter = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s', "%Y-%m-%d %H:%M:%S")
+        ch = logging.StreamHandler()
+        ch.setLevel(level)
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
     return logger
 
 
-logger = Logger(__name__)
+DorisLogger = Logger(name='DorisClient')
 
 
-def retry(func):
-    max_retry = 3
+def retry(*args, **kwargs):
+    max_retry = kwargs.get('max_retry', 3)
+    retry_diff_seconds = kwargs.get('retry_diff_seconds', 3)
 
-    def run(*args, **kwargs):
-        for i in range(max_retry + 1):
-            if i > 0:
-                logger.warning(f"will retry after 3 seconds，retry times : {i}/3")
-            time.sleep(3)
-            flag = func(*args, **kwargs)
-            if flag:
-                return flag
+    def warpp(func):
+        def run(*args, **kwargs):
+            for i in range(max_retry + 1):
+                if i > 0:
+                    DorisLogger.warning(f"will retry after {retry_diff_seconds} seconds，retry times : {i}/{max_retry}")
+                time.sleep(retry_diff_seconds)
+                flag = func(*args, **kwargs)
+                if flag:
+                    return flag
 
-    return run
+        return run
+
+    return warpp
 
 
 class DorisSession:
@@ -72,11 +91,18 @@ class DorisSession:
         self.fe_servers = fe_servers
         self.database = database
         self.Authorization = base64.b64encode((user + ':' + passwd).encode('utf-8')).decode('utf-8')
-        self.conn = pymysql.connect(host=fe_servers[0].split(':')[0],
-                                    port=mysql_port,
-                                    database=database,
-                                    user=user,
-                                    passwd=passwd)
+        self.mysql_cfg = {
+            'host': fe_servers[0].split(':')[0],
+            'port': mysql_port,
+            'database': database,
+            'user': user,
+            'passwd': passwd
+        }
+        self.conn = None
+
+    def _connect(self):
+        if self.conn is None:
+            self.conn = pymysql.connect(**self.mysql_cfg)
 
     def _label(self, table):
         return f"{table}_{time.strftime('%Y%m%d_%H%M%S', time.localtime())}"
@@ -94,7 +120,7 @@ class DorisSession:
         else:
             raise Exception("No available BE nodes can be obtained. Please check configuration")
 
-    @retry
+    @retry(max_retry=3, retry_diff_seconds=3)
     def streamload(self, table, json_array, **kwargs):
         """
         :param table: target table
@@ -135,22 +161,24 @@ class DorisSession:
         if response.status_code == 200:
             res = response.json()
             if res.get('Status') == 'Success':
-                logger.info(res)
+                DorisLogger.info(res)
                 return True
             else:
-                logger.error(res)
+                DorisLogger.error(res)
                 return False
         else:
-            logger.error(response.text)
+            DorisLogger.error(response.text)
             return False
 
     def execute(self, sql, args=None):
+        self._connect()
         with self.conn.cursor() as cur:
             cur.execute(sql, args)
             self.conn.commit()
         return True
 
     def read(self, sql, args=None):
+        self._connect()
         with self.conn.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(sql, args)
             return cur.fetchall()

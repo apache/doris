@@ -2,10 +2,6 @@
 
 python for apache-doris
 
-a small wheel, which is mainly used to make it easier to use streamload and execute Doris SQL in Python. 
-
-if anyone have some idea to optimize this tool, please make a PR to [DorisClient](https://github.com/TurboWay/DorisClient)
-
 # Install
 
 ```shell
@@ -38,7 +34,7 @@ PROPERTIES (
 ## streamload
 
 ```python
-from DorisClient import DorisSession, logger as DorisLogger
+from DorisClient import DorisSession, DorisLogger, Logger
 
 # DorisLogger.setLevel('ERROR')  # default:INFO
 
@@ -49,7 +45,6 @@ doris_cfg = {
     'passwd': '123456',
 }
 doris = DorisSession(**doris_cfg)
-doris.conn.close()  # a doris connection will be created to execute SQL. If not necessary, it can be closed
 
 # append
 data = [
