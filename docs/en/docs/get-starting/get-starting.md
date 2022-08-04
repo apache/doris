@@ -240,7 +240,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
 
    > For more detailed syntax and best practices used by Create-DataBase, see [Create-DataBase](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-DATABASE) command manual.
    >
-   > If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type 'HELP CREATE', you can match `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` and other commands.
+   > If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type `HELP CREATE`, you can match `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` and other commands.
    
    After the database is created, you can view the database information through `SHOW DATABASES;`.
    
@@ -468,6 +468,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
 
      > 1. FE_HOST is the IP of the node where any FE is located, and 8030 is the http_port in fe.conf.
      > 2. You can use the IP of any BE and the webserver_port in be.conf to import. For example: `BE_HOST:8040`
+     > 3. example_db is the database which you imported the tables
 
      The local file `table1_data` uses `,` as the separation between data, the details are as follows:
 
