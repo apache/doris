@@ -99,7 +99,7 @@ public class ShowDbStmt extends ShowStmt {
             sb.append(" LIKE '").append(pattern).append("'");
         }
         if (catalogName != null) {
-            sb.append(" FROM '").append(catalogName).append("'");
+            sb.append(" FROM ").append(catalogName);
         }
         return sb.toString();
     }
