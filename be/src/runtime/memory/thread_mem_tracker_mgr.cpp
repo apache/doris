@@ -25,14 +25,12 @@
 namespace doris {
 
 void ThreadMemTrackerMgr::attach_limiter_tracker(
-        const std::string& cancel_msg, const std::string& task_id,
-        const TUniqueId& fragment_instance_id,
+        const std::string& task_id, const TUniqueId& fragment_instance_id,
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
     flush_untracked_mem<false>();
     _task_id = task_id;
     _fragment_instance_id = fragment_instance_id;
-    _exceed_cb.cancel_msg = cancel_msg;
     _limiter_tracker = mem_tracker;
 }
 
@@ -40,7 +38,6 @@ void ThreadMemTrackerMgr::detach_limiter_tracker() {
     flush_untracked_mem<false>();
     _task_id = "";
     _fragment_instance_id = TUniqueId();
-    _exceed_cb.cancel_msg = "";
     _limiter_tracker = ExecEnv::GetInstance()->process_mem_tracker();
 }
 
@@ -52,20 +49,22 @@ void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details
     }
 }
 
-void ThreadMemTrackerMgr::exceeded(int64_t mem_usage, Status try_consume_st) {
-    if (_exceed_cb.cb_func != nullptr) {
-        _exceed_cb.cb_func();
+void ThreadMemTrackerMgr::exceeded(int64_t failed_consume_size) {
+    if (_cb_func != nullptr) {
+        _cb_func();
     }
-    if (is_attach_task()) {
-        if (_exceed_cb.cancel_task) {
-            auto st = _limiter_tracker->mem_limit_exceeded(
-                    nullptr,
-                    fmt::format("Task mem limit exceeded and cancel it, msg:{}",
-                                _exceed_cb.cancel_msg),
-                    mem_usage, try_consume_st);
-            exceeded_cancel_task(st.to_string());
-            _exceed_cb.cancel_task = false; // Make sure it will only be canceled once
+    if (is_attach_query()) {
+        std::string cancel_msg;
+        if (!_consumer_tracker_stack.empty()) {
+            cancel_msg = fmt::format(
+                    "exec node:<name={}>, can change the limit by `set exec_mem_limit=xxx`",
+                    _consumer_tracker_stack[-1]->label());
+        } else {
+            cancel_msg = "exec node:unknown, can change the limit by `set exec_mem_limit=xxx`";
         }
+        auto st = _limiter_tracker->mem_limit_exceeded(cancel_msg, failed_consume_size);
+        exceeded_cancel_task(st.to_string());
+        _check_limit = false; // Make sure it will only be canceled once
     }
 }
 } // namespace doris

@@ -31,15 +31,13 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_task_mem_tracker
     // Combine new tracker and emplace into one operation to avoid the use of locks
     // Name for task MemTrackers. '$0' is replaced with the task id.
     std::shared_ptr<MemTrackerLimiter> tracker;
-    bool new_emplace = _task_mem_trackers.lazy_emplace_l(
+    bool new_emplace = _task_mem_trackers.try_emplace_l(
             task_id, [&](const std::shared_ptr<MemTrackerLimiter>& v) { tracker = v; },
-            [&](const auto& ctor) {
-                tracker = std::make_shared<MemTrackerLimiter>(mem_limit, label, parent);
-                ctor(task_id, tracker);
-            });
+            std::make_shared<MemTrackerLimiter>(mem_limit, label, parent));
     if (new_emplace) {
         LOG(INFO) << "Register query/load memory tracker, query/load id: " << task_id
                   << " limit: " << PrettyPrinter::print(mem_limit, TUnit::BYTES);
+        return get_task_mem_tracker(task_id);
     }
     return tracker;
 }

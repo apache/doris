@@ -401,7 +401,6 @@ Status AggregationNode::prepare(RuntimeState* state) {
 Status AggregationNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("aggregator, while execute open.");
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
@@ -446,7 +445,6 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "AggregationNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("aggregator, while execute get_next.");
 
     if (_is_streaming_preagg) {
         bool child_eos = false;

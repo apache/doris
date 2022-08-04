@@ -32,22 +32,6 @@ extern bthread_key_t btls_key;
 static const bthread_key_t EMPTY_BTLS_KEY = {0, 0};
 
 using ExceedCallBack = void (*)();
-struct MemExceedCallBackInfo {
-    std::string cancel_msg;
-    bool cancel_task; // Whether to cancel the task when the current tracker exceeds the limit.
-    ExceedCallBack cb_func;
-
-    MemExceedCallBackInfo() { init(); }
-
-    MemExceedCallBackInfo(const std::string& cancel_msg, bool cancel_task, ExceedCallBack cb_func)
-            : cancel_msg(cancel_msg), cancel_task(cancel_task), cb_func(cb_func) {}
-
-    void init() {
-        cancel_msg = "";
-        cancel_task = true;
-        cb_func = nullptr;
-    }
-};
 
 // TCMalloc new/delete Hook is counted in the memory_tracker of the current thread.
 //
@@ -61,7 +45,6 @@ public:
 
     ~ThreadMemTrackerMgr() {
         flush_untracked_mem<false>();
-        _exceed_cb.init();
         DCHECK(_consumer_tracker_stack.empty());
     }
 
@@ -75,8 +58,7 @@ public:
     void init();
 
     // After attach, the current thread TCMalloc Hook starts to consume/release task mem_tracker
-    void attach_limiter_tracker(const std::string& cancel_msg, const std::string& task_id,
-                                const TUniqueId& fragment_instance_id,
+    void attach_limiter_tracker(const std::string& task_id, const TUniqueId& fragment_instance_id,
                                 const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
 
     void detach_limiter_tracker();
@@ -86,16 +68,7 @@ public:
     void push_consumer_tracker(MemTracker* mem_tracker);
     void pop_consumer_tracker();
 
-    MemExceedCallBackInfo update_exceed_call_back(const std::string& cancel_msg, bool cancel_task,
-                                                  ExceedCallBack cb_func) {
-        _temp_exceed_cb = _exceed_cb;
-        _exceed_cb.cancel_msg = cancel_msg;
-        _exceed_cb.cancel_task = cancel_task;
-        _exceed_cb.cb_func = cb_func;
-        return _temp_exceed_cb;
-    }
-
-    void update_exceed_call_back(const MemExceedCallBackInfo& exceed_cb) { _exceed_cb = exceed_cb; }
+    void set_exceed_call_back(ExceedCallBack cb_func) { _cb_func = cb_func; }
 
     // Note that, If call the memory allocation operation in TCMalloc new/delete Hook,
     // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
@@ -114,7 +87,7 @@ public:
     template <bool CheckLimit>
     void flush_untracked_mem();
 
-    bool is_attach_task() { return _task_id != ""; }
+    bool is_attach_query() { return _fragment_instance_id != TUniqueId(); }
 
     std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() { return _limiter_tracker; }
 
@@ -138,7 +111,7 @@ private:
     // If tryConsume fails due to task mem tracker exceeding the limit, the task must be canceled
     void exceeded_cancel_task(const std::string& cancel_details);
 
-    void exceeded(int64_t mem_usage, Status try_consume_st);
+    void exceeded(int64_t failed_consume_size);
 
 private:
     // Cache untracked mem, only update to _untracked_mems when switching mem tracker.
@@ -155,14 +128,12 @@ private:
     bool _check_attach = true;
     std::string _task_id;
     TUniqueId _fragment_instance_id;
-    MemExceedCallBackInfo _exceed_cb;
-    MemExceedCallBackInfo _temp_exceed_cb;
+    ExceedCallBack _cb_func = nullptr;
 };
 
 inline void ThreadMemTrackerMgr::init() {
     DCHECK(_consumer_tracker_stack.empty());
     _task_id = "";
-    _exceed_cb.init();
     _limiter_tracker = ExecEnv::GetInstance()->process_mem_tracker();
     _check_limit = true;
 }
@@ -219,7 +190,7 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
             // The memory has been allocated, so when TryConsume fails, need to continue to complete
             // the consume to ensure the accuracy of the statistics.
             _limiter_tracker->consume(_untracked_mem);
-            exceeded(_untracked_mem, st);
+            exceeded(_untracked_mem);
         }
     } else {
         _limiter_tracker->consume(_untracked_mem);

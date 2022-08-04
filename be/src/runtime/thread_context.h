@@ -33,9 +33,11 @@
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
 
-#define SCOPED_UPDATE_MEM_EXCEED_CALL_BACK(cancel_msg, ...) \
-    auto VARNAME_LINENUM(update_exceed_cb) =                \
-            doris::UpdateMemExceedCallBack(cancel_msg, ##__VA_ARGS__)
+// Attach to task when thread starts
+#define SCOPED_ATTACH_TASK(arg1, ...) \
+    auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, ##__VA_ARGS__)
+
+#define SCOPED_SWITCH_BTHREAD_TLS() auto VARNAME_LINENUM(switch_bthread) = SwitchBthread()
 
 namespace doris {
 
@@ -104,8 +106,8 @@ public:
         BRPC = 5
         // to be added ...
     };
-    inline static const std::string TaskTypeStr[] = {"UNKNOWN", "QUERY", "LOAD", "COMPACTION",
-                                                     "STORAGE"};
+    inline static const std::string TaskTypeStr[] = {"UNKNOWN",    "QUERY",   "LOAD",
+                                                     "COMPACTION", "STORAGE", "BRPC"};
 
 public:
     ThreadContext() {
@@ -139,8 +141,7 @@ public:
         _type = type;
         _task_id = task_id;
         _fragment_instance_id = fragment_instance_id;
-        _thread_mem_tracker_mgr->attach_limiter_tracker(TaskTypeStr[_type], task_id,
-                                                        fragment_instance_id, mem_tracker);
+        _thread_mem_tracker_mgr->attach_limiter_tracker(task_id, fragment_instance_id, mem_tracker);
     }
 
     void detach_task() {
@@ -225,19 +226,6 @@ public:
     ~AddThreadMemTrackerConsumer();
 };
 
-class UpdateMemExceedCallBack {
-public:
-    explicit UpdateMemExceedCallBack(const std::string& cancel_msg, bool cancel_task = true,
-                                     ExceedCallBack cb_func = nullptr);
-
-    ~UpdateMemExceedCallBack();
-
-private:
-#ifdef USE_MEM_TRACKER
-    MemExceedCallBackInfo _old_cb;
-#endif
-};
-
 class SwitchBthread {
 public:
     explicit SwitchBthread();
@@ -261,15 +249,8 @@ public:
     }
 };
 
-#define SCOPED_SWITCH_BTHREAD_TLS() auto VARNAME_LINENUM(switch_bthread) = SwitchBthread()
-
-// Attach to task when thread starts
-#define SCOPED_ATTACH_TASK(arg1, ...) \
-    auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, ##__VA_ARGS__)
-
 #define STOP_CHECK_THREAD_MEM_TRACKER_LIMIT() \
     auto VARNAME_LINENUM(stop_check_limit) = StopCheckThreadMemTrackerLimit()
-
 #define CONSUME_THREAD_MEM_TRACKER(size) \
     doris::thread_context()->_thread_mem_tracker_mgr->consume(size)
 #define RELEASE_THREAD_MEM_TRACKER(size) \
@@ -278,5 +259,8 @@ public:
     doris::thread_context()->_thread_mem_tracker_mgr->transfer_to(size, tracker)
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) \
     doris::thread_context()->_thread_mem_tracker_mgr->transfer_from(size, tracker)
-
+#define RETURN_LIMIT_EXCEEDED(state, msg, ...)               \
+    return doris::thread_context()                           \
+            ->_thread_mem_tracker_mgr->limiter_mem_tracker() \
+            ->mem_limit_exceeded(state, msg, ##__VA_ARGS__);
 } // namespace doris

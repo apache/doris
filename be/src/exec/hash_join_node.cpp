@@ -184,7 +184,6 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
     // The hash join node needs to keep in memory all build tuples, including the tuple
     // row ptrs.  The row ptrs are copied into the hash table's internal structure so they
     // don't need to be stored in the _build_pool.
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Hash join, while constructing the hash table.");
     RowBatch build_batch(child(1)->row_desc(), state->batch_size());
     RETURN_IF_ERROR(child(1)->open(state));
 
@@ -301,7 +300,6 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
     // In most cases, no additional memory overhead will be applied for at this stage,
     // but if the expression calculation in this node needs to apply for additional memory,
     // it may cause the memory to exceed the limit.
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Hash join, while execute get_next.");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
