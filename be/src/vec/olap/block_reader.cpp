@@ -151,9 +151,6 @@ Status BlockReader::init(const ReaderParams& read_params) {
             _next_block_func = &BlockReader::_direct_next_block;
         } else {
             _next_block_func = &BlockReader::_unique_key_next_block;
-            if (_filter_delete) {
-                _delete_filter_column = ColumnUInt8::create();
-            }
         }
         break;
     case KeysType::AGG_KEYS:
@@ -175,6 +172,7 @@ Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPo
         return res;
     }
     *eof = res.precise_code() == OLAP_ERR_DATA_EOF;
+    _eof = *eof;
     if (UNLIKELY(_reader_context.record_rowids)) {
         res = _vcollect_iter.current_block_row_locations(&_block_row_locations);
         if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
@@ -208,6 +206,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
     while (true) {
         auto res = _vcollect_iter.next(&_next_row);
         if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
+            _eof = true;
             *eof = true;
             break;
         }
@@ -265,6 +264,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         // merge the lower versions
         auto res = _vcollect_iter.next(&_next_row);
         if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
+            _eof = true;
             *eof = true;
             if (UNLIKELY(_reader_context.record_rowids)) {
                 _block_row_locations.resize(target_block_row);
