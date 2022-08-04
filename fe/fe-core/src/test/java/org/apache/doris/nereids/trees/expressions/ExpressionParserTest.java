@@ -106,6 +106,12 @@ public class ExpressionParserTest {
 
         String substring = "select substr(a, 1, 2), substring(b ,3 ,4) from test1";
         assertSql(substring);
+
+        String count = "select count(*), count(b) from test1";
+        assertSql(count);
+
+        String min = "select min(a), min(b) as m from test1";
+        assertSql(min);
     }
 
     @Test

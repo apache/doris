@@ -27,6 +27,7 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.NullLiteral;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Count;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 
 import java.util.ArrayList;
@@ -259,6 +261,12 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         List<Expr> paramList = new ArrayList<>();
         for (Expression expr : function.getArguments()) {
             paramList.add(expr.accept(this, context));
+        }
+        if (function instanceof Count) {
+            Count count = (Count) function;
+            if (count.isStar()) {
+                return new FunctionCallExpr(function.getName(), FunctionParams.createStarParam());
+            }
         }
         return new FunctionCallExpr(function.getName(), paramList);
     }

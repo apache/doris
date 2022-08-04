@@ -154,8 +154,8 @@ public class ExpressionEqualsTest {
 
     @Test
     public void testUnboundFunction() {
-        UnboundFunction unboundFunction1 = new UnboundFunction("name", false, Lists.newArrayList(child1));
-        UnboundFunction unboundFunction2 = new UnboundFunction("name", false, Lists.newArrayList(child2));
+        UnboundFunction unboundFunction1 = new UnboundFunction("name", false, false, Lists.newArrayList(child1));
+        UnboundFunction unboundFunction2 = new UnboundFunction("name", false, false, Lists.newArrayList(child2));
         Assertions.assertEquals(unboundFunction1, unboundFunction2);
         Assertions.assertEquals(unboundFunction1.hashCode(), unboundFunction2.hashCode());
     }
