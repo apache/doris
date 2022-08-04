@@ -605,6 +605,13 @@ build_hyperscan() {
     check_if_source_exist "${RAGEL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${RAGEL_SOURCE}"
 
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        cxxflags='-static'
+    else
+        cxxflags=''
+    fi
+
+    CXXFLAGS="${cxxflags}" \
     ./configure --prefix="${TP_INSTALL_DIR}"
     make install
 
