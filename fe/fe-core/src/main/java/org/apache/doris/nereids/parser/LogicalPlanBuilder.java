@@ -123,6 +123,7 @@ import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -453,7 +454,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public UnboundFunction visitExtract(DorisParser.ExtractContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.field.getText();
-            return new UnboundFunction(functionName, false, Arrays.asList(getExpression(ctx.source)));
+            return new UnboundFunction(functionName, false, false, Arrays.asList(getExpression(ctx.source)));
         });
     }
 
@@ -465,7 +466,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String functionName = ctx.identifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = visit(ctx.expression(), Expression.class);
-            return new UnboundFunction(functionName, isDistinct, params);
+            for (Expression expression : params) {
+                if (expression instanceof UnboundStar && functionName.equalsIgnoreCase("count") && !isDistinct) {
+                    return new UnboundFunction(functionName, false, true, new ArrayList<>());
+                }
+            }
+            return new UnboundFunction(functionName, isDistinct, false, params);
         });
     }
 

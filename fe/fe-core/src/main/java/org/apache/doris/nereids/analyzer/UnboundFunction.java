@@ -34,11 +34,13 @@ public class UnboundFunction extends Expression implements Unbound {
 
     private final String name;
     private final boolean isDistinct;
+    private final boolean isStar;
 
-    public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
+    public UnboundFunction(String name, boolean isDistinct, boolean isStar, List<Expression> arguments) {
         super(arguments.toArray(new Expression[0]));
         this.name = Objects.requireNonNull(name, "name can not be null");
         this.isDistinct = isDistinct;
+        this.isStar = isStar;
     }
 
     public String getName() {
@@ -47,6 +49,10 @@ public class UnboundFunction extends Expression implements Unbound {
 
     public boolean isDistinct() {
         return isDistinct;
+    }
+
+    public boolean isStar() {
+        return isStar;
     }
 
     public List<Expression> getArguments() {
@@ -74,7 +80,7 @@ public class UnboundFunction extends Expression implements Unbound {
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        return new UnboundFunction(name, isDistinct, children);
+        return new UnboundFunction(name, isDistinct, isStar, children);
     }
 
     @Override
