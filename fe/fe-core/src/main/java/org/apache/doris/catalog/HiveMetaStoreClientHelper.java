@@ -234,7 +234,7 @@ public class HiveMetaStoreClientHelper {
             throws DdlException {
         List<RemoteIterator<LocatedFileStatus>> allIterators = new ArrayList<>();
         for (Partition p : partitions) {
-            String location = p.getSd().getLocation();
+            String location = normalizeS3LikeSchema(p.getSd().getLocation());
             Path path = new Path(location);
             allIterators.addAll(getRemoteIterator(path, configuration, properties, isSecurityEnabled));
         }
@@ -244,12 +244,7 @@ public class HiveMetaStoreClientHelper {
     // Get remote iterators for given table
     private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(Table table, Configuration configuration,
             boolean isSecurityEnabled, Map<String, String> properties, boolean onS3) throws DdlException {
-        String location = table.getSd().getLocation();
-        LOG.warn("location 1 {}", location);
-        if (location.startsWith("oss:")) {
-            location = location.replaceFirst("oss:", "s3:");
-            LOG.warn("location 2 {}", location);
-        }
+        String location = normalizeS3LikeSchema(table.getSd().getLocation());
         Path path = new Path(location);
         return getRemoteIterator(path, configuration, properties, isSecurityEnabled);
     }
@@ -273,6 +268,17 @@ public class HiveMetaStoreClientHelper {
             throw new DdlException("Get HDFS file remote iterator failed. Error: " + e.getMessage());
         }
         return iterators;
+    }
+
+    public static String normalizeS3LikeSchema(String location) {
+        if (location.startsWith("oss:")) {
+            location = location.replaceFirst("oss", "s3");
+        } else if (location.startsWith("cos:")) {
+            location = location.replaceFirst("cos", "s3");
+        } else if (location.startsWith("bos")) {
+            location = location.replaceFirst("bos", "s3");
+        }
+        return location;
     }
 
     private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,

@@ -126,7 +126,10 @@ public class HiveScanNode extends BrokerScanNode {
     private void setStorageType(String location) throws UserException {
         String[] strings = StringUtils.split(location, "/");
         String storagePrefix = strings[0].split(":")[0];
-        if (storagePrefix.equalsIgnoreCase("s3") || storagePrefix.equalsIgnoreCase("oss")) {
+        if (storagePrefix.equalsIgnoreCase("s3")
+                || storagePrefix.equalsIgnoreCase("oss")
+                || storagePrefix.equalsIgnoreCase("cos")
+                || storagePrefix.equalsIgnoreCase("bos")) {
             this.storageType = StorageBackend.StorageType.S3;
         } else if (storagePrefix.equalsIgnoreCase("hdfs")) {
             this.storageType = StorageBackend.StorageType.HDFS;
