@@ -38,6 +38,7 @@ namespace doris {
 
 namespace vectorized {
 class VOlapScanNode;
+class RowGroupReader;
 }
 
 class Expr;

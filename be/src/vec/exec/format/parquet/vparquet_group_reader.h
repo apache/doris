@@ -17,6 +17,7 @@
 #pragma once
 #include <common/status.h>
 
+#include "exprs/expr_context.h"
 #include "io/file_reader.h"
 #include "vparquet_file_metadata.h"
 
