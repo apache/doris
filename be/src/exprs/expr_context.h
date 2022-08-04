@@ -39,7 +39,7 @@ namespace doris {
 namespace vectorized {
 class VOlapScanNode;
 class RowGroupReader;
-}
+} // namespace vectorized
 
 class Expr;
 class MemPool;
