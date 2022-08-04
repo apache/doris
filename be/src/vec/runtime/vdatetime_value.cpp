@@ -278,6 +278,11 @@ void VecDateTimeValue::set_zero(int type) {
 
 void VecDateTimeValue::set_type(int type) {
     _type = type;
+    if (type == TIME_DATE) {
+        _hour = 0;
+        _minute = 0;
+        _second = 0;
+    }
 }
 
 void VecDateTimeValue::set_max_time(bool neg) {
