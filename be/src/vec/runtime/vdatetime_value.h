@@ -674,7 +674,8 @@ private:
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;
 
-    static uint8_t calc_week(const VecDateTimeValue& value, uint8_t mode, uint32_t* year);
+    static uint8_t calc_week(const VecDateTimeValue& value, uint8_t mode, uint32_t* year,
+                             bool disable_lut = false);
 
     // This is private function which modify date but modify `_type`
     bool get_date_from_daynr(uint64_t);
@@ -1135,7 +1136,8 @@ public:
 
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
-                             const uint8_t& day, uint8_t mode, uint16_t* to_year);
+                             const uint8_t& day, uint8_t mode, uint16_t* to_year,
+                             bool disable_lut = false);
 
     // Used to construct from int value
     int64_t standardize_timevalue(int64_t value);

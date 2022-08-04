@@ -290,4 +290,6 @@ suite("test_date_function", "query") {
     qt_sql """SELECT unix_timestamp(CURDATE()) = unix_timestamp(CURRENT_DATE());"""
 
     sql """ drop table ${tableName} """
+
+    qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
 }
