@@ -20,6 +20,9 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
+#include "vec/columns/column_complex.h"
 #include "vec/common/exception.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -31,6 +34,9 @@ namespace doris::vectorized {
 class Arena;
 class IColumn;
 class IDataType;
+
+template <bool nullable, typename ColVecType>
+class AggregateFunctionBitmapCount;
 
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
@@ -86,6 +92,9 @@ public:
      */
     virtual void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
                      Arena* arena) const = 0;
+
+    virtual void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
+                          std::vector<int>& rows, Arena* arena) const {}
 
     /// Merges state (on which place points to) with other state of current aggregation function.
     virtual void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -174,8 +183,31 @@ public:
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                    const IColumn** columns, Arena* arena) const override {
-        for (size_t i = 0; i < batch_size; ++i) {
-            static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
+        if constexpr (std::is_same_v<Derived, AggregateFunctionBitmapCount<
+                                                      false, ColumnComplexType<BitmapValue>>> ||
+                      std::is_same_v<Derived, AggregateFunctionBitmapCount<
+                                                      true, ColumnComplexType<BitmapValue>>>) {
+            phmap::flat_hash_map<AggregateDataPtr, std::vector<int>> place_rows;
+            for (int i = 0; i < batch_size; ++i) {
+                auto iter = place_rows.find(places[i] + place_offset);
+                if (iter == place_rows.end()) {
+                    std::vector<int> rows;
+                    rows.push_back(i);
+                    place_rows.emplace(places[i] + place_offset, rows);
+                } else {
+                    iter->second.push_back(i);
+                }
+            }
+            auto iter = place_rows.begin();
+            while (iter != place_rows.end()) {
+                static_cast<const Derived*>(this)->add_many(iter->first, columns, iter->second,
+                                                            arena);
+                iter++;
+            }
+        } else {
+            for (size_t i = 0; i < batch_size; ++i) {
+                static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
+            }
         }
     }
 
