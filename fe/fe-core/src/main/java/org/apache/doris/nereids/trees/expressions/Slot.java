@@ -30,9 +30,4 @@ public abstract class Slot extends NamedExpression implements LeafExpression {
     public Slot withNullable(boolean newNullable) {
         throw new RuntimeException("Do not implement");
     }
-
-    @Override
-    public boolean isConstant() {
-        return false;
-    }
 }
