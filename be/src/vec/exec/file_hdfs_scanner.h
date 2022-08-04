@@ -18,18 +18,13 @@
 #pragma once
 
 #include "common/status.h"
+#include "file_scanner.h"
 #include "vec/core/block.h"
+#include "vec/exec/format/parquet/vparquet_reader.h"
 
 namespace doris::vectorized {
 
-class HdfsFileScanner {
-public:
-    virtual Status open() = 0;
-
-    virtual Status get_next(vectorized::Block* block, bool* eof) = 0;
-
-    virtual void close() = 0;
-};
+class HdfsFileScanner : public FileScanner {};
 
 class ParquetFileHdfsScanner : public HdfsFileScanner {
 public:
@@ -41,6 +36,9 @@ public:
 
 private:
     void _prefetch_batch();
+
+private:
+    std::shared_ptr<ParquetReader> _reader;
 };
 
 } // namespace doris::vectorized

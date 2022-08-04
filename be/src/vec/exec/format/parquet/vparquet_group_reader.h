@@ -17,46 +17,62 @@
 #pragma once
 #include <common/status.h>
 
+#include "exprs/expr_context.h"
 #include "io/file_reader.h"
+#include "vec/core/block.h"
+#include "vparquet_column_reader.h"
 #include "vparquet_file_metadata.h"
+#include "vparquet_reader.h"
 
 namespace doris::vectorized {
 class RowGroupReader {
 public:
-    RowGroupReader(doris::FileReader* file_reader, std::shared_ptr<FileMetaData> file_metadata);
+    RowGroupReader(doris::FileReader* file_reader,
+                   const std::shared_ptr<FileMetaData>& file_metadata,
+                   const std::vector<ParquetReadColumn>& read_columns,
+                   const std::vector<ExprContext*>& conjunct_ctxs);
     ~RowGroupReader() = default;
-    void init(const std::vector<ExprContext*>& conjunct_ctxs,
-              int64_t split_start_offset,
-              int64_t split_size,
-              const std::vector<ParquetReadColumn>& read_columns);
+    void init(const TupleDescriptor* tuple_desc, int64_t split_start_offset, int64_t split_size,
+              const std::map<std::string, int>& _map_column);
     Status get_next_row_group(const int32_t* group_id);
-    Status fill_column_data(Block* block, const int32_t* group_id);
-private:
-    bool _is_misaligned_range_group(const parquet::RowGroup& row_group);
+    Status fill_column_data(Block* block, const int32_t group_id);
 
-    Status _process_column_stat_filter(const std::vector<ExprContext*>& conjunct_ctxs, bool* skipped_group);
+private:
+    bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
+
+    Status _process_column_stat_filter(tparquet::RowGroup& row_group,
+                                       const std::vector<ExprContext*>& conjunct_ctxs,
+                                       bool* filter_group);
+
+    void _init_conjuncts(const TupleDescriptor* tuple_desc,
+                         const std::vector<ExprContext*>& conjunct_ctxs,
+                         const std::map<std::string, int>& map_column);
 
     void _init_column_readers();
 
-    Status _process_row_group_filter(bool* filter_group);
+    Status _process_row_group_filter(tparquet::RowGroup& row_group,
+                                     const std::vector<ExprContext*>& conjunct_ctxs,
+                                     bool* filter_group);
 
     void _init_chunk_dicts();
 
-    Status _process_dict_filter();
+    Status _process_dict_filter(bool* filter_group);
 
     void _init_bloom_filter();
 
-    Status _process_bloom_filter();
+    Status _process_bloom_filter(bool* filter_group);
 
     int64_t _get_row_group_start_offset(const tparquet::RowGroup& row_group);
+    int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
 
-    int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column)
 private:
     doris::FileReader* _file_reader;
-    std::shared_ptr<FileMetaData> _file_metadata;
+    const std::shared_ptr<FileMetaData>& _file_metadata;
+    std::unordered_map<int32_t, ColumnReader*> _column_readers;
+    const TupleDescriptor* _tuple_desc; // get all slot info
+    const std::vector<ParquetReadColumn>& _read_columns;
     const std::vector<ExprContext*>& _conjunct_ctxs;
-    const std::vector<ParquetReadColumn>& _read_columns
-    std::unordered_map<int32_t, std::unique_ptr<ColumnReader>> _column_readers;
+    std::unordered_map<int, std::vector<ExprContext*>> _slot_conjuncts;
     int64_t _split_start_offset;
     int64_t _split_size;
     int32_t _current_row_group;

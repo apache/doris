@@ -17,9 +17,11 @@
 
 #pragma once
 #include <common/status.h>
+#include <gen_cpp/parquet_types.h>
+
+#include "schema_desc.h"
 
 namespace doris::vectorized {
-class ColumnReader {
-
-};
-}
+class ColumnReader {};
+Status create(const FieldDescriptor* field, const tparquet::RowGroup& row_group);
+}; // namespace doris::vectorized

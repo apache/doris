@@ -17,50 +17,100 @@
 
 #include "vparquet_group_reader.h"
 
+#include "parquet_pred_cmp.h"
+#include "vparquet_column_reader.h"
+
 namespace doris::vectorized {
 
 RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
-                               std::shared_ptr<FileMetaData> file_metadata)
+                               const std::shared_ptr<FileMetaData>& file_metadata,
+                               const std::vector<ParquetReadColumn>& read_columns,
+                               const std::vector<ExprContext*>& conjunct_ctxs)
         : _file_reader(file_reader),
           _file_metadata(file_metadata),
+          _read_columns(read_columns),
           _conjunct_ctxs(conjunct_ctxs),
-          _current_row_group(-1) {
-    DCHECK_LE(column_ids.size(), file_metadata->num_columns());
-}
+          _current_row_group(-1) {}
 
-void RowGroupReader::init(const std::vector<ExprContext*>& conjunct_ctxs, int64_t split_start_offset,
-                          int64_t split_size, const std::vector<ParquetReadColumn>& read_columns) {
-    _conjunct_ctxs = conjunct_ctxs;
+void RowGroupReader::init(const TupleDescriptor* tuple_desc, int64_t split_start_offset,
+                          int64_t split_size, const std::map<std::string, int>& map_column) {
+    _tuple_desc = tuple_desc;
     _split_start_offset = split_start_offset;
     _split_size = split_size;
-    _conjunct_ctxs =
+    _init_conjuncts(tuple_desc, _conjunct_ctxs, map_column);
     _init_column_readers();
 }
 
-void RowGroupReader::_init_column_readers() {
-    ColumnReader column_reader;
-    column_reader.init();
-    _column_readers[column.slot_id] = std::move(column_reader);
+void RowGroupReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
+                                     const std::vector<ExprContext*>& conjunct_ctxs,
+                                     const std::map<std::string, int>& map_column) {
+    if (tuple_desc->slots().empty()) {
+        return;
+    }
+    std::unordered_set<int> parquet_column_ids(_include_column_ids.begin(),
+                                               _include_column_ids.end());
+    for (int i = 0; i < tuple_desc->slots().size(); i++) {
+        auto col_iter = map_column.find(tuple_desc->slots()[i]->col_name());
+        if (col_iter == map_column.end()) {
+            continue;
+        }
+        int parquet_col_id = col_iter->second;
+        if (parquet_column_ids.end() == parquet_column_ids.find(parquet_col_id)) {
+            continue;
+        }
+        for (int conj_idx = 0; conj_idx < conjunct_ctxs.size(); conj_idx++) {
+            Expr* conjunct = conjunct_ctxs[conj_idx]->root();
+            if (conjunct->get_num_children() == 0) {
+                continue;
+            }
+            Expr* raw_slot = conjunct->get_child(0);
+            if (TExprNodeType::SLOT_REF != raw_slot->node_type()) {
+                continue;
+            }
+            SlotRef* slot_ref = (SlotRef*)raw_slot;
+            SlotId conjunct_slot_id = slot_ref->slot_id();
+            if (conjunct_slot_id == tuple_desc->slots()[i]->id()) {
+                // Get conjuncts by conjunct_slot_id
+                auto iter = _slot_conjuncts.find(conjunct_slot_id);
+                if (_slot_conjuncts.end() == iter) {
+                    std::vector<ExprContext*> conjuncts;
+                    conjuncts.emplace_back(conjunct_ctxs[conj_idx]);
+                    _slot_conjuncts.emplace(std::make_pair(conjunct_slot_id, conjuncts));
+                } else {
+                    std::vector<ExprContext*> conjuncts = iter->second;
+                    conjuncts.emplace_back(conjunct_ctxs[conj_idx]);
+                }
+            }
+        }
+    }
 }
 
-Status RowGroupReader::fill_column_data(Block* block, const int32_t* group_id) {
+void RowGroupReader::_init_column_readers() {
+    for (auto& read_col : _read_columns) {
+        ColumnReader reader;
+        //        reader.init();
+        _column_readers[read_col.slot_desc->id()] = &reader;
+    }
+}
 
-    return Status:OK();
+Status RowGroupReader::fill_column_data(Block* block, const int32_t group_id) {
+    return Status::OK();
 }
 
 Status RowGroupReader::get_next_row_group(const int32_t* group_id) {
     int32_t total_group = _file_metadata->num_row_groups();
-    if (total_group == 0 || _file_metadata->num_rows() == 0) {
+    if (total_group == 0 || _file_metadata->num_rows() == 0 || _split_size < 0) {
         return Status::EndOfFile("No row group need read");
     }
     while (_current_row_group < total_group) {
         _current_row_group++;
-        const parquet::RowGroup& row_group = file_metadata_.row_groups[_current_row_group];
-        if(!_is_misaligned_range_group(row_group)) {
+        const tparquet::RowGroup& row_group =
+                _file_metadata->to_thrift_metadata().row_groups[_current_row_group];
+        if (!_is_misaligned_range_group(row_group)) {
             continue;
         }
         bool filter_group = false;
-        RETURN_IF_ERROR(_process_row_group_filter(&filter_group));
+        RETURN_IF_ERROR(_process_row_group_filter(_conjunct_ctxs, &filter_group));
         if (!filter_group) {
             group_id = &_current_row_group;
             break;
@@ -69,45 +119,100 @@ Status RowGroupReader::get_next_row_group(const int32_t* group_id) {
     return Status::OK();
 }
 
-bool RowGroupReader::_is_misaligned_range_group(const parquet::RowGroup& row_group) {
+bool RowGroupReader::_is_misaligned_range_group(const tparquet::RowGroup& row_group) {
     int64_t start_offset = _get_column_start_offset(row_group.columns[0].meta_data);
 
     auto last_column = row_group.columns[row_group.columns.size() - 1].meta_data;
-    int64_t end_offset =
-            _get_column_start_offset(last_column) + last_column.total_compressed_size;
+    int64_t end_offset = _get_column_start_offset(last_column) + last_column.total_compressed_size;
 
     int64_t row_group_mid = start_offset + (end_offset - start_offset) / 2;
     if (!(row_group_mid >= _split_start_offset &&
-            row_group_mid < _split_start_offset + _split_size)) {
+          row_group_mid < _split_start_offset + _split_size)) {
         return true;
     }
 }
 
-Status RowGroupReader::_process_row_group_filter(bool* filter_group) {
-    _process_column_stat_filter();
+Status RowGroupReader::_process_row_group_filter(tparquet::RowGroup& row_group,
+                                                 const std::vector<ExprContext*>& conjunct_ctxs,
+                                                 bool* filter_group) {
+    _process_column_stat_filter(row_group, conjunct_ctxs, filter_group);
     _init_chunk_dicts();
-    RETURN_IF_ERROR(_process_dict_filter());
+    RETURN_IF_ERROR(_process_dict_filter(filter_group));
     _init_bloom_filter();
-    RETURN_IF_ERROR(_process_bloom_filter());
+    RETURN_IF_ERROR(_process_bloom_filter(filter_group));
     return Status::OK();
 }
 
-Status RowGroupReader::_process_column_stat_filter() {
-
-
-
-    return Status();
+Status RowGroupReader::_process_column_stat_filter(tparquet::RowGroup& row_group,
+                                                   const std::vector<ExprContext*>& conjunct_ctxs,
+                                                   bool* filter_group) {
+    int total_group = _file_metadata->num_row_groups();
+    std::unordered_set<int> parquet_column_ids;
+    for (auto& read_col : _read_columns) {
+        parquet_column_ids.emplace(read_col.parquet_column_id);
+    }
+    // It will not filter if head_group_offset equals tail_group_offset
+    int64_t total_groups = 0;
+    int64_t total_rows = 0;
+    int64_t total_bytes = 0;
+    bool update_statistics = false;
+    for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
+        total_rows += row_group.num_rows;
+        total_bytes += row_group.total_byte_size;
+        for (SlotId slot_id = 0; slot_id < _tuple_desc->slots().size(); slot_id++) {
+            const std::string& col_name = _tuple_desc->slots()[slot_id]->col_name();
+            auto col_iter = _read_columns;
+            if (col_iter == _map_column.end()) {
+                continue;
+            }
+            int parquet_col_id = col_iter->second;
+            if (parquet_column_ids.end() == parquet_column_ids.find(parquet_col_id)) {
+                // Column not exist in parquet file
+                continue;
+            }
+            auto slot_iter = _slot_conjuncts.find(slot_id);
+            if (slot_iter == _slot_conjuncts.end()) {
+                continue;
+            }
+            auto statistic = row_group.columns[parquet_col_id].meta_data.statistics;
+            if (!statistic.__isset.max || !statistic.__isset.min) {
+                continue;
+            }
+            // Min-max of statistic is plain-encoded value
+            const std::string& min = statistic.min;
+            const std::string& max = statistic.max;
+            //            bool group_need_filter = _determine_filter_row_group(slot_iter->second, min, max);
+            //            if (group_need_filter) {
+            //                update_statistics = true;
+            //                _add_filter_group(row_group_id, row_group);
+            //                VLOG_DEBUG << "Filter row group id: " << row_group_id;
+            //                break;
+            //            }
+        }
+    }
+    //    _parent->statistics()->total_groups = total_groups;
+    //    _parent->statistics()->total_rows = total_rows;
+    //    _parent->statistics()->total_bytes = total_bytes;
+    //    if (update_statistics) {
+    //        _parent->statistics()->filtered_row_groups = _filtered_num_row_groups;
+    //        _parent->statistics()->filtered_rows = _filtered_num_rows;
+    //        _parent->statistics()->filtered_total_bytes = _filtered_total_byte_size;
+    //        VLOG_DEBUG << "Parquet file: " << _file_metadata->schema()->name()
+    //                   << ", Num of read row group: " << total_group
+    //                   << ", and num of skip row group: " << _filtered_num_row_groups;
+    //    }
+    return Status::OK();
 }
 
 void RowGroupReader::_init_chunk_dicts() {}
 
-Status RowGroupReader::_process_dict_filter() {
+Status RowGroupReader::_process_dict_filter(bool* filter_group) {
     return Status();
 }
 
 void RowGroupReader::_init_bloom_filter() {}
 
-Status RowGroupReader::_process_bloom_filter() {
+Status RowGroupReader::_process_bloom_filter(bool* filter_group) {
     RETURN_IF_ERROR(_file_reader->seek(0));
     return Status();
 }
