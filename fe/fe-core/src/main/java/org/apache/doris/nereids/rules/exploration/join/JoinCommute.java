@@ -18,17 +18,22 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import java.util.BitSet;
+
 /**
  * rule factory for exchange inner join's children.
  */
 @Developing
 public class JoinCommute extends OneExplorationRuleFactory {
+    public static final JoinCommute JoinCommuteBottomJoin = new JoinCommute(false, SwapType.BOTTOM_JOIN);
+
     private final SwapType swapType;
     private final boolean swapOuter;
 
@@ -42,6 +47,11 @@ public class JoinCommute extends OneExplorationRuleFactory {
         this.swapType = swapType;
     }
 
+    /**
+     * JoinCommute Type.
+     * BOTTOM_JOIN, ZIG_ZAG is for duplicate-free join order.
+     * ALL is for normal join order.
+     */
     enum SwapType {
         BOTTOM_JOIN, ZIG_ZAG, ALL
     }
@@ -60,21 +70,27 @@ public class JoinCommute extends OneExplorationRuleFactory {
             LogicalJoin newJoin = new LogicalJoin(
                     join.getJoinType(),
                     join.getCondition(),
-                    join.right(), join.left(),
-                    join.getJoinReorderContext()
+                    join.right(), join.left()
             );
-            newJoin.getJoinReorderContext().setHasCommute(true);
+
+            // Set join-reorder masks for new join.
+            BitSet oldMasks = join.getGroupExpression().get().getRuleMasks();
+            GroupExpression newGroupExpr = newJoin.getGroupExpression().get();
+            newGroupExpr.copyMark(oldMasks);
+            BitSet newMasks = newGroupExpr.getRuleMasks();
+            GroupExpression.setHasCommute(newMasks);
             if (swapType == SwapType.ZIG_ZAG && !isBottomJoin) {
-                newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
+                GroupExpression.setCommuteZigZag(newMasks);
             }
 
             return newJoin;
-        }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
+        }).toRule(RuleType.LOGICAL_JOIN_COMMUTE);
     }
 
 
     private boolean check(LogicalJoin join) {
-        if (join.getJoinReorderContext().hasCommute() || join.getJoinReorderContext().hasExchange()) {
+        BitSet oldMasks = join.getGroupExpression().get().getRuleMasks();
+        if (GroupExpression.hasCommute(oldMasks) || GroupExpression.hasCommute(oldMasks)) {
             return false;
         }
         return true;

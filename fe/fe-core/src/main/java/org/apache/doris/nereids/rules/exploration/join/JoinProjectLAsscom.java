@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -57,10 +59,6 @@ public class JoinProjectLAsscom extends OneExplorationRuleFactory {
         return innerLogicalJoin(logicalProject(innerLogicalJoin(groupPlan(), groupPlan())), groupPlan())
             .when(this::check)
             .then(topJoin -> {
-                if (!check(topJoin)) {
-                    return null;
-                }
-
                 LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.left();
                 LogicalJoin<GroupPlan, GroupPlan> bottomJoin = project.child();
 
@@ -138,6 +136,10 @@ public class JoinProjectLAsscom extends OneExplorationRuleFactory {
                         Optional.of(ExpressionUtils.and(newBottomJoinOnCondition)),
                         a, c);
 
+                BitSet newBottomJoinMasks = newBottomJoin.getGroupExpression().get().getRuleMasks();
+                GroupExpression.sethasLAsscom(newBottomJoinMasks);
+                GroupExpression.setHasCommute(newBottomJoinMasks);
+
                 // Handle project.
                 List<NamedExpression> projectExprs = project.getProjects();
                 List<NamedExpression> newRightProjectExprs = Lists.newArrayList();
@@ -151,6 +153,8 @@ public class JoinProjectLAsscom extends OneExplorationRuleFactory {
                     }
                 }
 
+                LogicalJoin newTopJoin;
+
                 // project include b, add project for right.
                 if (newRightProjectExprs.size() != 0) {
                     LogicalProject newRightProject = new LogicalProject<>(newRightProjectExprs, b);
@@ -163,21 +167,28 @@ public class JoinProjectLAsscom extends OneExplorationRuleFactory {
                                 Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
                                 newLeftProject, newRightProject);
                     }
-                    return new LogicalJoin(
+                    newTopJoin = new LogicalJoin(
                             topJoin.getJoinType(),
                             Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
                             newBottomJoin, newRightProject);
-                }
 
-                return new LogicalJoin(
-                        topJoin.getJoinType(),
-                        Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
-                        newBottomJoin, b);
-            }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
+                } else {
+                    newTopJoin = new LogicalJoin(
+                            topJoin.getJoinType(),
+                            Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
+                            newBottomJoin, b);
+                }
+                BitSet newTopJoinMasks = newTopJoin.getGroupExpression().get().getRuleMasks();
+                GroupExpression.sethasLAsscom(newTopJoinMasks);
+                return newTopJoin;
+
+            }).toRule(RuleType.LOGICAL_JOIN_LASSCOM);
     }
 
-    private boolean check(LogicalJoin topJoin) {
-        if (topJoin.getJoinReorderContext().hasCommute()) {
+    private boolean check(LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin) {
+        BitSet topJoinMasks = topJoin.getGroupExpression().get().getRuleMasks();
+        BitSet bottomJoinMasks = topJoin.left().child().getGroupExpression().get().getRuleMasks();
+        if (GroupExpression.hasCommuteZigZag(bottomJoinMasks) || GroupExpression.hasLAsscom(topJoinMasks)) {
             return false;
         }
         return true;

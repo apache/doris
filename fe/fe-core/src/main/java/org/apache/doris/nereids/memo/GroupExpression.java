@@ -106,6 +106,10 @@ public class GroupExpression {
         this.children = children;
     }
 
+    public BitSet getRuleMasks() {
+        return ruleMasks;
+    }
+
     public boolean hasApplied(Rule rule) {
         return ruleMasks.get(rule.getRuleType().ordinal());
     }
@@ -157,6 +161,108 @@ public class GroupExpression {
     public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
             PhysicalProperties requiredPropertySet) {
         this.requestPropertiesMap.put(requiredPropertySet, outputPropertySet);
+    }
+
+    private enum JoinReorderMark {
+        // left deep
+        HAS_COMMUTE,
+        HAS_LASSCOM,
+
+        // zig-zag
+        HAS_COMMUTE_ZIG_ZAG,
+
+        // bushy
+        HAS_EXCHANGE,
+        HAS_RIGHT_ASSOCIATE,
+        HAS_LEFT_ASSOCIATE;
+
+        public static int getCommuteOrdinal() {
+            return RuleType.SENTINEL.ordinal() + JoinReorderMark.HAS_COMMUTE.ordinal();
+        }
+
+        public static int getLAsscomOrdinal() {
+            return RuleType.LOGICAL_JOIN_LASSCOM.ordinal() + JoinReorderMark.HAS_LASSCOM.ordinal();
+        }
+
+        public static int getCommuteZigZagOrdinal() {
+            return RuleType.LOGICAL_JOIN_LASSCOM.ordinal() + JoinReorderMark.HAS_COMMUTE_ZIG_ZAG.ordinal();
+        }
+
+        public static int getExchangeOrdinal() {
+            return RuleType.LOGICAL_JOIN_LASSCOM.ordinal() + JoinReorderMark.HAS_EXCHANGE.ordinal();
+        }
+
+        public static int getRightAssociateOrdinal() {
+            return RuleType.LOGICAL_JOIN_LASSCOM.ordinal() + JoinReorderMark.HAS_RIGHT_ASSOCIATE.ordinal();
+        }
+
+        public static int getLeftAssociateOrdinal() {
+            return RuleType.LOGICAL_JOIN_LASSCOM.ordinal() + JoinReorderMark.HAS_LEFT_ASSOCIATE.ordinal();
+        }
+    }
+
+    /**
+     * Copy duplicate-free mark.
+     * Use mark to avoid duplicate of join reorder.
+     * Paper:
+     * - Optimizing Join Enumeration in Transformation-based Query Optimizers
+     * - Improving Join Reorderability with Compensation Operators
+     */
+    public void copyMark(BitSet copyFrom) {
+        if (hasCommute(copyFrom)) {
+            ruleMasks.set(RuleType.LOGICAL_JOIN_COMMUTE.ordinal());
+        }
+        if (hasLAsscom(copyFrom)) {
+            ruleMasks.set(RuleType.LOGICAL_JOIN_LASSCOM.ordinal());
+        }
+    }
+
+    public static boolean hasCommute(BitSet marks) {
+        return marks.get(JoinReorderMark.getCommuteOrdinal());
+    }
+
+    public static void setHasCommute(BitSet marks) {
+        marks.set(JoinReorderMark.getCommuteOrdinal());
+    }
+
+    public static boolean hasLAsscom(BitSet marks) {
+        return marks.get(JoinReorderMark.getLAsscomOrdinal());
+    }
+
+    public static void sethasLAsscom(BitSet marks) {
+        marks.set(JoinReorderMark.getLAsscomOrdinal());
+    }
+
+    public static boolean hasCommuteZigZag(BitSet marks) {
+        return marks.get(JoinReorderMark.getCommuteZigZagOrdinal());
+    }
+
+    public static void setCommuteZigZag(BitSet marks) {
+        marks.set(JoinReorderMark.getCommuteZigZagOrdinal());
+    }
+
+    public static boolean hasExchange(BitSet marks) {
+        return marks.get(JoinReorderMark.getExchangeOrdinal());
+    }
+
+    public static void setHasExchange(BitSet marks) {
+        marks.set(JoinReorderMark.getExchangeOrdinal());
+    }
+
+    public static boolean hasRightAssociate(BitSet marks) {
+        return marks.get(JoinReorderMark.getRightAssociateOrdinal());
+    }
+
+    public static void setHasRightAssociate(BitSet marks) {
+        marks.set(JoinReorderMark.getRightAssociateOrdinal());
+    }
+
+    public static boolean isHasLeftAssociate(BitSet marks) {
+        return marks.get(JoinReorderMark.getLeftAssociateOrdinal());
+    }
+
+    public static void setHasLeftAssociate(BitSet marks) {
+        marks.set(JoinReorderMark.getLeftAssociateOrdinal());
     }
 
     @Override

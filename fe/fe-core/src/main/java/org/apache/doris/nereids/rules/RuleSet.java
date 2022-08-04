@@ -36,7 +36,7 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(new JoinCommute(true))
+            .add(JoinCommute.JoinCommuteBottomJoin)
             .build();
 
     public static final List<Rule> REWRITE_RULES = planRuleFactories()

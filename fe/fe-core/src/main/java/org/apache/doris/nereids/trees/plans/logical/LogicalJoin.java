@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.rules.exploration.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -44,8 +43,6 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     private final JoinType joinType;
     private final Optional<Expression> condition;
 
-    // Use for top-to-down join reorder
-    private final JoinReorderContext joinReorderContext = new JoinReorderContext();
 
     /**
      * Constructor for LogicalJoinPlan.
@@ -59,12 +56,6 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public LogicalJoin(JoinType joinType, Optional<Expression> condition,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(joinType, condition, Optional.empty(), Optional.empty(), leftChild, rightChild);
-    }
-
-    public LogicalJoin(JoinType joinType, Optional<Expression> condition,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, JoinReorderContext joinReorderContext) {
-        this(joinType, condition, Optional.empty(), Optional.empty(), leftChild, rightChild);
-        this.joinReorderContext.copyFrom(joinReorderContext);
     }
 
     /**
@@ -160,10 +151,6 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     @Override
     public List<Expression> getExpressions() {
         return condition.<List<Expression>>map(ImmutableList::of).orElseGet(ImmutableList::of);
-    }
-
-    public JoinReorderContext getJoinReorderContext() {
-        return joinReorderContext;
     }
 
     @Override
