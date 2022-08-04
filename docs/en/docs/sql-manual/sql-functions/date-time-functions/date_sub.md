@@ -50,4 +50,5 @@ mysql> select date_sub('2010-11-30 23:59:59', INTERVAL 2 DAY);
 +-------------------------------------------------+
 ```
 ### keywords
-Date, date, date
+
+    Date, date, date

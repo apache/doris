@@ -163,4 +163,5 @@ mysql> select date_format('2006-06-01', '%%%d');
 +--------------------------------------------+
 ```
 ### keywords
-DATE_FORMAT,DATE,FORMAT
+
+    DATE_FORMAT,DATE,FORMAT

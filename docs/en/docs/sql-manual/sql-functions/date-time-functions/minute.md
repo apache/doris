@@ -45,4 +45,5 @@ mysql> select minute('2018-12-31 23:59:59');
 +-----------------------------+
 ```
 ### keywords
-MINUTE
+
+    MINUTE
