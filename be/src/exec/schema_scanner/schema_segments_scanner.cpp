@@ -72,15 +72,6 @@ Status SchemaSegmentsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eo
     if (nullptr == tuple || nullptr == pool || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
-    // while (segment_footer_PB_idx_ >= segment_footer_PBs_[rowsets_idx_].size()) {
-    //     ++rowsets_idx_;
-    //     if (rowsets_idx_ < rowsets_.size()) {
-    //         segment_footer_PB_idx_ = 0;
-    //     } else {
-    //         *eos = true;
-    //         return Status::OK();
-    //     }
-    // }
     while (segments_idx_ >= segments_.size()) {
         if (rowsets_idx_ < rowsets_.size()) {
             RETURN_IF_ERROR(get_new_segments());
@@ -98,8 +89,6 @@ Status SchemaSegmentsScanner::get_all_rowsets() {
             StorageEngine::instance()->tablet_manager()->get_all_tablet();
     for (const auto& tablet : tablets) {
         TabletMetaSharedPtr tabletMetas = tablet->tablet_meta();
-        // all rowset Meta
-        // std::vector<RowsetMetaSharedPtr> RowsetMetas = tabletMetas->all_rs_metas();
 
         // all rowset
         std::vector<std::pair<Version, RowsetSharedPtr>> all_rowsets;
