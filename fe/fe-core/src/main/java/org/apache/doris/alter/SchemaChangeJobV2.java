@@ -857,8 +857,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             List<Comparable> info = Lists.newArrayList();
             info.add(jobId);
             info.add(tableName);
-            info.add(TimeUtils.longToTimeString(createTimeMs));
-            info.add(TimeUtils.longToTimeString(finishedTimeMs));
+            info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
+            info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
             // only show the origin index name
             info.add(indexIdToName.get(shadowIndexId).substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
             info.add(shadowIndexId);
