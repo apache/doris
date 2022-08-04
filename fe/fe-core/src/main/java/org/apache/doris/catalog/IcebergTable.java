@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.external.iceberg.IcebergCatalog;
@@ -128,10 +129,7 @@ public class IcebergTable extends Table {
 
         // analyze storage type
         String storagePrefix = strings[0].split(":")[0];
-        if (storagePrefix.equalsIgnoreCase("s3")
-                || storagePrefix.equalsIgnoreCase("oss")
-                || storagePrefix.equalsIgnoreCase("cos")
-                || storagePrefix.equalsIgnoreCase("bos")) {
+        if (isS3LikeStorageSchema(storagePrefix)) {
             this.storageType = StorageBackend.StorageType.S3;
         } else if (storagePrefix.equalsIgnoreCase("hdfs")) {
             this.storageType = StorageBackend.StorageType.HDFS;
@@ -145,6 +143,16 @@ public class IcebergTable extends Table {
         String host = strings[1];
         this.hostUri = storagePrefix + "://" + host;
         this.isAnalyzed = true;
+    }
+
+    private boolean isS3LikeStorageSchema(String schema) {
+        String[] objectStorageList = Config.s3_compatible_object_storages.split(",");
+        for (String objectStorage : objectStorageList) {
+            if (objectStorage.equalsIgnoreCase(schema)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public String getHostUri() throws UserException {

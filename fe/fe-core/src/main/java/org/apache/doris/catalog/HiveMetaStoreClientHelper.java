@@ -31,6 +31,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -270,12 +271,12 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static String normalizeS3LikeSchema(String location) {
-        if (location.startsWith("oss:")) {
-            location = location.replaceFirst("oss", "s3");
-        } else if (location.startsWith("cos:")) {
-            location = location.replaceFirst("cos", "s3");
-        } else if (location.startsWith("bos:")) {
-            location = location.replaceFirst("bos", "s3");
+        String[] objectStorages = Config.s3_compatible_object_storages.split(",");
+        for (String objectStorage : objectStorages) {
+            if (location.startsWith(objectStorage + "://")) {
+                location = location.replaceFirst(objectStorage, "s3");
+                break;
+            }
         }
         return location;
     }

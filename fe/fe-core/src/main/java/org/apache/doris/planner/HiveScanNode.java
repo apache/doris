@@ -24,6 +24,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HiveTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.statistics.StatisticalType;
@@ -126,16 +127,23 @@ public class HiveScanNode extends BrokerScanNode {
     private void setStorageType(String location) throws UserException {
         String[] strings = StringUtils.split(location, "/");
         String storagePrefix = strings[0].split(":")[0];
-        if (storagePrefix.equalsIgnoreCase("s3")
-                || storagePrefix.equalsIgnoreCase("oss")
-                || storagePrefix.equalsIgnoreCase("cos")
-                || storagePrefix.equalsIgnoreCase("bos")) {
+        if (isS3LikeStorageSchema(storagePrefix)) {
             this.storageType = StorageBackend.StorageType.S3;
         } else if (storagePrefix.equalsIgnoreCase("hdfs")) {
             this.storageType = StorageBackend.StorageType.HDFS;
         } else {
             throw new UserException("Not supported storage type: " + storagePrefix);
         }
+    }
+
+    private boolean isS3LikeStorageSchema(String schema) {
+        String[] objectStorageList = Config.s3_compatible_object_storages.split(",");
+        for (String objectStorage : objectStorageList) {
+            if (objectStorage.equalsIgnoreCase(schema)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void initHiveTblProperties() throws UserException {
