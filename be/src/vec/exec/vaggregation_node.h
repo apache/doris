@@ -647,6 +647,7 @@ private:
 
     bool _needs_finalize;
     bool _is_merge;
+    bool _is_first_phase;
     std::unique_ptr<MemPool> _mem_pool;
 
     std::unique_ptr<MemTracker> _data_mem_tracker;
@@ -708,6 +709,9 @@ private:
             state.set_serialized_keys(agg_method.keys.data());
         }
     }
+
+    void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
+                                  const size_t num_rows);
 
     void release_tracker();
 

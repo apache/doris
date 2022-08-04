@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionReplacer;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -134,24 +134,5 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     localAggregate
             );
         }).toRule(RuleType.AGGREGATE_DISASSEMBLE);
-    }
-
-    @SuppressWarnings("InnerClassMayBeStatic")
-    private static class ExpressionReplacer
-            extends DefaultExpressionRewriter<Map<Expression, Expression>> {
-        private static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
-
-        @Override
-        public Expression visit(Expression expr, Map<Expression, Expression> substitutionMap) {
-            // TODO: we need to do sub tree match and replace. but we do not have semanticEquals now.
-            //    e.g. a + 1 + 2 in output expression should be replaced by
-            //    (slot reference to update phase out (a + 1)) + 2, if we do group by a + 1
-            //   currently, we could only handle output expression same with group by expression
-            if (substitutionMap.containsKey(expr)) {
-                return substitutionMap.get(expr);
-            } else {
-                return super.visit(expr, substitutionMap);
-            }
-        }
     }
 }

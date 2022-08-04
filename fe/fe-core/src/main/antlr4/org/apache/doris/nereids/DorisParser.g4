@@ -125,10 +125,12 @@ joinType
     : INNER?
     | CROSS
     | LEFT OUTER?
-    | LEFT? SEMI
     | RIGHT OUTER?
     | FULL OUTER?
-    | LEFT? ANTI
+    | LEFT SEMI
+    | RIGHT SEMI
+    | LEFT ANTI
+    | RIGHT ANTI
     ;
 
 joinCriteria

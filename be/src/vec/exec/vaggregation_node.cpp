@@ -102,6 +102,8 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
     } else {
         _is_streaming_preagg = false;
     }
+
+    _is_first_phase = tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase;
 }
 
 AggregationNode::~AggregationNode() = default;
@@ -142,26 +144,26 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
         case TYPE_INT:
         case TYPE_FLOAT:
         case TYPE_DATEV2:
-            if (_is_merge)
-                _agg_data.init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
-            else
+            if (_is_first_phase)
                 _agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
+            else
+                _agg_data.init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
             return;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
         case TYPE_DATE:
         case TYPE_DATETIME:
         case TYPE_DATETIMEV2:
-            if (_is_merge)
-                _agg_data.init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
-            else
+            if (_is_first_phase)
                 _agg_data.init(AggregatedDataVariants::Type::int64_key, is_nullable);
+            else
+                _agg_data.init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
             return;
         case TYPE_LARGEINT: {
-            if (_is_merge)
-                _agg_data.init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
-            else
+            if (_is_first_phase)
                 _agg_data.init(AggregatedDataVariants::Type::int128_key, is_nullable);
+            else
+                _agg_data.init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
             return;
         }
         case TYPE_DECIMALV2:
@@ -175,20 +177,20 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
                                         : type_ptr->get_type_id();
             WhichDataType which(idx);
             if (which.is_decimal32()) {
-                if (_is_merge)
-                    _agg_data.init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
-                else
+                if (_is_first_phase)
                     _agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
+                else
+                    _agg_data.init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
             } else if (which.is_decimal64()) {
-                if (_is_merge)
-                    _agg_data.init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
-                else
+                if (_is_first_phase)
                     _agg_data.init(AggregatedDataVariants::Type::int64_key, is_nullable);
-            } else {
-                if (_is_merge)
-                    _agg_data.init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
                 else
+                    _agg_data.init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
+            } else {
+                if (_is_first_phase)
                     _agg_data.init(AggregatedDataVariants::Type::int128_key, is_nullable);
+                else
+                    _agg_data.init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
             }
             return;
         }
@@ -229,38 +231,38 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
         if (use_fixed_key) {
             if (has_null) {
                 if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
-                    if (_is_merge)
-                        _agg_data.init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
-                    else
+                    if (_is_first_phase)
                         _agg_data.init(AggregatedDataVariants::Type::int64_keys, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
                 } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
                            sizeof(UInt128)) {
-                    if (_is_merge)
-                        _agg_data.init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
-                    else
+                    if (_is_first_phase)
                         _agg_data.init(AggregatedDataVariants::Type::int128_keys, has_null);
-                } else {
-                    if (_is_merge)
-                        _agg_data.init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
                     else
+                        _agg_data.init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
+                } else {
+                    if (_is_first_phase)
                         _agg_data.init(AggregatedDataVariants::Type::int256_keys, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
                 }
             } else {
                 if (key_byte_size <= sizeof(UInt64)) {
-                    if (_is_merge)
-                        _agg_data.init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
-                    else
+                    if (_is_first_phase)
                         _agg_data.init(AggregatedDataVariants::Type::int64_keys, has_null);
-                } else if (key_byte_size <= sizeof(UInt128)) {
-                    if (_is_merge)
-                        _agg_data.init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
                     else
+                        _agg_data.init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
+                } else if (key_byte_size <= sizeof(UInt128)) {
+                    if (_is_first_phase)
                         _agg_data.init(AggregatedDataVariants::Type::int128_keys, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
                 } else {
                     if (_is_merge)
-                        _agg_data.init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
-                    else
                         _agg_data.init(AggregatedDataVariants::Type::int256_keys, has_null);
+                    else
+                        _agg_data.init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
                 }
             }
         } else {
@@ -399,7 +401,6 @@ Status AggregationNode::prepare(RuntimeState* state) {
 Status AggregationNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("aggregator, while execute open.");
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
@@ -444,7 +445,6 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "AggregationNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("aggregator, while execute get_next.");
 
     if (_is_streaming_preagg) {
         bool child_eos = false;
@@ -618,18 +618,10 @@ Status AggregationNode::_merge_without_key(Block* block) {
 
             for (int j = 0; j < rows; ++j) {
                 VectorBufferReader buffer_reader(((ColumnString*)(column.get()))->get_data_at(j));
-                _create_agg_status(deserialize_buffer.get());
 
-                _aggregate_evaluators[i]->function()->deserialize(
-                        deserialize_buffer.get() + _offsets_of_aggregate_states[i], buffer_reader,
+                _aggregate_evaluators[i]->function()->deserialize_and_merge(
+                        _agg_data.without_key + _offsets_of_aggregate_states[i], buffer_reader,
                         &_agg_arena_pool);
-
-                _aggregate_evaluators[i]->function()->merge(
-                        _agg_data.without_key + _offsets_of_aggregate_states[i],
-                        deserialize_buffer.get() + _offsets_of_aggregate_states[i],
-                        &_agg_arena_pool);
-
-                _destroy_agg_status(deserialize_buffer.get());
             }
         } else {
             _aggregate_evaluators[i]->execute_single_add(
@@ -708,6 +700,76 @@ bool AggregationNode::_should_expand_preagg_hash_tables() {
                 //  return estimated_reduction > min_reduction;
                 _should_expand_hash_table = current_reduction > min_reduction;
                 return _should_expand_hash_table;
+            },
+            _agg_data._aggregated_method_variant);
+}
+
+void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
+                                               const size_t num_rows) {
+    std::visit(
+            [&](auto&& agg_method) -> void {
+                using HashMethodType = std::decay_t<decltype(agg_method)>;
+                using HashTableType = std::decay_t<decltype(agg_method.data)>;
+                using AggState = typename HashMethodType::State;
+                AggState state(key_columns, _probe_key_sz, nullptr);
+
+                _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
+
+                std::vector<size_t> hash_values;
+
+                if constexpr (HashTableTraits<HashTableType>::is_phmap) {
+                    if (hash_values.size() < num_rows) hash_values.resize(num_rows);
+                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
+                                          AggState>::value) {
+                        for (size_t i = 0; i < num_rows; ++i) {
+                            hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                        }
+                    } else {
+                        for (size_t i = 0; i < num_rows; ++i) {
+                            hash_values[i] =
+                                    agg_method.data.hash(state.get_key_holder(i, _agg_arena_pool));
+                        }
+                    }
+                }
+
+                /// For all rows.
+                for (size_t i = 0; i < num_rows; ++i) {
+                    AggregateDataPtr aggregate_data = nullptr;
+
+                    auto emplace_result = [&]() {
+                        if constexpr (HashTableTraits<HashTableType>::is_phmap) {
+                            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < num_rows)) {
+                                if constexpr (HashTableTraits<HashTableType>::is_parallel_phmap) {
+                                    agg_method.data.prefetch_by_key(state.get_key_holder(
+                                            i + HASH_MAP_PREFETCH_DIST, _agg_arena_pool));
+                                } else
+                                    agg_method.data.prefetch_by_hash(
+                                            hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                            }
+
+                            return state.emplace_key(agg_method.data, hash_values[i], i,
+                                                     _agg_arena_pool);
+                        } else {
+                            return state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                        }
+                    }();
+
+                    /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
+                    if (emplace_result.is_inserted()) {
+                        /// exception-safety - if you can not allocate memory or create states, then destructors will not be called.
+                        emplace_result.set_mapped(nullptr);
+
+                        aggregate_data = _agg_arena_pool.aligned_alloc(
+                                _total_size_of_aggregate_states, _align_aggregate_states);
+                        _create_agg_status(aggregate_data);
+
+                        emplace_result.set_mapped(aggregate_data);
+                    } else
+                        aggregate_data = emplace_result.get_mapped();
+
+                    places[i] = aggregate_data;
+                    assert(places[i] != nullptr);
+                }
             },
             _agg_data._aggregated_method_variant);
 }
@@ -822,73 +884,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
             _agg_data._aggregated_method_variant);
 
     if (!ret_flag) {
-        std::visit(
-                [&](auto&& agg_method) -> void {
-                    using HashMethodType = std::decay_t<decltype(agg_method)>;
-                    using HashTableType = std::decay_t<decltype(agg_method.data)>;
-                    using AggState = typename HashMethodType::State;
-                    AggState state(key_columns, _probe_key_sz, nullptr);
-
-                    _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
-
-                    std::vector<size_t> hash_values;
-
-                    if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                        if (hash_values.size() < rows) hash_values.resize(rows);
-                        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                              AggState>::value) {
-                            for (size_t i = 0; i < rows; ++i) {
-                                hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                            }
-                        } else {
-                            for (size_t i = 0; i < rows; ++i) {
-                                hash_values[i] = agg_method.data.hash(
-                                        state.get_key_holder(i, _agg_arena_pool));
-                            }
-                        }
-                    }
-
-                    /// For all rows.
-                    for (size_t i = 0; i < rows; ++i) {
-                        AggregateDataPtr aggregate_data = nullptr;
-
-                        auto emplace_result = [&]() {
-                            if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                                if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
-                                    if constexpr (HashTableTraits<
-                                                          HashTableType>::is_parallel_phmap) {
-                                        agg_method.data.prefetch_by_key(state.get_key_holder(
-                                                i + HASH_MAP_PREFETCH_DIST, _agg_arena_pool));
-                                    } else
-                                        agg_method.data.prefetch_by_hash(
-                                                hash_values[i + HASH_MAP_PREFETCH_DIST]);
-                                }
-
-                                return state.emplace_key(agg_method.data, hash_values[i], i,
-                                                         _agg_arena_pool);
-                            } else {
-                                return state.emplace_key(agg_method.data, i, _agg_arena_pool);
-                            }
-                        }();
-
-                        /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
-                        if (emplace_result.is_inserted()) {
-                            /// exception-safety - if you can not allocate memory or create states, then destructors will not be called.
-                            emplace_result.set_mapped(nullptr);
-
-                            aggregate_data = _agg_arena_pool.aligned_alloc(
-                                    _total_size_of_aggregate_states, _align_aggregate_states);
-                            _create_agg_status(aggregate_data);
-
-                            emplace_result.set_mapped(aggregate_data);
-                        } else
-                            aggregate_data = emplace_result.get_mapped();
-
-                        places[i] = aggregate_data;
-                        assert(places[i] != nullptr);
-                    }
-                },
-                _agg_data._aggregated_method_variant);
+        _emplace_into_hash_table(places.data(), key_columns, rows);
 
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             _aggregate_evaluators[i]->execute_batch_add(in_block, _offsets_of_aggregate_states[i],
@@ -920,72 +916,7 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
     int rows = block->rows();
     PODArray<AggregateDataPtr> places(rows);
 
-    std::visit(
-            [&](auto&& agg_method) -> void {
-                using HashMethodType = std::decay_t<decltype(agg_method)>;
-                using HashTableType = std::decay_t<decltype(agg_method.data)>;
-                using AggState = typename HashMethodType::State;
-                AggState state(key_columns, _probe_key_sz, nullptr);
-
-                _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
-
-                std::vector<size_t> hash_values;
-
-                if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (hash_values.size() < rows) hash_values.resize(rows);
-                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                          AggState>::value) {
-                        for (size_t i = 0; i < rows; ++i) {
-                            hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                        }
-                    } else {
-                        for (size_t i = 0; i < rows; ++i) {
-                            hash_values[i] =
-                                    agg_method.data.hash(state.get_key_holder(i, _agg_arena_pool));
-                        }
-                    }
-                }
-
-                /// For all rows.
-                for (size_t i = 0; i < rows; ++i) {
-                    AggregateDataPtr aggregate_data = nullptr;
-
-                    auto emplace_result = [&]() {
-                        if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
-                                if constexpr (HashTableTraits<HashTableType>::is_parallel_phmap) {
-                                    agg_method.data.prefetch_by_key(state.get_key_holder(
-                                            i + HASH_MAP_PREFETCH_DIST, _agg_arena_pool));
-                                } else
-                                    agg_method.data.prefetch_by_hash(
-                                            hash_values[i + HASH_MAP_PREFETCH_DIST]);
-                            }
-
-                            return state.emplace_key(agg_method.data, hash_values[i], i,
-                                                     _agg_arena_pool);
-                        } else {
-                            return state.emplace_key(agg_method.data, i, _agg_arena_pool);
-                        }
-                    }();
-
-                    /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
-                    if (emplace_result.is_inserted()) {
-                        /// exception-safety - if you can not allocate memory or create states, then destructors will not be called.
-                        emplace_result.set_mapped(nullptr);
-
-                        aggregate_data = _agg_arena_pool.aligned_alloc(
-                                _total_size_of_aggregate_states, _align_aggregate_states);
-                        _create_agg_status(aggregate_data);
-
-                        emplace_result.set_mapped(aggregate_data);
-                    } else
-                        aggregate_data = emplace_result.get_mapped();
-
-                    places[i] = aggregate_data;
-                    assert(places[i] != nullptr);
-                }
-            },
-            _agg_data._aggregated_method_variant);
+    _emplace_into_hash_table(places.data(), key_columns, rows);
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
@@ -1194,71 +1125,7 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
     int rows = block->rows();
     PODArray<AggregateDataPtr> places(rows);
 
-    std::visit(
-            [&](auto&& agg_method) -> void {
-                using HashMethodType = std::decay_t<decltype(agg_method)>;
-                using HashTableType = std::decay_t<decltype(agg_method.data)>;
-                using AggState = typename HashMethodType::State;
-                AggState state(key_columns, _probe_key_sz, nullptr);
-
-                _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
-
-                std::vector<size_t> hash_values;
-
-                if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (hash_values.size() < rows) hash_values.resize(rows);
-                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                          AggState>::value) {
-                        for (size_t i = 0; i < rows; ++i) {
-                            hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                        }
-                    } else {
-                        for (size_t i = 0; i < rows; ++i) {
-                            hash_values[i] =
-                                    agg_method.data.hash(state.get_key_holder(i, _agg_arena_pool));
-                        }
-                    }
-                }
-
-                /// For all rows.
-                for (size_t i = 0; i < rows; ++i) {
-                    AggregateDataPtr aggregate_data = nullptr;
-
-                    auto emplace_result = [&]() {
-                        if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
-                                if constexpr (HashTableTraits<HashTableType>::is_parallel_phmap) {
-                                    agg_method.data.prefetch_by_key(state.get_key_holder(
-                                            i + HASH_MAP_PREFETCH_DIST, _agg_arena_pool));
-                                } else
-                                    agg_method.data.prefetch_by_hash(
-                                            hash_values[i + HASH_MAP_PREFETCH_DIST]);
-                            }
-                            return state.emplace_key(agg_method.data, hash_values[i], i,
-                                                     _agg_arena_pool);
-                        } else {
-                            return state.emplace_key(agg_method.data, i, _agg_arena_pool);
-                        }
-                    }();
-
-                    /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
-                    if (emplace_result.is_inserted()) {
-                        /// exception-safety - if you can not allocate memory or create states, then destructors will not be called.
-                        emplace_result.set_mapped(nullptr);
-
-                        aggregate_data = _agg_arena_pool.aligned_alloc(
-                                _total_size_of_aggregate_states, _align_aggregate_states);
-                        _create_agg_status(aggregate_data);
-
-                        emplace_result.set_mapped(aggregate_data);
-                    } else
-                        aggregate_data = emplace_result.get_mapped();
-
-                    places[i] = aggregate_data;
-                    assert(places[i] != nullptr);
-                }
-            },
-            _agg_data._aggregated_method_variant);
+    _emplace_into_hash_table(places.data(), key_columns, rows);
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&

@@ -19,8 +19,6 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
@@ -33,15 +31,17 @@ import java.util.Objects;
  */
 public class InSubquery extends SubqueryExpr implements BinaryExpression {
     private Expression compareExpr;
+    private ListQuery listQuery;
 
-    public InSubquery(Expression compareExpression, LogicalPlan subquery) {
-        super(Objects.requireNonNull(subquery, "subquery can not be null"));
+    public InSubquery(Expression compareExpression, ListQuery listQuery) {
+        super(Objects.requireNonNull(listQuery.getQueryPlan(), "subquery can not be null"));
         this.compareExpr = compareExpression;
+        this.listQuery = listQuery;
     }
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return BooleanType.INSTANCE;
+        return listQuery.getDataType();
     }
 
     @Override
@@ -71,8 +71,8 @@ public class InSubquery extends SubqueryExpr implements BinaryExpression {
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         Preconditions.checkArgument(children.get(0) instanceof Expression);
-        Preconditions.checkArgument(children.get(1) instanceof SubqueryExpr);
-        return new InSubquery(children.get(0), ((SubqueryExpr) children.get(1)).getQueryPlan());
+        Preconditions.checkArgument(children.get(1) instanceof ListQuery);
+        return new InSubquery(children.get(0), (ListQuery) children.get(1));
     }
 
     @Override
@@ -85,11 +85,11 @@ public class InSubquery extends SubqueryExpr implements BinaryExpression {
         }
         InSubquery inSubquery = (InSubquery) o;
         return Objects.equals(this.compareExpr, inSubquery.getCompareExpr())
-                && Objects.equals(this.queryPlan, inSubquery.getQueryPlan());
+                && checkEquals(this.queryPlan, inSubquery.queryPlan);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.compareExpr, this.queryPlan);
+        return Objects.hash(this.compareExpr, this.listQuery);
     }
 }

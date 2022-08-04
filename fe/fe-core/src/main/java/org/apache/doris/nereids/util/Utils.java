@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -94,5 +95,16 @@ public class Utils {
      */
     public static String qualifiedName(List<String> qualifier, String name) {
         return StringUtils.join(qualifiedNameParts(qualifier, name), ".");
+    }
+
+
+    /**
+     * equals for List but ignore order.
+     */
+    public static <E> boolean equalsIgnoreOrder(List<E> one, List<E> other) {
+        if (one.size() != other.size()) {
+            return false;
+        }
+        return new HashSet<>(one).containsAll(other) && new HashSet<>(other).containsAll(one);
     }
 }

@@ -499,7 +499,7 @@ size_t RowBatch::get_batch_size(const PRowBatch& batch) {
 void RowBatch::acquire_state(RowBatch* src) {
     // DCHECK(_row_desc.equals(src->_row_desc));
     DCHECK_EQ(_num_tuples_per_row, src->_num_tuples_per_row);
-    DCHECK_EQ(_tuple_ptrs_size, src->_tuple_ptrs_size);
+    // DCHECK_EQ(_tuple_ptrs_size, src->_tuple_ptrs_size);
     DCHECK_EQ(_auxiliary_mem_usage, 0);
 
     // The destination row batch should be empty.

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.jobs.cascades;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Memo;
@@ -34,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.Statistics;
@@ -42,13 +42,13 @@ import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
 
 import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -76,8 +76,8 @@ public class DeriveStatsJobTest {
             plannerContext.getJobPool().pop().execute();
         }
         StatsDeriveResult statistics = memo.getRoot().getStatistics();
-        Assert.assertNotNull(statistics);
-        Assert.assertEquals(10, statistics.getRowCount());
+        Assertions.assertNotNull(statistics);
+        Assertions.assertEquals(10, statistics.getRowCount());
     }
 
     private LogicalOlapScan constructOlapSCan() {
@@ -85,14 +85,11 @@ public class DeriveStatsJobTest {
         columnStats1.setNdv(10);
         columnStats1.setNumNulls(5);
         long tableId1 = 0;
-        String tableName1 = "t1";
         TableStats tableStats1 = new TableStats();
         tableStats1.putColumnStats("c1", columnStats1);
         Statistics statistics = new Statistics();
         statistics.putTableStats(tableId1, tableStats1);
-        List<String> qualifier = new ArrayList<>();
-        qualifier.add("test");
-        qualifier.add("t");
+        List<String> qualifier = ImmutableList.of("test", "t");
         slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
         new Expectations() {{
                 ConnectContext.get();
@@ -105,15 +102,14 @@ public class DeriveStatsJobTest {
                 result = statistics;
             }};
 
-        Table table1 = new Table(tableId1, tableName1, TableType.OLAP, Collections.emptyList());
-        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(table1, Collections.emptyList()).withLogicalProperties(
+        Table table1 = PlanConstructor.newTable(tableId1, "t1");
+        return new LogicalOlapScan(table1, Collections.emptyList()).withLogicalProperties(
                 Optional.of(new LogicalProperties(new Supplier<List<Slot>>() {
                     @Override
                     public List<Slot> get() {
-                        return Arrays.asList(slot1);
+                        return Collections.singletonList(slot1);
                     }
                 })));
-        return logicalOlapScan1;
     }
 
     private LogicalAggregate constructAgg(Plan child) {
@@ -121,7 +117,6 @@ public class DeriveStatsJobTest {
         groupByExprList.add(slot1);
         AggregateFunction sum = new Sum(slot1);
         Alias alias = new Alias(sum, "a");
-        LogicalAggregate logicalAggregate = new LogicalAggregate(groupByExprList, Arrays.asList(alias), child);
-        return logicalAggregate;
+        return new LogicalAggregate<>(groupByExprList, Collections.singletonList(alias), child);
     }
 }

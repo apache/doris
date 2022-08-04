@@ -863,6 +863,11 @@ public class EditLog {
                     env.getSchemaChangeHandler().replayModifyTableAddOrDropColumns(info);
                     break;
                 }
+                case OperationType.OP_CLEAN_LABEL: {
+                    final CleanLabelOperationLog log = (CleanLabelOperationLog) journal.getData();
+                    env.getLoadManager().replayCleanLabel(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1496,5 +1501,9 @@ public class EditLog {
 
     public void logModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info) {
         logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS, info);
+    }
+
+    public void logCleanLabel(CleanLabelOperationLog log) {
+        logEdit(OperationType.OP_CLEAN_LABEL, log);
     }
 }

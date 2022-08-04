@@ -38,7 +38,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
@@ -99,7 +98,6 @@ public class InsertStmt extends DdlStmt {
     private Boolean isRepartition;
     private boolean isStreaming = false;
     private String label = null;
-    private boolean isUserSpecifiedLabel = false;
 
     private Map<Long, Integer> indexIdToSchemaHash = null;
 
@@ -141,10 +139,6 @@ public class InsertStmt extends DdlStmt {
         this.queryStmt = source.getQueryStmt();
         this.planHints = hints;
         this.targetColumnNames = cols;
-
-        if (!Strings.isNullOrEmpty(label)) {
-            isUserSpecifiedLabel = true;
-        }
 
         this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
@@ -248,10 +242,6 @@ public class InsertStmt extends DdlStmt {
         return label;
     }
 
-    public boolean isUserSpecifiedLabel() {
-        return isUserSpecifiedLabel;
-    }
-
     public DataSink getDataSink() {
         return dataSink;
     }
@@ -306,12 +296,11 @@ public class InsertStmt extends DdlStmt {
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         if (Strings.isNullOrEmpty(label)) {
-            label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
+            label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
         }
         if (!isExplain() && !isTransactionBegin) {
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
-                MetricRepo.COUNTER_LOAD_ADD.increase(1L);
                 transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
                         Lists.newArrayList(targetTable.getId()), label,
                         new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
@@ -717,7 +706,8 @@ public class InsertStmt extends DdlStmt {
             return dataSink;
         }
         if (targetTable instanceof OlapTable) {
-            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds);
+            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
+                    analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof BrokerTable) {
             BrokerTable table = (BrokerTable) targetTable;

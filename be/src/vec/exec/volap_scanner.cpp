@@ -68,7 +68,7 @@ Status VOlapScanner::prepare(
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-        _tablet_schema = _tablet->tablet_schema();
+        _tablet_schema.copy_from(*_tablet->tablet_schema());
         if (!_parent->_olap_scan_node.columns_desc.empty() &&
             _parent->_olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             // Originally scanner get TabletSchema from tablet object in BE.
@@ -135,6 +135,23 @@ Status VOlapScanner::open() {
         return Status::InternalError(ss.str().c_str());
     }
     return Status::OK();
+}
+
+TabletStorageType VOlapScanner::get_storage_type() {
+    int local_reader = 0;
+    for (const auto& reader : _tablet_reader_params.rs_readers) {
+        if (reader->rowset()->rowset_meta()->resource_id().empty()) {
+            local_reader++;
+        }
+    }
+    int total_reader = _tablet_reader_params.rs_readers.size();
+
+    if (local_reader == total_reader) {
+        return TabletStorageType::STORAGE_TYPE_LOCAL;
+    } else if (local_reader == 0) {
+        return TabletStorageType::STORAGE_TYPE_REMOTE;
+    }
+    return TabletStorageType::STORAGE_TYPE_REMOTE_AND_LOCAL;
 }
 
 // it will be called under tablet read lock because capture rs readers need
@@ -235,9 +252,13 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
         if (!slot->is_materialized()) {
             continue;
         }
-        int32_t index = slot->col_unique_id() >= 0
-                                ? _tablet_schema.field_index(slot->col_unique_id())
-                                : _tablet_schema.field_index(slot->col_name());
+
+        int32_t index = _tablet_schema.field_index(slot->col_unique_id());
+        if (index < 0) {
+            // rollup/materialized view should use col_name to find index
+            index = _tablet_schema.field_index(slot->col_name());
+        }
+
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalid. field=" << slot->col_name();
@@ -245,8 +266,9 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
-        if (slot->is_nullable() && !_tablet_schema.column(index).is_nullable())
+        if (slot->is_nullable() && !_tablet_schema.column(index).is_nullable()) {
             _tablet_columns_convert_to_null_set.emplace(index);
+        }
     }
 
     // expand the sequence column

@@ -29,7 +29,7 @@ namespace doris {
 class MemtableFlushTask final : public Runnable {
 public:
     MemtableFlushTask(FlushToken* flush_token, std::unique_ptr<MemTable> memtable,
-                      int64_t submit_task_time, MemTrackerLimiter* tracker)
+                      int64_t submit_task_time, const std::shared_ptr<MemTrackerLimiter>& tracker)
             : _flush_token(flush_token),
               _memtable(std::move(memtable)),
               _submit_task_time(submit_task_time),
@@ -47,7 +47,7 @@ private:
     FlushToken* _flush_token;
     std::unique_ptr<MemTable> _memtable;
     int64_t _submit_task_time;
-    MemTrackerLimiter* _tracker;
+    std::shared_ptr<MemTrackerLimiter> _tracker;
 };
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
@@ -58,7 +58,8 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
     return os;
 }
 
-Status FlushToken::submit(std::unique_ptr<MemTable> mem_table, MemTrackerLimiter* tracker) {
+Status FlushToken::submit(std::unique_ptr<MemTable> mem_table,
+                          const std::shared_ptr<MemTrackerLimiter>& tracker) {
     ErrorCode s = _flush_status.load();
     if (s != OLAP_SUCCESS) {
         return Status::OLAPInternalError(s);

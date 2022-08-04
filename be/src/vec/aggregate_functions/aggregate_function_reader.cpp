@@ -44,23 +44,19 @@ void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFact
         factory.register_function(name + suffix, creator, nullable);
     };
 
-    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<false, true>,
-                      false);
-    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<true, true>,
-                      true);
-    register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<false, false>,
-                      false);
-    register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<true, false>,
-                      true);
+    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<true>, false);
+    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<true>, true);
+    register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<false>, false);
+    register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<false>, true);
 
     register_function("replace_if_not_null", AGG_READER_SUFFIX,
-                      create_aggregate_function_first_non_null_value<false, true>, false);
+                      create_aggregate_function_first_non_null_value<true>, false);
     register_function("replace_if_not_null", AGG_READER_SUFFIX,
-                      create_aggregate_function_first_non_null_value<true, true>, true);
+                      create_aggregate_function_first_non_null_value<true>, true);
     register_function("replace_if_not_null", AGG_LOAD_SUFFIX,
-                      create_aggregate_function_last_non_null_value<false, false>, false);
+                      create_aggregate_function_last_non_null_value<false>, false);
     register_function("replace_if_not_null", AGG_LOAD_SUFFIX,
-                      create_aggregate_function_last_non_null_value<true, false>, true);
+                      create_aggregate_function_last_non_null_value<false>, true);
 }
 
 } // namespace doris::vectorized

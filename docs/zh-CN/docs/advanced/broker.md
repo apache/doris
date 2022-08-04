@@ -60,12 +60,8 @@ Broker 在 Doris 系统架构中的位置如下：
    - 支持简单认证访问
    - 支持通过 kerberos 认证访问
    - 支持 HDFS HA 模式访问
-2. 百度 HDFS/AFS（开源版本不支持）
-   - 支持通过 ugi 简单认证访问
-3. 百度对象存储 BOS（开源版本不支持）
-   - 支持通过 AK/SK 认证访问
-
-## 需要 Broker 的操作
+2. 对象存储
+   - 所有支持S3协议的对象存储
 
 1. [Broker Load](../data-operate/import/import-way/broker-load-manual.md)
 2. [数据导出（Export）](../data-operate/export/export-manual.md)

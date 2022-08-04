@@ -33,6 +33,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -86,7 +87,7 @@ public class JoinProjectLAsscom extends OneExplorationRuleFactory {
 
                 // Ignore join with some OnClause like:
                 // Join C = B + A for above example.
-                List<Expression> topJoinOnClauseConjuncts = ExpressionUtils.extractConjunctive(topJoinOnClause);
+                List<Expression> topJoinOnClauseConjuncts = ExpressionUtils.extractConjunction(topJoinOnClause);
                 for (Expression topJoinOnClauseConjunct : topJoinOnClauseConjuncts) {
                     if (ExpressionUtils.isIntersecting(
                             topJoinOnClauseConjunct.collect(SlotReference.class::isInstance), aOutputSlots)
@@ -100,7 +101,7 @@ public class JoinProjectLAsscom extends OneExplorationRuleFactory {
                         return null;
                     }
                 }
-                List<Expression> bottomJoinOnClauseConjuncts = ExpressionUtils.extractConjunctive(
+                List<Expression> bottomJoinOnClauseConjuncts = ExpressionUtils.extractConjunction(
                         bottomJoinOnClause);
 
                 List<Expression> allOnCondition = Lists.newArrayList();
@@ -115,7 +116,7 @@ public class JoinProjectLAsscom extends OneExplorationRuleFactory {
                 List<Expression> newTopJoinOnCondition = Lists.newArrayList();
                 for (Expression onCondition : allOnCondition) {
                     List<SlotReference> slots = onCondition.collect(SlotReference.class::isInstance);
-                    if (ExpressionUtils.containsAll(newBottomJoinSlots, slots)) {
+                    if (new HashSet<>(newBottomJoinSlots).containsAll(slots)) {
                         newBottomJoinOnCondition.add(onCondition);
                     } else {
                         newTopJoinOnCondition.add(onCondition);
@@ -143,7 +144,7 @@ public class JoinProjectLAsscom extends OneExplorationRuleFactory {
                 List<NamedExpression> newLeftProjectExpr = Lists.newArrayList();
                 for (NamedExpression projectExpr : projectExprs) {
                     List<SlotReference> usedSlotRefs = projectExpr.collect(SlotReference.class::isInstance);
-                    if (ExpressionUtils.containsAll(bOutputSlots, usedSlotRefs)) {
+                    if (new HashSet<>(bOutputSlots).containsAll(usedSlotRefs)) {
                         newRightProjectExprs.add(projectExpr);
                     } else {
                         newLeftProjectExpr.add(projectExpr);

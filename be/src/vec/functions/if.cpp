@@ -139,6 +139,9 @@ public:
     static ColumnPtr get_nested_column(const ColumnPtr& column) {
         if (auto* nullable = check_and_get_column<ColumnNullable>(*column))
             return nullable->get_nested_column_ptr();
+        else if (const auto* column_const = check_and_get_column<ColumnConst>(*column))
+            return ColumnConst::create(get_nested_column(column_const->get_data_column_ptr()),
+                                       column->size());
 
         return column;
     }
