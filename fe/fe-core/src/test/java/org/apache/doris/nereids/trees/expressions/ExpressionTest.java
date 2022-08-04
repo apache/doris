@@ -17,22 +17,26 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-/**
- * Abstract class for all slot in expression.
- */
-public abstract class Slot extends NamedExpression implements LeafExpression {
+import org.apache.doris.nereids.types.IntegerType;
 
-    @Override
-    public Slot toSlot() {
-        return this;
-    }
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-    public Slot withNullable(boolean newNullable) {
-        throw new RuntimeException("Do not implement");
-    }
+public class ExpressionTest {
 
-    @Override
-    public boolean isConstant() {
-        return false;
+    @Test
+    public void testConstantExpression() {
+        // literal is constant
+        Assertions.assertTrue(new StringLiteral("abc").isConstant());
+
+        // slot reference is not constant
+        Assertions.assertFalse(new SlotReference("a", IntegerType.INSTANCE).isConstant());
+
+        // `1 + 2` is constant
+        Assertions.assertTrue(new Add(new IntegerLiteral(1), new IntegerLiteral(2)).isConstant());
+
+        // `a + 1` is not constant
+        Assertions.assertFalse(
+                new Add(new SlotReference("a", IntegerType.INSTANCE), new IntegerLiteral(1)).isConstant());
     }
 }
