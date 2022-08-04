@@ -13,7 +13,7 @@ CREATE TABLE schema_change_update_regression_test (
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( "replication_num" = "1" );
+            PROPERTIES ( "replication_num" = "1" , "light_schema_change" = "true");
 
 INSERT INTO schema_change_update_regression_test VALUES
              (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2020-01-01', 1, 30, 20);
