@@ -43,17 +43,10 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     private final NereidsParser parser = new NereidsParser();
 
     private final List<String> testSql = Lists.newArrayList(
-            "SELECT * FROM T1",
-            "SELECT * FROM T1 ORDER BY ID",
-            "SELECT * FROM T1 JOIN T2 ON T1.ID = T2.ID",
-            "SELECT * FROM T1 T",
-            "SELECT T.ID FROM T1 T",
             "SELECT * FROM (SELECT * FROM T1 T) T2",
-            "SELECT T1.ID ID FROM T1",
             "SELECT T.ID FROM T1 T",
-            "SELECT A.ID FROM T1 A, T2 B WHERE A.ID = B.ID GROUP BY A.ID ORDER BY A.ID",
-            "SELECT * FROM T1 JOIN T1 T2 ON T1.ID = T2.ID",
-            "SELECT Y.S FROM (SELECT SUM(ID) ID1 FROM T1 A GROUP BY A.ID) X JOIN (SELECT SCORE S FROM T2) Y ON X.ID1 = Y.S"
+            "SELECT A.ID FROM T1 A, T2 B WHERE A.ID = B.ID",
+            "SELECT * FROM T1 JOIN T1 T2 ON T1.ID = T2.ID"
     );
 
     @Override
@@ -96,7 +89,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testAnalyze() {
-        checkAnalyze(testSql.get(8));
+        checkAnalyze(testSql.get(0));
     }
 
     @Test
@@ -113,7 +106,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testFinalizeAnalyze() {
-        finalizeAnalyze(testSql.get(10));
+        finalizeAnalyze(testSql.get(0));
     }
 
     @Test
@@ -126,7 +119,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testPlan() throws AnalysisException {
-        testPlanCase(testSql.get(10));
+        testPlanCase(testSql.get(0));
     }
 
     @Test

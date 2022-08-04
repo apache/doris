@@ -50,9 +50,9 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
         this.alias = tableAlias;
-
     }
 
+    @Override
     public List<Slot> computeOutput(Plan input) {
         return input.getOutput().stream()
                 .map(slot -> slot.withQualifier(ImmutableList.of(alias)))
@@ -65,7 +65,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public String toString() {
-        return "LogicalSubQueryAlias (" + alias.toString() + ")";
+        return "LogicalSubQueryAlias (" + alias + ")";
     }
 
     @Override
