@@ -246,8 +246,8 @@ public class ColumnStats {
     }
 
     public ColumnStats updateBySelectivity(double selectivity) {
-        ndv *= selectivity;
-        numNulls *= selectivity;
+        ndv = (long) Math.ceil(ndv * selectivity);
+        numNulls = (long) Math.ceil(numNulls * selectivity);
         return this;
     }
 }

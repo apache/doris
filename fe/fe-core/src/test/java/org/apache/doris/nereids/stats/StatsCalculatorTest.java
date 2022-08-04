@@ -252,7 +252,7 @@ public class StatsCalculatorTest {
         columnStats1.setNumNulls(5);
         Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
         slotColumnStatsMap.put(slot1, columnStats1);
-        StatsDeriveResult childStats = new StatsDeriveResult(10000, slotColumnStatsMap);
+        StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
 
         Group childGroup = new Group();
         childGroup.setLogicalProperties(new LogicalProperties(new Supplier<List<Slot>>() {

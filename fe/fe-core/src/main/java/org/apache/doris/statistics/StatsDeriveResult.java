@@ -121,19 +121,11 @@ public class StatsDeriveResult {
     }
 
     public StatsDeriveResult updateRowCountByLimit(long limit) {
-        if (limit > 0) {
-            rowCount = Math.min(rowCount, limit);
-            if (0 == rowCount) {
-                for (Entry<Slot, ColumnStats> entry : slotToColumnStats.entrySet()) {
-                    entry.getValue().setNdv(0);
-                    entry.getValue().setNumNulls(0);
-                }
-            } else {
-                double selectivity = ((double) limit) / rowCount;
-                selectivity = Math.max(1, selectivity);
-                for (Entry<Slot, ColumnStats> entry : slotToColumnStats.entrySet()) {
-                    entry.getValue().updateBySelectivity(selectivity);
-                }
+        if (limit > 0 && rowCount > 0 && rowCount > limit) {
+            double selectivity = ((double) limit) / rowCount;
+            rowCount = limit;
+            for (Entry<Slot, ColumnStats> entry : slotToColumnStats.entrySet()) {
+                entry.getValue().updateBySelectivity(selectivity);
             }
         }
         return this;
