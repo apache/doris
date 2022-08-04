@@ -82,4 +82,45 @@ private:
     RuntimeProfile::Counter* _remote_read_rate = nullptr;
 };
 
+/**
+ * Load all the needed data in underlying buffer, so the caller does not need to prepare the data container.
+ */
+class BufferedStreamReader {
+public:
+    /**
+     * Return the address of underlying buffer that locates the start of data between [offset, offset + bytes_to_read)
+     * @param buf the buffer address to save the start address of data
+     * @param offset start offset ot read in stream
+     * @param bytes_to_read bytes to read
+     */
+    virtual Status read_bytes(const uint8_t** buf, int64_t offset, int64_t* bytes_to_read) = 0;
+    /**
+     * Save the data address to slice.data, and the slice.size is the bytes to read.
+     */
+    virtual Status read_bytes(Slice& slice, int64_t offset) = 0;
+    virtual ~BufferedStreamReader() = default;
+};
+
+class BufferedFileStreamReader : public BufferedStreamReader {
+public:
+    BufferedFileStreamReader(FileReader* file, int64_t offset, int64_t length);
+    ~BufferedFileStreamReader() override = default;
+
+    Status read_bytes(const uint8_t** buf, int64_t stream_offset, int64_t* bytes_to_read) override;
+    Status read_bytes(Slice& slice, int64_t stream_offset) override;
+
+private:
+    std::unique_ptr<uint8_t[]> _buf;
+    FileReader* _file;
+    int64_t _file_start_offset;
+    int64_t _file_end_offset;
+
+    int64_t _file_position = -1;
+    int64_t _buf_start_offset = 0;
+    int64_t _buf_end_offset = 0;
+    int64_t _buf_size = 0;
+
+    Status seek(int64_t position);
+};
+
 } // namespace doris

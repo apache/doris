@@ -17,17 +17,51 @@
 
 #include "vparquet_page_reader.h"
 
+#include <stdint.h>
+
+#include "util/thrift_util.h"
+
 namespace doris::vectorized {
 
-Status PageReader::read_page_header() {
-    return Status();
-}
+static constexpr int64_t initPageHeaderSize = 1024;
 
-Status PageReader::read_page_data() {
-    return Status();
-}
+PageReader::PageReader(BufferedStreamReader* reader, int64_t start_offset, int64_t length)
+        : _reader(reader), _start_offset(start_offset), _end_offset(start_offset + length) {}
 
-Status PageReader::init() {
-    return Status();
+Status PageReader::next_page(Slice& slice) {
+    if (_offset < _start_offset || _offset >= _end_offset) {
+        return Status::IOError("Out-of-bounds Access");
+    }
+    if (_offset != _next_header_offset) {
+        return Status::IOError("Wrong header position");
+    }
+
+    const uint8_t* page_header_buf = nullptr;
+    int64_t max_size = _end_offset - _offset;
+    int64_t header_size = std::min(initPageHeaderSize, max_size);
+    uint32_t real_header_size = 0;
+    while (true) {
+        header_size = std::min(header_size, max_size);
+        RETURN_IF_ERROR(_reader->read_bytes(&page_header_buf, _offset, &header_size));
+        real_header_size = header_size;
+        auto st =
+                deserialize_thrift_msg(page_header_buf, &real_header_size, true, &_cur_page_header);
+        if (st.ok()) {
+            break;
+        }
+        if (_offset + header_size >= _end_offset) {
+            return Status::IOError("Failed to deserialize parquet page header");
+        }
+        header_size <<= 2;
+    }
+
+    _offset += real_header_size;
+    _next_header_offset = _offset + _cur_page_header.compressed_page_size;
+
+    slice.size = _cur_page_header.compressed_page_size;
+    RETURN_IF_ERROR(_reader->read_bytes(slice, _offset));
+    DCHECK_EQ(slice.size, _cur_page_header.compressed_page_size);
+    _offset += slice.size;
+    return Status::OK();
 }
 } // namespace doris::vectorized

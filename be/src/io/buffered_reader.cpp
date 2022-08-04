@@ -22,6 +22,7 @@
 
 #include "common/config.h"
 #include "olap/olap_define.h"
+#include "util/bit_util.h"
 
 namespace doris {
 
@@ -182,6 +183,66 @@ void BufferedReader::close() {
 
 bool BufferedReader::closed() {
     return _reader->closed();
+}
+
+BufferedFileStreamReader::BufferedFileStreamReader(FileReader* file, int64_t offset, int64_t length)
+        : _file(file), _file_start_offset(offset), _file_end_offset(offset + length) {}
+
+Status BufferedFileStreamReader::seek(int64_t position) {
+    if (_file_position != position) {
+        RETURN_IF_ERROR(_file->seek(position));
+        _file_position = position;
+    }
+    return Status::OK();
+}
+
+Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, int64_t offset,
+                                            int64_t* bytes_to_read) {
+    if (offset < _file_start_offset) {
+        return Status::IOError("Out-of-bounds Access");
+    }
+    if (offset >= _file_end_offset) {
+        *bytes_to_read = 0;
+        return Status::OK();
+    }
+    int64_t end_offset = offset + *bytes_to_read;
+    if (_buf_start_offset <= offset && _buf_end_offset >= end_offset) {
+        *buf = _buf.get() + offset - _buf_start_offset;
+        return Status::OK();
+    }
+    if (_buf_size < *bytes_to_read) {
+        size_t new_size = BitUtil::next_power_of_two(*bytes_to_read);
+        std::unique_ptr<uint8_t[]> new_buf(new uint8_t[new_size]);
+        if (offset >= _buf_start_offset && offset < _buf_end_offset) {
+            memcpy(new_buf.get(), _buf.get() + offset - _buf_start_offset,
+                   _buf_end_offset - offset);
+        }
+        _buf = std::move(new_buf);
+        _buf_size = new_size;
+    } else if (offset > _buf_start_offset && offset < _buf_end_offset) {
+        memmove(_buf.get(), _buf.get() + offset - _buf_start_offset, _buf_end_offset - offset);
+    }
+    if (offset < _buf_start_offset || offset >= _buf_end_offset) {
+        _buf_end_offset = offset;
+    }
+    _buf_start_offset = offset;
+    int64_t to_read = end_offset - _buf_end_offset;
+    RETURN_IF_ERROR(seek(_buf_end_offset));
+    bool eof = false;
+    int64_t buf_remaining = _buf_end_offset - _buf_start_offset;
+    RETURN_IF_ERROR(
+            _file->read(_buf.get() + buf_remaining, _buf_size - buf_remaining, &to_read, &eof));
+    *bytes_to_read = buf_remaining + to_read;
+    _buf_end_offset += to_read;
+    *buf = _buf.get();
+    return Status::OK();
+}
+
+Status BufferedFileStreamReader::read_bytes(Slice& slice, int64_t offset) {
+    int64_t bytes_to_read = slice.size;
+    Status st = read_bytes((const uint8_t**)&slice.data, offset, &bytes_to_read);
+    slice.size = bytes_to_read;
+    return st;
 }
 
 } // namespace doris
