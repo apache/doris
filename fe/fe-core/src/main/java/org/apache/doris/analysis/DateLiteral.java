@@ -233,10 +233,13 @@ public class DateLiteral extends LiteralExpr {
         this.year = dateTime.getYear();
         this.month = dateTime.getMonthOfYear();
         this.day = dateTime.getDayOfMonth();
-        this.hour = dateTime.getHourOfDay();
-        this.minute = dateTime.getMinuteOfHour();
-        this.second = dateTime.getSecondOfMinute();
-        this.type = type;                                                            
+        this.type = type;
+        if (type.equals(Type.DATETIME)) {
+            this.hour = dateTime.getHour();
+            this.minute = dateTime.getMinute();
+            this.second = dateTime.getSecond();
+            this.microsecond = dateTime.get(ChronoField.MICRO_OF_SECOND);
+        }
     }
 
     public DateLiteral(DateLiteral other) {
