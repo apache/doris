@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
@@ -27,7 +28,7 @@ import java.util.List;
 /**
  * Equal to expression: a = b.
  */
-public class EqualTo extends ComparisonPredicate {
+public class EqualTo extends ComparisonPredicate implements PropagateNullable {
 
     public EqualTo(Expression left, Expression right) {
         super(left, right, "=");

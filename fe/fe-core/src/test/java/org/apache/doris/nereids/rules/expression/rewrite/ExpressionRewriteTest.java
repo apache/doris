@@ -40,7 +40,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testNotRewrite() {
-        executor = new ExpressionRuleExecutor(SimplifyNotExprRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyNotExprRule.INSTANCE), null);
 
         assertRewrite("not x", "not x");
         assertRewrite("not not x", "x");
@@ -65,7 +65,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testNormalizeExpressionRewrite() {
-        executor = new ExpressionRuleExecutor(NormalizeBinaryPredicatesRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(NormalizeBinaryPredicatesRule.INSTANCE), null);
 
         assertRewrite("1 = 1", "1 = 1");
         assertRewrite("2 > x", "x < 2");
@@ -77,7 +77,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testDistinctPredicatesRewrite() {
-        executor = new ExpressionRuleExecutor(DistinctPredicatesRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(DistinctPredicatesRule.INSTANCE), null);
 
         assertRewrite("a = 1", "a = 1");
         assertRewrite("a = 1 and a = 1", "a = 1");
@@ -89,7 +89,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testExtractCommonFactorRewrite() {
-        executor = new ExpressionRuleExecutor(ExtractCommonFactorRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(ExtractCommonFactorRule.INSTANCE), null);
 
         assertRewrite("a", "a");
 
@@ -142,7 +142,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testBetweenToCompoundRule() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(BetweenToCompoundRule.INSTANCE, SimplifyNotExprRule.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(BetweenToCompoundRule.INSTANCE), null);
 
         assertRewrite("a between c and d", "(a >= c) and (a <= d)");
         assertRewrite("a not between c and d)", "(a < c) or (a > d)");
@@ -151,7 +151,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testInPredicateToEqualToRule() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(InPredicateToEqualToRule.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(InPredicateToEqualToRule.INSTANCE), null);
 
         assertRewrite("a in (1)", "a = 1");
         assertRewrite("a in (1, 2)", "a in (1, 2)");
@@ -173,7 +173,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testSimplifyCastRule() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE), null);
 
         // deduplicate
         assertRewrite("CAST(1 AS tinyint)", "1");

@@ -31,7 +31,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
     public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
             ExtractCommonFactorRule.INSTANCE,
             DistinctPredicatesRule.INSTANCE);
-    private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);
+    private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES, null);
 
     public ExpressionOptimization() {
         super(EXECUTOR);

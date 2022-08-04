@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -27,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -80,6 +83,23 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                     return binaryOperator.withChildren(newLeft, newRight);
                 })
                 .orElse(binaryOperator.withChildren(left, right));
+    }
+
+    @Override
+    public Expression visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, ExpressionRewriteContext context) {
+        Expression left = rewrite(binaryArithmetic.left(), context);
+        Expression right = rewrite(binaryArithmetic.right(), context);
+        DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
+        DataType t2 = TypeCoercionUtils.getNumResultType(right.getDataType());
+        DataType commonType = TypeCoercionUtils.findCommonType(t1, t2);
+        if (binaryArithmetic.getLegacyOperator() == Operator.DIVIDE) {
+            if (commonType.isBigIntType() || commonType.isLargeIntType()) {
+                commonType = DoubleType.INSTANCE;
+            }
+        }
+        Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
+        Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
+        return binaryArithmetic.withChildren(newLeft, newRight);
     }
 
     @Override

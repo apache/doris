@@ -95,6 +95,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -944,6 +945,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                 ctx.NOT() != null
                         );
                     }
+                    break;
+                case DorisParser.NULL:
+                    outExpression = new IsNull(valueExpression);
                     break;
                 default:
                     throw new ParseException("Unsupported predicate type: " + ctx.kind.getText(), ctx);
