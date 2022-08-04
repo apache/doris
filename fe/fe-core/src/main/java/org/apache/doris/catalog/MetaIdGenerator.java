@@ -58,7 +58,7 @@ public class MetaIdGenerator {
         IdGeneratorBuffer idGeneratorBuffer = new IdGeneratorBuffer(nextId, nextId + bufferSize - 1);
         nextId = nextId + bufferSize;
         if (nextId > batchEndId) {
-            batchEndId = batchEndId + (bufferSize / BATCH_ID_INTERVAL + 1) * BATCH_ID_INTERVAL;
+            batchEndId = batchEndId + ((nextId - batchEndId) / BATCH_ID_INTERVAL + 1) * BATCH_ID_INTERVAL;
             if (editLog != null) {
                 editLog.logSaveNextId(batchEndId);
             }
@@ -90,6 +90,10 @@ public class MetaIdGenerator {
         public long getNextId() {
             Preconditions.checkState(nextId <= batchEndId);
             return nextId++;
+        }
+
+        public long getBatchEndId() {
+            return batchEndId;
         }
     }
 }
