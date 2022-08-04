@@ -19,10 +19,12 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.persist.EditLog;
 
+import com.google.common.base.Preconditions;
+
 // This new Id generator is just same as TransactionIdGenerator.
 // But we can't just use TransactionIdGenerator to replace the old catalog's 'nextId' for compatibility reason.
 // cause they are using different edit log operation type.
-public class CatalogIdGenerator {
+public class MetaIdGenerator {
     private static final int BATCH_ID_INTERVAL = 1000;
 
     private long nextId;
@@ -30,7 +32,7 @@ public class CatalogIdGenerator {
 
     private EditLog editLog;
 
-    public CatalogIdGenerator(long initValue) {
+    public MetaIdGenerator(long initValue) {
         nextId = initValue + 1;
         batchEndId = initValue;
     }
@@ -41,16 +43,27 @@ public class CatalogIdGenerator {
 
     // performance is more quickly
     public synchronized long getNextId() {
-        if (nextId < batchEndId) {
-            return nextId++;
-        } else {
+        if (nextId >= batchEndId) {
             batchEndId = batchEndId + BATCH_ID_INTERVAL;
             if (editLog != null) {
                 // add this check just for unit test
                 editLog.logSaveNextId(batchEndId);
             }
-            return nextId++;
         }
+        return nextId++;
+    }
+
+    public synchronized IdGeneratorBuffer getIdGeneratorBuffer(long bufferSize) {
+        Preconditions.checkState(bufferSize > 0);
+        IdGeneratorBuffer idGeneratorBuffer = new IdGeneratorBuffer(nextId, nextId + bufferSize - 1);
+        nextId = nextId + bufferSize;
+        if (nextId > batchEndId) {
+            batchEndId = batchEndId + (bufferSize / BATCH_ID_INTERVAL + 1) * BATCH_ID_INTERVAL;
+            if (editLog != null) {
+                editLog.logSaveNextId(batchEndId);
+            }
+        }
+        return idGeneratorBuffer;
     }
 
     public synchronized void setId(long id) {
@@ -63,5 +76,20 @@ public class CatalogIdGenerator {
     // just for checkpoint, so no need to synchronize
     public long getBatchEndId() {
         return batchEndId;
+    }
+
+    public class IdGeneratorBuffer {
+        private long nextId;
+        private long batchEndId;
+
+        private IdGeneratorBuffer(long nextId, long batchEndId) {
+            this.nextId = nextId;
+            this.batchEndId = batchEndId;
+        }
+
+        public long getNextId() {
+            Preconditions.checkState(nextId <= batchEndId);
+            return nextId++;
+        }
     }
 }
