@@ -27,7 +27,6 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vslot_ref.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
@@ -393,6 +392,10 @@ Status AggregationNode::prepare(RuntimeState* state) {
         _executor.update_memusage =
                 std::bind<void>(&AggregationNode::_update_memusage_with_serialized_key, this);
         _executor.close = std::bind<void>(&AggregationNode::_close_with_serialized_key, this);
+
+        _should_limit_output = _limit != -1 &&        // has limit
+                               !_vconjunct_ctx_ptr && // no having conjunct
+                               _needs_finalize;       // agg's finalize step
     }
 
     return Status::OK();
@@ -704,6 +707,11 @@ bool AggregationNode::_should_expand_preagg_hash_tables() {
             _agg_data._aggregated_method_variant);
 }
 
+size_t AggregationNode::_get_hash_table_size() {
+    return std::visit([&](auto&& agg_method) { return agg_method.data.size(); },
+                      _agg_data._aggregated_method_variant);
+}
+
 void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                                const size_t num_rows) {
     std::visit(
@@ -769,6 +777,63 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
 
                     places[i] = aggregate_data;
                     assert(places[i] != nullptr);
+                }
+            },
+            _agg_data._aggregated_method_variant);
+}
+
+void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
+                                          size_t rows) {
+    std::visit(
+            [&](auto&& agg_method) -> void {
+                using HashMethodType = std::decay_t<decltype(agg_method)>;
+                using HashTableType = std::decay_t<decltype(agg_method.data)>;
+                using AggState = typename HashMethodType::State;
+                AggState state(key_columns, _probe_key_sz, nullptr);
+
+                _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
+
+                std::vector<size_t> hash_values;
+
+                if constexpr (HashTableTraits<HashTableType>::is_phmap) {
+                    if (hash_values.size() < rows) hash_values.resize(rows);
+                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
+                                          AggState>::value) {
+                        for (size_t i = 0; i < rows; ++i) {
+                            hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                        }
+                    } else {
+                        for (size_t i = 0; i < rows; ++i) {
+                            hash_values[i] =
+                                    agg_method.data.hash(state.get_key_holder(i, _agg_arena_pool));
+                        }
+                    }
+                }
+
+                /// For all rows.
+                for (size_t i = 0; i < rows; ++i) {
+                    auto find_result = [&]() {
+                        if constexpr (HashTableTraits<HashTableType>::is_phmap) {
+                            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
+                                if constexpr (HashTableTraits<HashTableType>::is_parallel_phmap) {
+                                    agg_method.data.prefetch_by_key(state.get_key_holder(
+                                            i + HASH_MAP_PREFETCH_DIST, _agg_arena_pool));
+                                } else
+                                    agg_method.data.prefetch_by_hash(
+                                            hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                            }
+
+                            return state.find_key(agg_method.data, hash_values[i], i,
+                                                  _agg_arena_pool);
+                        } else {
+                            return state.find_key(agg_method.data, i, _agg_arena_pool);
+                        }
+                    }();
+
+                    if (find_result.is_found()) {
+                        places[i] = find_result.get_mapped();
+                    } else
+                        places[i] = nullptr;
                 }
             },
             _agg_data._aggregated_method_variant);
@@ -896,34 +961,11 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
 }
 
 Status AggregationNode::_execute_with_serialized_key(Block* block) {
-    SCOPED_TIMER(_build_timer);
-    DCHECK(!_probe_expr_ctxs.empty());
-
-    size_t key_size = _probe_expr_ctxs.size();
-    ColumnRawPtrs key_columns(key_size);
-    {
-        SCOPED_TIMER(_expr_timer);
-        for (size_t i = 0; i < key_size; ++i) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
-            block->get_by_position(result_column_id).column =
-                    block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
-            key_columns[i] = block->get_by_position(result_column_id).column.get();
-        }
+    if (_reach_limit) {
+        return _execute_with_serialized_key_helper<true>(block);
+    } else {
+        return _execute_with_serialized_key_helper<false>(block);
     }
-
-    int rows = block->rows();
-    PODArray<AggregateDataPtr> places(rows);
-
-    _emplace_into_hash_table(places.data(), key_columns, rows);
-
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
-                                                    places.data(), &_agg_arena_pool);
-    }
-
-    return Status::OK();
 }
 
 Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Block* block,
@@ -1111,49 +1153,11 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
 }
 
 Status AggregationNode::_merge_with_serialized_key(Block* block) {
-    SCOPED_TIMER(_merge_timer);
-
-    size_t key_size = _probe_expr_ctxs.size();
-    ColumnRawPtrs key_columns(key_size);
-
-    for (size_t i = 0; i < key_size; ++i) {
-        int result_column_id = -1;
-        RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
-        key_columns[i] = block->get_by_position(result_column_id).column.get();
+    if (_reach_limit) {
+        return _merge_with_serialized_key_helper<true>(block);
+    } else {
+        return _merge_with_serialized_key_helper<false>(block);
     }
-
-    int rows = block->rows();
-    PODArray<AggregateDataPtr> places(rows);
-
-    _emplace_into_hash_table(places.data(), key_columns, rows);
-
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
-               _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
-        int col_id =
-                ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())->column_id();
-        if (_aggregate_evaluators[i]->is_merge()) {
-            auto column = block->get_by_position(col_id).column;
-            if (column->is_nullable()) {
-                column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
-            }
-
-            std::unique_ptr<char[]> deserialize_buffer(
-                    new char[_aggregate_evaluators[i]->function()->size_of_data() * rows]);
-
-            _aggregate_evaluators[i]->function()->deserialize_vec(deserialize_buffer.get(),
-                                                                  (ColumnString*)(column.get()),
-                                                                  &_agg_arena_pool, rows);
-            _aggregate_evaluators[i]->function()->merge_vec(
-                    places.data(), _offsets_of_aggregate_states[i], deserialize_buffer.get(),
-                    &_agg_arena_pool, rows);
-
-        } else {
-            _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
-                                                        places.data(), &_agg_arena_pool);
-        }
-    }
-    return Status::OK();
 }
 
 void AggregationNode::_update_memusage_with_serialized_key() {
