@@ -809,7 +809,16 @@ CONF_mBool(enable_function_pushdown, "false");
 CONF_Int32(cooldown_thread_num, "5");
 CONF_mInt64(generate_cooldown_task_interval_sec, "20");
 CONF_Int32(concurrency_per_dir, "2");
-CONF_mInt64(cooldown_lag_time_sec, "10800"); // 3h
+CONF_mInt64(cooldown_lag_time_sec, "10800");        // 3h
+CONF_mInt64(max_sub_cache_file_size, "1073741824"); // 1GB
+CONF_mInt64(file_cache_alive_time_sec, "604800");   // 1 week
+// file_cache_type is used to set the type of file cache for remote files.
+// "": no cache, "sub_file_cache": split sub files from remote file.
+// "whole_file_cache": the whole file.
+CONF_mString(file_cache_type, "");
+CONF_Validator(file_cache_type, [](const std::string config) -> bool {
+    return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
+});
 
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
