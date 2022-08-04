@@ -416,8 +416,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
                     List<Column> fullSchema = tbl.getBaseSchema(true);
                     DescriptorTable descTable = new DescriptorTable();
+                    TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                     for (Column column : fullSchema) {
-                        TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                         destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);
@@ -648,7 +648,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.setStorageFormat(storageFormat);
         }
 
-        //update max column unique id
+        // update max column unique id
         int maxColUniqueId = tbl.getMaxColUniqueId();
         for (Column column : tbl.getFullSchema()) {
             if (column.getUniqueId() > maxColUniqueId) {
