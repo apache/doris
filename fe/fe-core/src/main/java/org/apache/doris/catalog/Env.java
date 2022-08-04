@@ -83,6 +83,7 @@ import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -344,7 +345,7 @@ public class Env {
     private int masterHttpPort;
     private String masterIp;
 
-    private CatalogIdGenerator idGenerator = new CatalogIdGenerator(NEXT_ID_INIT_VALUE);
+    private MetaIdGenerator idGenerator = new MetaIdGenerator(NEXT_ID_INIT_VALUE);
 
     private EditLog editLog;
     private int clusterId;
@@ -3203,6 +3204,10 @@ public class Env {
     // Get the next available, needn't lock because of nextId is atomic.
     public long getNextId() {
         return idGenerator.getNextId();
+    }
+
+    public IdGeneratorBuffer getIdGeneratorBuffer(long bufferSize) {
+        return idGenerator.getIdGeneratorBuffer(bufferSize);
     }
 
     public HashMap<Long, TStorageMedium> getPartitionIdToStorageMediumMap() {
