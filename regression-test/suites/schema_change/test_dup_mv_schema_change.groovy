@@ -138,7 +138,7 @@ suite ("test_dup_mv_schema_change") {
             """
         result = "null"
         while (!result.contains("FINISHED")){
-            result = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
+            result = sql "SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
             result = result.toString()
             logger.info("result: ${result}")
             if(result.contains("CANCELLED")) {

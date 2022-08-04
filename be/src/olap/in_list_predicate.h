@@ -110,9 +110,8 @@ public:
         }
     }
 
-    Status evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,
-                    uint32_t num_rows, roaring::Roaring* result) const override {
-        BitmapIndexIterator* iterator = iterators[_column_id];
+    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
+                    roaring::Roaring* result) const override {
         if (iterator == nullptr) {
             return Status::OK();
         }

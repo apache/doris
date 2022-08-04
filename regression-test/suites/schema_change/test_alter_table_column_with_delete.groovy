@@ -18,7 +18,7 @@
 suite("test_alter_table_column_with_delete", "schema_change") {
     def tbName1 = "alter_table_column_dup_with_delete"
     def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+        def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
         return jobStateResult[0][9]
     }
     sql "DROP TABLE IF EXISTS ${tbName1}"

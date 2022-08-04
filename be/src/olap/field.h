@@ -47,7 +47,8 @@ public:
               _key_coder(get_key_coder(column.type())),
               _name(column.name()),
               _index_size(column.index_length()),
-              _is_nullable(column.is_nullable()) {
+              _is_nullable(column.is_nullable()),
+              _unique_id(column.unique_id()) {
         if (column.type() == OLAP_FIELD_TYPE_ARRAY) {
             _agg_info = get_aggregate_info(column.aggregation(), column.type(),
                                            column.get_sub_column(0).type());
@@ -62,6 +63,7 @@ public:
     int32_t length() const { return _length; }
     size_t field_size() const { return size() + 1; }
     size_t index_size() const { return _index_size; }
+    int32_t unique_id() const { return _unique_id; }
     const std::string& name() const { return _name; }
 
     virtual void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
@@ -334,6 +336,7 @@ protected:
         other->_sub_fields.clear();
         other->_precision = this->_precision;
         other->_scale = this->_scale;
+        other->_unique_id = this->_unique_id;
         for (const auto& f : _sub_fields) {
             Field* item = f->clone();
             other->add_sub_field(std::unique_ptr<Field>(item));
@@ -350,6 +353,7 @@ private:
     std::vector<std::unique_ptr<Field>> _sub_fields;
     int32_t _precision;
     int32_t _scale;
+    int32_t _unique_id;
 };
 
 template <typename LhsCellType, typename RhsCellType>

@@ -497,6 +497,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _num_null_columns = 0;
     _cols.clear();
     _field_name_to_index.clear();
+    _field_id_to_index.clear();
     for (auto& column_pb : schema.column()) {
         TabletColumn column;
         column.init_from_pb(column_pb);

@@ -20,7 +20,7 @@ suite("test_schema_change", "schema_change") {
      def tbName = "alter_table_column_type"
 
      def getJobState = { tableName ->
-          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
           return jobStateResult[0][9]
      }
 
