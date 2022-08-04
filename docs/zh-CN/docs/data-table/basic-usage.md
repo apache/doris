@@ -32,7 +32,19 @@ Doris 采用 MySQL 协议进行通信，用户可通过 MySQL client 或者 MySQ
 
 ### Root用户登录与密码修改
 
-Doris 内置 root 和 admin 用户，密码默认都为空。启动完 Doris 程序之后，可以通过 root 或 admin 用户连接到 Doris 集群。 使用下面命令即可登录 Doris，登录后进入到Doris对应的Mysql命令行操作界面：
+Doris 内置 root 和 admin 用户，密码默认都为空。
+
+>备注：
+>
+>Doris 提供的默认 root 和 admin 用户是管理员用户
+>
+>root 用户默认拥有集群所有权限。同时拥有 Grant_priv 和 Node_priv 的用户，可以将该权限赋予其他用户，拥有节点变更权限，包括 FE、BE、BROKER 节点的添加、删除、下线等操作。
+>
+>admin用户拥有 ADMIN_PRIV 和 GRANT_PRIV 权限
+>
+>关于权限这块的具体说明可以参照[权限管理](/docs/admin-manual/privilege-ldap/user-privilege)
+
+启动完 Doris 程序之后，可以通过 root 或 admin 用户连接到 Doris 集群。 使用下面命令即可登录 Doris，登录后进入到Doris对应的Mysql命令行操作界面：
 
 ```bash
 [root@doris ~]# mysql  -h FE_HOST -P9030 -uroot

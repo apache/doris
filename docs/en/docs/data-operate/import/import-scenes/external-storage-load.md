@@ -26,7 +26,7 @@ under the License.
 
 # External storage data import
 
-The following mainly introduces how to import data stored in an external system. For example (HDFS, AWS S3, BOS of Baidu Cloud, OSS of Alibaba Cloud, COS of Tencent Cloud)
+The following mainly introduces how to import data stored in an external system. For example (HDFS, All object stores that support the S3 protocol)
 ## HDFS LOAD
 
 ### Ready to work
@@ -111,7 +111,7 @@ Hdfs load creates an import statement. The import method is basically the same a
 
 Starting from version 0.14, Doris supports the direct import of data from online storage systems that support the S3 protocol through the S3 protocol.
 
-This document mainly introduces how to import data stored in AWS S3. It also supports the import of other object storage systems that support the S3 protocol, such as Baidu Cloud’s BOS, Alibaba Cloud’s OSS and Tencent Cloud’s COS, etc.
+This document mainly introduces how to import data stored in AWS S3. It also supports the import of other object storage systems that support the S3 protocol.
 ### Applicable scenarios
 
 * Source data in S3 protocol accessible storage systems, such as S3, BOS.

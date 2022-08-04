@@ -57,7 +57,7 @@ A metadata log needs to be successfully written in most Follower nodes to be con
 
 The role of Observer is the same as the meaning of this word. It only acts as an observer to synchronize the metadata logs that have been successfully written, and provides metadata reading services. He will not be involved in the logic of the majority writing.
 
-Typically, 1 Follower + 2 Observer or 3 Follower + N Observer can be deployed. The former is simple to operate and maintain, and there is almost no consistency agreement between followers to cause such complex error situations (most of Baidu's internal clusters use this method). The latter can ensure the high availability of metadata writing. If it is a high concurrent query scenario, Observer can be added appropriately.
+Typically, 1 Follower + 2 Observer or 3 Follower + N Observer can be deployed. The former is simple to operate and maintain, and there is almost no consistency agreement between followers to cause such complex error situations (Most companies use this method). The latter can ensure the high availability of metadata writing. If it is a high concurrent query scenario, Observer can be added appropriately.
 
 ### Q4. A new disk is added to the node, why is the data not balanced to the new disk?
 
@@ -291,8 +291,8 @@ ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [My
 ```
 The solution is to use the `Connector/ODBC 8.0.28` version of ODBC Connector and select `Linux - Generic` in the operating system, this version of ODBC Driver uses openssl version 1.1. Or use a lower version of ODBC connector, e.g. [Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html). For details, see the [ODBC exterior documentation](../ecosystem/external-table/odbc-of-doris.md).
 
-
 You can verify the version of openssl used by MySQL ODBC Driver by
+
 ```
 ldd /path/to/libmyodbc8w.so |grep libssl.so
 ```

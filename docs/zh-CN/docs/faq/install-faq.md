@@ -57,7 +57,7 @@ priorty_network 的值是 CIDR 格式表示的。分为两部分，第一部分�
 
 Observer 角色和这个单词的含义一样，仅仅作为观察者来同步已经成功写入的元数据日志，并且提供元数据读服务。他不会参与多数写的逻辑。
 
-通常情况下，可以部署 1 Follower + 2 Observer 或者 3 Follower + N Observer。前者运维简单，几乎不会出现 Follower 之间的一致性协议导致这种复杂错误情况（百度内部集群大多使用这种方式）。后者可以保证元数据写的高可用，如果是高并发查询场景，可以适当增加 Observer。
+通常情况下，可以部署 1 Follower + 2 Observer 或者 3 Follower + N Observer。前者运维简单，几乎不会出现 Follower 之间的一致性协议导致这种复杂错误情况（企业大多使用这种方式）。后者可以保证元数据写的高可用，如果是高并发查询场景，可以适当增加 Observer。
 
 ### Q4. 节点新增加了新的磁盘，为什么数据没有均衡到新的磁盘上？
 
@@ -288,7 +288,8 @@ ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [My
 解决方式是使用`Connector/ODBC 8.0.28` 版本的 ODBC Connector， 并且在操作系统处选择 `Linux - Generic`, 这个版本的ODBC Driver 使用 openssl 1.1 版本。或者使用低版本的ODBC Connector，比如[Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html)。具体使用方式见 [ODBC外表使用文档](../ecosystem/external-table/odbc-of-doris.md)。
 
 可以通过如下方式验证 MySQL ODBC Driver 使用的openssl 版本
+
 ```
 ldd /path/to/libmyodbc8w.so |grep libssl.so
 ```
-如果输出包含 `libssl.so.10` 则使用过程中可能出现问题， 如果包含`libssl.so.1.1` 则与doris 1.0 兼容。
+如果输出包含 `libssl.so.10` 则使用过程中可能出现问题， 如果包含`libssl.so.1.1` 则与doris 1.0 兼容

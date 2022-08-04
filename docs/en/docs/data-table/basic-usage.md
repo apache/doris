@@ -33,7 +33,19 @@ Doris uses MySQL protocol to communicate. Users can connect to Doris cluster thr
 
 ### Root User Logon and Password Modification
 
-Doris has built-in root and admin users, and the password is empty by default. After starting the Doris program, you can connect to the Doris cluster through root or admin users.
+Doris has built-in root and admin users, and the password is empty by default. 
+
+>Remarks:
+>
+>The default root and admin users provided by Doris are admin users
+>
+>The >root user has all the privileges of the cluster by default. Users who have both Grant_priv and Node_priv can grant this permission to other users and have node change permissions, including operations such as adding, deleting, and going offline of FE, BE, and BROKER nodes.
+>
+>admin user has ADMIN_PRIV and GRANT_PRIV privileges
+>
+>For specific instructions on permissions, please refer to [Permission Management](/docs/admin-manual/privilege-ldap/user-privilege)
+
+After starting the Doris program, you can connect to the Doris cluster through root or admin users.
 Use the following command to log in to Doris:
 
 ```sql

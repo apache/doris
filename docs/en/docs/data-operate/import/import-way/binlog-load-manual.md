@@ -482,9 +482,6 @@ Users can control the status of jobs through `stop/pause/resume` commands.
 
 You can use [STOP SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-SYNC-JOB.md) ; [PAUSE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB.md); And [RESUME SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB.md); commands to view help and examples.
 
-## Case Combat
-
-[How to use Apache Doris Binlog Load and examples](https://doris.apache.org/blogs/PracticalCases/doris-binlog-load.html)
 
 ## Related Parameters
 
