@@ -30,6 +30,9 @@ import com.google.common.base.Preconditions;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * Use nested loop algorithm to do join.
+ */
 public class PhysicalNestedLoopJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>

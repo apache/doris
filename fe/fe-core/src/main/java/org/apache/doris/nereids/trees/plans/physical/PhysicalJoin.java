@@ -30,6 +30,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+/**
+ * Abstract class for all physical join node.
+ */
 public abstract class PhysicalJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
