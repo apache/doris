@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.external.iceberg.IcebergCatalog;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -128,7 +129,7 @@ public class IcebergTable extends Table {
 
         // analyze storage type
         String storagePrefix = strings[0].split(":")[0];
-        if (storagePrefix.equalsIgnoreCase("s3")) {
+        if (Util.isS3CompatibleStorageSchema(storagePrefix)) {
             this.storageType = StorageBackend.StorageType.S3;
         } else if (storagePrefix.equalsIgnoreCase("hdfs")) {
             this.storageType = StorageBackend.StorageType.HDFS;
