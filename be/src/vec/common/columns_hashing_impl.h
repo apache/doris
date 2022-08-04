@@ -147,6 +147,12 @@ public:
     }
 
     template <typename Data>
+    ALWAYS_INLINE FindResult find_key(Data& data, size_t hash_value, size_t row, Arena& pool) {
+        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
+        return find_key_impl(key_holder_get_key(key_holder), hash_value, data);
+    }
+
+    template <typename Data>
     ALWAYS_INLINE size_t get_hash(const Data& data, size_t row, Arena& pool) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         return data.hash(key_holder_get_key(key_holder));
@@ -270,6 +276,39 @@ protected:
         }
 
         auto it = data.find(key);
+
+        if constexpr (consecutive_keys_optimization) {
+            cache.found = it != nullptr;
+            cache.empty = false;
+
+            if constexpr (has_mapped) {
+                cache.value.first = key;
+                if (it) {
+                    cache.value.second = *lookup_result_get_mapped(it);
+                }
+            } else {
+                cache.value = key;
+            }
+        }
+
+        if constexpr (has_mapped)
+            return FindResult(it ? lookup_result_get_mapped(it) : nullptr, it != nullptr);
+        else
+            return FindResult(it != nullptr);
+    }
+
+    template <typename Data, typename Key>
+    ALWAYS_INLINE FindResult find_key_impl(Key key, size_t hash_value, Data& data) {
+        if constexpr (Cache::consecutive_keys_optimization) {
+            if (cache.check(key)) {
+                if constexpr (has_mapped)
+                    return FindResult(&cache.value.second, cache.found);
+                else
+                    return FindResult(cache.found);
+            }
+        }
+
+        auto it = data.find(key, hash_value);
 
         if constexpr (consecutive_keys_optimization) {
             cache.found = it != nullptr;

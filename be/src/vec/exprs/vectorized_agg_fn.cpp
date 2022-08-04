@@ -156,6 +156,13 @@ void AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDat
     _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena);
 }
 
+void AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
+                                                AggregateDataPtr* places, Arena* arena) {
+    _calc_argment_columns(block);
+    SCOPED_TIMER(_exec_timer);
+    _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
+}
+
 void AggFnEvaluator::insert_result_info(AggregateDataPtr place, IColumn* column) {
     _function->insert_result_into(place, *column);
 }

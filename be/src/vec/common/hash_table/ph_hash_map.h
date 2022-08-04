@@ -140,6 +140,20 @@ public:
         }
     }
 
+    template <typename KeyHolder>
+    LookupResult ALWAYS_INLINE find(KeyHolder&& key_holder) {
+        const auto& key = key_holder_get_key(key_holder);
+        auto it = _hash_map.find(key);
+        return it != _hash_map.end() ? &*it : nullptr;
+    }
+
+    template <typename KeyHolder>
+    LookupResult ALWAYS_INLINE find(KeyHolder&& key_holder, size_t hash_value) {
+        const auto& key = key_holder_get_key(key_holder);
+        auto it = _hash_map.find(key, hash_value);
+        return it != _hash_map.end() ? &*it : nullptr;
+    }
+
     size_t hash(const Key& x) const { return _hash_map.hash(x); }
 
     void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {

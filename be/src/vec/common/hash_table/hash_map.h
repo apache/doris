@@ -68,6 +68,8 @@ struct HashMapCell {
     const value_type& get_value() const { return value; }
 
     static const Key& get_key(const value_type& value) { return value.first; }
+    Mapped& get_mapped() { return value.second; }
+    const Mapped& get_mapped() const { return value.second; }
 
     bool key_equals(const Key& key_) const { return value.first == key_; }
     bool key_equals(const Key& key_, size_t /*hash_*/) const { return value.first == key_; }
