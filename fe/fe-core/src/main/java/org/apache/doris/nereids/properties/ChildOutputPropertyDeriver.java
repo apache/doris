@@ -75,20 +75,13 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         PhysicalProperties rightOutputProperty = childrenOutputProperties.get(1);
 
         // broadcast
+        // TODO
         if (rightOutputProperty.getDistributionSpec() instanceof DistributionSpecReplicated) {
-            // TODO
             return leftOutputProperty;
         }
 
         // shuffle
-        // List<SlotReference> leftSlotRefs = hashJoin.left().getOutput().stream().map(slot -> (SlotReference) slot)
-        //        .collect(Collectors.toList());
-        // List<SlotReference> rightSlotRefs = hashJoin.right().getOutput().stream().map(slot -> (SlotReference) slot)
-        //                .collect(Collectors.toList());
-
-        //        List<SlotReference> leftOnSlotRefs;
-        //        List<SlotReference> rightOnSlotRefs;
-        //        Preconditions.checkState(leftOnSlotRefs.size() == rightOnSlotRefs.size());
+        // TODO
         DistributionSpec leftDistribution = leftOutputProperty.getDistributionSpec();
         DistributionSpec rightDistribution = rightOutputProperty.getDistributionSpec();
         if (!(leftDistribution instanceof DistributionSpecHash)
@@ -136,6 +129,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanContext context) {
-        return olapScan.getPhysicalProperties();
+
+        return new PhysicalProperties(olapScan.getDistributionSpec());
     }
 }

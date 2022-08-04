@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Spec of sort order.
@@ -70,6 +71,11 @@ public class OrderSpec {
     }
 
     @Override
+    public String toString() {
+        return "Order: (" + orderKeys + ")";
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -79,5 +85,10 @@ public class OrderSpec {
         }
         OrderSpec that = (OrderSpec) o;
         return orderKeys.equals(that.orderKeys);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(orderKeys);
     }
 }

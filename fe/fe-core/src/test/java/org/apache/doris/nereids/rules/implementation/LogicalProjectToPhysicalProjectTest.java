@@ -43,7 +43,7 @@ import java.util.List;
 import java.util.Map;
 
 public class LogicalProjectToPhysicalProjectTest {
-    private final Map<String, Rule> rulesMap
+    private static final Map<String, Rule> rulesMap
             = ImmutableMap.<String, Rule>builder()
             .put(LogicalProject.class.getName(), (new LogicalProjectToPhysicalProject()).build())
             .put(LogicalAggregate.class.getName(), (new LogicalAggToPhysicalHashAgg()).build())
@@ -53,7 +53,7 @@ public class LogicalProjectToPhysicalProjectTest {
             .put(LogicalSort.class.getName(), (new LogicalSortToPhysicalHeapSort()).build())
             .build();
 
-    private PhysicalPlan rewriteLogicalToPhysical(Group group, PlannerContext plannerContext) {
+    private static PhysicalPlan rewriteLogicalToPhysical(Group group, PlannerContext plannerContext) {
         List<Plan> children = Lists.newArrayList();
         for (Group child : group.getLogicalExpression().children()) {
             children.add(rewriteLogicalToPhysical(child, plannerContext));
@@ -68,16 +68,20 @@ public class LogicalProjectToPhysicalProjectTest {
         return (PhysicalPlan) implPlanNode.withChildren(children);
     }
 
-    @Test
-    public void projectionImplTest() {
-        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan("a");
-        LogicalPlan project = new LogicalProject<>(Lists.newArrayList(), scan);
-
-        PlannerContext plannerContext = new Memo(project)
+    public static PhysicalPlan rewriteLogicalToPhysical(LogicalPlan plan) {
+        PlannerContext plannerContext = new Memo(plan)
                 .newPlannerContext(new ConnectContext())
                 .setDefaultJobContext();
 
-        PhysicalPlan physicalProject = rewriteLogicalToPhysical(plannerContext.getMemo().getRoot(), plannerContext);
+        return rewriteLogicalToPhysical(plannerContext.getMemo().getRoot(), plannerContext);
+    }
+
+    @Test
+    public void projectionImplTest() {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
+        LogicalPlan project = new LogicalProject<>(Lists.newArrayList(), scan);
+
+        PhysicalPlan physicalProject = rewriteLogicalToPhysical(project);
         Assertions.assertEquals(PlanType.PHYSICAL_PROJECT, physicalProject.getType());
         PhysicalPlan physicalScan = (PhysicalPlan) physicalProject.child(0);
         Assertions.assertEquals(PlanType.PHYSICAL_OLAP_SCAN, physicalScan.getType());

@@ -50,9 +50,9 @@ public class JoinLAsscomProjectTest {
 
     @BeforeAll
     public static void init() {
-        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScanWithTable("t1");
-        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScanWithTable("t2");
-        LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScanWithTable("t3");
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
 
         scans.add(scan1);
         scans.add(scan2);

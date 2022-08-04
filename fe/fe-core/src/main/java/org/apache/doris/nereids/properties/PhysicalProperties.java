@@ -17,9 +17,10 @@
 
 package org.apache.doris.nereids.properties;
 
+import java.util.Objects;
+
 /**
  * Physical properties used in cascades.
- * TODO(wj): Do we need to `PhysicalPropertySpec` Interface like NoisePage?
  */
 public class PhysicalProperties {
     private final OrderSpec orderSpec;
@@ -70,5 +71,10 @@ public class PhysicalProperties {
         PhysicalProperties that = (PhysicalProperties) o;
         return orderSpec.equals(that.orderSpec)
                 && distributionSpec.equals(that.distributionSpec);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(orderSpec, distributionSpec);
     }
 }

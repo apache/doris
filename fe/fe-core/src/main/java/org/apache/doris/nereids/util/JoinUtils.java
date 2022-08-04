@@ -80,7 +80,8 @@ public class JoinUtils {
             return false;
         }
 
-        return Utils.equalsIgnoreOrder(leftUsed, leftSlots) || Utils.equalsIgnoreOrder(rightUsed, rightSlots);
+        return (new HashSet<>(leftSlots).containsAll(leftUsed) && new HashSet<>(rightSlots).containsAll(rightUsed))
+                || (new HashSet<>(leftSlots).containsAll(rightUsed) && new HashSet<>(rightSlots).containsAll(leftUsed));
     }
 
     /**
@@ -114,6 +115,7 @@ public class JoinUtils {
             }
         }
 
+        Preconditions.checkArgument(childSlots.first.size() == childSlots.second.size());
         return childSlots;
     }
 

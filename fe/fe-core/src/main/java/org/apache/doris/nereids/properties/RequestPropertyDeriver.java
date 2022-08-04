@@ -54,7 +54,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         this.requestPropertyFromParent = context.getRequiredProperties();
     }
 
-    public List<List<PhysicalProperties>> getRequiredPropertyListList(GroupExpression groupExpression) {
+    public List<List<PhysicalProperties>> getRequestChildrenPropertyList(GroupExpression groupExpression) {
         requestPropertyToChildren = Lists.newArrayList();
         groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
         return requestPropertyToChildren;
@@ -72,21 +72,21 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, PlanContext context) {
-        // for broadcast join
-        List<PhysicalProperties> propertiesForBroadcast = Lists.newArrayList(
-                new PhysicalProperties(),
-                new PhysicalProperties(new DistributionSpecReplicated())
-        );
         // for shuffle join
-        Pair<List<SlotReference>, List<SlotReference>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
-        List<PhysicalProperties> propertiesForShuffle = Lists.newArrayList(
-                new PhysicalProperties(new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
-                new PhysicalProperties(new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
-
         if (!JoinUtils.onlyBroadcast(hashJoin)) {
+            Pair<List<SlotReference>, List<SlotReference>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
+            List<PhysicalProperties> propertiesForShuffle = Lists.newArrayList(
+                    new PhysicalProperties(new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
+                    new PhysicalProperties(new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
+
             requestPropertyToChildren.add(propertiesForShuffle);
         }
+        // for broadcast join
         if (!JoinUtils.onlyShuffle(hashJoin)) {
+            List<PhysicalProperties> propertiesForBroadcast = Lists.newArrayList(
+                    new PhysicalProperties(),
+                    new PhysicalProperties(new DistributionSpecReplicated())
+            );
             requestPropertyToChildren.add(propertiesForBroadcast);
         }
 

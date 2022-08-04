@@ -44,10 +44,11 @@ public class CostCalculator {
      * Constructor.
      */
     public static double calculateCost(GroupExpression groupExpression) {
-        PlanContext planContext = new PlanContext(groupExpression);
-        CostEstimator costCalculator = new CostEstimator();
-        CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
-        return costFormula(costEstimate);
+        // PlanContext planContext = new PlanContext(groupExpression);
+        // CostEstimator costCalculator = new CostEstimator();
+        // CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
+        // return costFormula(costEstimate);
+        return 0;
     }
 
     private static double costFormula(CostEstimate costEstimate) {
