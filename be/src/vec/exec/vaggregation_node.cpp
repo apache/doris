@@ -27,7 +27,6 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vslot_ref.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
@@ -961,72 +960,12 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
     return Status::OK();
 }
 
-Status AggregationNode::_execute_with_serialized_key_limited(Block* block) {
-    SCOPED_TIMER(_build_timer);
-    DCHECK(!_probe_expr_ctxs.empty());
-
-    size_t key_size = _probe_expr_ctxs.size();
-    ColumnRawPtrs key_columns(key_size);
-    {
-        SCOPED_TIMER(_expr_timer);
-        for (size_t i = 0; i < key_size; ++i) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
-            block->get_by_position(result_column_id).column =
-                    block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
-            key_columns[i] = block->get_by_position(result_column_id).column.get();
-        }
-    }
-
-    int rows = block->rows();
-    PODArray<AggregateDataPtr> places(rows);
-    _find_in_hash_table(places.data(), key_columns, rows);
-
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        _aggregate_evaluators[i]->execute_batch_add_selected(block, _offsets_of_aggregate_states[i],
-                                                             places.data(), &_agg_arena_pool);
-    }
-
-    return Status::OK();
-}
-
 Status AggregationNode::_execute_with_serialized_key(Block* block) {
     if (_reach_limit) {
-        return _execute_with_serialized_key_limited(block);
+        return _execute_with_serialized_key_helper<true>(block);
+    } else {
+        return _execute_with_serialized_key_helper<false>(block);
     }
-    SCOPED_TIMER(_build_timer);
-    DCHECK(!_probe_expr_ctxs.empty());
-
-    size_t key_size = _probe_expr_ctxs.size();
-    ColumnRawPtrs key_columns(key_size);
-    {
-        SCOPED_TIMER(_expr_timer);
-        for (size_t i = 0; i < key_size; ++i) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
-            block->get_by_position(result_column_id).column =
-                    block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
-            key_columns[i] = block->get_by_position(result_column_id).column.get();
-        }
-    }
-
-    int rows = block->rows();
-    PODArray<AggregateDataPtr> places(rows);
-
-    _emplace_into_hash_table(places.data(), key_columns, rows);
-
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
-                                                    places.data(), &_agg_arena_pool);
-    }
-
-    if (_should_limit_output) {
-        _reach_limit = _get_hash_table_size() >= _limit;
-    }
-
-    return Status::OK();
 }
 
 Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Block* block,
@@ -1213,103 +1152,12 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
     return Status::OK();
 }
 
-Status AggregationNode::_merge_with_serialized_key_limited(Block* block) {
-    SCOPED_TIMER(_merge_timer);
-
-    size_t key_size = _probe_expr_ctxs.size();
-    ColumnRawPtrs key_columns(key_size);
-
-    for (size_t i = 0; i < key_size; ++i) {
-        int result_column_id = -1;
-        RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
-        key_columns[i] = block->get_by_position(result_column_id).column.get();
-    }
-
-    int rows = block->rows();
-    PODArray<AggregateDataPtr> places(rows);
-    _find_in_hash_table(places.data(), key_columns, rows);
-
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
-               _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
-        int col_id =
-                ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())->column_id();
-        if (_aggregate_evaluators[i]->is_merge()) {
-            auto column = block->get_by_position(col_id).column;
-            if (column->is_nullable()) {
-                column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
-            }
-
-            std::unique_ptr<char[]> deserialize_buffer(
-                    new char[_aggregate_evaluators[i]->function()->size_of_data() * rows]);
-
-            _aggregate_evaluators[i]->function()->deserialize_vec(deserialize_buffer.get(),
-                                                                  (ColumnString*)(column.get()),
-                                                                  &_agg_arena_pool, rows);
-            _aggregate_evaluators[i]->function()->merge_vec_selected(
-                    places.data(), _offsets_of_aggregate_states[i], deserialize_buffer.get(),
-                    &_agg_arena_pool, rows);
-
-        } else {
-            _aggregate_evaluators[i]->execute_batch_add_selected(
-                    block, _offsets_of_aggregate_states[i], places.data(), &_agg_arena_pool);
-        }
-    }
-    return Status::OK();
-}
-
 Status AggregationNode::_merge_with_serialized_key(Block* block) {
     if (_reach_limit) {
-        return _merge_with_serialized_key_limited(block);
+        return _merge_with_serialized_key_helper<true>(block);
+    } else {
+        return _merge_with_serialized_key_helper<false>(block);
     }
-    SCOPED_TIMER(_merge_timer);
-
-    size_t key_size = _probe_expr_ctxs.size();
-    ColumnRawPtrs key_columns(key_size);
-
-    for (size_t i = 0; i < key_size; ++i) {
-        int result_column_id = -1;
-        RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
-        key_columns[i] = block->get_by_position(result_column_id).column.get();
-    }
-
-    int rows = block->rows();
-    PODArray<AggregateDataPtr> places(rows);
-
-    _emplace_into_hash_table(places.data(), key_columns, rows);
-
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
-               _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
-        int col_id =
-                ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())->column_id();
-        if (_aggregate_evaluators[i]->is_merge()) {
-            auto column = block->get_by_position(col_id).column;
-            if (column->is_nullable()) {
-                column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
-            }
-
-            std::unique_ptr<char[]> deserialize_buffer(
-                    new char[_aggregate_evaluators[i]->function()->size_of_data() * rows]);
-
-            _aggregate_evaluators[i]->function()->deserialize_vec(deserialize_buffer.get(),
-                                                                  (ColumnString*)(column.get()),
-                                                                  &_agg_arena_pool, rows);
-            _aggregate_evaluators[i]->function()->merge_vec(
-                    places.data(), _offsets_of_aggregate_states[i], deserialize_buffer.get(),
-                    &_agg_arena_pool, rows);
-
-        } else {
-            _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
-                                                        places.data(), &_agg_arena_pool);
-        }
-    }
-
-    if (_should_limit_output) {
-        _reach_limit = _get_hash_table_size() >= _limit;
-    }
-
-    return Status::OK();
 }
 
 void AggregationNode::_update_memusage_with_serialized_key() {
