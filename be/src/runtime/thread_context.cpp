@@ -72,21 +72,6 @@ AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {
 #endif // USE_MEM_TRACKER
 }
 
-UpdateMemExceedCallBack::UpdateMemExceedCallBack(const std::string& cancel_msg, bool cancel_task,
-                                                 ExceedCallBack cb_func) {
-#ifdef USE_MEM_TRACKER
-    DCHECK(cancel_msg != std::string());
-    _old_cb = thread_context()->_thread_mem_tracker_mgr->update_exceed_call_back(
-            cancel_msg, cancel_task, cb_func);
-#endif
-}
-
-UpdateMemExceedCallBack::~UpdateMemExceedCallBack() {
-#ifdef USE_MEM_TRACKER
-    thread_context()->_thread_mem_tracker_mgr->update_exceed_call_back(_old_cb);
-#endif // USE_MEM_TRACKER
-}
-
 SwitchBthread::SwitchBthread() {
 #ifdef USE_MEM_TRACKER
     _bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));

@@ -1077,7 +1077,6 @@ Status HashJoinNode::open(RuntimeState* state) {
 
 Status HashJoinNode::_hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(1)->open(state));
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Hash join, while constructing the hash table.");
     SCOPED_TIMER(_build_timer);
     MutableBlock mutable_block(child(1)->row_desc().tuple_descriptors());
 

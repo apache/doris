@@ -143,7 +143,8 @@ bool MemTrackerLimiter::gc_memory(int64_t max_consumption) {
 Status MemTrackerLimiter::try_gc_memory(int64_t bytes) {
     if (UNLIKELY(gc_memory(_limit - bytes))) {
         return Status::MemoryLimitExceeded(
-                fmt::format("label={}, limit={}, used={}, failed consume size={}", label(), _limit, _consumption->current_value(), bytes));
+                fmt::format("label={}, limit={}, used={}, failed consume size={}", label(), _limit,
+                            _consumption->current_value(), bytes));
     }
     VLOG_NOTICE << "GC succeeded, TryConsume bytes=" << bytes
                 << " consumption=" << _consumption->current_value() << " limit=" << _limit;
@@ -196,9 +197,9 @@ std::string MemTrackerLimiter::log_usage(int max_recursive_depth, int64_t* logge
     std::vector<NewMemTracker::Snapshot> snapshots;
     NewMemTracker::make_group_snapshot(&snapshots, 0, _group_num, _label);
     for (const auto& snapshot : snapshots) {
-        child_trackers_usage += NewMemTracker::log_usage(snapshot);
+        child_trackers_usage += "\n    " + NewMemTracker::log_usage(snapshot);
     }
-    if (!child_trackers_usage.empty()) detail += "\n" + child_trackers_usage;
+    if (!child_trackers_usage.empty()) detail += child_trackers_usage;
     return detail;
 }
 
@@ -216,47 +217,36 @@ std::string MemTrackerLimiter::log_usage(int max_recursive_depth,
     return join(usage_strings, "\n");
 }
 
-Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg, int64_t failed_consume_size, Status failed_try_consume_rt, const TUniqueId& fragment_instance_id) {
+Status MemTrackerLimiter::mem_limit_exceeded(const std::string& msg, int64_t failed_consume_size) {
     STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
-    std::string detail;
-    if (!failed_try_consume_rt) {
-        DCHECK(failed_try_consume_rt.is_mem_limit_exceeded());
-        detail += "in {} mem tracker consume log=<{}>.";
-        // failed_try_consume_rt.to_string() starts with `Memory exceed limit: `
-        detail = fmt::format(detail, msg, failed_try_consume_rt.to_string());
-    } else {
-        detail += "in {} mem tracker consume log=<label={}, limit={}, used={}, failed consume size={}>.";
-        detail = fmt::format(detail, msg, _label, _consumption->current_value(), _limit,
-                             PrettyPrinter::print(failed_consume_size, TUnit::BYTES));
-    }
-    detail += " fragment={}, backend={} free memory left={}.";
-    detail = fmt::format(
-            detail, print_id(fragment_instance_id), 
-            BackendOptions::get_localhost(),
+    std::string detail = fmt::format(
+            "{}, failed mem consume:<consume_size={}, mem_limit={}, mem_used={}, tracker_label={}, "
+            "in backend={} free memory left={}. details mem usage see be.INFO.",
+            msg, PrettyPrinter::print(failed_consume_size, TUnit::BYTES), _limit,
+            _consumption->current_value(), _label, BackendOptions::get_localhost(),
             PrettyPrinter::print(ExecEnv::GetInstance()->new_process_mem_tracker()->spare_capacity(),
                                  TUnit::BYTES));
-    detail += " If this is a query, can change the limit by session variable exec_mem_limit.";
     Status status = Status::MemoryLimitExceeded(detail);
 
-    detail += "\n" + boost::stacktrace::to_string(boost::stacktrace::stacktrace());
     // only print the tracker log_usage in be log.
-    if (ExecEnv::GetInstance()->new_process_mem_tracker()->spare_capacity() < failed_consume_size) {
-        // Dumping the process NewMemTracker is expensive. Limiting the recursive depth to two
-        // levels limits the level of detail to a one-line summary for each query NewMemTracker.
-        detail += "\n" + ExecEnv::GetInstance()->new_process_mem_tracker()->log_usage(2);
-    } else {
-        detail += "\n" + log_usage();
+    if (_print_log_usage) {
+        if (ExecEnv::GetInstance()->new_process_mem_tracker()->spare_capacity() < failed_consume_size) {
+            // Dumping the process MemTracker is expensive. Limiting the recursive depth to two
+            // levels limits the level of detail to a one-line summary for each query MemTracker.
+            detail += "\n" + ExecEnv::GetInstance()->new_process_mem_tracker()->log_usage(2);
+        } else {
+            detail += "\n" + log_usage();
+        }
+        detail += "\n" + boost::stacktrace::to_string(boost::stacktrace::stacktrace());
+        LOG(WARNING) << detail;
+        _print_log_usage = false;
     }
-
-    LOG(WARNING) << detail;
     return status;
 }
 
 Status MemTrackerLimiter::mem_limit_exceeded(RuntimeState* state, const std::string& msg,
-                              int64_t failed_alloc_size,
-                              Status failed_try_consume_rt) {
-    Status rt = mem_limit_exceeded(msg, failed_alloc_size, failed_try_consume_rt,
-                                    state->fragment_instance_id());
+                                             int64_t failed_alloc_size) {
+    Status rt = mem_limit_exceeded(msg, failed_alloc_size);
     state->log_error(rt.to_string());
     return rt;
 }

@@ -351,7 +351,6 @@ Status AggregationNode::prepare(RuntimeState* state) {
 Status AggregationNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("aggregator, while execute open.");
 
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
 
@@ -386,7 +385,6 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
 
 Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("aggregator, while execute get_next.");
 
     if (_is_streaming_preagg) {
         bool child_eos = false;

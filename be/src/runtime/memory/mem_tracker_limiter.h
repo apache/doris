@@ -143,12 +143,9 @@ public:
     // If 'failed_allocation_size' is greater than zero, logs the allocation size. If
     // 'failed_allocation_size' is zero, nothing about the allocation size is logged.
     // If 'state' is non-nullptr, logs the error to 'state'.
-    Status mem_limit_exceeded(const std::string& msg, int64_t failed_consume_size,
-                              Status failed_try_consume_rt,
-                              const TUniqueId& fragment_instance_id = TUniqueId());
+    Status mem_limit_exceeded(const std::string& msg, int64_t failed_consume_size);
     Status mem_limit_exceeded(RuntimeState* state, const std::string& msg = std::string(),
-                              int64_t failed_consume_size = -1,
-                              Status failed_try_consume_rt = Status::OK());
+                              int64_t failed_consume_size = -1);
 
     std::string debug_string() {
         std::stringstream msg;
@@ -207,6 +204,8 @@ private:
 
     // The number of child trackers that have been added.
     std::atomic_size_t _had_child_count = 0;
+
+    bool _print_log_usage = true;
 
     // Lock to protect gc_memory(). This prevents many GCs from occurring at once.
     std::mutex _gc_lock;

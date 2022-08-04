@@ -40,7 +40,6 @@ Status ExceptNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExceptNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(SetOperationNode::open(state));
-    SCOPED_UPDATE_MEM_EXCEED_CALL_BACK("Except Node, while probing the hash table.");
     // if a table is empty, the result must be empty
     if (_hash_tbl->size() == 0) {
         _hash_tbl_iterator = _hash_tbl->begin();
