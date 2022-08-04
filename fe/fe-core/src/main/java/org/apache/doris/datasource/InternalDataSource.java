@@ -1716,11 +1716,6 @@ public class InternalDataSource implements DataSourceIf<Database> {
         OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo,
                 defaultDistributionInfo, indexes);
 
-        for (Column column : baseSchema) {
-            column.setUniqueId(olapTable.incAndGetMaxColUniqueId());
-            LOG.debug("table: {}, newColumn: {}, uniqueId: {}", olapTable.getName(), column.getName(),
-                    column.getUniqueId());
-        }
         olapTable.setComment(stmt.getComment());
 
         // set base index id
@@ -1730,6 +1725,25 @@ public class InternalDataSource implements DataSourceIf<Database> {
         // set base index info to table
         // this should be done before create partition.
         Map<String, String> properties = stmt.getProperties();
+
+        // get use light schema change
+        Boolean useLightSchemaChange = false;
+        try {
+            useLightSchemaChange = PropertyAnalyzer.analyzeUseLightSchemaChange(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        // use light schema change optimization
+        olapTable.setUseLightSchemaChange(useLightSchemaChange);
+        if (useLightSchemaChange) {
+            for (Column column : baseSchema) {
+                column.setUniqueId(olapTable.incAndGetMaxColUniqueId());
+                LOG.debug("table: {}, newColumn: {}, uniqueId: {}", olapTable.getName(), column.getName(),
+                        column.getUniqueId());
+            }
+        } else {
+            LOG.debug("table: {} doesn't use light schema change", olapTable.getName());
+        }
 
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
