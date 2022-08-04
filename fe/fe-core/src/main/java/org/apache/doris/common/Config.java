@@ -1613,4 +1613,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
+
+    /**
+     * List of S3 API compatible object storage systems.
+     */
+    @ConfField
+    public static String s3_compatible_object_storages = "s3,oss,cos,bos";
 }

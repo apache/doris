@@ -455,5 +455,14 @@ public class Util {
         }
         return s;
     }
+
+    public static boolean isS3CompatibleStorageSchema(String schema) {
+        for (String objectStorage : Config.s3_compatible_object_storages.split(",")) {
+            if (objectStorage.equalsIgnoreCase(schema)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
 
