@@ -252,9 +252,13 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
         if (!slot->is_materialized()) {
             continue;
         }
-        int32_t index = slot->col_unique_id() >= 0
-                                ? _tablet_schema.field_index(slot->col_unique_id())
-                                : _tablet_schema.field_index(slot->col_name());
+
+        int32_t index = _tablet_schema.field_index(slot->col_unique_id());
+        if (index < 0) {
+            // rollup/materialized view should use col_name to find index
+            index = _tablet_schema.field_index(slot->col_name());
+        }
+
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalid. field=" << slot->col_name();
@@ -262,8 +266,9 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
-        if (slot->is_nullable() && !_tablet_schema.column(index).is_nullable())
+        if (slot->is_nullable() && !_tablet_schema.column(index).is_nullable()) {
             _tablet_columns_convert_to_null_set.emplace(index);
+        }
     }
 
     // expand the sequence column

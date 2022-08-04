@@ -328,6 +328,7 @@ private:
 
     static std::shared_mutex _mutex;
     static std::unordered_set<int64_t> _tablet_ids_in_converting;
+    static std::set<std::string> _supported_functions;
 };
 
 using RowBlockDeleter = std::function<void(RowBlock*)>;
