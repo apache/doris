@@ -25,5 +25,5 @@ INSERT INTO  wftest1 VALUES ('a', 1),('b', 1),('c', 1);
 INSERT INTO  wftest2 VALUES ('a', 1),('b', 1),('d', 1);
 
 
-select  * from wftest1 t1  left join wftest2 t2 on t1.aa=t2.cc ;
+select  * from wftest1 t1  left join wftest2 t2 on t1.aa=t2.cc order by t1.aa;
 select  t.* from ( select  * from wftest1 t1  left join wftest2 t2 on t1.aa=t2.cc  ) t  where   dayofweek(current_date())=2;

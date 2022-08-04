@@ -12,8 +12,8 @@
 3
 
 -- !test_left_join_5 --
-b	1	b	1
 a	1	a	1
+b	1	b	1
 c	1	\N	\N
 
 -- !test_left_join_6 --
