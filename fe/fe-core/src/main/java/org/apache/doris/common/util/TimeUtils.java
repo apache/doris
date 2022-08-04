@@ -152,7 +152,7 @@ public class TimeUtils {
         return dateFormat.format(new Date(timeStamp));
     }
 
-    public static String longToTimeStringProc(long timeStamp, SimpleDateFormat datetimeFormatTimeZone) {
+    public static String longToTimeStringWithFormat(long timeStamp, SimpleDateFormat datetimeFormatTimeZone) {
         TimeZone timeZone = getTimeZone();
         datetimeFormatTimeZone.setTimeZone(timeZone);
         return longToTimeString(timeStamp, datetimeFormatTimeZone);
@@ -160,12 +160,12 @@ public class TimeUtils {
 
     public static String longToTimeString(long timeStamp) {
         SimpleDateFormat datetimeFormatTimeZone = datetimeFormatThreadLocal.get();
-        return longToTimeStringProc(timeStamp, datetimeFormatTimeZone);
+        return longToTimeStringWithFormat(timeStamp, datetimeFormatTimeZone);
     }
 
     public static String longToTimeStringWithms(long timeStamp) {
         SimpleDateFormat datatimeFormatTimeZone = datetimeMSFormatThreadLocal.get();
-        return longToTimeStringProc(timeStamp, datatimeFormatTimeZone);
+        return longToTimeStringWithFormat(timeStamp, datatimeFormatTimeZone);
     }
 
     public static synchronized Date getTimeAsDate(String timeString) {

@@ -104,7 +104,7 @@ public class ShowAlterStmt extends ShowStmt {
         if (!(subExpr instanceof BinaryPredicate)) {
             throw new AnalysisException("The operator =|>=|<=|>|<|!= are supported.");
         }
-        LOG.info("enter getPredicateValue");
+
         BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
         if (!(subExpr.getChild(0) instanceof SlotRef)) {
             throw new AnalysisException("Only support column = xxx syntax.");
@@ -124,12 +124,6 @@ public class ShowAlterStmt extends ShowStmt {
             subExpr.setChild(1, (subExpr.getChild(1)).castTo(
                     ScalarType.getDefaultDateType(Type.DATETIME)));
         } else {
-            if (!(subExpr.getChild(1) instanceof StringLiteral)) {
-                LOG.info("child 1 not match");
-            }
-            if (binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
-                LOG.info("sub opeator not match");
-            }
             throw new AnalysisException(
                     "The columns of TableName/IndexName/CreateTime/FinishTime/State are supported.");
         }
