@@ -51,6 +51,16 @@ FE is divided into three roles: Leader, Follower and Observer. By default, a clu
 
 The first FE to start automatically becomes Leader. On this basis, several Followers and Observers can be added.
 
+#### Configure and start Follower or Observer.
+
+ Follower and Observer are configured with Leader. The following commands need to be executed at the first startup:
+
+`bin/start_fe.sh --helper host:edit_log_port --daemon`
+
+The host is the node IP of Leader, and the edit\_log\_port in Lead's configuration file fe.conf. The --helper is only required when follower/observer is first startup.
+
+#### Add Follower or Observer to the cluster
+
 Add Follower or Observer. Connect to the started FE using mysql-client and execute:
 
 `ALTER SYSTEM ADD FOLLOWER "follower_host:edit_log_port";`
@@ -60,12 +70,6 @@ or
 `ALTER SYSTEM ADD OBSERVER "observer_host:edit_log_port";`
 
 The follower\_host and observer\_host is the node IP of Follower or Observer, and the edit\_log\_port in its configuration file fe.conf.
-
-Configure and start Follower or Observer. Follower and Observer are configured with Leader. The following commands need to be executed at the first startup:
-
-`bin/start_fe.sh --helper host:edit_log_port --daemon`
-
-The host is the node IP of Leader, and the edit\_log\_port in Lead's configuration file fe.conf. The --helper is only required when follower/observer is first startup.
 
 View the status of Follower or Observer. Connect to any booted FE using mysql-client and execute:
 
@@ -133,8 +137,8 @@ DECOMMISSION clause:
 > 3. The order **does not necessarily carry out successfully**. For example, when the remaining BE storage space is insufficient to accommodate the data on the offline BE, or when the number of remaining machines does not meet the minimum number of replicas, the command cannot be completed, and the BE will always be in the state of `SystemDecommissioned` as true.
 > 4. The progress of DECOMMISSION can be viewed through `SHOW PROC '/backends';` Tablet Num, and if it is in progress, Tablet Num will continue to decrease.
 > 5. The operation can be carried out by:
-     > 		```CANCEL ALTER SYSTEM DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```
-     > 	The order was cancelled. When cancelled, the data on the BE will maintain the current amount of data remaining. Follow-up Doris re-load balancing
+> 		```CANCEL ALTER SYSTEM DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```
+> 	The order was cancelled. When cancelled, the data on the BE will maintain the current amount of data remaining. Follow-up Doris re-load balancing
 
 **For expansion and scaling of BE nodes in multi-tenant deployment environments, please refer to the [Multi-tenant Design Document](../multi-tenant.md).**
 
@@ -147,3 +151,4 @@ There is no rigid requirement for the number of Broker instances. Usually one ph
 ```ALTER SYSTEM DROP ALL BROKER broker_name;```
 
 Broker is a stateless process that can be started or stopped at will. Of course, when it stops, the job running on it will fail. Just try again.
+
