@@ -98,7 +98,7 @@ private:
     std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred,
                                                          int conj_idx, int child_idx);
 
-    void transfer_thread(RuntimeState* state);
+    void schedule_thread(RuntimeState* state);
     void scanner_thread(VOlapScanner* scanner);
     Status start_scan_thread(RuntimeState* state);
 
@@ -122,13 +122,9 @@ private:
     const TupleDescriptor* _tuple_desc;
     // tuple index
     int _tuple_idx;
-    // string slots
-    std::vector<SlotDescriptor*> _string_slots;
     // conjunct's index which already be push down storage engine
     // should be remove in olap_scan_node, no need check this conjunct again
     std::set<uint32_t> _pushed_conjuncts_index;
-    // collection slots
-    std::vector<SlotDescriptor*> _collection_slots;
 
     bool _eos;
 
@@ -160,13 +156,10 @@ private:
     // object is.
     ObjectPool _scanner_pool;
 
-    std::shared_ptr<std::thread> _transfer_thread;
+    std::shared_ptr<std::thread> _schedule_thread;
 
     // Keeps track of total splits and the number finished.
     ProgressUpdater _progress;
-
-    // to limit _materialized_row_batches_bytes < _max_scanner_queue_size_bytes / 2
-    std::atomic_size_t _materialized_row_batches_bytes = 0;
 
     std::atomic_int _running_thread = 0;
     std::condition_variable _scan_thread_exit_cv;
@@ -174,15 +167,12 @@ private:
     // to limit _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2
     std::atomic_size_t _scan_row_batches_bytes = 0;
 
-    std::list<VOlapScanner*> _olap_scanners;
-
-    int _max_materialized_row_batches;
-    // to limit _materialized_row_batches_bytes and _scan_row_batches_bytes
+    // to limit _scan_row_batches_bytes
     size_t _max_scanner_queue_size_bytes;
     bool _start;
     // Used in Scan thread to ensure thread-safe
     std::atomic_bool _scanner_done;
-    std::atomic_bool _transfer_done;
+    std::atomic_bool _schedule_done;
     size_t _direct_conjunct_size;
 
     int _total_assign_num;
@@ -301,10 +291,6 @@ private:
     RuntimeProfile::Counter* _general_debug_timer[GENERAL_DEBUG_COUNT] = {};
 
     std::vector<Block*> _scan_blocks;
-    std::vector<Block*> _materialized_blocks;
-    std::mutex _blocks_lock;
-    std::condition_variable _block_added_cv;
-    std::condition_variable _block_consumed_cv;
 
     std::mutex _scan_blocks_lock;
     std::condition_variable _scan_block_added_cv;
@@ -314,8 +300,6 @@ private:
 
     std::list<VOlapScanner*> _volap_scanners;
     std::mutex _volap_scanners_lock;
-
-    int _max_materialized_blocks;
 
     size_t _block_size = 0;
 
