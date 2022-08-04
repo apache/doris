@@ -246,7 +246,7 @@ See the section on `lower_case_table_names` variables in [Variables](../advanced
 
 #### (Optional) FS_Broker deployment
 
-Broker is deployed as a plug-in, independent of Doris. If you need to import data from a third-party storage system, you need to deploy the corresponding Broker. By default, it provides fs_broker to read HDFS ,Baidu cloud BOS and Amazon S3. Fs_broker is stateless and it is recommended that each FE and BE node deploy a Broker.
+Broker is deployed as a plug-in, independent of Doris. If you need to import data from a third-party storage system, you need to deploy the corresponding Broker. By default, it provides fs_broker to read HDFS ,Object storage (supporting S3 protocol). Fs_broker is stateless and it is recommended that each FE and BE node deploy a Broker.
 
 * Copy the corresponding Broker directory in the output directory of the source fs_broker to all the nodes that need to be deployed. It is recommended to maintain the same level as the BE or FE directories.
 
@@ -491,6 +491,6 @@ Broker is a stateless process that can be started or stopped at will. Of course,
 
    ```shell
    vim /etc/supervisord.conf
-
+   
    minfds=65535                 ; (min. avail startup file descriptors;default 1024)
    ```

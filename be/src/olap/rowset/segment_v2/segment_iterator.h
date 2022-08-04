@@ -116,7 +116,7 @@ private:
     void _output_non_pred_columns(vectorized::Block* block);
     Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                    std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
-                                   size_t select_size, vectorized::MutableColumns* mutable_columns);
+                                   size_t select_size);
 
     template <class Container>
     Status _output_column_by_sel_idx(vectorized::Block* block, const Container& column_ids,
