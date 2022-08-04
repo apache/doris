@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
+import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
@@ -27,14 +28,22 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.OrderByPair;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 /**
  * For unified management of statistics job,
@@ -67,7 +76,7 @@ public class StatisticsJobManager {
     }
 
     public Map<Long, StatisticsJob> getIdToStatisticsJob() {
-        return this.idToStatisticsJob;
+        return idToStatisticsJob;
     }
 
     public void createStatisticsJob(AnalyzeStmt analyzeStmt) throws UserException {
@@ -76,16 +85,16 @@ public class StatisticsJobManager {
         writeLock();
         try {
             // step2: check restrict
-            this.checkRestrict(analyzeStmt.getDbId(), statisticsJob.getTblIds());
+            checkRestrict(analyzeStmt.getDbId(), statisticsJob.getTblIds());
             // step3: create it
-            this.createStatisticsJob(statisticsJob);
+            createStatisticsJob(statisticsJob);
         } finally {
             writeUnlock();
         }
     }
 
     public void createStatisticsJob(StatisticsJob statisticsJob) throws DdlException {
-        this.idToStatisticsJob.put(statisticsJob.getId(), statisticsJob);
+        idToStatisticsJob.put(statisticsJob.getId(), statisticsJob);
         try {
             Env.getCurrentEnv().getStatisticsJobScheduler().addPendingJob(statisticsJob);
         } catch (IllegalStateException e) {
@@ -119,7 +128,7 @@ public class StatisticsJobManager {
         int unfinishedJobs = 0;
 
         // check table unfinished job
-        for (StatisticsJob statisticsJob : this.idToStatisticsJob.values()) {
+        for (StatisticsJob statisticsJob : idToStatisticsJob.values()) {
             StatisticsJob.JobState jobState = statisticsJob.getJobState();
             Set<Long> tblIds = statisticsJob.getTblIds();
             if (jobState == StatisticsJob.JobState.PENDING
@@ -139,5 +148,85 @@ public class StatisticsJobManager {
             throw new AnalysisException("The unfinished statistics job could not more than cbo_max_statistics_job_num: "
                     + Config.cbo_max_statistics_job_num);
         }
+    }
+
+    public List<List<String>> getAnalyzeJobInfos(ShowAnalyzeStmt showStmt) throws AnalysisException {
+        List<List<Comparable>> results = Lists.newArrayList();
+
+        String stateValue = showStmt.getStateValue();
+        StatisticsJob.JobState jobState = null;
+        if (!Strings.isNullOrEmpty(stateValue)) {
+            jobState = StatisticsJob.JobState.valueOf(stateValue);
+        }
+
+        // step 1: get job infos
+        List<Long> jobIds = showStmt.getJobIds();
+        if (jobIds != null && !jobIds.isEmpty()) {
+            for (Long jobId : jobIds) {
+                StatisticsJob statisticsJob = idToStatisticsJob.get(jobId);
+                if (statisticsJob == null) {
+                    throw new AnalysisException("No such job id: " + jobId);
+                }
+                if (jobState == null || jobState == statisticsJob.getJobState()) {
+                    List<Comparable> showInfo = statisticsJob.getShowInfo(null);
+                    results.add(showInfo);
+                }
+            }
+        } else {
+            long dbId = showStmt.getDbId();
+            Set<Long> tblIds = showStmt.getTblIds();
+            for (StatisticsJob statisticsJob : idToStatisticsJob.values()) {
+                long jobDbId = statisticsJob.getDbId();
+                if (jobDbId == dbId) {
+                    // check the state
+                    if (jobState == null || jobState == statisticsJob.getJobState()) {
+                        Set<Long> jobTblIds = statisticsJob.getTblIds();
+                        // get the intersection of two sets
+                        Set<Long> set = Sets.newHashSet();
+                        set.addAll(jobTblIds);
+                        set.retainAll(tblIds);
+                        for (long tblId : set) {
+                            List<Comparable> showInfo = statisticsJob.getShowInfo(tblId);
+                            results.add(showInfo);
+                        }
+                    }
+                }
+            }
+        }
+
+        // step2: order the result
+        ListComparator<List<Comparable>> comparator;
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+        if (orderByPairs == null) {
+            // sort by id asc
+            comparator = new ListComparator<>(0);
+        } else {
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
+        }
+        results.sort(comparator);
+
+        // step3: filter by limit
+        long limit = showStmt.getLimit();
+        long offset = showStmt.getOffset() == -1L ? 0 : showStmt.getOffset();
+        if (offset >= results.size()) {
+            results = Collections.emptyList();
+        } else if (limit != -1L) {
+            if ((limit + offset) >= results.size()) {
+                results = results.subList((int) offset, results.size());
+            } else {
+                results = results.subList((int) offset, (int) (limit + offset));
+            }
+        }
+
+        // step4: convert to result and return it
+        List<List<String>> rows = Lists.newArrayList();
+        for (List<Comparable> result : results) {
+            List<String> row = result.stream().map(Object::toString)
+                    .collect(Collectors.toList());
+            rows.add(row);
+        }
+
+        return rows;
     }
 }

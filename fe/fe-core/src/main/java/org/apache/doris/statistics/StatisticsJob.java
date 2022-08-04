@@ -18,20 +18,28 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import javax.annotation.Nullable;
 
 /***
  * Used to store statistics job info,
@@ -255,7 +263,7 @@ public class StatisticsJob {
      * get statisticsJob from analyzeStmt.
      * AnalyzeStmt: analyze t1(c1,c2,c3)
      * tableId: [t1]
-     * tableIdToColumnName <t1, [c1,c2,c3]>
+     * tableIdToColumnName: {t1: [c1,c2,c3]}
      */
     public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt stmt) throws AnalysisException {
         long dbId = stmt.getDbId();
@@ -264,5 +272,82 @@ public class StatisticsJob {
         Map<Long, List<String>> tableIdToColumnName = stmt.getTableIdToColumnName();
         Map<String, String> properties = stmt.getProperties();
         return new StatisticsJob(dbId, tblIds, tableIdToPartitionName, tableIdToColumnName, properties);
+    }
+
+    public List<Comparable> getShowInfo(@Nullable Long tableId) throws AnalysisException {
+        List<Comparable> result = Lists.newArrayList();
+
+        result.add(Long.toString(id));
+
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+        result.add(TimeUtils.longToTimeString(createTime, dateFormat));
+        result.add(startTime != -1L ? TimeUtils.longToTimeString(startTime, dateFormat) : "N/A");
+        result.add(finishTime != -1L ? TimeUtils.longToTimeString(finishTime, dateFormat) : "N/A");
+
+        StringBuilder sb = new StringBuilder();
+        for (String errorMsg : errorMsgs) {
+            sb.append(errorMsg).append("\n");
+        }
+        result.add(sb.toString());
+
+        int totalTaskNum = 0;
+        int finishedTaskNum = 0;
+        Map<Long, Set<String>> tblIdToCols = Maps.newHashMap();
+
+        for (StatisticsTask task : tasks) {
+            List<StatisticsDesc> statsDescs = task.getStatsDescs();
+
+            if (!statsDescs.isEmpty()) {
+                // The same task has the same stats properties
+                StatsCategory statsCategory = statsDescs.get(0).getStatsCategory();
+                long tblId = statsCategory.getTableId();
+
+                if (tableId == null || tableId == tblId) {
+                    totalTaskNum++;
+                    if (task.getTaskState() == StatisticsTask.TaskState.FINISHED) {
+                        finishedTaskNum++;
+                    }
+
+                    String col = statsCategory.getColumnName();
+                    if (Strings.isNullOrEmpty(col)) {
+                        continue;
+                    }
+                    tblIdToCols.computeIfAbsent(tblId,
+                            (key) -> Sets.newHashSet()).add(col);
+                }
+            }
+        }
+
+        List<String> scope = Lists.newArrayList();
+        Database db = Env.getCurrentEnv()
+                .getInternalDataSource().getDbOrAnalysisException(dbId);
+        for (Long tblId : tblIds) {
+            try {
+                Table table = db.getTableOrAnalysisException(tblId);
+                List<Column> baseSchema = table.getBaseSchema();
+                Set<String> cols = tblIdToCols.get(tblId);
+                if (cols != null) {
+                    if (baseSchema.size() == cols.size()) {
+                        scope.add(table.getName() + "(*)");
+                    } else {
+                        scope.add(table.getName() + "(" + StringUtils.join(cols.toArray(), ", ") + ")");
+                    }
+                }
+            } catch (AnalysisException e) {
+                // catch this exception when table is dropped
+                LOG.info("get table failed, tableId: " + tblId, e);
+            }
+        }
+
+        result.add(StringUtils.join(scope.toArray(), ","));
+        result.add(finishedTaskNum + "/" + totalTaskNum);
+
+        if (totalTaskNum == finishedTaskNum) {
+            result.add("FINISHED");
+        } else {
+            result.add(jobState.toString());
+        }
+
+        return result;
     }
 }
