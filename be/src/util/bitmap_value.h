@@ -1262,7 +1262,7 @@ public:
         return *this;
     }
 
-    BitmapValue& fastunion(std::vector<BitmapValue>& values) {
+    BitmapValue& fastunion(const std::vector<BitmapValue>& values) {
         std::vector<const detail::Roaring64Map*> bitmaps;
         std::vector<uint64_t> single_values;
         for (int i = 0; i < values.size(); ++i) {
