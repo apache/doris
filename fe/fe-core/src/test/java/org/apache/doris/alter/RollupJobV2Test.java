@@ -314,8 +314,8 @@ public class RollupJobV2Test {
 
 
     @Test
-    public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt) throws IOException,
-            AnalysisException {
+    public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt)
+            throws IOException {
         // prepare file
         File file = new File(fileName);
         file.createNewFile();
@@ -326,6 +326,7 @@ public class RollupJobV2Test {
         String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + "to_bitmap_" + "c1";
         Column column = new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", "");
         columns.add(column);
+
         RollupJobV2 rollupJobV2 = new RollupJobV2(1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, 1, 1,
                 KeysType.AGG_KEYS, keysCount,
                 new OriginStatement("create materialized view rollup as select bitmap_union(to_bitmap(c1)) from test",
