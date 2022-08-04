@@ -64,8 +64,9 @@ public:
 
 private:
     Status _column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs);
-    void _init_row_group_reader();
-    void _fill_block_data(std::vector<tparquet::ColumnChunk> columns);
+    void _init_row_group_reader(int64_t range_start_offset, int64_t range_size,
+                                const std::vector<ExprContext*>& conjunct_ctxs);
+    void _fill_block_data(Block* block, int group_id);
     bool _has_page_index(std::vector<tparquet::ColumnChunk> columns);
     Status _process_page_index(std::vector<tparquet::ColumnChunk> columns);
 
@@ -80,10 +81,22 @@ private:
     const int32_t _num_of_columns_from_file;
     std::map<std::string, int> _map_column; // column-name <---> column-index
     std::vector<int> _include_column_ids;   // columns that need to get from file
+    std::vector<ParquetReadColumn> _read_columns;
     // parquet file reader object
     Block* _batch;
     bool* _batch_eof;
-    //    int64_t _range_start_offset;
-    //    int64_t _range_size;
+    int64_t _range_start_offset;
+    int64_t _range_size;
 };
+
+class ParquetReadColumn {
+public:
+    friend class ParquetReader;
+    friend class RowGroupReader;
+private:
+    SlotDescriptor* slot_desc;
+    int parquet_column_id;
+    tparquet::Type::type parquet_type;
+};
+
 } // namespace doris::vectorized

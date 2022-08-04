@@ -18,4 +18,8 @@
 #pragma once
 #include <common/status.h>
 
-namespace doris::vectorized {}
+namespace doris::vectorized {
+class ColumnReader {
+
+};
+}

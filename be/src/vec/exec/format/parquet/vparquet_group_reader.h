@@ -23,15 +23,20 @@
 namespace doris::vectorized {
 class RowGroupReader {
 public:
-    RowGroupReader(doris::FileReader* file_reader, std::shared_ptr<FileMetaData> file_metadata,
-                   const std::vector<int>& column_ids);
-
+    RowGroupReader(doris::FileReader* file_reader, std::shared_ptr<FileMetaData> file_metadata);
     ~RowGroupReader() = default;
-
-    Status read_next_row_group(const int32_t* group_id);
-
+    void init(const std::vector<ExprContext*>& conjunct_ctxs,
+              int64_t split_start_offset,
+              int64_t split_size,
+              const std::vector<ParquetReadColumn>& read_columns);
+    Status get_next_row_group(const int32_t* group_id);
+    Status fill_column_data(Block* block, const int32_t* group_id);
 private:
-    void _init_column_readers(const std::vector<int>& column_ids);
+    bool _is_misaligned_range_group(const parquet::RowGroup& row_group);
+
+    Status _process_column_stat_filter(const std::vector<ExprContext*>& conjunct_ctxs, bool* skipped_group);
+
+    void _init_column_readers();
 
     Status _process_row_group_filter(bool* filter_group);
 
@@ -45,10 +50,15 @@ private:
 
     int64_t _get_row_group_start_offset(const tparquet::RowGroup& row_group);
 
+    int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column)
 private:
     doris::FileReader* _file_reader;
     std::shared_ptr<FileMetaData> _file_metadata;
-    std::vector<int> _column_ids;
+    const std::vector<ExprContext*>& _conjunct_ctxs;
+    const std::vector<ParquetReadColumn>& _read_columns
+    std::unordered_map<int32_t, std::unique_ptr<ColumnReader>> _column_readers;
+    int64_t _split_start_offset;
+    int64_t _split_size;
     int32_t _current_row_group;
 };
 } // namespace doris::vectorized

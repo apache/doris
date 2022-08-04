@@ -17,4 +17,7 @@
 
 #include "vparquet_column_reader.h"
 
-namespace doris::vectorized {}
+namespace doris::vectorized {
+
+
+}
