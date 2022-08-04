@@ -83,7 +83,7 @@ public class TimeUtils {
             ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
 
     private static ThreadLocal<SimpleDateFormat> datetimeMSFormatThreadLocal =
-            ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss:S"));
+            ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
 
     static {
         TIME_ZONE = new SimpleTimeZone(8 * 3600 * 1000, "");
