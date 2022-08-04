@@ -63,14 +63,8 @@ Different types of brokers support different storage systems.
     * Support simple authentication access
     * Support kerberos authentication access
     * Support HDFS HA mode access
-
-2. Baidu HDFS / AFS (not supported by open source version)
-
-    * Support UGI simple authentication access
-
-3. Baidu Object Storage BOS (not supported by open source version)
-
-    * Support AK / SK authentication access
+2. Object storage
+- All object stores that support the S3 protocol
 
 ## Function provided by Broker
 
@@ -200,4 +194,3 @@ Authentication information is usually provided as a Key-Value in the Property Ma
     )
     ```
    The configuration for accessing the HDFS cluster can be written to the hdfs-site.xml file. When users use the Broker process to read data from the HDFS cluster, they only need to fill in the cluster file path and authentication information.
-   
