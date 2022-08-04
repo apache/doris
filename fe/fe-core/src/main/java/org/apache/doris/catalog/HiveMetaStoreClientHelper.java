@@ -274,7 +274,7 @@ public class HiveMetaStoreClientHelper {
             location = location.replaceFirst("oss", "s3");
         } else if (location.startsWith("cos:")) {
             location = location.replaceFirst("cos", "s3");
-        } else if (location.startsWith("bos")) {
+        } else if (location.startsWith("bos:")) {
             location = location.replaceFirst("bos", "s3");
         }
         return location;
