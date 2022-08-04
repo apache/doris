@@ -123,8 +123,10 @@ public class StatsDeriveResult {
     public StatsDeriveResult updateRowCountByLimit(long limit) {
         if (limit > 0) {
             rowCount = Math.min(rowCount, limit);
+            double selectivity = ((double) limit) / rowCount;
+            selectivity = Math.max(1, selectivity);
             for (Entry<Slot, ColumnStats> entry : slotToColumnStats.entrySet()) {
-                entry.getValue().updateByLimit(limit);
+                entry.getValue().updateBySelectivity(selectivity);
             }
         }
         return this;
