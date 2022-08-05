@@ -76,8 +76,6 @@ public:
         _stale = true;
     }
 
-    const bool stale() { return _stale; }
-
 private:
     friend class VExpr;
 

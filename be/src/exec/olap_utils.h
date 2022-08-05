@@ -218,7 +218,7 @@ inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
     return FILTER_IN;
 }
 
-inline SQLFilterOp to_olap_filter_type(std::string function_name, bool opposite) {
+inline SQLFilterOp to_olap_filter_type(const std::string& function_name, bool opposite) {
     if (function_name == "lt") {
         return opposite ? FILTER_LARGER : FILTER_LESS;
     } else if (function_name == "gt") {
@@ -231,12 +231,10 @@ inline SQLFilterOp to_olap_filter_type(std::string function_name, bool opposite)
         return opposite ? FILTER_NOT_IN : FILTER_IN;
     } else if (function_name == "ne") {
         return opposite ? FILTER_IN : FILTER_NOT_IN;
-    } else if (function_name == "eq_for_null") {
-        return FILTER_IN;
     } else {
         DCHECK(false) << "Function Name: " << function_name;
+        return FILTER_IN;
     }
-    return FILTER_IN;
 }
 
 } // namespace doris

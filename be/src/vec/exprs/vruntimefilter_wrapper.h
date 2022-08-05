@@ -44,7 +44,7 @@ public:
         return _impl->get_const_col(context);
     }
 
-    const VExpr* impl() { return _impl; }
+    const VExpr* get_impl() const override { return _impl; }
 
 private:
     VExpr* _impl;

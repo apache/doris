@@ -74,7 +74,7 @@ private:
     template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     static Status change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,
                                      const ChangeFixedValueRangeFunc& func,
-                                     std::string fn_name = "", int slot_ref_child = -1);
+                                     const std::string& fn_name, int slot_ref_child = -1);
 
     void transfer_thread(RuntimeState* state);
     void scanner_thread(VOlapScanner* scanner);
@@ -133,9 +133,6 @@ private:
     bool _should_push_down_binary_predicate(
             VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringRef* constant_val,
             int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker);
-
-    bool _should_push_down_function(VectorizedFnCall* fn_call,
-                                    const std::function<bool(const std::string&)>& fn_checker);
 
     bool _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
                                            std::string* constant_str,

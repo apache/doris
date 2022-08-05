@@ -253,6 +253,7 @@ Status VOlapScanNode::open(RuntimeState* state) {
     // acquire runtime filter
     _runtime_filter_ctxs.resize(_runtime_filter_descs.size());
 
+    std::vector<VExpr*> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         auto& filter_desc = _runtime_filter_descs[i];
         IRuntimeFilter* runtime_filter = nullptr;
@@ -266,14 +267,12 @@ Status VOlapScanNode::open(RuntimeState* state) {
             ready = runtime_filter->await();
         }
         if (ready) {
-            std::vector<VExpr*> vexprs;
             RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(&vexprs));
             _runtime_filter_ctxs[i].apply_mark = true;
             _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
-
-            RETURN_IF_ERROR(_append_rf_into_conjuncts(state, vexprs));
         }
     }
+    RETURN_IF_ERROR(_append_rf_into_conjuncts(state, vexprs));
 
     return Status::OK();
 }
@@ -797,8 +796,8 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
 
 template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
 Status VOlapScanNode::change_value_range(ColumnValueRange<PrimitiveType>& temp_range, void* value,
-                                         const ChangeFixedValueRangeFunc& func, std::string fn_name,
-                                         int slot_ref_child) {
+                                         const ChangeFixedValueRangeFunc& func,
+                                         const std::string& fn_name, int slot_ref_child) {
     if constexpr (PrimitiveType == TYPE_DATE) {
         DateTimeValue date_value;
         reinterpret_cast<VecDateTimeValue*>(value)->convert_vec_dt_to_dt(&date_value);
@@ -1367,27 +1366,19 @@ bool VOlapScanNode::_should_push_down_in_predicate(VInPredicate* pred, VExprCont
     return true;
 }
 
-bool VOlapScanNode::_should_push_down_function(
-        VectorizedFnCall* fn_call, const std::function<bool(const std::string&)>& fn_checker) {
-    return fn_checker(fn_call->fn().name.function_name);
-}
-
 bool VOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
                                                       VExprContext* expr_ctx,
                                                       std::string* constant_str,
                                                       doris_udf::FunctionContext** fn_ctx) {
+    // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
         return false;
     }
 
-    auto children = fn_call->children();
+    const auto& children = fn_call->children();
     doris_udf::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
-    if (!func_cxt) {
-        return false;
-    }
-    if (children.size() != 2) {
-        return false;
-    }
+    DCHECK(func_cxt != nullptr);
+    DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
         if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
@@ -1396,13 +1387,11 @@ bool VOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
         if (!children[1 - i]->is_constant()) {
             // only handle constant value
             return false;
-        } else if (children[1 - i]->type().is_string_type()) {
-            return false;
         } else {
+            DCHECK(children[1 - i]->type().is_string_type());
             if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
                         children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
-                *constant_str = std::string(const_column->get_data_at(0).data,
-                                            const_column->get_data_at(0).size);
+                *constant_str = const_column->get_data_at(0).to_string();
             } else {
                 return false;
             }
@@ -1419,7 +1408,7 @@ bool VOlapScanNode::_should_push_down_binary_predicate(
         return false;
     }
 
-    auto children = fn_call->children();
+    const auto& children = fn_call->children();
     DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
         if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
@@ -1488,6 +1477,7 @@ Status VOlapScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* 
                 expr_ctx->fn_context(pred->fn_context_index())
                         ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
+        auto fn_name = std::string("");
         while (iter->has_next()) {
             // column in (nullptr) is always false so continue to
             // dispose next item
@@ -1496,8 +1486,8 @@ Status VOlapScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* 
                 continue;
             }
             auto value = const_cast<void*>(iter->get_value());
-            RETURN_IF_ERROR(change_value_range<true>(temp_range, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+            RETURN_IF_ERROR(change_value_range<true>(
+                    temp_range, value, ColumnValueRange<T>::add_fixed_value_range, fn_name));
             iter->next();
         }
 
@@ -1505,7 +1495,7 @@ Status VOlapScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* 
         effect = true;
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 2);
-        auto eq_checker = [&](const std::string& fn_name) { return fn_name == "eq"; };
+        auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
 
         StringRef value;
         int slot_ref_child = -1;
@@ -1513,17 +1503,18 @@ Status VOlapScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* 
                                                &value, &slot_ref_child, eq_checker)) {
             DCHECK(slot_ref_child >= 0);
             // where A = nullptr should return empty result set
+            auto fn_name = std::string("");
             if (value.data != nullptr) {
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
                     auto val = StringValue(value.data, value.size);
-                    RETURN_IF_ERROR(
-                            change_value_range<true>(temp_range, reinterpret_cast<void*>(&val),
-                                                     ColumnValueRange<T>::add_fixed_value_range));
+                    RETURN_IF_ERROR(change_value_range<true>(
+                            temp_range, reinterpret_cast<void*>(&val),
+                            ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 } else {
                     RETURN_IF_ERROR(change_value_range<true>(
                             temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
-                            ColumnValueRange<T>::add_fixed_value_range));
+                            ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
                 range.intersection(temp_range);
                 effect = true;
@@ -1560,6 +1551,7 @@ Status VOlapScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprC
                 expr_ctx->fn_context(pred->fn_context_index())
                         ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
+        auto fn_name = std::string("");
         while (iter->has_next()) {
             // column not in (nullptr) is always true
             if (nullptr == iter->get_value()) {
@@ -1568,10 +1560,10 @@ Status VOlapScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprC
             auto value = const_cast<void*>(iter->get_value());
             if (is_fixed_range) {
                 RETURN_IF_ERROR(change_value_range<true>(
-                        range, value, ColumnValueRange<T>::remove_fixed_value_range));
+                        range, value, ColumnValueRange<T>::remove_fixed_value_range, fn_name));
             } else {
                 RETURN_IF_ERROR(change_value_range<true>(
-                        not_in_range, value, ColumnValueRange<T>::add_fixed_value_range));
+                        not_in_range, value, ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
             iter->next();
         }
@@ -1579,7 +1571,7 @@ Status VOlapScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprC
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 2);
 
-        auto ne_checker = [&](const std::string& fn_name) { return fn_name == "ne"; };
+        auto ne_checker = [](const std::string& fn_name) { return fn_name == "ne"; };
         StringRef value;
         int slot_ref_child = -1;
         if (_should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr), expr_ctx,
@@ -1587,28 +1579,29 @@ Status VOlapScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprC
             DCHECK(slot_ref_child >= 0);
             // where A = nullptr should return empty result set
             if (value.data != nullptr) {
+                auto fn_name = std::string("");
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
                     auto val = StringValue(value.data, value.size);
                     if (is_fixed_range) {
                         RETURN_IF_ERROR(change_value_range<true>(
                                 range, reinterpret_cast<void*>(&val),
-                                ColumnValueRange<T>::remove_fixed_value_range));
+                                ColumnValueRange<T>::remove_fixed_value_range, fn_name));
                     } else {
                         RETURN_IF_ERROR(change_value_range<true>(
                                 not_in_range, reinterpret_cast<void*>(&val),
-                                ColumnValueRange<T>::add_fixed_value_range));
+                                ColumnValueRange<T>::add_fixed_value_range, fn_name));
                     }
                 } else {
                     if (is_fixed_range) {
                         RETURN_IF_ERROR(change_value_range<true>(
                                 range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
-                                ColumnValueRange<T>::remove_fixed_value_range));
+                                ColumnValueRange<T>::remove_fixed_value_range, fn_name));
                     } else {
                         RETURN_IF_ERROR(change_value_range<true>(
                                 not_in_range,
                                 reinterpret_cast<void*>(const_cast<char*>(value.data)),
-                                ColumnValueRange<T>::add_fixed_value_range));
+                                ColumnValueRange<T>::add_fixed_value_range, fn_name));
                     }
                 }
                 effect = true;
@@ -1631,20 +1624,15 @@ template <PrimitiveType T>
 Status VOlapScanNode::_normalize_is_null_predicate(VExpr* expr, VExprContext* expr_ctx,
                                                    SlotDescriptor* slot, ColumnValueRange<T>& range,
                                                    bool* push_down) {
-    auto is_null_checker = [&](const std::string& fn_name) { return fn_name == "is_null_pred"; };
-    auto is_not_null_checker = [&](const std::string& fn_name) {
-        return fn_name == "is_not_null_pred";
-    };
     if (TExprNodeType::FUNCTION_CALL == expr->node_type()) {
-        if (_should_push_down_function(reinterpret_cast<VectorizedFnCall*>(expr),
-                                       is_null_checker)) {
+        if (reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name == "is_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                     slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(true);
             range.intersection(temp_range);
             *push_down = true;
-        } else if (_should_push_down_function(reinterpret_cast<VectorizedFnCall*>(expr),
-                                              is_not_null_checker)) {
+        } else if (reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name ==
+                   "is_not_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                     slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(false);
@@ -1663,7 +1651,7 @@ Status VOlapScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContex
     if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 2);
 
-        auto noneq_checker = [&](const std::string& fn_name) {
+        auto noneq_checker = [](const std::string& fn_name) {
             return fn_name != "ne" && fn_name != "eq";
         };
         StringRef value;
@@ -1671,7 +1659,7 @@ Status VOlapScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContex
         if (_should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr), expr_ctx,
                                                &value, &slot_ref_child, noneq_checker)) {
             DCHECK(slot_ref_child >= 0);
-            std::string fn_name =
+            const std::string& fn_name =
                     reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name;
 
             // where A = nullptr should return empty result set
@@ -1698,11 +1686,7 @@ Status VOlapScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ct
                                               SlotDescriptor* slot, bool* push_down) {
     if (TExprNodeType::BLOOM_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 1);
-        _bloom_filters_push_down.emplace_back(
-                slot->col_name(),
-                (reinterpret_cast<const VBloomPredicate*>(
-                         (reinterpret_cast<VRuntimeFilterWrapper*>(expr))->impl()))
-                        ->get_bloom_filter_func());
+        _bloom_filters_push_down.emplace_back(slot->col_name(), expr->get_bloom_filter_func());
         *push_down = true;
     }
     return Status::OK();
@@ -1710,6 +1694,9 @@ Status VOlapScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ct
 
 Status VOlapScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ctx,
                                                   SlotDescriptor* slot, bool* push_down) {
+    if (!config::enable_function_pushdown) {
+        return Status::OK();
+    }
     bool opposite = false;
     VExpr* fn_expr = expr;
     if (TExprNodeType::COMPOUND_PRED == expr->node_type() &&
@@ -1751,9 +1738,10 @@ void VOlapScanNode::eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, b
 
 VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_expr_root) {
     static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
-    auto in_predicate_checker = [&](const std::vector<VExpr*>& children, const VSlotRef** slot,
-                                    VExpr** child_contains_slot) {
-        if (VExpr::expr_without_cast(children[0])->node_type() != TExprNodeType::SLOT_REF) {
+    auto in_predicate_checker = [](const std::vector<VExpr*>& children, const VSlotRef** slot,
+                                   VExpr** child_contains_slot) {
+        if (children.empty() ||
+            VExpr::expr_without_cast(children[0])->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
             return false;
         }
@@ -1761,8 +1749,8 @@ VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_
         *child_contains_slot = children[0];
         return true;
     };
-    auto eq_predicate_checker = [&](const std::vector<VExpr*>& children, const VSlotRef** slot,
-                                    VExpr** child_contains_slot) {
+    auto eq_predicate_checker = [](const std::vector<VExpr*>& children, const VSlotRef** slot,
+                                   VExpr** child_contains_slot) {
         for (const VExpr* child : children) {
             if (VExpr::expr_without_cast(child)->node_type() != TExprNodeType::SLOT_REF) {
                 // not a slot ref(column)
@@ -1777,37 +1765,36 @@ VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_
 
     if (conjunct_expr_root != nullptr) {
         if (is_leaf(conjunct_expr_root)) {
+            auto impl = conjunct_expr_root->get_impl();
+            VExpr* cur_expr = impl ? const_cast<VExpr*>(impl) : conjunct_expr_root;
             SlotDescriptor* slot;
             ColumnValueRangeType* range = nullptr;
             bool push_down = false;
-            eval_const_conjuncts(conjunct_expr_root, *(_vconjunct_ctx_ptr.get()), &push_down);
-            if (!push_down && (_is_predicate_acting_on_slot(conjunct_expr_root,
-                                                            in_predicate_checker, &slot, &range) ||
-                               _is_predicate_acting_on_slot(conjunct_expr_root,
-                                                            eq_predicate_checker, &slot, &range))) {
+            eval_const_conjuncts(cur_expr, *(_vconjunct_ctx_ptr.get()), &push_down);
+            if (!push_down &&
+                (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
+                 _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range))) {
                 if (!is_key_column(slot->col_name())) {
-                    return conjunct_expr_root;
+                    return cur_expr;
                 }
                 std::visit(
                         [&](auto& value_range) {
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
-                                    conjunct_expr_root, *(_vconjunct_ctx_ptr.get()), slot,
-                                    value_range, &push_down));
-                            RETURN_IF_PUSH_DOWN(_normalize_not_in_and_not_eq_predicate(
-                                    conjunct_expr_root, *(_vconjunct_ctx_ptr.get()), slot,
-                                    value_range, &push_down));
-                            RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
-                                    conjunct_expr_root, *(_vconjunct_ctx_ptr.get()), slot,
-                                    value_range, &push_down));
-                            RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
-                                    conjunct_expr_root, *(_vconjunct_ctx_ptr.get()), slot,
-                                    value_range, &push_down));
-                            RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(conjunct_expr_root,
-                                                                        *(_vconjunct_ctx_ptr.get()),
-                                                                        slot, &push_down));
-                            RETURN_IF_PUSH_DOWN(_normalize_function_filters(
-                                    conjunct_expr_root, *(_vconjunct_ctx_ptr.get()), slot,
+                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
                                     &push_down));
+                            RETURN_IF_PUSH_DOWN(_normalize_not_in_and_not_eq_predicate(
+                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
+                                    &push_down));
+                            RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
+                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
+                                    &push_down));
+                            RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
+                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
+                                    &push_down));
+                            RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
+                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &push_down));
+                            RETURN_IF_PUSH_DOWN(_normalize_function_filters(
+                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &push_down));
                         },
                         *range);
             }
@@ -1844,12 +1831,28 @@ Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector
             if (_rf_vexpr_set.find(vexprs[j]) != _rf_vexpr_set.end()) {
                 continue;
             }
+            TFunction fn;
+            TFunctionName fn_name;
+            fn_name.__set_db_name("");
+            fn_name.__set_function_name("and");
+            fn.__set_name(fn_name);
+            fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+            std::vector<TTypeDesc> arg_types;
+            arg_types.push_back(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+            arg_types.push_back(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+            fn.__set_arg_types(arg_types);
+            fn.__set_ret_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+            fn.__set_has_var_args(false);
+
             TExprNode texpr_node;
             texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
             texpr_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
             texpr_node.__set_opcode(TExprOpcode::COMPOUND_AND);
+            texpr_node.__set_fn(fn);
+            texpr_node.__set_is_nullable(last_expr->is_nullable() || vexprs[j]->is_nullable());
             VExpr* new_node = _pool->add(new VcompoundPred(texpr_node));
             new_node->add_child(last_expr);
+            DCHECK((vexprs[j])->get_impl() != nullptr);
             new_node->add_child(vexprs[j]);
             last_expr = new_node;
             _rf_vexpr_set.insert(vexprs[j]);

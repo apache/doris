@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exprs/bloomfilter_predicate.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/types.h"
 #include "udf/udf_internal.h"
@@ -144,6 +145,16 @@ public:
             return expr_without_cast(expr->_children[0]);
         }
         return expr;
+    }
+
+    // If this expr is a RuntimeFilterWrapper, this method will return an underlying rf expression
+    virtual const VExpr* get_impl() const { return nullptr; }
+
+    // If this expr is a BloomPredicate, this method will return a BloomFilterFunc
+    virtual std::shared_ptr<IBloomFilterFuncBase> get_bloom_filter_func() const {
+        LOG(FATAL) << "Method 'get_bloom_filter_func()' is not supported in expression: "
+                   << this->debug_string();
+        return nullptr;
     }
 
 protected:
