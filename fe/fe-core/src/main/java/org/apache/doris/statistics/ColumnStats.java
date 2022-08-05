@@ -245,9 +245,9 @@ public class ColumnStats {
         return new ColumnStats(this);
     }
 
-    public ColumnStats multiplyDouble(double selectivity) {
-        ndv *= selectivity;
-        numNulls *= selectivity;
+    public ColumnStats updateBySelectivity(double selectivity) {
+        ndv = (long) Math.ceil(ndv * selectivity);
+        numNulls = (long) Math.ceil(numNulls * selectivity);
         return this;
     }
 }

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCorrelatedJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEnforceSingleRow;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -82,6 +84,10 @@ public abstract class PlanVisitor<R, C> {
         return visit(sort, context);
     }
 
+    public R visitLogicalLimit(LogicalLimit<Plan> limit, C context) {
+        return visit(limit, context);
+    }
+
     public R visitLogicalJoin(LogicalJoin<Plan, Plan> join, C context) {
         return visit(join, context);
     }
@@ -120,6 +126,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalHeapSort(PhysicalHeapSort<Plan> sort, C context) {
         return visit(sort, context);
+    }
+
+    public R visitPhysicalLimit(PhysicalLimit<Plan> limit, C context) {
+        return visit(limit, context);
     }
 
     public R visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, C context) {

@@ -279,7 +279,9 @@ public class SingleNodePlanner {
                 useTopN = false;
             }
             root = new SortNode(ctx.getNextNodeId(), root, stmt.getSortInfo(),
-                    useTopN, limit == -1, stmt.getOffset());
+                    useTopN);
+            ((SortNode) root).setDefaultLimit(limit == -1);
+            ((SortNode) root).setOffset(stmt.getOffset());
             if (useTopN) {
                 root.setLimit(limit != -1 ? limit : newDefaultOrderByLimit);
             } else {
