@@ -378,7 +378,7 @@ public class AlterTest {
         Assert.assertEquals((short) 1, (short) tbl2.getTableProperty().getReplicaAllocation()
                 .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group1")));
         be.setTagMap(originTagMap);
-        
+
         Thread.sleep(5000); // sleep to wait dynamic partition scheduler run
         // add partition without set replication num, and default num is 3.
         stmt = "alter table test.tbl1 add partition p4 values less than('2020-04-10')";
