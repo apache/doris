@@ -626,136 +626,36 @@ Status VOlapScanNode::normalize_conjuncts() {
 
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
         switch (slots[slot_idx]->type().type) {
-        case TYPE_TINYINT: {
-            ColumnValueRange<TYPE_TINYINT> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_SMALLINT: {
-            ColumnValueRange<TYPE_SMALLINT> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_INT: {
-            ColumnValueRange<TYPE_INT> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_BIGINT: {
-            ColumnValueRange<TYPE_BIGINT> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_LARGEINT: {
-            ColumnValueRange<TYPE_LARGEINT> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_CHAR: {
-            ColumnValueRange<TYPE_CHAR> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-        case TYPE_VARCHAR: {
-            ColumnValueRange<TYPE_VARCHAR> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-        case TYPE_HLL: {
-            ColumnValueRange<TYPE_HLL> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-        case TYPE_STRING: {
-            ColumnValueRange<TYPE_STRING> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_DATE: {
-            ColumnValueRange<TYPE_DATE> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-        case TYPE_DATETIME: {
-            ColumnValueRange<TYPE_DATETIME> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_DATEV2: {
-            ColumnValueRange<TYPE_DATEV2> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_DATETIMEV2: {
-            ColumnValueRange<TYPE_DATETIMEV2> range(slots[slot_idx]->col_name(),
-                                                    slots[slot_idx]->type().precision,
-                                                    slots[slot_idx]->type().scale);
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_DECIMALV2: {
-            ColumnValueRange<TYPE_DECIMALV2> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_DECIMAL32: {
-            ColumnValueRange<TYPE_DECIMAL32> range(slots[slot_idx]->col_name(),
-                                                   slots[slot_idx]->type().precision,
-                                                   slots[slot_idx]->type().scale);
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_DECIMAL64: {
-            ColumnValueRange<TYPE_DECIMAL64> range(slots[slot_idx]->col_name(),
-                                                   slots[slot_idx]->type().precision,
-                                                   slots[slot_idx]->type().scale);
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_DECIMAL128: {
-            ColumnValueRange<TYPE_DECIMAL128> range(slots[slot_idx]->col_name(),
-                                                    slots[slot_idx]->type().precision,
-                                                    slots[slot_idx]->type().scale);
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
-        case TYPE_BOOLEAN: {
-            ColumnValueRange<TYPE_BOOLEAN> range(slots[slot_idx]->col_name());
-            _id_to_slot_column_value_range[slots[slot_idx]->id()] =
-                    std::pair {slots[slot_idx], range};
-            break;
-        }
-
+#define M(NAME)                                                                \
+    case TYPE_##NAME: {                                                        \
+        ColumnValueRange<TYPE_##NAME> range(slots[slot_idx]->col_name(),       \
+                                            slots[slot_idx]->type().precision, \
+                                            slots[slot_idx]->type().scale);    \
+        _id_to_slot_column_value_range[slots[slot_idx]->id()] =                \
+                std::pair {slots[slot_idx], range};                            \
+        break;                                                                 \
+    }
+#define APPLY_FOR_PRIMITIVE_TYPE(M) \
+    M(TINYINT)                      \
+    M(SMALLINT)                     \
+    M(INT)                          \
+    M(BIGINT)                       \
+    M(LARGEINT)                     \
+    M(CHAR)                         \
+    M(DATE)                         \
+    M(DATETIME)                     \
+    M(DATEV2)                       \
+    M(DATETIMEV2)                   \
+    M(VARCHAR)                      \
+    M(STRING)                       \
+    M(HLL)                          \
+    M(DECIMAL32)                    \
+    M(DECIMAL64)                    \
+    M(DECIMAL128)                   \
+    M(DECIMALV2)                    \
+    M(BOOLEAN)
+            APPLY_FOR_PRIMITIVE_TYPE(M)
+#undef M
         default: {
             VLOG_CRITICAL << "Unsupported Normalize Slot [ColName=" << slots[slot_idx]->col_name()
                           << "]";
@@ -866,21 +766,16 @@ Status VOlapScanNode::start_scan(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
 
     VLOG_CRITICAL << "NormalizeConjuncts";
-    // 2. Convert conjuncts to ColumnValueRange in each column, some conjuncts may
-    // set eos = true
     RETURN_IF_ERROR(normalize_conjuncts());
 
-    // 1 and 2 step dispose find conjuncts set eos = true, return directly
     if (_eos) {
         return Status::OK();
     }
 
     VLOG_CRITICAL << "BuildKeyRangesAndFilters";
-    // 3.1 Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
     RETURN_IF_ERROR(build_key_ranges_and_filters());
 
     VLOG_CRITICAL << "StartScanThread";
-    // 5. Start multi thread to read several `Sub Sub ScanRange`
     RETURN_IF_ERROR(start_scan_thread(state));
 
     return Status::OK();
@@ -899,73 +794,83 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
     return false;
 }
 
-template <PrimitiveType primitive_type, typename ChangeFixedValueRangeFunc>
-Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<primitive_type>& temp_range,
-                                               void* value, const ChangeFixedValueRangeFunc& func) {
-    switch (primitive_type) {
-    case TYPE_DATE: {
+template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
+Status VOlapScanNode::change_value_range(ColumnValueRange<PrimitiveType>& temp_range, void* value,
+                                         const ChangeFixedValueRangeFunc& func, std::string fn_name,
+                                         int slot_ref_child) {
+    if constexpr (PrimitiveType == TYPE_DATE) {
         DateTimeValue date_value;
         reinterpret_cast<VecDateTimeValue*>(value)->convert_vec_dt_to_dt(&date_value);
-        if (!date_value.check_loss_accuracy_cast_to_date()) {
-            func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(
+        if constexpr (IsFixed) {
+            if (!date_value.check_loss_accuracy_cast_to_date()) {
+                func(temp_range,
+                     reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                             &date_value));
+            }
+        } else {
+            if (date_value.check_loss_accuracy_cast_to_date()) {
+                if (fn_name == "lt" || fn_name == "ge") {
+                    ++date_value;
+                }
+            }
+            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
                          &date_value));
         }
-        break;
-    }
-    case TYPE_DATETIME: {
+    } else if constexpr (PrimitiveType == TYPE_DATETIME) {
         DateTimeValue date_value;
         reinterpret_cast<VecDateTimeValue*>(value)->convert_vec_dt_to_dt(&date_value);
-        func(temp_range,
-             reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(&date_value));
-        break;
-    }
-    case TYPE_DECIMALV2:
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_HLL:
-    case TYPE_DATETIMEV2:
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_LARGEINT:
-    case TYPE_DECIMAL32:
-    case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128:
-    case TYPE_STRING: {
-        func(temp_range,
-             reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(value));
-        break;
-    }
-    case TYPE_BOOLEAN: {
-        bool v = *reinterpret_cast<bool*>(value);
-        func(temp_range,
-             reinterpret_cast<typename PrimitiveTypeTraits<primitive_type>::CppType*>(&v));
-        break;
-    }
-    case TYPE_DATEV2: {
+        if constexpr (IsFixed) {
+            func(temp_range,
+                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                         &date_value));
+        } else {
+            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                         reinterpret_cast<char*>(&date_value)));
+        }
+    } else if constexpr (PrimitiveType == TYPE_DATEV2) {
         DateV2Value<DateTimeV2ValueType> datetimev2_value =
                 *reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(value);
-        if (datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
-            DateV2Value<DateV2ValueType> date_v2;
+        if constexpr (IsFixed) {
+            if (datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
+                DateV2Value<DateV2ValueType> date_v2;
+                date_v2.set_date_uint32(
+                        binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(datetimev2_value) >>
+                        TIME_PART_LENGTH);
+                func(temp_range, &date_v2);
+            }
+        } else {
+            doris::vectorized::DateV2Value<DateV2ValueType> date_v2;
             date_v2.set_date_uint32(
                     binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(datetimev2_value) >>
                     TIME_PART_LENGTH);
-            if constexpr (primitive_type == PrimitiveType::TYPE_DATEV2) {
-                func(temp_range, &date_v2);
-            } else {
-                __builtin_unreachable();
+            if (!datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
+                if (fn_name == "lt" || fn_name == "ge") {
+                    ++date_v2;
+                }
             }
+            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child), &date_v2);
         }
-        break;
+    } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
+                         (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_HLL) ||
+                         (PrimitiveType == TYPE_DATETIMEV2) || (PrimitiveType == TYPE_TINYINT) ||
+                         (PrimitiveType == TYPE_SMALLINT) || (PrimitiveType == TYPE_INT) ||
+                         (PrimitiveType == TYPE_BIGINT) || (PrimitiveType == TYPE_LARGEINT) ||
+                         (PrimitiveType == TYPE_DECIMAL32) || (PrimitiveType == TYPE_DECIMAL64) ||
+                         (PrimitiveType == TYPE_DECIMAL128) || (PrimitiveType == TYPE_STRING) ||
+                         (PrimitiveType == TYPE_BOOLEAN)) {
+        if constexpr (IsFixed) {
+            func(temp_range,
+                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+        } else {
+            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+        }
+    } else {
+        static_assert(always_false_v<PrimitiveType>);
     }
-    default: {
-        LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type="
-                     << primitive_type << "]";
-        return Status::InternalError("Normalize filter fail, Unsupported Primitive type");
-    }
-    }
+
     return Status::OK();
 }
 
@@ -1591,7 +1496,7 @@ Status VOlapScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* 
                 continue;
             }
             auto value = const_cast<void*>(iter->get_value());
-            RETURN_IF_ERROR(change_fixed_value_range(temp_range, value,
+            RETURN_IF_ERROR(change_value_range<true>(temp_range, value,
                                                      ColumnValueRange<T>::add_fixed_value_range));
             iter->next();
         }
@@ -1613,10 +1518,10 @@ Status VOlapScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* 
                               T == TYPE_HLL) {
                     auto val = StringValue(value.data, value.size);
                     RETURN_IF_ERROR(
-                            change_fixed_value_range(temp_range, reinterpret_cast<void*>(&val),
+                            change_value_range<true>(temp_range, reinterpret_cast<void*>(&val),
                                                      ColumnValueRange<T>::add_fixed_value_range));
                 } else {
-                    RETURN_IF_ERROR(change_fixed_value_range(
+                    RETURN_IF_ERROR(change_value_range<true>(
                             temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
                             ColumnValueRange<T>::add_fixed_value_range));
                 }
@@ -1663,10 +1568,10 @@ Status VOlapScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprC
             }
             auto value = const_cast<void*>(iter->get_value());
             if (is_fixed_range) {
-                RETURN_IF_ERROR(change_fixed_value_range(
+                RETURN_IF_ERROR(change_value_range<true>(
                         range, value, ColumnValueRange<T>::remove_fixed_value_range));
             } else {
-                RETURN_IF_ERROR(change_fixed_value_range(
+                RETURN_IF_ERROR(change_value_range<true>(
                         not_in_range, value, ColumnValueRange<T>::add_fixed_value_range));
             }
             iter->next();
@@ -1687,21 +1592,21 @@ Status VOlapScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprC
                               T == TYPE_HLL) {
                     auto val = StringValue(value.data, value.size);
                     if (is_fixed_range) {
-                        RETURN_IF_ERROR(change_fixed_value_range(
+                        RETURN_IF_ERROR(change_value_range<true>(
                                 range, reinterpret_cast<void*>(&val),
                                 ColumnValueRange<T>::remove_fixed_value_range));
                     } else {
-                        RETURN_IF_ERROR(change_fixed_value_range(
+                        RETURN_IF_ERROR(change_value_range<true>(
                                 not_in_range, reinterpret_cast<void*>(&val),
                                 ColumnValueRange<T>::add_fixed_value_range));
                     }
                 } else {
                     if (is_fixed_range) {
-                        RETURN_IF_ERROR(change_fixed_value_range(
+                        RETURN_IF_ERROR(change_value_range<true>(
                                 range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
                                 ColumnValueRange<T>::remove_fixed_value_range));
                     } else {
-                        RETURN_IF_ERROR(change_fixed_value_range(
+                        RETURN_IF_ERROR(change_value_range<true>(
                                 not_in_range,
                                 reinterpret_cast<void*>(const_cast<char*>(value.data)),
                                 ColumnValueRange<T>::add_fixed_value_range));
@@ -1769,93 +1674,22 @@ Status VOlapScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContex
         if (_should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr), expr_ctx,
                                                &value, &slot_ref_child, noneq_checker)) {
             DCHECK(slot_ref_child >= 0);
-            auto fn_name = reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name;
+            std::string fn_name =
+                    reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name;
 
             // where A = nullptr should return empty result set
             if (value.data != nullptr) {
                 *push_down = true;
-                switch (slot->type().type) {
-                case TYPE_DATE: {
-                    DateTimeValue date_value;
-                    reinterpret_cast<VecDateTimeValue*>(const_cast<char*>(value.data))
-                            ->convert_vec_dt_to_dt(&date_value);
-                    // NOTE: Datetime may be truncated to a date column, so we call ++operator for date_value
-                    //  for example: '2010-01-01 00:00:01' will be truncate to '2010-01-01'
-                    if (date_value.check_loss_accuracy_cast_to_date()) {
-                        if (fn_name == "lt" || fn_name == "ge") {
-                            ++date_value;
-                        }
-                    }
-                    range.add_range(to_olap_filter_type(fn_name, slot_ref_child),
-                                    *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(
-                                            &date_value));
-                    break;
-                }
-                case TYPE_DATETIME: {
-                    DateTimeValue date_value;
-                    reinterpret_cast<VecDateTimeValue*>(const_cast<char*>(value.data))
-                            ->convert_vec_dt_to_dt(&date_value);
-                    range.add_range(to_olap_filter_type(fn_name, slot_ref_child),
-                                    *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(
-                                            reinterpret_cast<char*>(&date_value)));
-                    break;
-                }
-                case TYPE_DATEV2: {
-                    DateV2Value<DateTimeV2ValueType> datetimev2_value =
-                            *reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(
-                                    const_cast<char*>(value.data));
-                    doris::vectorized::DateV2Value<DateV2ValueType> date_v2;
-                    date_v2.set_date_uint32(binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(
-                                                    datetimev2_value) >>
-                                            TIME_PART_LENGTH);
-                    if (!datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
-                        if (fn_name == "lt" || fn_name == "ge") {
-                            ++date_v2;
-                        }
-                    }
-                    if constexpr (T == PrimitiveType::TYPE_DATEV2) {
-                        range.add_range(to_olap_filter_type(fn_name, slot_ref_child), date_v2);
-                        break;
-                    } else {
-                        __builtin_unreachable();
-                    }
-                }
-                case TYPE_TINYINT:
-                case TYPE_DECIMALV2:
-                case TYPE_DECIMAL32:
-                case TYPE_DECIMAL64:
-                case TYPE_DECIMAL128:
-                case TYPE_DATETIMEV2:
-                case TYPE_SMALLINT:
-                case TYPE_INT:
-                case TYPE_BIGINT:
-                case TYPE_LARGEINT:
-                case TYPE_BOOLEAN: {
-                    range.add_range(to_olap_filter_type(fn_name, slot_ref_child),
-                                    *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(
-                                            const_cast<char*>(value.data)));
-                    break;
-                }
-                case TYPE_CHAR:
-                case TYPE_VARCHAR:
-                case TYPE_HLL:
-                case TYPE_STRING: {
-                    if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_HLL ||
-                                  T == TYPE_STRING) {
-                        range.add_range(to_olap_filter_type(fn_name, slot_ref_child),
-                                        StringValue(value.data, value.size));
-                    } else {
-                        LOG(FATAL) << "Invalid type " << slot->type().type;
-                    }
-                    break;
-                }
-
-                default: {
-                    LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type="
-                                 << expr->type() << "]";
-                    return Status::InternalError(
-                            "Normalize filter fail, Unsupported Primitive type");
-                }
+                if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
+                              T == TYPE_HLL) {
+                    auto val = StringValue(value.data, value.size);
+                    RETURN_IF_ERROR(change_value_range<false>(range, reinterpret_cast<void*>(&val),
+                                                              ColumnValueRange<T>::add_value_range,
+                                                              fn_name, slot_ref_child));
+                } else {
+                    RETURN_IF_ERROR(change_value_range<false>(
+                            range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            ColumnValueRange<T>::add_value_range, fn_name, slot_ref_child));
                 }
             }
         }

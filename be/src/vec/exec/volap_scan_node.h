@@ -71,9 +71,10 @@ private:
     Status normalize_conjuncts();
     Status build_key_ranges_and_filters();
 
-    template <PrimitiveType T, typename ChangeFixedValueRangeFunc>
-    static Status change_fixed_value_range(ColumnValueRange<T>& range, void* value,
-                                           const ChangeFixedValueRangeFunc& func);
+    template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
+    static Status change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,
+                                     const ChangeFixedValueRangeFunc& func,
+                                     std::string fn_name = "", int slot_ref_child = -1);
 
     void transfer_thread(RuntimeState* state);
     void scanner_thread(VOlapScanner* scanner);

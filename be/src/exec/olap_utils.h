@@ -184,6 +184,9 @@ inline int get_olap_size(PrimitiveType type) {
     return 0;
 }
 
+template <PrimitiveType>
+static constexpr bool always_false_v = false;
+
 inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
     switch (type) {
     case TExprOpcode::LT:
