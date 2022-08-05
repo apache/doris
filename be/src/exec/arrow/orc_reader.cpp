@@ -210,7 +210,6 @@ Status ORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, boo
     return Status::OK();
 }
 
-
 void ORCReaderWrap::read_batches(arrow::RecordBatchVector& batches, int current_group) {
     bool eof = false;
     Status status = _next_stripe_reader(&eof);
@@ -227,7 +226,7 @@ void ORCReaderWrap::read_batches(arrow::RecordBatchVector& batches, int current_
 }
 
 bool ORCReaderWrap::filter_row_group(int current_group) {
-        if (config::orc_predicate_push_down) {
+    if (config::orc_predicate_push_down) {
         auto filter_group_set = _strip_reader->filter_groups();
         if (filter_group_set.end() != filter_group_set.find(_current_group)) {
             return true;
