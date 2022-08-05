@@ -68,7 +68,7 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
                         "maxBatchRows" : 500000,
                         "maxBatchByteSize" : 104857600,
                         "labelPrefix": "my_prefix",
-                        "lineDelimiter": "\n"
+                        "format":"csv"
                     }
                 }
             }
@@ -158,17 +158,23 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
   - 必选：否
   - 默认值：104857600
 
+* **maxRetries**
+
+  - 描述：每批次导入数据失败后的重试次数。
+  - 必选：否
+  - 默认值：0
+
 * **labelPrefix**
 
   - 描述：每批次导入任务的 label 前缀。最终的 label 将有 `labelPrefix + UUID + 序号` 组成
   - 必选：否
   - 默认值：`datax_doris_writer_`
 
-* **lineDelimiter**
+* **format**
 
-  - 描述：每批次数据包含多行，每行为 Json 格式，每行的分隔符即为 lineDelimiter。支持多个字节, 例如'\x02\x03'。
+  - 描述：StreamLoad数据的组装格式，支持csv和json格式。csv默认的行分隔符是\x01,列分隔符是\x02。
   - 必选：否
-  - 默认值：`\n`
+  - 默认值：csv
   
 * **loadProps**
 
