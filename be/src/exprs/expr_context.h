@@ -27,6 +27,7 @@
 #include "exprs/expr_value.h"
 #include "exprs/slot_ref.h"
 #include "udf/udf.h"
+#include "vec/exec/format/parquet/vparquet_group_reader.h"
 
 #undef USING_DORIS_UDF
 #define USING_DORIS_UDF using namespace doris_udf
@@ -37,7 +38,8 @@ namespace doris {
 
 namespace vectorized {
 class VOlapScanNode;
-}
+class RowGroupReader;
+} // namespace vectorized
 
 class Expr;
 class MemPool;
@@ -164,6 +166,7 @@ private:
     friend class OlapScanNode;
     friend class EsPredicate;
     friend class RowGroupReader;
+    friend class vectorized::RowGroupReader;
     friend class vectorized::VOlapScanNode;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
