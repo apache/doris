@@ -15,22 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("tpch_sf1_q21_nereids") {
-    String realDb = context.config.getDbNameByFile(context.file)
-    // get parent directory's group
-    realDb = realDb.substring(0, realDb.lastIndexOf("_"))
+package org.apache.doris.nereids.rules.implementation;
 
-    sql "use ${realDb}"
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 
-    sql 'set enable_nereids_planner=true'
-    // nereids need vectorized
-    sql 'set enable_vectorized_engine=true'
-
-    sql 'set exec_mem_limit=2147483648*2'
-
-    test {
-        sql(new File(context.file.parentFile, "../sql/q21.sql").text)
-
-        resultFile(file = "../sql/q21.out", tag = "q21")
+/**
+ * Implementation rule that convert logical limit to physical limit.
+ */
+public class LogicalLimitToPhysicalLimit extends OneImplementationRuleFactory {
+    @Override
+    public Rule build() {
+        return logicalLimit().then(limit -> new PhysicalLimit<>(
+                limit.getLimit(),
+                limit.getOffset(),
+                limit.getLogicalProperties(),
+                limit.child())
+        ).toRule(RuleType.LOGICAL_LIMIT_TO_PHYSICAL_LIMIT_RULE);
     }
 }

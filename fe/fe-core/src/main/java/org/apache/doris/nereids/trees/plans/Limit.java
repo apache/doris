@@ -15,22 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("tpch_sf1_q06_nereids") {
-    String realDb = context.config.getDbNameByFile(context.file)
-    // get parent directory's group
-    realDb = realDb.substring(0, realDb.lastIndexOf("_"))
+package org.apache.doris.nereids.trees.plans;
 
-    sql "use ${realDb}"
+/**
+ * Common interface for logical/physical limit.
+ */
+public interface Limit {
+    long getLimit();
 
-    sql 'set enable_nereids_planner=true'
-    // nereids need vectorized
-    sql 'set enable_vectorized_engine=true'
-
-    sql 'set exec_mem_limit=2147483648*2'
-
-    test {
-        sql(new File(context.file.parentFile, "../sql/q06.sql").text)
-
-        resultFile(file = "../sql/q06.out", tag = "q06")
-    }
+    long getOffset();
 }
