@@ -341,7 +341,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
         JoinType joinType = hashJoin.getJoinType();
 
-        if (!JoinUtils.shouldNestedLoopJoin(hashJoin)) {
+        if (JoinUtils.shouldNestedLoopJoin(hashJoin)) {
             throw new RuntimeException("Physical hash join could not execute without equal join condition.");
         } else {
             Expression eqJoinExpression = hashJoin.getCondition().get();
