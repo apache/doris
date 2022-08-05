@@ -228,6 +228,9 @@ public class SingleNodePlanner {
      */
     private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit)
             throws UserException {
+        if (stmt instanceof SelectStmt) {
+            analyzer.materializeSlots(stmt.getBaseTblResultExprs());
+        }
         long newDefaultOrderByLimit = defaultOrderByLimit;
         if (newDefaultOrderByLimit == -1) {
             newDefaultOrderByLimit = 65535;
