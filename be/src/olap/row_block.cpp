@@ -37,7 +37,7 @@ using std::vector;
 
 namespace doris {
 
-RowBlock::RowBlock(const TabletSchema* schema) : _capacity(0), _schema(schema) {
+RowBlock::RowBlock(TabletSchemaSPtr schema) : _capacity(0), _schema(schema) {
     _mem_pool.reset(new MemPool());
 }
 

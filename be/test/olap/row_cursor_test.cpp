@@ -29,7 +29,7 @@
 
 namespace doris {
 
-void set_tablet_schema_for_init(TabletSchema* tablet_schema) {
+void set_tablet_schema_for_init(TabletSchemaSPtr tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
     ColumnPB* column_1 = tablet_schema_pb.add_column();
     column_1->set_unique_id(1);
@@ -155,7 +155,7 @@ void set_tablet_schema_for_init(TabletSchema* tablet_schema) {
     tablet_schema->init_from_pb(tablet_schema_pb);
 }
 
-void set_tablet_schema_for_scan_key(TabletSchema* tablet_schema) {
+void set_tablet_schema_for_scan_key(TabletSchemaSPtr tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
 
     ColumnPB* column_1 = tablet_schema_pb.add_column();
@@ -198,7 +198,7 @@ void set_tablet_schema_for_scan_key(TabletSchema* tablet_schema) {
     tablet_schema->init_from_pb(tablet_schema_pb);
 }
 
-void set_tablet_schema_for_cmp_and_aggregate(TabletSchema* tablet_schema) {
+void set_tablet_schema_for_cmp_and_aggregate(TabletSchemaSPtr tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
 
     ColumnPB* column_1 = tablet_schema_pb.add_column();
@@ -271,8 +271,8 @@ public:
 };
 
 TEST_F(TestRowCursor, InitRowCursor) {
-    TabletSchema tablet_schema;
-    set_tablet_schema_for_init(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    set_tablet_schema_for_init(tablet_schema);
     RowCursor row;
     Status res = row.init(tablet_schema);
     EXPECT_EQ(res, Status::OK());
@@ -281,8 +281,8 @@ TEST_F(TestRowCursor, InitRowCursor) {
 }
 
 TEST_F(TestRowCursor, InitRowCursorWithColumnCount) {
-    TabletSchema tablet_schema;
-    set_tablet_schema_for_init(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    set_tablet_schema_for_init(tablet_schema);
     RowCursor row;
     Status res = row.init(tablet_schema, 5);
     EXPECT_EQ(res, Status::OK());
@@ -293,11 +293,11 @@ TEST_F(TestRowCursor, InitRowCursorWithColumnCount) {
 }
 
 TEST_F(TestRowCursor, InitRowCursorWithColIds) {
-    TabletSchema tablet_schema;
-    set_tablet_schema_for_init(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    set_tablet_schema_for_init(tablet_schema);
 
     std::vector<uint32_t> col_ids;
-    for (size_t i = 0; i < tablet_schema.num_columns() / 2; ++i) {
+    for (size_t i = 0; i < tablet_schema->num_columns() / 2; ++i) {
         col_ids.push_back(i * 2);
     }
 
@@ -309,15 +309,15 @@ TEST_F(TestRowCursor, InitRowCursorWithColIds) {
 }
 
 TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
-    TabletSchema tablet_schema;
-    set_tablet_schema_for_scan_key(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    set_tablet_schema_for_scan_key(tablet_schema);
 
     std::vector<std::string> scan_keys;
     scan_keys.push_back("char_exceed_length");
     scan_keys.push_back("varchar_exceed_length");
 
     std::vector<uint32_t> columns {0, 1};
-    std::shared_ptr<Schema> schema = std::make_shared<Schema>(tablet_schema.columns(), columns);
+    std::shared_ptr<Schema> schema = std::make_shared<Schema>(tablet_schema->columns(), columns);
 
     RowCursor row;
     Status res = row.init_scan_key(tablet_schema, scan_keys, schema);
@@ -335,8 +335,8 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
 }
 
 TEST_F(TestRowCursor, EqualAndCompare) {
-    TabletSchema tablet_schema;
-    set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    set_tablet_schema_for_cmp_and_aggregate(tablet_schema);
 
     RowCursor left;
     Status res = left.init(tablet_schema);
@@ -373,8 +373,8 @@ TEST_F(TestRowCursor, EqualAndCompare) {
 }
 
 TEST_F(TestRowCursor, IndexCmp) {
-    TabletSchema tablet_schema;
-    set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    set_tablet_schema_for_cmp_and_aggregate(tablet_schema);
 
     RowCursor left;
     Status res = left.init(tablet_schema, 2);
@@ -414,8 +414,8 @@ TEST_F(TestRowCursor, IndexCmp) {
 }
 
 TEST_F(TestRowCursor, FullKeyCmp) {
-    TabletSchema tablet_schema;
-    set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    set_tablet_schema_for_cmp_and_aggregate(tablet_schema);
 
     RowCursor left;
     Status res = left.init(tablet_schema);
@@ -454,8 +454,8 @@ TEST_F(TestRowCursor, FullKeyCmp) {
 }
 
 TEST_F(TestRowCursor, AggregateWithoutNull) {
-    TabletSchema tablet_schema;
-    set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    set_tablet_schema_for_cmp_and_aggregate(tablet_schema);
 
     RowCursor row;
 
@@ -516,8 +516,8 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
 }
 
 TEST_F(TestRowCursor, AggregateWithNull) {
-    TabletSchema tablet_schema;
-    set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    set_tablet_schema_for_cmp_and_aggregate(tablet_schema);
 
     RowCursor row;
 

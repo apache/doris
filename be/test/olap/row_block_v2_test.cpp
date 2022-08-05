@@ -28,7 +28,7 @@ public:
     void TearDown() {}
 };
 
-void init_tablet_schema(TabletSchema* tablet_schema, bool is_nullable) {
+void init_tablet_schema(TabletSchemaSPtr tablet_schema, bool is_nullable) {
     TabletSchemaPB tablet_schema_pb;
     {
         // k1: bigint
@@ -80,11 +80,11 @@ void init_tablet_schema(TabletSchema* tablet_schema, bool is_nullable) {
 }
 
 TEST_F(TestRowBlockV2, test_convert) {
-    TabletSchema tablet_schema;
-    init_tablet_schema(&tablet_schema, true);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    init_tablet_schema(tablet_schema, true);
     Schema schema(tablet_schema);
     RowBlockV2 input_block(schema, 1024);
-    RowBlock output_block(&tablet_schema);
+    RowBlock output_block(tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;

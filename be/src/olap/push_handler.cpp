@@ -220,7 +220,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             }
 
             // init schema
-            std::unique_ptr<Schema> schema(new (std::nothrow) Schema(*tablet_schema));
+            std::unique_ptr<Schema> schema(new (std::nothrow) Schema(tablet_schema));
             if (schema == nullptr) {
                 LOG(WARNING) << "fail to create schema. tablet=" << cur_tablet->full_name();
                 res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
@@ -363,7 +363,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
                     << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
 
         // 4. Init RowCursor
-        if (!(res = row.init(*tablet_schema))) {
+        if (!(res = row.init(tablet_schema))) {
             LOG(WARNING) << "fail to init rowcursor. res=" << res;
             break;
         }

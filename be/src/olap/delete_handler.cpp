@@ -237,7 +237,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     return true;
 }
 
-Status DeleteHandler::init(const TabletSchema& schema,
+Status DeleteHandler::init(TabletSchemaSPtr schema,
                            const std::vector<DeletePredicatePB>& delete_conditions, int64_t version,
                            const TabletReader* reader) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
@@ -258,7 +258,7 @@ Status DeleteHandler::init(const TabletSchema& schema,
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
-        temp.del_cond->set_tablet_schema(&schema);
+        temp.del_cond->set_tablet_schema(schema);
         for (const auto& sub_predicate : delete_condition.sub_predicates()) {
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {

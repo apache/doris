@@ -32,14 +32,14 @@ public:
 };
 
 TEST_F(KeyUtilTest, encode) {
-    TabletSchema tablet_schema;
-    tablet_schema._cols.push_back(create_int_key(0));
-    tablet_schema._cols.push_back(create_int_key(1));
-    tablet_schema._cols.push_back(create_int_key(2));
-    tablet_schema._cols.push_back(create_int_value(3));
-    tablet_schema._num_columns = 4;
-    tablet_schema._num_key_columns = 3;
-    tablet_schema._num_short_key_columns = 3;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->_cols.push_back(create_int_key(0));
+    tablet_schema->_cols.push_back(create_int_key(1));
+    tablet_schema->_cols.push_back(create_int_key(2));
+    tablet_schema->_cols.push_back(create_int_value(3));
+    tablet_schema->_num_columns = 4;
+    tablet_schema->_num_key_columns = 3;
+    tablet_schema->_num_short_key_columns = 3;
 
     // test encoding with padding
     {

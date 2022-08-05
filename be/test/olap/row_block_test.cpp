@@ -43,7 +43,7 @@ public:
     void TearDown() {}
 };
 
-void init_tablet_schema(TabletSchema* tablet_schema) {
+void init_tablet_schema(TabletSchemaSPtr tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
     {
         // k1: bigint
@@ -81,11 +81,11 @@ void init_tablet_schema(TabletSchema* tablet_schema) {
 }
 
 TEST_F(TestRowBlock, init) {
-    TabletSchema tablet_schema;
-    init_tablet_schema(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    init_tablet_schema(tablet_schema);
     {
         // has nullbyte
-        RowBlock block(&tablet_schema);
+        RowBlock block(tablet_schema);
         RowBlockInfo block_info;
         block_info.row_num = 1024;
         block_info.null_supported = true;
@@ -94,7 +94,7 @@ TEST_F(TestRowBlock, init) {
     }
     {
         // has nullbyte
-        RowBlock block(&tablet_schema);
+        RowBlock block(tablet_schema);
         RowBlockInfo block_info;
         block_info.row_num = 1024;
         block_info.null_supported = false;
@@ -102,7 +102,7 @@ TEST_F(TestRowBlock, init) {
         EXPECT_EQ(9 + 17 + 17, block._mem_row_bytes);
     }
     {
-        RowBlock block(&tablet_schema);
+        RowBlock block(tablet_schema);
         RowBlockInfo block_info;
         block_info.row_num = 1024;
         block_info.null_supported = true;
@@ -117,9 +117,9 @@ TEST_F(TestRowBlock, init) {
 }
 
 TEST_F(TestRowBlock, write_and_read) {
-    TabletSchema tablet_schema;
-    init_tablet_schema(&tablet_schema);
-    RowBlock block(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    init_tablet_schema(tablet_schema);
+    RowBlock block(tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;
@@ -158,9 +158,9 @@ TEST_F(TestRowBlock, write_and_read) {
 }
 
 TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
-    TabletSchema tablet_schema;
-    init_tablet_schema(&tablet_schema);
-    RowBlock block(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    init_tablet_schema(tablet_schema);
+    RowBlock block(tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = false;
@@ -199,9 +199,9 @@ TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
 }
 
 TEST_F(TestRowBlock, compress_failed) {
-    TabletSchema tablet_schema;
-    init_tablet_schema(&tablet_schema);
-    RowBlock block(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    init_tablet_schema(tablet_schema);
+    RowBlock block(tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;
@@ -237,9 +237,9 @@ TEST_F(TestRowBlock, compress_failed) {
 }
 
 TEST_F(TestRowBlock, decompress_failed) {
-    TabletSchema tablet_schema;
-    init_tablet_schema(&tablet_schema);
-    RowBlock block(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    init_tablet_schema(tablet_schema);
+    RowBlock block(tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;
@@ -275,9 +275,9 @@ TEST_F(TestRowBlock, decompress_failed) {
 }
 
 TEST_F(TestRowBlock, clear) {
-    TabletSchema tablet_schema;
-    init_tablet_schema(&tablet_schema);
-    RowBlock block(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    init_tablet_schema(tablet_schema);
+    RowBlock block(tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;
@@ -291,9 +291,9 @@ TEST_F(TestRowBlock, clear) {
 }
 
 TEST_F(TestRowBlock, pos_limit) {
-    TabletSchema tablet_schema;
-    init_tablet_schema(&tablet_schema);
-    RowBlock block(&tablet_schema);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    init_tablet_schema(tablet_schema);
+    RowBlock block(tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;

@@ -158,7 +158,7 @@ public:
     bool empty() const { return _columns.empty(); }
 
     // TODO(yingchun): should do it in constructor
-    void set_tablet_schema(const TabletSchema* schema) { _schema = schema; }
+    void set_tablet_schema(TabletSchemaSPtr schema) { _schema = schema; }
 
     // 如果成功，则_columns中增加一项，如果失败则无视此condition，同时输出日志
     // 对于下列情况，将不会被处理
@@ -176,7 +176,7 @@ private:
     }
 
 private:
-    const TabletSchema* _schema = nullptr;
+    TabletSchemaSPtr _schema = nullptr;
     // CondColumns in _index_conds are in 'AND' relationship
     CondColumns _columns; // list of condition column
 

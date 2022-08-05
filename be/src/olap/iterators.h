@@ -93,7 +93,7 @@ public:
     bool use_page_cache = false;
     int block_row_max = 4096;
 
-    const TabletSchema* tablet_schema = nullptr;
+    TabletSchemaSPtr tablet_schema = nullptr;
     bool record_rowids = false;
 };
 

@@ -30,7 +30,7 @@
 namespace doris {
 
 Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
-                             const TabletSchema* cur_tablet_schema,
+                             TabletSchemaSPtr cur_tablet_schema,
                              const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                              RowsetWriter* dst_rowset_writer, Merger::Statistics* stats_output) {
     TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
@@ -47,9 +47,9 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
 
     RowCursor row_cursor;
     RETURN_NOT_OK_LOG(
-            row_cursor.init(*cur_tablet_schema),
+            row_cursor.init(cur_tablet_schema),
             "failed to init row cursor when merging rowsets of tablet " + tablet->full_name());
-    row_cursor.allocate_memory_for_string_type(*cur_tablet_schema);
+    row_cursor.allocate_memory_for_string_type(cur_tablet_schema);
 
     std::unique_ptr<MemPool> mem_pool(new MemPool());
 
@@ -91,7 +91,7 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
 }
 
 Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
-                              const TabletSchema* cur_tablet_schema,
+                              TabletSchemaSPtr cur_tablet_schema,
                               const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                               RowsetWriter* dst_rowset_writer, Statistics* stats_output) {
     TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
@@ -108,8 +108,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         reader_params.record_rowids = true;
     }
 
-    const auto& schema = *cur_tablet_schema;
-    reader_params.return_columns.resize(schema.num_columns());
+    reader_params.return_columns.resize(cur_tablet_schema->num_columns());
     std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_NOT_OK(reader.init(reader_params));
@@ -124,7 +123,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         }
     }
 
-    vectorized::Block block = schema.create_block(reader_params.return_columns);
+    vectorized::Block block = cur_tablet_schema->create_block(reader_params.return_columns);
     size_t output_rows = 0;
     bool eof = false;
     while (!eof) {

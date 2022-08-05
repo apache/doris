@@ -69,8 +69,7 @@ SegmentWriter::~SegmentWriter() {
 }
 
 void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
-                                     const TabletColumn& column,
-                                     const TabletSchema* tablet_schema) {
+                                     const TabletColumn& column, TabletSchemaSPtr tablet_schema) {
     // TODO(zc): Do we need this column_id??
     meta->set_column_id((*column_id)++);
     meta->set_unique_id(column.unique_id());
@@ -92,7 +91,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 
-        init_column_meta(opts.meta, &column_id, column, _tablet_schema.get());
+        init_column_meta(opts.meta, &column_id, column, _tablet_schema);
 
         // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
         // and not support zone map for array type.

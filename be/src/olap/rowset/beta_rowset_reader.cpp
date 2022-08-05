@@ -164,7 +164,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         output_block_info.column_ids = *(_context->seek_columns);
         _output_block->init(output_block_info);
         _row.reset(new RowCursor());
-        RETURN_NOT_OK(_row->init(*(read_context->tablet_schema), *(_context->seek_columns)));
+        RETURN_NOT_OK(_row->init(read_context->tablet_schema, *(_context->seek_columns)));
     }
 
     return Status::OK();

@@ -171,10 +171,10 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
 
     if (use_vectorized_compaction) {
-        res = Merger::vmerge_rowsets(_tablet, compaction_type(), cur_tablet_schema.get(),
+        res = Merger::vmerge_rowsets(_tablet, compaction_type(), cur_tablet_schema,
                                      _input_rs_readers, _output_rs_writer.get(), &stats);
     } else {
-        res = Merger::merge_rowsets(_tablet, compaction_type(), cur_tablet_schema.get(),
+        res = Merger::merge_rowsets(_tablet, compaction_type(), cur_tablet_schema,
                                     _input_rs_readers, _output_rs_writer.get(), &stats);
     }
 

@@ -153,7 +153,7 @@ protected:
 
     MemTracker* _mem_tracker;
 
-    TabletSchema _tablet_schema;
+    TabletSchemaSPtr _tablet_schema;
 };
 
 } // namespace doris

@@ -186,7 +186,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         EXPECT_EQ(Status::OK(), s);
 
         RowCursor input_row;
-        input_row.init(*tablet_schema);
+        input_row.init(tablet_schema);
 
         // for segment "i", row "rid"
         // k1 := rid*10 + i
@@ -216,7 +216,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 
     { // test return ordered results and return k1 and k2
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = tablet_schema.get();
+        reader_context.tablet_schema = tablet_schema;
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1};
         reader_context.return_columns = &return_columns;
@@ -306,7 +306,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 
     { // test return unordered data and only k3
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = tablet_schema.get();
+        reader_context.tablet_schema = tablet_schema;
         reader_context.need_ordered_result = false;
         std::vector<uint32_t> return_columns = {2};
         reader_context.return_columns = &return_columns;

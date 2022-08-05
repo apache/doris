@@ -25,6 +25,7 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_define.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
@@ -89,7 +90,7 @@ public:
     // return:
     //     * Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS): input parameters are not valid
     //     * Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR): alloc memory failed
-    Status init(const TabletSchema& schema, const std::vector<DeletePredicatePB>& delete_conditions,
+    Status init(TabletSchemaSPtr schema, const std::vector<DeletePredicatePB>& delete_conditions,
                 int64_t version, const doris::TabletReader* = nullptr);
 
     // Return the delete conditions' size.

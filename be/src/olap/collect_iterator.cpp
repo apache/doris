@@ -202,7 +202,7 @@ CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
 CollectIterator::Level0Iterator::~Level0Iterator() = default;
 
 Status CollectIterator::Level0Iterator::init() {
-    RETURN_NOT_OK_LOG(_row_cursor.init(*_reader->_tablet_schema, _reader->_seek_columns),
+    RETURN_NOT_OK_LOG(_row_cursor.init(_reader->_tablet_schema, _reader->_seek_columns),
                       "failed to init row cursor");
     return (this->*_refresh_current_row)();
 }
