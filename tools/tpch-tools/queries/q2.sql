@@ -27,29 +27,40 @@ select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num
     s_phone,
     s_comment
 from
-partsupp,
-(
-  select ps_partkey, min(ps_supplycost) as ps_s from
-  partsupp, supplier, nation, region
-  where s_suppkey = ps_suppkey
-    and s_nationkey = n_nationkey
-    and n_regionkey = r_regionkey
-    and r_name = 'EUROPE'
-  group by ps_partkey
-) t1,
-supplier,
-part,
-nation,
-region
-where p_partkey = t1.ps_partkey
-    and p_partkey = partsupp.ps_partkey
+    partsupp join
+    (
+        select
+            ps_partkey as a_partkey,
+            min(ps_supplycost) as a_min
+        from
+            partsupp,
+            part,
+            supplier,
+            nation,
+            region
+        where
+            p_partkey = ps_partkey
+            and s_suppkey = ps_suppkey
+            and s_nationkey = n_nationkey
+            and n_regionkey = r_regionkey
+            and r_name = 'EUROPE'
+            and p_size = 15
+            and p_type like '%BRASS'
+        group by a_partkey
+    ) A on ps_partkey = a_partkey and ps_supplycost=a_min ,
+    part,
+    supplier,
+    nation,
+    region
+where
+    p_partkey = ps_partkey
     and s_suppkey = ps_suppkey
     and p_size = 15
     and p_type like '%BRASS'
     and s_nationkey = n_nationkey
     and n_regionkey = r_regionkey
     and r_name = 'EUROPE'
-    and ps_supplycost = t1.ps_s
+
 order by
     s_acctbal desc,
     n_name,

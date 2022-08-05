@@ -56,7 +56,7 @@ if [ -f $pidfile ]; then
     fi
 
     # check if pid process exist
-    if ! kill -0 $pid; then
+    if ! kill -0 $pid 2>&1; then
         echo "ERROR: be process $pid does not exist."
         exit 1
     fi
@@ -71,7 +71,7 @@ if [ -f $pidfile ]; then
     # kill pid process and check it
     if kill -${signum} $pid >/dev/null 2>&1; then
         while true; do
-            if kill -0 $pid >/dev/null; then
+            if kill -0 $pid >/dev/null 2>&1; then
                 echo "waiting be to stop, pid: $pid"
                 sleep 2
             else

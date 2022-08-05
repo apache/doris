@@ -17,7 +17,7 @@
 
 -- Modified
 
-select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=10, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=16, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */
     c_custkey,
     c_name,
     sum(t1.l_extendedprice * (1 - t1.l_discount)) as revenue,
@@ -50,3 +50,4 @@ group by
 order by
     revenue desc
 limit 20;
+
