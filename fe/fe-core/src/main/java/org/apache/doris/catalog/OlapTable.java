@@ -161,12 +161,12 @@ public class OlapTable extends Table {
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
-                     PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
+            PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
         this(id, tableName, baseSchema, keysType, partitionInfo, defaultDistributionInfo, null);
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
-                     PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo, TableIndexes indexes) {
+            PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo, TableIndexes indexes) {
         super(id, tableName, TableType.OLAP, baseSchema);
 
         this.state = OlapTableState.NORMAL;
@@ -519,7 +519,7 @@ public class OlapTable extends Table {
                     try {
                         Map<Tag, List<Long>> tag2beIds =
                                 Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
-                                replicaAlloc, db.getClusterName(), null);
+                                        replicaAlloc, db.getClusterName(), null);
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
@@ -1468,6 +1468,7 @@ public class OlapTable extends Table {
 
     /**
      * Get the proximate row count of this table, if you need accurate row count should select count(*) from table.
+     *
      * @return proximate row count
      */
     public long proximateRowCount() {
@@ -1559,6 +1560,23 @@ public class OlapTable extends Table {
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INMEMORY,
                 Boolean.valueOf(isInMemory).toString());
         tableProperty.buildInMemory();
+    }
+
+    public Boolean getUseLightSchemaChange() {
+        if (tableProperty != null) {
+            return tableProperty.getUseSchemaLightChange();
+        }
+        // property is set false by default
+        return false;
+    }
+
+    public void setUseLightSchemaChange(boolean useLightSchemaChange) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE,
+                Boolean.valueOf(useLightSchemaChange).toString());
+        tableProperty.buildUseLightSchemaChange();
     }
 
     public void setStoragePolicy(String storagePolicy) {
@@ -1675,7 +1693,7 @@ public class OlapTable extends Table {
     }
 
     private void checkPartition(List<String> partitionNames, List<String> tempPartitionNames,
-                                boolean strictRange) throws DdlException {
+            boolean strictRange) throws DdlException {
         if (strictRange) {
             List<PartitionItem> list = Lists.newArrayList();
             List<PartitionItem> tempList = Lists.newArrayList();

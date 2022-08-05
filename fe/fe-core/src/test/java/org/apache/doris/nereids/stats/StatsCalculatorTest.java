@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -239,4 +240,42 @@ public class StatsCalculatorTest {
         Assertions.assertNotNull(stats.getSlotToColumnStats().get(slot1));
     }
 
+
+    @Test
+    public void testLimit() {
+        List<String> qualifier = new ArrayList<>();
+        qualifier.add("test");
+        qualifier.add("t");
+        SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
+        ColumnStats columnStats1 = new ColumnStats();
+        columnStats1.setNdv(10);
+        columnStats1.setNumNulls(5);
+        Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1, columnStats1);
+        StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
+
+        Group childGroup = new Group();
+        childGroup.setLogicalProperties(new LogicalProperties(new Supplier<List<Slot>>() {
+            @Override
+            public List<Slot> get() {
+                return Collections.emptyList();
+            }
+        }));
+        GroupPlan groupPlan = new GroupPlan(childGroup);
+        childGroup.setStatistics(childStats);
+
+        LogicalLimit logicalLimit = new LogicalLimit(1, 2, groupPlan);
+        GroupExpression groupExpression = new GroupExpression(logicalLimit);
+        groupExpression.addChild(childGroup);
+        Group ownerGroup = new Group();
+        ownerGroup.addGroupExpression(groupExpression);
+        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
+        statsCalculator.estimate();
+        StatsDeriveResult limitStats = ownerGroup.getStatistics();
+        Assertions.assertEquals((long) (1), limitStats.getRowCount());
+        ColumnStats slot1Stats = limitStats.getSlotToColumnStats().get(slot1);
+        Assertions.assertEquals(1, slot1Stats.getNdv());
+        Assertions.assertEquals(1, slot1Stats.getNumNulls());
+
+    }
 }

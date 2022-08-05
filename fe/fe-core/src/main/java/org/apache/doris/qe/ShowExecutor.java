@@ -26,6 +26,7 @@ import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
+import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
@@ -167,6 +168,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.statistics.StatisticsJobManager;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
@@ -357,6 +359,8 @@ public class ShowExecutor {
             handleShowPolicy();
         } else if (stmt instanceof ShowCatalogStmt) {
             handleShowCatalogs();
+        } else if (stmt instanceof ShowAnalyzeStmt) {
+            handleShowAnalyze();
         } else {
             handleEmtpy();
         }
@@ -2246,5 +2250,13 @@ public class ShowExecutor {
     public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
         resultSet = Env.getCurrentEnv().getDataSourceMgr().showCatalogs(showStmt);
+    }
+
+    private void handleShowAnalyze() throws AnalysisException {
+        ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
+        StatisticsJobManager jobManager = Env.getCurrentEnv()
+                .getStatisticsJobManager();
+        List<List<String>> results = jobManager.getAnalyzeJobInfos(showStmt);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 }

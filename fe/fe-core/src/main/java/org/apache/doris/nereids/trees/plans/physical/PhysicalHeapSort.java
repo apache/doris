@@ -37,40 +37,27 @@ import java.util.Optional;
  * Physical sort plan.
  */
 public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
-    private final long limit;
-    // Default offset is 0.
-    private final int offset;
 
     private final List<OrderKey> orderKeys;
 
 
-    public PhysicalHeapSort(List<OrderKey> orderKeys, long limit, int offset,
+    public PhysicalHeapSort(List<OrderKey> orderKeys,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(orderKeys, limit, offset, Optional.empty(), logicalProperties, child);
+        this(orderKeys, Optional.empty(), logicalProperties, child);
     }
 
     /**
      * Constructor of PhysicalHashJoinNode.
      */
-    public PhysicalHeapSort(List<OrderKey> orderKeys, long limit, int offset,
+    public PhysicalHeapSort(List<OrderKey> orderKeys,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.PHYSICAL_SORT, groupExpression, logicalProperties, child);
-        this.offset = offset;
-        this.limit = limit;
         this.orderKeys = orderKeys;
-    }
-
-    public int getOffset() {
-        return offset;
     }
 
     public List<OrderKey> getOrderKeys() {
         return orderKeys;
-    }
-
-    public boolean hasLimit() {
-        return limit > -1;
     }
 
     @Override
@@ -82,12 +69,12 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
             return false;
         }
         PhysicalHeapSort that = (PhysicalHeapSort) o;
-        return offset == that.offset && limit == that.limit && Objects.equals(orderKeys, that.orderKeys);
+        return Objects.equals(orderKeys, that.orderKeys);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderKeys, offset, limit);
+        return Objects.hash(orderKeys);
     }
 
     @Override
@@ -105,23 +92,22 @@ public class PhysicalHeapSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     @Override
     public PhysicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalHeapSort<>(orderKeys, limit, offset, logicalProperties, children.get(0));
+        return new PhysicalHeapSort<>(orderKeys, logicalProperties, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalHeapSort<>(orderKeys, limit, offset, groupExpression, logicalProperties, child());
+        return new PhysicalHeapSort<>(orderKeys, groupExpression, logicalProperties, child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalHeapSort<>(orderKeys, limit, offset, Optional.empty(), logicalProperties.get(), child());
+        return new PhysicalHeapSort<>(orderKeys, Optional.empty(), logicalProperties.get(), child());
     }
 
     @Override
     public String toString() {
         return "PhysicalHeapSort ("
-                + StringUtils.join(orderKeys, ", ") + ", LIMIT " + limit + ", OFFSET " + offset
-                + ")";
+                + StringUtils.join(orderKeys, ", ") + ")";
     }
 }
