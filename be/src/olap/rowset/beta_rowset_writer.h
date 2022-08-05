@@ -65,6 +65,11 @@ public:
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
+    Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {
+        *segment_num_rows = _segment_num_rows;
+        return Status::OK();
+    }
+
 private:
     template <typename RowType>
     Status _add_row(const RowType& row);
@@ -95,6 +100,11 @@ private:
 
     bool _is_pending = false;
     bool _already_built = false;
+
+    // for unique key table with merge-on-write
+    std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
+    // record rows number of every segment
+    std::vector<uint32_t> _segment_num_rows;
 };
 
 } // namespace doris

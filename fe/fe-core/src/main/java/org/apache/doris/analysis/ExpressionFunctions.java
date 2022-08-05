@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -75,7 +75,7 @@ public enum ExpressionFunctions {
             // 2. Not in NonNullResultWithNullParamFunctions
             // 3. Has null parameter
             if ((fn.getNullableMode() == Function.NullableMode.DEPEND_ON_ARGUMENT
-                    || Catalog.getCurrentCatalog().isNullResultWithOneNullParamFunction(
+                    || Env.getCurrentEnv().isNullResultWithOneNullParamFunction(
                             fn.getFunctionName().getFunction()))
                     && !fn.isUdf()) {
                 for (Expr e : constExpr.getChildren()) {
@@ -88,7 +88,7 @@ public enum ExpressionFunctions {
             // In some cases, non-deterministic functions should not be rewritten as constants,
             // such as non-deterministic functions in the create view statement.
             // eg: create view v1 as select rand();
-            if (Catalog.getCurrentCatalog().isNondeterministicFunction(fn.getFunctionName().getFunction())
+            if (Env.getCurrentEnv().isNondeterministicFunction(fn.getFunctionName().getFunction())
                     && ConnectContext.get() != null && ConnectContext.get().notEvalNondeterministicFunction()) {
                 return constExpr;
             }
@@ -116,17 +116,33 @@ public enum ExpressionFunctions {
             return null;
         }
         for (FEFunctionInvoker invoker : functionInvokers) {
-            if (!invoker.getSignature().returnType.equals(signature.getReturnType())) {
+            // Make functions for date/datetime applicable to datev2/datetimev2
+            if (!(invoker.getSignature().returnType.isDate() && signature.getReturnType().isDateV2())
+                    && !(invoker.getSignature().returnType.isDatetime() && signature.getReturnType().isDatetimeV2())
+                    && !(invoker.getSignature().returnType.isDecimalV2() && signature.getReturnType().isDecimalV3())
+                    && !invoker.getSignature().returnType.equals(signature.getReturnType())) {
                 continue;
             }
 
             Type[] argTypes1 = invoker.getSignature().getArgTypes();
             Type[] argTypes2 = signature.getArgTypes();
 
-            if (!Arrays.equals(argTypes1, argTypes2)) {
+            if (argTypes1.length != argTypes2.length) {
                 continue;
             }
-            return invoker;
+            boolean match = true;
+            for (int i = 0; i < argTypes1.length; i++) {
+                if (!(argTypes1[i].isDate() && argTypes2[i].isDateV2())
+                        && !(argTypes1[i].isDatetime() && argTypes2[i].isDatetimeV2())
+                        && !(argTypes1[i].isDecimalV2() && argTypes2[i].isDecimalV3())
+                        && !argTypes1[i].equals(argTypes2[i])) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                return invoker;
+            }
         }
         return null;
     }

@@ -19,8 +19,8 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.DropFileStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
@@ -164,14 +164,14 @@ public class SmallFileMgr implements Writable {
 
     public void createFile(CreateFileStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         downloadAndAddFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(),
                 stmt.getDownloadUrl(), stmt.getChecksum(), stmt.isSaveContent());
     }
 
     public void dropFile(DropFileStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         removeFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(), false);
     }
 
@@ -199,7 +199,7 @@ public class SmallFileMgr implements Writable {
             smallFiles.addFile(fileName, smallFile);
             idToFiles.put(smallFile.id, smallFile);
 
-            Catalog.getCurrentCatalog().getEditLog().logCreateSmallFile(smallFile);
+            Env.getCurrentEnv().getEditLog().logCreateSmallFile(smallFile);
 
             LOG.info("finished to add file {} from url {}. current file number: {}", fileName, downloadUrl,
                     idToFiles.size());
@@ -234,7 +234,7 @@ public class SmallFileMgr implements Writable {
                 idToFiles.remove(smallFile.id);
 
                 if (!isReplay) {
-                    Catalog.getCurrentCatalog().getEditLog().logDropSmallFile(smallFile);
+                    Env.getCurrentEnv().getEditLog().logDropSmallFile(smallFile);
                 }
 
                 LOG.info("finished to remove file {}. current file number: {}. is replay: {}",
@@ -356,7 +356,7 @@ public class SmallFileMgr implements Writable {
             }
 
             SmallFile smallFile;
-            long fileId = Catalog.getCurrentCatalog().getNextId();
+            long fileId = Env.getCurrentEnv().getNextId();
             if (saveContent) {
                 smallFile = new SmallFile(dbId, catalog, fileName, fileId, base64Content, bytesRead,
                         checksum, true /* is content */);
@@ -455,7 +455,7 @@ public class SmallFileMgr implements Writable {
     }
 
     public List<List<String>> getInfo(String dbName) throws DdlException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         List<List<String>> infos = Lists.newArrayList();
         synchronized (files) {
             if (files.containsRow(db.getId())) {

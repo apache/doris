@@ -19,6 +19,7 @@
 
 #include "gutil/strings/substitute.h"
 #include "olap/data_dir.h"
+#include "olap/tablet_schema_cache.h"
 #include "util/doris_metrics.h"
 #include "util/path_util.h"
 
@@ -29,10 +30,8 @@ extern MetricPrototype METRIC_query_scan_rows;
 extern MetricPrototype METRIC_query_scan_count;
 
 BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : _state(tablet_meta->tablet_state()),
-          _tablet_meta(tablet_meta),
-          _schema(tablet_meta->tablet_schema()),
-          _data_dir(data_dir) {
+        : _state(tablet_meta->tablet_state()), _tablet_meta(tablet_meta), _data_dir(data_dir) {
+    _schema = TabletSchemaCache::instance()->insert(_tablet_meta->tablet_schema().to_key());
     _gen_tablet_path();
 
     std::stringstream ss;
@@ -72,8 +71,8 @@ void BaseTablet::_gen_tablet_path() {
 bool BaseTablet::set_tablet_schema_into_rowset_meta() {
     bool flag = false;
     for (RowsetMetaSharedPtr rowset_meta : _tablet_meta->all_mutable_rs_metas()) {
-        if (!rowset_meta->get_rowset_pb().has_tablet_schema()) {
-            rowset_meta->set_tablet_schema(&_schema);
+        if (!rowset_meta->tablet_schema()) {
+            rowset_meta->set_tablet_schema(_schema);
             flag = true;
         }
     }

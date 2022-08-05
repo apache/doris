@@ -46,6 +46,7 @@ import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.THashJoinNode;
+import org.apache.doris.thrift.TNullSide;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
@@ -59,6 +60,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -156,8 +158,9 @@ public class HashJoinNode extends PlanNode {
     /**
      * This constructor is used by new optimizer.
      */
-    public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, JoinOperator joinOp, List<Expr> eqJoinConjuncts,
-            List<Expr> otherJoinConjuncts) {
+    public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, JoinOperator joinOp,
+            List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts, List<Expr> srcToOutputList,
+            TupleDescriptor intermediateTuple, TupleDescriptor outputTuple) {
         super(id, "HASH JOIN", StatisticalType.HASH_JOIN_NODE);
         Preconditions.checkArgument(eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty());
         Preconditions.checkArgument(otherJoinConjuncts != null);
@@ -208,6 +211,9 @@ public class HashJoinNode extends PlanNode {
         } else if (joinOp.equals(JoinOperator.RIGHT_OUTER_JOIN)) {
             nullableTupleIds.addAll(outer.getTupleIds());
         }
+        vIntermediateTupleDescList = Lists.newArrayList(intermediateTuple);
+        vOutputTupleDesc = outputTuple;
+        vSrcToOutputSMap = new ExprSubstitutionMap(srcToOutputList, Collections.emptyList());
     }
 
     public List<BinaryPredicate> getEqJoinConjuncts() {
@@ -486,7 +492,7 @@ public class HashJoinNode extends PlanNode {
         // Then: add tuple is null in left child columns
         if (leftNullable && getChild(0).tblRefIds.size() == 1 && analyzer.isInlineView(getChild(0).tblRefIds.get(0))) {
             List<Expr> tupleIsNullLhs = TupleIsNullPredicate
-                    .wrapExprs(vSrcToOutputSMap.getLhs().subList(0, leftNullableNumber), getChild(0).getTupleIds(),
+                    .wrapExprs(vSrcToOutputSMap.getLhs().subList(0, leftNullableNumber), TNullSide.LEFT,
                             analyzer);
             tupleIsNullLhs
                     .addAll(vSrcToOutputSMap.getLhs().subList(leftNullableNumber, vSrcToOutputSMap.getLhs().size()));
@@ -500,7 +506,7 @@ public class HashJoinNode extends PlanNode {
                 int rightBeginIndex = vSrcToOutputSMap.size() - rightNullableNumber;
                 List<Expr> tupleIsNullLhs = TupleIsNullPredicate
                         .wrapExprs(vSrcToOutputSMap.getLhs().subList(rightBeginIndex, vSrcToOutputSMap.size()),
-                                getChild(1).getTupleIds(), analyzer);
+                                TNullSide.RIGHT, analyzer);
                 List<Expr> newLhsList = Lists.newArrayList();
                 if (rightBeginIndex > 0) {
                     newLhsList.addAll(vSrcToOutputSMap.getLhs().subList(0, rightBeginIndex));
@@ -620,7 +626,8 @@ public class HashJoinNode extends PlanNode {
         vIntermediateRightTupleDesc.computeMemLayout();
         // 3. replace srcExpr by intermediate tuple
         Preconditions.checkState(vSrcToOutputSMap != null);
-        vSrcToOutputSMap.substituteLhs(originToIntermediateSmap, analyzer);
+        // Set `preserveRootTypes` to true because we should keep the consistent for types. See Issue-11314.
+        vSrcToOutputSMap.substituteLhs(originToIntermediateSmap, analyzer, true);
         // 4. replace other conjuncts and conjuncts
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
         if (votherJoinConjunct != null) {
@@ -1049,10 +1056,12 @@ public class HashJoinNode extends PlanNode {
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
                 msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
             }
         }
         if (vOutputTupleDesc != null) {
             msg.hash_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
+            msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
         }
         if (vIntermediateTupleDescList != null) {
             for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {

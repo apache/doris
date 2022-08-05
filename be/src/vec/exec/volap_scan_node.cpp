@@ -707,6 +707,14 @@ Status VOlapScanNode::normalize_conjuncts() {
             break;
         }
 
+        case TYPE_DATETIMEV2: {
+            ColumnValueRange<TYPE_DATETIMEV2> range(slots[slot_idx]->col_name(),
+                                                    slots[slot_idx]->type().precision,
+                                                    slots[slot_idx]->type().scale);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
         case TYPE_DECIMALV2: {
             ColumnValueRange<TYPE_DECIMALV2> range(slots[slot_idx]->col_name());
             normalize_predicate(range, slots[slot_idx]);
@@ -946,8 +954,10 @@ Status VOlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescri
 }
 
 static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
-    if ((slot->type().is_date_type() || slot->type().is_date_v2_type()) &&
-        (expr->type().is_date_type() || expr->type().is_date_v2_type())) {
+    if ((slot->type().is_date_type() || slot->type().is_date_v2_type() ||
+         slot->type().is_datetime_v2_type()) &&
+        (expr->type().is_date_type() || expr->type().is_date_v2_type() ||
+         expr->type().is_datetime_v2_type())) {
         return true;
     }
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
@@ -1060,6 +1070,7 @@ Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<primitive_type>&
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_DATETIME:
+    case TYPE_DATETIMEV2:
     case TYPE_TINYINT:
     case TYPE_SMALLINT:
     case TYPE_INT:
@@ -1080,10 +1091,13 @@ Status VOlapScanNode::change_fixed_value_range(ColumnValueRange<primitive_type>&
         break;
     }
     case TYPE_DATEV2: {
-        DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
-        if (!date_value.check_loss_accuracy_cast_to_date()) {
-            doris::vectorized::DateV2Value date_v2;
-            date_v2.convert_dt_to_date_v2(&date_value);
+        DateV2Value<DateTimeV2ValueType> datetimev2_value =
+                *reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(value);
+        if (datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
+            DateV2Value<DateV2ValueType> date_v2;
+            date_v2.set_date_uint32(
+                    binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(datetimev2_value) >>
+                    TIME_PART_LENGTH);
             if constexpr (primitive_type == PrimitiveType::TYPE_DATEV2) {
                 func(temp_range, &date_v2);
             } else {
@@ -1439,14 +1453,17 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                     break;
                 }
                 case TYPE_DATEV2: {
-                    DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
-                    if (date_value.check_loss_accuracy_cast_to_date()) {
+                    DateV2Value<DateTimeV2ValueType> datetimev2_value =
+                            *reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(value);
+                    doris::vectorized::DateV2Value<DateV2ValueType> date_v2;
+                    date_v2.set_date_uint32(binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(
+                                                    datetimev2_value) >>
+                                            TIME_PART_LENGTH);
+                    if (!datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
                         if (pred->op() == TExprOpcode::LT || pred->op() == TExprOpcode::GE) {
-                            ++date_value;
+                            ++date_v2;
                         }
                     }
-                    doris::vectorized::DateV2Value date_v2;
-                    date_v2.convert_dt_to_date_v2(&date_value);
                     if constexpr (T == PrimitiveType::TYPE_DATEV2) {
                         range->add_range(to_olap_filter_type(pred->op(), child_idx), date_v2);
                         break;
@@ -1463,6 +1480,7 @@ Status VOlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 case TYPE_VARCHAR:
                 case TYPE_HLL:
                 case TYPE_DATETIME:
+                case TYPE_DATETIMEV2:
                 case TYPE_SMALLINT:
                 case TYPE_INT:
                 case TYPE_BIGINT:
@@ -1858,25 +1876,58 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
     }
 
     // post volap scanners to thread-pool
-    PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
     auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
+    ThreadPoolToken* thread_token = nullptr;
+    if (_limit > -1 && _limit < 1024) {
+        thread_token = state->get_query_fragments_ctx()->get_serial_token();
+    } else {
+        thread_token = state->get_query_fragments_ctx()->get_token();
+    }
     auto iter = olap_scanners.begin();
-    while (iter != olap_scanners.end()) {
-        PriorityThreadPool::Task task;
-        task.work_function = [this, scanner = *iter, parent_span = cur_span] {
-            opentelemetry::trace::Scope scope {parent_span};
-            this->scanner_thread(scanner);
-        };
-        task.priority = _nice;
-        task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
-        (*iter)->start_wait_worker_timer();
-        COUNTER_UPDATE(_scanner_sched_counter, 1);
-        if (thread_pool->offer(task)) {
-            olap_scanners.erase(iter++);
-        } else {
-            LOG(FATAL) << "Failed to assign scanner task to thread pool!";
+    if (thread_token != nullptr) {
+        while (iter != olap_scanners.end()) {
+            auto s = thread_token->submit_func([this, scanner = *iter, parent_span = cur_span] {
+                opentelemetry::trace::Scope scope {parent_span};
+                this->scanner_thread(scanner);
+            });
+            if (s.ok()) {
+                (*iter)->start_wait_worker_timer();
+                COUNTER_UPDATE(_scanner_sched_counter, 1);
+                olap_scanners.erase(iter++);
+            } else {
+                LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s.get_error_msg();
+            }
+            ++_total_assign_num;
         }
-        ++_total_assign_num;
+    } else {
+        PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
+        PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
+        while (iter != olap_scanners.end()) {
+            PriorityThreadPool::Task task;
+            task.work_function = [this, scanner = *iter, parent_span = cur_span] {
+                opentelemetry::trace::Scope scope {parent_span};
+                this->scanner_thread(scanner);
+            };
+            task.priority = _nice;
+            task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
+            (*iter)->start_wait_worker_timer();
+
+            TabletStorageType type = (*iter)->get_storage_type();
+            bool ret = false;
+            COUNTER_UPDATE(_scanner_sched_counter, 1);
+            if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
+                ret = thread_pool->offer(task);
+            } else {
+                ret = remote_thread_pool->offer(task);
+            }
+
+            if (ret) {
+                olap_scanners.erase(iter++);
+            } else {
+                LOG(FATAL) << "Failed to assign scanner task to thread pool!";
+            }
+            ++_total_assign_num;
+        }
     }
 
     return assigned_thread_num;

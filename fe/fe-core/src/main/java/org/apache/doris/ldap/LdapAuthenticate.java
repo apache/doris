@@ -18,7 +18,7 @@
 package org.apache.doris.ldap;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -92,7 +92,7 @@ public class LdapAuthenticate {
         String remoteIp = context.getMysqlChannel().getRemoteIp();
         UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIp);
         // Search the user in doris.
-        UserIdentity userIdentity = Catalog.getCurrentCatalog().getAuth().getCurrentUserIdentity(tempUserIdentity);
+        UserIdentity userIdentity = Env.getCurrentEnv().getAuth().getCurrentUserIdentity(tempUserIdentity);
         if (userIdentity == null) {
             userIdentity = tempUserIdentity;
             LOG.debug("User:{} does not exists in doris, login as temporary users.", userName);
@@ -122,7 +122,7 @@ public class LdapAuthenticate {
         List<String> rolesNames = Lists.newArrayList();
         for (String group : ldapGroups) {
             String qualifiedRole = ClusterNamespace.getFullName(clusterName, group);
-            if (Catalog.getCurrentCatalog().getAuth().doesRoleExist(qualifiedRole)) {
+            if (Env.getCurrentEnv().getAuth().doesRoleExist(qualifiedRole)) {
                 rolesNames.add(qualifiedRole);
             }
         }
@@ -133,7 +133,7 @@ public class LdapAuthenticate {
             return null;
         } else {
             PaloRole ldapGroupsPrivs = new PaloRole(LDAP_GROUPS_PRIVS_NAME);
-            Catalog.getCurrentCatalog().getAuth().mergeRolesNoCheckName(rolesNames, ldapGroupsPrivs);
+            Env.getCurrentEnv().getAuth().mergeRolesNoCheckName(rolesNames, ldapGroupsPrivs);
             return ldapGroupsPrivs;
         }
     }

@@ -26,6 +26,7 @@
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
+#include "vec/core/types.h"
 namespace doris::vectorized {
 
 VSchemaScanNode::VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode,
@@ -417,11 +418,16 @@ Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescript
         break;
     }
 
+    case TYPE_DATETIMEV2: {
+        uint32_t num = *reinterpret_cast<uint64_t*>(slot);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)->insert_value(num);
+        break;
+    }
+
     case TYPE_DECIMALV2:
     case TYPE_DECIMAL128: {
-        __int128 num = (reinterpret_cast<PackedInt128*>(slot))->value;
-        reinterpret_cast<vectorized::ColumnVector<doris::PackedInt128>*>(col_ptr)->insert_value(
-                num);
+        Int128 num = (reinterpret_cast<PackedInt128*>(slot))->value;
+        reinterpret_cast<vectorized::ColumnVector<Int128>*>(col_ptr)->insert_value(num);
         break;
     }
 

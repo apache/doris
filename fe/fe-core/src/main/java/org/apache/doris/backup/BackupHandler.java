@@ -32,8 +32,8 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.AbstractJob.JobType;
 import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
@@ -100,24 +100,24 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     private boolean isInit = false;
 
-    private Catalog catalog;
+    private Env env;
 
     public BackupHandler() {
         // for persist
     }
 
-    public BackupHandler(Catalog catalog) {
+    public BackupHandler(Env env) {
         super("backupHandler", 3000L);
-        this.catalog = catalog;
+        this.env = env;
     }
 
-    public void setCatalog(Catalog catalog) {
-        this.catalog = catalog;
+    public void setEnv(Env env) {
+        this.env = env;
     }
 
     @Override
     public synchronized void start() {
-        Preconditions.checkNotNull(catalog);
+        Preconditions.checkNotNull(env);
         super.start();
         repoMgr.start();
     }
@@ -183,21 +183,21 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         for (AbstractJob job : getAllCurrentJobs()) {
-            job.setCatalog(catalog);
+            job.setEnv(env);
             job.run();
         }
     }
 
     // handle create repository stmt
     public void createRepository(CreateRepositoryStmt stmt) throws DdlException {
-        if (!catalog.getBrokerMgr().containsBroker(stmt.getBrokerName())
+        if (!env.getBrokerMgr().containsBroker(stmt.getBrokerName())
                 && stmt.getStorageType() == StorageBackend.StorageType.BROKER) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                     "broker does not exist: " + stmt.getBrokerName());
         }
 
         BlobStorage storage = BlobStorage.create(stmt.getBrokerName(), stmt.getStorageType(), stmt.getProperties());
-        long repoId = catalog.getNextId();
+        long repoId = env.getNextId();
         Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(), storage);
 
         Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
@@ -245,7 +245,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         // check if db exist
         String dbName = stmt.getDbName();
-        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
 
         // Try to get sequence lock.
         // We expect at most one operation on a repo at same time.
@@ -372,10 +372,9 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Create a backup job
         BackupJob backupJob = new BackupJob(stmt.getLabel(), db.getId(),
                 ClusterNamespace.getNameFromFullName(db.getFullName()),
-                tblRefs, stmt.getTimeoutMs(), stmt.getContent(),
-                catalog, repository.getId());
+                tblRefs, stmt.getTimeoutMs(), stmt.getContent(), env, repository.getId());
         // write log
-        catalog.getEditLog().logBackupJob(backupJob);
+        env.getEditLog().logBackupJob(backupJob);
 
         // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
         addBackupOrRestoreJob(db.getId(), backupJob);
@@ -402,8 +401,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Create a restore job
         RestoreJob restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                stmt.getTimeoutMs(), stmt.getMetaVersion(), catalog, repository.getId());
-        catalog.getEditLog().logRestoreJob(restoreJob);
+                stmt.getTimeoutMs(), stmt.getMetaVersion(), env, repository.getId());
+        env.getEditLog().logRestoreJob(restoreJob);
 
         // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
         addBackupOrRestoreJob(db.getId(), restoreJob);
@@ -540,7 +539,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     public void cancel(CancelBackupStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = catalog.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
 
         AbstractJob job = getCurrentJob(db.getId());
         if (job == null || (job instanceof BackupJob && stmt.isRestore())
@@ -629,7 +628,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                         existingJob, job);
                 return;
             }
-            existingJob.setCatalog(catalog);
+            existingJob.setEnv(env);
             existingJob.replayCancel();
         } else if (!job.isPending()) {
             AbstractJob existingJob = getCurrentJob(job.getDbId());

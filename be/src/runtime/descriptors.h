@@ -392,11 +392,6 @@ public:
     RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TTupleId>& row_tuples,
                   const std::vector<bool>& nullable_tuples);
 
-    static RowDescriptor create_default(const DescriptorTbl& desc_tbl,
-                                        const std::vector<bool>& nullable_tuples) {
-        return RowDescriptor(desc_tbl, desc_tbl.get_row_tuples(), nullable_tuples);
-    }
-
     // standard copy c'tor, made explicit here
     RowDescriptor(const RowDescriptor& desc)
             : _tuple_desc_map(desc._tuple_desc_map),

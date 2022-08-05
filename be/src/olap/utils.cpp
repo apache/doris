@@ -744,7 +744,7 @@ bool valid_decimal(const string& value_str, const uint32_t precision, const uint
 bool valid_datetime(const string& value_str) {
     const char* datetime_pattern =
             "((?:\\d){4})-((?:\\d){2})-((?:\\d){2})[ ]*"
-            "(((?:\\d){2}):((?:\\d){2}):((?:\\d){2}))?";
+            "(((?:\\d){2}):((?:\\d){2}):((?:\\d){2})([.]*((?:\\d){0,6})))?";
     std::regex e(datetime_pattern);
     std::smatch what;
 
@@ -784,6 +784,12 @@ bool valid_datetime(const string& value_str) {
             if (second < 0 || second > 59) {
                 LOG(WARNING) << "invalid second. [second=" << second << "]";
                 return false;
+            }
+            if (what[8].length()) {
+                if (what[9].str().size() > 6) {
+                    LOG(WARNING) << "invalid microsecond. [second=" << second << "]";
+                    return false;
+                }
             }
         }
 

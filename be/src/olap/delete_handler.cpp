@@ -153,6 +153,7 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
     case OLAP_FIELD_TYPE_DATE:
     case OLAP_FIELD_TYPE_DATETIME:
     case OLAP_FIELD_TYPE_DATEV2:
+    case OLAP_FIELD_TYPE_DATETIMEV2:
         return valid_datetime(value_str);
     case OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);
@@ -307,19 +308,6 @@ Status DeleteHandler::init(const TabletSchema& schema,
     _is_inited = true;
 
     return Status::OK();
-}
-
-bool DeleteHandler::is_filter_data(const int64_t data_version, const RowCursor& row) const {
-    // According to semantics, the delete condition stored in _del_conds should be an OR relationship,
-    // so as long as the data matches one of the _del_conds, it will return true.
-    for (const auto& del_cond : _del_conds) {
-        if (data_version <= del_cond.filter_version &&
-            del_cond.del_cond->delete_conditions_eval(row)) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 std::vector<int64_t> DeleteHandler::get_conds_version() {

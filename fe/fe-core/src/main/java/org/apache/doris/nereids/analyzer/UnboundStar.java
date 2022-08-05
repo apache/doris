@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.ExpressionType;
 import org.apache.doris.nereids.trees.expressions.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -34,7 +33,6 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     private final List<String> qualifier;
 
     public UnboundStar(List<String> qualifier) {
-        super(ExpressionType.UNBOUND_STAR);
         this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
     }
 

@@ -35,6 +35,7 @@
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
+#include "olap/delta_writer.h"
 #include "olap/lru_cache.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
@@ -44,6 +45,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
+#include "rowset/beta_rowset.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
 #include "util/time.h"
@@ -79,6 +81,8 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
     _txn_tablet_maps = new txn_tablet_map_t[_txn_map_shard_size];
     _txn_partition_maps = new txn_partition_map_t[_txn_map_shard_size];
     _txn_mutex = new std::mutex[_txn_shard_size];
+    _txn_tablet_delta_writer_map = new txn_tablet_delta_writer_map_t[_txn_map_shard_size];
+    _txn_tablet_delta_writer_map_locks = new std::shared_mutex[_txn_map_shard_size];
 }
 
 Status TxnManager::prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -308,8 +312,109 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                 _clear_txn_partition_map_unlocked(transaction_id, partition_id);
             }
         }
+    }
+    auto tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+#ifdef BE_TEST
+    if (tablet == nullptr) {
         return Status::OK();
     }
+#endif
+    // Check if have to build extra delete bitmap for table of UNIQUE_KEY model
+    if (!tablet->enable_unique_key_merge_on_write() ||
+        tablet->tablet_meta()->preferred_rowset_type() != RowsetTypePB::BETA_ROWSET ||
+        rowset_ptr->keys_type() != KeysType::UNIQUE_KEYS) {
+        return Status::OK();
+    }
+    CHECK(version.first == version.second) << "impossible: " << version;
+
+    // For each key in current set, check if it overwrites any previously
+    // written keys
+    OlapStopWatch watch;
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    std::vector<segment_v2::SegmentSharedPtr> pre_segments;
+    auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset_ptr.get());
+    Status st = beta_rowset->load_segments(&segments);
+    if (!st.ok()) return st;
+    // lock tablet meta to modify delete bitmap
+    std::lock_guard<std::shared_mutex> meta_wrlock(tablet->get_header_lock());
+    for (auto& seg : segments) {
+        seg->load_index(); // We need index blocks to iterate
+        auto pk_idx = seg->get_primary_key_index();
+        int cnt = 0;
+        int total = pk_idx->num_rows();
+        int32_t remaining = total;
+        bool exact_match = false;
+        std::string last_key;
+        int batch_size = 1024;
+        MemPool pool;
+        while (remaining > 0) {
+            std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
+            RETURN_IF_ERROR(pk_idx->new_iterator(&iter));
+
+            size_t num_to_read = std::min(batch_size, remaining);
+            std::unique_ptr<ColumnVectorBatch> cvb;
+            RETURN_IF_ERROR(ColumnVectorBatch::create(num_to_read, false, pk_idx->type_info(),
+                                                      nullptr, &cvb));
+            ColumnBlock block(cvb.get(), &pool);
+            ColumnBlockView column_block_view(&block);
+            Slice last_key_slice(last_key);
+            RETURN_IF_ERROR(iter->seek_at_or_after(&last_key_slice, &exact_match));
+
+            size_t num_read = num_to_read;
+            RETURN_IF_ERROR(iter->next_batch(&num_read, &column_block_view));
+            DCHECK(num_to_read == num_read);
+            last_key = (reinterpret_cast<const Slice*>(cvb->cell_ptr(num_read - 1)))->to_string();
+
+            // exclude last_key, last_key will be read in next batch.
+            if (num_read == batch_size && num_read != remaining) {
+                num_read -= 1;
+            }
+            for (size_t i = 0; i < num_read; i++) {
+                const Slice* key = reinterpret_cast<const Slice*>(cvb->cell_ptr(i));
+                // first check if exist in pre segment
+                bool find = _check_pk_in_pre_segments(pre_segments, *key, tablet, version);
+                if (find) {
+                    cnt++;
+                    continue;
+                }
+                RowLocation loc;
+                st = tablet->lookup_row_key(*key, &loc, version.first - 1);
+                CHECK(st.ok() || st.is_not_found());
+                if (st.is_not_found()) continue;
+                ++cnt;
+                // TODO: we can just set a bitmap onece we are done while iteration
+                tablet->tablet_meta()->delete_bitmap().add(
+                        {loc.rowset_id, loc.segment_id, version.first}, loc.row_id);
+            }
+            remaining -= num_read;
+        }
+
+        LOG(INFO) << "construct delete bitmap tablet: " << tablet->tablet_id()
+                  << " rowset: " << beta_rowset->rowset_id() << " segment: " << seg->id()
+                  << " version: " << version << " delete: " << cnt << "/" << total;
+        pre_segments.emplace_back(seg);
+    }
+    tablet->save_meta();
+    LOG(INFO) << "finished to update delete bitmap, tablet: " << tablet->tablet_id()
+              << " version: " << version << ", elapse(us): " << watch.get_elapse_time_us();
+    return Status::OK();
+}
+
+bool TxnManager::_check_pk_in_pre_segments(
+        const std::vector<segment_v2::SegmentSharedPtr>& pre_segments, const Slice& key,
+        TabletSharedPtr tablet, const Version& version) {
+    for (auto it = pre_segments.rbegin(); it != pre_segments.rend(); ++it) {
+        RowLocation loc;
+        auto st = (*it)->lookup_row_key(key, &loc);
+        CHECK(st.ok() || st.is_not_found());
+        if (st.is_not_found()) {
+            continue;
+        }
+        tablet->tablet_meta()->delete_bitmap().add({loc.rowset_id, loc.segment_id, version.first},
+                                                   loc.row_id);
+        return true;
+    }
+    return false;
 }
 
 // txn could be rollbacked if it does not have related rowset
@@ -558,6 +663,53 @@ void TxnManager::_clear_txn_partition_map_unlocked(int64_t transaction_id, int64
             txn_partition_map.erase(it);
         }
     }
+}
+
+void TxnManager::add_txn_tablet_delta_writer(int64_t transaction_id, int64_t tablet_id,
+                                             DeltaWriter* delta_writer) {
+    std::lock_guard<std::shared_mutex> txn_wrlock(
+            _get_txn_tablet_delta_writer_map_lock(transaction_id));
+    txn_tablet_delta_writer_map_t& txn_tablet_delta_writer_map =
+            _get_txn_tablet_delta_writer_map(transaction_id);
+    auto find = txn_tablet_delta_writer_map.find(transaction_id);
+    if (find == txn_tablet_delta_writer_map.end()) {
+        txn_tablet_delta_writer_map[transaction_id] = std::map<int64_t, DeltaWriter*>();
+    }
+    txn_tablet_delta_writer_map[transaction_id][tablet_id] = delta_writer;
+}
+
+void TxnManager::finish_slave_tablet_pull_rowset(int64_t transaction_id, int64_t tablet_id,
+                                                 int64_t node_id, bool is_succeed) {
+    std::lock_guard<std::shared_mutex> txn_wrlock(
+            _get_txn_tablet_delta_writer_map_lock(transaction_id));
+    txn_tablet_delta_writer_map_t& txn_tablet_delta_writer_map =
+            _get_txn_tablet_delta_writer_map(transaction_id);
+    auto find_txn = txn_tablet_delta_writer_map.find(transaction_id);
+    if (find_txn == txn_tablet_delta_writer_map.end()) {
+        LOG(WARNING) << "delta writer manager is not exist, txn_id=" << transaction_id
+                     << ", tablet_id=" << tablet_id;
+        return;
+    }
+    auto find_tablet = txn_tablet_delta_writer_map[transaction_id].find(tablet_id);
+    if (find_tablet == txn_tablet_delta_writer_map[transaction_id].end()) {
+        LOG(WARNING) << "delta writer is not exist, txn_id=" << transaction_id
+                     << ", tablet_id=" << tablet_id;
+        return;
+    }
+    DeltaWriter* delta_writer = txn_tablet_delta_writer_map[transaction_id][tablet_id];
+    delta_writer->finish_slave_tablet_pull_rowset(node_id, is_succeed);
+}
+
+void TxnManager::clear_txn_tablet_delta_writer(int64_t transaction_id) {
+    std::lock_guard<std::shared_mutex> txn_wrlock(
+            _get_txn_tablet_delta_writer_map_lock(transaction_id));
+    txn_tablet_delta_writer_map_t& txn_tablet_delta_writer_map =
+            _get_txn_tablet_delta_writer_map(transaction_id);
+    auto it = txn_tablet_delta_writer_map.find(transaction_id);
+    if (it != txn_tablet_delta_writer_map.end()) {
+        txn_tablet_delta_writer_map.erase(it);
+    }
+    VLOG_CRITICAL << "remove delta writer manager, txn_id=" << transaction_id;
 }
 
 } // namespace doris

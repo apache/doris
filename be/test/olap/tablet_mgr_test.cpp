@@ -117,7 +117,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     EXPECT_TRUE(create_st == Status::OK());
 
-    Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id);
+    Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false);
     EXPECT_TRUE(drop_st == Status::OK());
     tablet.reset();
     Status trash_st = _tablet_mgr->start_trash_sweep();
@@ -172,7 +172,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     Status check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
     EXPECT_TRUE(check_meta_st == Status::OK());
 
-    Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id);
+    Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false);
     EXPECT_TRUE(drop_st == Status::OK());
     tablet.reset();
     Status trash_st = _tablet_mgr->start_trash_sweep();
@@ -206,13 +206,13 @@ TEST_F(TabletMgrTest, DropTablet) {
     EXPECT_TRUE(tablet != nullptr);
 
     // drop unexist tablet will be success
-    Status drop_st = _tablet_mgr->drop_tablet(1121, create_tablet_req.replica_id);
+    Status drop_st = _tablet_mgr->drop_tablet(1121, create_tablet_req.replica_id, false);
     EXPECT_TRUE(drop_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
 
     // drop exist tablet will be success
-    drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id);
+    drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false);
     EXPECT_TRUE(drop_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet == nullptr);

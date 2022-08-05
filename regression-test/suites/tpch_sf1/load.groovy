@@ -77,4 +77,7 @@ suite("load") {
     def table = "revenue1"
     sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
     sql new File("""${context.file.parent}/ddl/${table}.sql""").text
+    // We need wait to make sure BE could pass the stats info to FE so that
+    // avoid unnessary inconsistent generated plan which would cause the regression test fail
+    sleep(60000)
 }

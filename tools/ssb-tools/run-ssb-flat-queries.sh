@@ -101,7 +101,7 @@ pre_set() {
 }
 
 pre_set "set global enable_vectorized_engine=1;"
-pre_set "set global parallel_fragment_exec_instance_num=1;"
+pre_set "set global parallel_fragment_exec_instance_num=8;"
 pre_set "set global exec_mem_limit=8G;"
 pre_set "set global batch_size=4096;"
 echo '============================================'
@@ -109,7 +109,9 @@ pre_set "show variables"
 echo '============================================'
 
 for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2' '4.3'; do
-    # Each query is executed 3 times and takes the average time
+    # First run to prevent the affect of cold start
+    mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D $DB <$QUERIES_DIR/q${i}.sql >/dev/null 2>&1
+    # Then run 3 times and takes the average time
     res=$(mysqlslap -h$FE_HOST -u$USER -P$FE_QUERY_PORT --create-schema=$DB --query=$QUERIES_DIR/q${i}.sql -F '\r' -i 3 | sed -n '2p' | cut -d ' ' -f 9,10)
     echo "q$i: $res"
     sleep 1

@@ -21,6 +21,7 @@
 
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
@@ -239,6 +240,29 @@ Status NodeChannel::open_wait() {
                         commit_info.tabletId = tablet.tablet_id();
                         commit_info.backendId = _node_id;
                         _tablet_commit_infos.emplace_back(std::move(commit_info));
+                        VLOG_CRITICAL
+                                << "master replica commit info: tabletId=" << tablet.tablet_id()
+                                << ", backendId=" << _node_id
+                                << ", master node id: " << this->node_id()
+                                << ", host: " << this->host() << ", txn_id=" << _parent->_txn_id;
+                    }
+
+                    if (_parent->_write_single_replica) {
+                        for (auto& tablet_slave_node_ids : result.success_slave_tablet_node_ids()) {
+                            for (auto slave_node_id :
+                                 tablet_slave_node_ids.second.slave_node_ids()) {
+                                TTabletCommitInfo commit_info;
+                                commit_info.tabletId = tablet_slave_node_ids.first;
+                                commit_info.backendId = slave_node_id;
+                                _tablet_commit_infos.emplace_back(std::move(commit_info));
+                                VLOG_CRITICAL << "slave replica commit info: tabletId="
+                                              << tablet_slave_node_ids.first
+                                              << ", backendId=" << slave_node_id
+                                              << ", master node id: " << this->node_id()
+                                              << ", host: " << this->host()
+                                              << ", txn_id=" << _parent->_txn_id;
+                            }
+                        }
                     }
                     _add_batches_finished = true;
                 }
@@ -504,6 +528,28 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
             request.add_partition_ids(pid);
         }
 
+        request.set_write_single_replica(false);
+        if (_parent->_write_single_replica) {
+            request.set_write_single_replica(true);
+            for (std::unordered_map<int64_t, std::vector<int64_t>>::iterator iter =
+                         _slave_tablet_nodes.begin();
+                 iter != _slave_tablet_nodes.end(); iter++) {
+                PSlaveTabletNodes slave_tablet_nodes;
+                for (auto node_id : iter->second) {
+                    auto node = _parent->_nodes_info->find_node(node_id);
+                    if (node == nullptr) {
+                        return;
+                    }
+                    PNodeInfo* pnode = slave_tablet_nodes.add_slave_nodes();
+                    pnode->set_id(node->id);
+                    pnode->set_option(node->option);
+                    pnode->set_host(node->host);
+                    pnode->set_async_internal_port(config::single_replica_load_brpc_port);
+                }
+                request.mutable_slave_tablet_nodes()->insert({iter->first, slave_tablet_nodes});
+            }
+        }
+
         // eos request must be the last request
         _add_batch_closure->end_mark();
         _send_finished = true;
@@ -587,6 +633,12 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                 channel = it->second;
             }
             channel->add_tablet(tablet);
+            if (_parent->_write_single_replica) {
+                auto slave_location = _parent->_slave_location->find_tablet(tablet.tablet_id);
+                if (slave_location != nullptr) {
+                    channel->add_slave_tablet_nodes(tablet.tablet_id, slave_location->node_ids);
+                }
+            }
             channels.push_back(channel);
             _tablets_by_channel[node_id].insert(tablet.tablet_id);
         }
@@ -600,7 +652,6 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
 
 void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
                                   int64_t tablet_id) {
-    SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
     const auto& it = _tablets_by_channel.find(node_id);
     if (it == _tablets_by_channel.end()) {
         return;
@@ -686,6 +737,13 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(_partition->init());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
+    if (table_sink.__isset.write_single_replica && table_sink.write_single_replica) {
+        _write_single_replica = true;
+        _slave_location = _pool->add(new OlapTableLocationParam(table_sink.slave_location));
+        if (!config::enable_single_replica_load) {
+            return Status::InternalError("single replica load is disabled on BE.");
+        }
+    }
 
     if (table_sink.__isset.load_channel_timeout_s) {
         _load_channel_timeout_s = table_sink.load_channel_timeout_s;
@@ -778,6 +836,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         case TYPE_DATE:
         case TYPE_DATETIME:
         case TYPE_DATEV2:
+        case TYPE_DATETIMEV2:
         case TYPE_HLL:
         case TYPE_OBJECT:
         case TYPE_STRING:

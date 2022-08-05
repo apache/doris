@@ -18,7 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -139,12 +139,12 @@ public class LoadJobTest {
     }
 
     @Test
-    public void testProcessTimeout(@Mocked Catalog catalog, @Mocked EditLog editLog) {
+    public void testProcessTimeout(@Mocked Env env, @Mocked EditLog editLog) {
         LoadJob loadJob = new BrokerLoadJob();
         loadJob.setTimeout(0);
         new Expectations() {
             {
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
             }
@@ -166,15 +166,13 @@ public class LoadJobTest {
     public void testUpdateStateToFinished(@Mocked MetricRepo metricRepo,
                                           @Injectable LoadTask loadTask1,
                                           @Mocked LongCounterMetric longCounterMetric) {
-
-        MetricRepo.COUNTER_LOAD_FINISHED = longCounterMetric;
         LoadJob loadJob = new BrokerLoadJob();
         loadJob.idToTasks.put(1L, loadTask1);
 
-        // TxnStateCallbackFactory factory = Catalog.getCurrentCatalog().getGlobalTransactionMgr().getCallbackFactory();
-        Catalog catalog = Catalog.getCurrentCatalog();
-        GlobalTransactionMgr mgr = new GlobalTransactionMgr(catalog);
-        Deencapsulation.setField(catalog, "globalTransactionMgr", mgr);
+        // TxnStateCallbackFactory factory = Catalog.getCurrentEnv().getGlobalTransactionMgr().getCallbackFactory();
+        Env env = Env.getCurrentEnv();
+        GlobalTransactionMgr mgr = new GlobalTransactionMgr(env);
+        Deencapsulation.setField(env, "globalTransactionMgr", mgr);
         Assert.assertEquals(1, loadJob.idToTasks.size());
         loadJob.updateState(JobState.FINISHED);
         Assert.assertEquals(JobState.FINISHED, loadJob.getState());

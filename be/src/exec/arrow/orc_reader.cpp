@@ -24,13 +24,14 @@
 #include "io/file_reader.h"
 #include "runtime/mem_pool.h"
 #include "runtime/tuple.h"
+#include "util/string_util.h"
 
 namespace doris {
 
 ORCReaderWrap::ORCReaderWrap(FileReader* file_reader, int64_t batch_size,
                              int32_t num_of_columns_from_file, int64_t range_start_offset,
-                             int64_t range_size)
-        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file),
+                             int64_t range_size, bool caseSensitive)
+        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file, caseSensitive),
           _range_start_offset(range_start_offset),
           _range_size(range_size) {
     _reader = nullptr;
@@ -62,6 +63,8 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
     if (_total_groups == 0) {
         return Status::EndOfFile("Empty Orc File");
     }
+    // seek file position after _reader created.
+    RETURN_IF_ERROR(_seek_start_stripe());
 
     int64_t row_number = 0;
     int end_group = _total_groups;
@@ -97,18 +100,57 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
     }
     std::shared_ptr<arrow::Schema> schema = maybe_schema.ValueOrDie();
     for (size_t i = 0; i < schema->num_fields(); ++i) {
+        std::string schemaName =
+                _caseSensitive ? schema->field(i)->name() : to_lower(schema->field(i)->name());
         // orc index started from 1.
-        _map_column.emplace(schema->field(i)->name(), i + 1);
-    }
 
+        _map_column.emplace(schemaName, i + 1);
+    }
     RETURN_IF_ERROR(column_indices(tuple_slot_descs));
-    if (config::orc_predicate_push_down) {
-        _strip_reader.reset(new StripeReader(conjunct_ctxs, this));
-        _strip_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids,
-                                          _current_group, _total_groups);
+
+    _thread = std::thread(&ArrowReaderWrap::prefetch_batch, this);
+
+    return Status::OK();
+}
+
+Status ORCReaderWrap::_seek_start_stripe() {
+    // If file was from Hms table, _range_start_offset is started from 3(magic word).
+    // And if file was from load, _range_start_offset is always set to zero.
+    // So now we only support file split for hms table.
+    // TODO: support file split for loading.
+    if (_range_size <= 0 || _range_start_offset == 0) {
+        return Status::OK();
+    }
+    int64_t row_number = 0;
+    int start_group = _current_group;
+    int end_group = _total_groups;
+    for (int i = 0; i < _total_groups; i++) {
+        int64_t _offset = _reader->GetRawORCReader()->getStripe(i)->getOffset();
+        int64_t row = _reader->GetRawORCReader()->getStripe(i)->getNumberOfRows();
+        if (_offset < _range_start_offset) {
+            row_number += row;
+        } else if (_offset == _range_start_offset) {
+            // If using the external file scan, _range_start_offset is always in the offset lists.
+            // If using broker load, _range_start_offset is always set to be 0.
+            start_group = i;
+        }
+        if (_range_start_offset + _range_size <= _offset) {
+            end_group = i;
+            break;
+        }
     }
 
-    _thread = std::thread(&ORCReaderWrap::prefetch_batch, this);
+    LOG(INFO) << "This reader read orc file from offset: " << _range_start_offset
+              << " with size: " << _range_size << ". Also mean that read from strip id from "
+              << start_group << " to " << end_group;
+
+    if (!_reader->Seek(row_number).ok()) {
+        LOG(WARNING) << "Failed to seek to the line number: " << row_number;
+        return Status::InternalError("Failed to seek to the line number");
+    }
+
+    _current_group = start_group;
+    _total_groups = end_group;
 
     return Status::OK();
 }
@@ -168,42 +210,30 @@ Status ORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, boo
     return Status::OK();
 }
 
-void ORCReaderWrap::prefetch_batch() {
-    auto insert_batch = [this](const auto& batch) {
-        std::unique_lock<std::mutex> lock(_mtx);
-        while (!_closed && _queue.size() == _max_queue_size) {
-            _queue_writer_cond.wait_for(lock, std::chrono::seconds(1));
-        }
-        if (UNLIKELY(_closed)) {
-            return;
-        }
-        _queue.push_back(batch);
-        _queue_reader_cond.notify_one();
-    };
-    int current_group = _current_group;
-    int total_groups = _total_groups;
-    while (true) {
-        if (_closed || current_group >= total_groups) {
-            _batch_eof = true;
-            _queue_reader_cond.notify_one();
 
-            return;
-        }
-        if (config::orc_predicate_push_down) {
-            auto filter_group_set = _strip_reader->filter_groups();
-            if (filter_group_set.end() != filter_group_set.find(current_group)) {
-                // find filter group, skip
-                current_group++;
-                continue;
-            }
-        }
-
-        arrow::Result<std::shared_ptr<arrow::RecordBatch>> maybe_batch =
-                _reader->ReadStripe(current_group, _include_column_ids);
-
-        insert_batch(maybe_batch.ValueOrDie());
-        current_group++;
+void ORCReaderWrap::read_batches(arrow::RecordBatchVector& batches, int current_group) {
+    bool eof = false;
+    Status status = _next_stripe_reader(&eof);
+    if (!status.ok()) {
+        _closed = true;
+        return;
     }
+    if (eof) {
+        _closed = true;
+        return;
+    }
+
+    _status = _rb_reader->ReadAll(&batches);
+}
+
+bool ORCReaderWrap::filter_row_group(int current_group) {
+        if (config::orc_predicate_push_down) {
+        auto filter_group_set = _strip_reader->filter_groups();
+        if (filter_group_set.end() != filter_group_set.find(_current_group)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace doris

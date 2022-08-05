@@ -17,7 +17,7 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.statistics.StatisticsTaskResult.TaskResult;
 
@@ -50,7 +50,7 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
         FAILED
     }
 
-    protected long id = Catalog.getCurrentCatalog().getNextId();
+    protected long id = Env.getCurrentEnv().getNextId();
     protected long jobId;
     protected List<StatisticsDesc> statsDescs;
     protected TaskState taskState = TaskState.PENDING;

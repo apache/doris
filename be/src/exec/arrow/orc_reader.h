@@ -36,40 +36,29 @@ class StripeReader;
 class ORCReaderWrap final : public ArrowReaderWrap {
 public:
     ORCReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file,
-                  int64_t range_start_offset, int64_t range_size);
-    ~ORCReaderWrap() override;
+                  int64_t range_start_offset, int64_t range_size, bool caseSensitive = true);
+    ~ORCReaderWrap() override = default;
 
     Status init_reader(const TupleDescriptor* tuple_desc,
                        const std::vector<SlotDescriptor*>& tuple_slot_descs,
                        const std::vector<ExprContext*>& conjunct_ctxs,
                        const std::string& timezone) override;
-    Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
 
     std::shared_ptr<arrow::adapters::orc::ORCFileReader> getReader() { return _reader; }
 
 private:
     Status _next_stripe_reader(bool* eof);
-    void prefetch_batch();
+    Status _seek_start_stripe();
+    void read_batches(arrow::RecordBatchVector& batches, int current_group) override;
+    bool filter_row_group(int current_group) override;
 
 private:
     // orc file reader object
     std::shared_ptr<arrow::adapters::orc::ORCFileReader> _reader;
 
     bool _cur_file_eof; // is read over?
-    std::unique_ptr<doris::StripeReader> _strip_reader;
     int64_t _range_start_offset;
     int64_t _range_size;
-
-    std::thread _thread;
-    std::shared_ptr<arrow::RecordBatch> _batch;
-    std::atomic<bool> _closed = false;
-    std::atomic<bool> _batch_eof = false;
-    arrow::Status _status;
-    std::mutex _mtx;
-    std::condition_variable _queue_reader_cond;
-    std::condition_variable _queue_writer_cond;
-    std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
-    const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
 };
 
 } // namespace doris

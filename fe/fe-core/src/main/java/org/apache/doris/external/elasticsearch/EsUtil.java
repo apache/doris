@@ -36,6 +36,7 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.Type;
@@ -45,18 +46,24 @@ import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
 import org.apache.doris.thrift.TExprOpcode;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Util for ES, some static method.
  **/
 public class EsUtil {
+
+    private static final Logger LOG = LogManager.getLogger(EsUtil.class);
 
     /**
      * Analyze partition and distributionDesc.
@@ -126,16 +133,33 @@ public class EsUtil {
         }
     }
 
-    /**
-     * Get mapping properties JSONObject.
-     **/
-    public static JSONObject getMappingProps(String sourceIndex, String indexMapping, String mappingType) {
+    public static List<String> getArrayFields(String indexMapping) {
+        JSONObject mappings = getMapping(indexMapping);
+        if (!mappings.containsKey("_meta")) {
+            return new ArrayList<>();
+        }
+        JSONObject meta = (JSONObject) mappings.get("_meta");
+        if (!meta.containsKey("doris")) {
+            return new ArrayList<>();
+        }
+        JSONObject dorisMeta = (JSONObject) meta.get("doris");
+        return (List<String>) dorisMeta.get("array_field");
+    }
+
+    private static JSONObject getMapping(String indexMapping) {
         JSONObject jsonObject = (JSONObject) JSONValue.parse(indexMapping);
         // the indexName use alias takes the first mapping
         Iterator<String> keys = jsonObject.keySet().iterator();
         String docKey = keys.next();
         JSONObject docData = (JSONObject) jsonObject.get(docKey);
-        JSONObject mappings = (JSONObject) docData.get("mappings");
+        return (JSONObject) docData.get("mappings");
+    }
+
+    /**
+     * Get mapping properties JSONObject.
+     **/
+    public static JSONObject getMappingProps(String sourceIndex, String indexMapping, String mappingType) {
+        JSONObject mappings = getMapping(indexMapping);
         JSONObject rootSchema = (JSONObject) mappings.get(mappingType);
         JSONObject properties;
         // Elasticsearch 7.x, type was removed from ES mapping, default type is `_doc`
@@ -143,6 +167,18 @@ public class EsUtil {
         // Elasticsearch 8.x, include_type_name parameter is removed
         if (rootSchema == null) {
             properties = (JSONObject) mappings.get("properties");
+            // Compatible es6 with no type passed in.
+            if (mappingType == null) {
+                String typeKey = (String) mappings.keySet().iterator().next();
+                JSONObject typeProps = (JSONObject) ((JSONObject) mappings.get(typeKey)).get("properties");
+                if (typeProps != null) {
+                    properties = typeProps;
+                    if (properties.containsKey("mappings")) {
+                        properties.remove("mappings");
+                        properties.remove("settings");
+                    }
+                }
+            }
         } else {
             properties = (JSONObject) rootSchema.get("properties");
         }
@@ -349,6 +385,38 @@ public class EsUtil {
         return null;
     }
 
+
+    /**
+     * Generate columns from ES Cluster.
+     **/
+    public static List<Column> genColumnsFromEs(EsRestClient client, String indexName, String mappingType) {
+        String mapping = client.getMapping(indexName);
+        JSONObject mappingProps = getMappingProps(indexName, mapping, mappingType);
+        List<String> arrayFields = getArrayFields(mapping);
+        Set<String> keys = (Set<String>) mappingProps.keySet();
+        List<Column> columns = new ArrayList<>();
+        for (String key : keys) {
+            JSONObject field = (JSONObject) mappingProps.get(key);
+            // Complex types are not currently supported.
+            if (field.containsKey("type")) {
+                Type type = toDorisType(field.get("type").toString());
+                if (!type.isInvalid()) {
+                    Column column = new Column();
+                    column.setName(key);
+                    column.setIsKey(true);
+                    column.setIsAllowNull(true);
+                    if (arrayFields.contains(key)) {
+                        column.setType(ArrayType.create(type, true));
+                    } else {
+                        column.setType(type);
+                    }
+                    columns.add(column);
+                }
+            }
+        }
+        return columns;
+    }
+
     /**
      * Transfer es type to doris type.
      **/
@@ -429,8 +497,7 @@ public class EsUtil {
             if (StringUtils.isNotBlank(type)) {
                 initScrollUrl.append("/").append(type);
             }
-            initScrollUrl.append("/_search?").append(filterPath).append("&terminate_after=")
-                    .append(batchSize);
+            initScrollUrl.append("/_search?").append(filterPath).append("&terminate_after=").append(batchSize);
             nextScrollUrl.append("/_search/scroll?").append(filterPath);
             return new EsUrls(null, initScrollUrl.toString(), nextScrollUrl.toString());
         } else {

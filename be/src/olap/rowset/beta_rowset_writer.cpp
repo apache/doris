@@ -161,6 +161,8 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
     _num_segment += rowset->num_segments();
+    // append key_bounds to current rowset
+    rowset->get_segments_key_bounds(&_segments_encoded_key_bounds);
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
@@ -249,6 +251,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     } else {
         _rowset_meta->set_rowset_state(VISIBLE);
     }
+    _rowset_meta->set_segments_key_bounds(_segments_encoded_key_bounds);
 
     if (_rowset_meta->oldest_write_timestamp() == -1) {
         _rowset_meta->set_oldest_write_timestamp(UnixSeconds());
@@ -287,6 +290,7 @@ Status BetaRowsetWriter::_create_segment_writer(
 
     DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
+    writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segment,
                                                 _context.tablet_schema, _context.data_dir,
                                                 _context.max_rows_per_segment, writer_options));
@@ -305,6 +309,7 @@ Status BetaRowsetWriter::_create_segment_writer(
 }
 
 Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+    _segment_num_rows.push_back((*writer)->num_rows_written());
     if ((*writer)->num_rows_written() == 0) {
         return Status::OK();
     }
@@ -317,6 +322,13 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     }
     _total_data_size += segment_size;
     _total_index_size += index_size;
+    KeyBoundsPB key_bounds;
+    Slice min_key = (*writer)->min_encoded_key();
+    Slice max_key = (*writer)->max_encoded_key();
+    DCHECK_LE(min_key.compare(max_key), 0);
+    key_bounds.set_min_key(min_key.to_string());
+    key_bounds.set_max_key(max_key.to_string());
+    _segments_encoded_key_bounds.emplace_back(key_bounds);
     writer->reset();
     return Status::OK();
 }

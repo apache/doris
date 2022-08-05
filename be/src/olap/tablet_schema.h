@@ -31,7 +31,7 @@ namespace vectorized {
 class Block;
 }
 
-class POlapTableSchemaParam;
+class POlapTableIndexSchema;
 
 class TabletColumn {
 public:
@@ -133,6 +133,8 @@ public:
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column);
+    void copy_from(const TabletSchema& tablet_schema);
+    std::string to_key() const;
     uint32_t mem_size() const;
 
     size_t row_size() const;
@@ -167,8 +169,8 @@ public:
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
     vectorized::Block create_block() const;
 
-    void build_current_tablet_schema(int64_t index_id,
-                                     const POlapTableSchemaParam& ptable_schema_param,
+    void build_current_tablet_schema(int64_t index_id, int32_t version,
+                                     const POlapTableIndexSchema& index,
                                      const TabletSchema& out_tablet_schema);
 
 private:
@@ -204,5 +206,7 @@ private:
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);
 bool operator!=(const TabletSchema& a, const TabletSchema& b);
+
+using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
 } // namespace doris

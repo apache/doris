@@ -51,6 +51,18 @@ FE 分为 Leader，Follower 和 Observer 三种角色。 默认一个集群，�
 
 第一个启动的 FE 自动成为 Leader。在此基础上，可以添加若干 Follower 和 Observer。
 
+#### 配置及启动 Follower 或 Observer
+
+这里 Follower 和 Observer 的配置同 Leader 的配置。
+
+首先第一次启动时，需执行以下命令：
+
+`./bin/start_fe.sh --helper leader_fe_host:edit_log_port --daemon`
+
+其中 leader\_fe\_host 为 Leader 所在节点 ip, edit\_log\_port 在 Leader 的配置文件 fe.conf 中。--helper 参数仅在 follower 和 observer 第一次启动时才需要。
+
+#### 将 Follower 或 Observer 加入到集群
+
 添加 Follower 或 Observer。使用 mysql-client 连接到已启动的 FE，并执行：
 
 `ALTER SYSTEM ADD FOLLOWER "follower_host:edit_log_port";`
@@ -60,12 +72,6 @@ FE 分为 Leader，Follower 和 Observer 三种角色。 默认一个集群，�
 `ALTER SYSTEM ADD OBSERVER "observer_host:edit_log_port";`
 
 其中 follower\_host和observer\_host 为 Follower 或 Observer 所在节点 ip，edit\_log\_port 在其配置文件 fe.conf 中。
-
-配置及启动 Follower 或 Observer。Follower 和 Observer 的配置同 Leader 的配置。第一次启动时，需执行以下命令：
-
-`./bin/start_fe.sh --helper leader_fe_host:edit_log_port --daemon`
-
-其中 leader\_fe\_host 为 Leader 所在节点 ip, edit\_log\_port 在 Leader 的配置文件 fe.conf 中。--helper 参数仅在 follower 和 observer 第一次启动时才需要。
 
 查看 Follower 或 Observer 运行状态。使用 mysql-client 连接到任一已启动的 FE，并执行：SHOW PROC '/frontends'; 可以查看当前已加入集群的 FE 及其对应角色。
 
@@ -121,8 +127,8 @@ DECOMMISSION 语句如下：
 
 > DECOMMISSION 命令说明：
 > 1. 该命令用于安全删除 BE 节点。命令下发后，Doris 会尝试将该 BE 上的数据向其他 BE 节点迁移，当所有数据都迁移完成后，Doris 会自动删除该节点。
-> 2. 该命令是一个异步操作。执行后，可以通过 ```SHOW PROC '/backends';``` 看到该 BE 节点的 isDecommission 状态为 true。表示该节点正在进行下线。
-> 3. 该命令**不一定执行成功**。比如剩余 BE 存储空间不足以容纳下线 BE 上的数据，或者剩余机器数量不满足最小副本数时，该命令都无法完成，并且 BE 会一直处于 isDecommission 为 true 的状态。
+> 2. 该命令是一个异步操作。执行后，可以通过 ```SHOW PROC '/backends';``` 看到该 BE 节点的 `SystemDecommissioned` 状态为 true。表示该节点正在进行下线。
+> 3. 该命令**不一定执行成功**。比如剩余 BE 存储空间不足以容纳下线 BE 上的数据，或者剩余机器数量不满足最小副本数时，该命令都无法完成，并且 BE 会一直处于 `SystemDecommissioned` 为 true 的状态。
 > 4. DECOMMISSION 的进度，可以通过 ```SHOW PROC '/backends';``` 中的 TabletNum 查看，如果正在进行，TabletNum 将不断减少。
 > 5. 该操作可以通过:  
      > 		```CANCEL DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```  
@@ -139,3 +145,5 @@ Broker 实例的数量没有硬性要求。通常每台物理机部署一个即�
 ```ALTER SYSTEM DROP ALL BROKER broker_name;```
 
 Broker 是无状态的进程，可以随意启停。当然，停止后，正在其上运行的作业会失败，重试即可。
+
+

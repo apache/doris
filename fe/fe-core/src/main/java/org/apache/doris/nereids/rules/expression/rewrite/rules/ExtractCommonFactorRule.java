@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
+import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -37,6 +38,7 @@ import java.util.stream.Collectors;
  * transform (a or b) and (a or c) to a or (b and c)
  * transform (a and b) or (a and c) to a and (b or c)
  */
+@Developing
 public class ExtractCommonFactorRule extends AbstractExpressionRewriteRule {
 
     public static final ExtractCommonFactorRule INSTANCE = new ExtractCommonFactorRule();
@@ -44,7 +46,7 @@ public class ExtractCommonFactorRule extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitCompoundPredicate(CompoundPredicate expr, ExpressionRewriteContext context) {
 
-        Expression rewrittenChildren = ExpressionUtils.combine(expr.getType(), ExpressionUtils.extract(expr).stream()
+        Expression rewrittenChildren = ExpressionUtils.combine(expr.getClass(), ExpressionUtils.extract(expr).stream()
                 .map(predicate -> rewrite(predicate, context)).collect(Collectors.toList()));
 
         if (!(rewrittenChildren instanceof CompoundPredicate)) {
@@ -64,13 +66,14 @@ public class ExtractCommonFactorRule extends AbstractExpressionRewriteRule {
                 .map(predicates -> predicates.stream().filter(p -> !commons.contains(p)).collect(Collectors.toList()))
                 .collect(Collectors.toList());
 
-        Expression combineUncorrelated = ExpressionUtils.combine(compoundPredicate.getType(),
-                uncorrelated.stream().map(predicates -> ExpressionUtils.combine(compoundPredicate.flip(), predicates))
+        Expression combineUncorrelated = ExpressionUtils.combine(compoundPredicate.getClass(),
+                uncorrelated.stream()
+                        .map(predicates -> ExpressionUtils.combine(compoundPredicate.flipType(), predicates))
                         .collect(Collectors.toList()));
 
         List<Expression> finalCompound = Lists.newArrayList(commons);
         finalCompound.add(combineUncorrelated);
 
-        return ExpressionUtils.combine(compoundPredicate.flip(), finalCompound);
+        return ExpressionUtils.combine(compoundPredicate.flipType(), finalCompound);
     }
 }

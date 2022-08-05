@@ -104,12 +104,13 @@ public class ShowAlterStmt extends ShowStmt {
         if (!(subExpr instanceof BinaryPredicate)) {
             throw new AnalysisException("The operator =|>=|<=|>|<|!= are supported.");
         }
+
         BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
         if (!(subExpr.getChild(0) instanceof SlotRef)) {
             throw new AnalysisException("Only support column = xxx syntax.");
         }
         String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName().toLowerCase();
-        if (leftKey.equals("tablename") || leftKey.equals("state")) {
+        if (leftKey.equals("tablename") || leftKey.equals("state") || leftKey.equals("indexname")) {
             if (!(subExpr.getChild(1) instanceof StringLiteral)
                     || binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
                 throw new AnalysisException("Where clause : TableName = \"table1\" or "
@@ -121,9 +122,10 @@ public class ShowAlterStmt extends ShowStmt {
                     + "\"2019-12-02|2019-12-02 14:54:00\"");
             }
             subExpr.setChild(1, (subExpr.getChild(1)).castTo(
-                    DateLiteral.getDefaultDateType(Type.DATETIME)));
+                    ScalarType.getDefaultDateType(Type.DATETIME)));
         } else {
-            throw new AnalysisException("The columns of TableName/CreateTime/FinishTime/State are supported.");
+            throw new AnalysisException(
+                    "The columns of TableName/IndexName/CreateTime/FinishTime/State are supported.");
         }
         filterMap.put(leftKey, subExpr);
     }
@@ -191,7 +193,7 @@ public class ShowAlterStmt extends ShowStmt {
     }
 
     public void handleShowAlterTable(Analyzer analyzer) throws UserException {
-        DatabaseIf db = analyzer.getCatalog().getInternalDataSource().getDbOrAnalysisException(dbName);
+        DatabaseIf db = analyzer.getEnv().getInternalDataSource().getDbOrAnalysisException(dbName);
 
         // build proc path
         StringBuilder sb = new StringBuilder();

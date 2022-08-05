@@ -249,11 +249,6 @@ private:
 
 class SchemaChangeHandler {
 public:
-    static Status schema_version_convert(TabletSharedPtr base_tablet, TabletSharedPtr new_tablet,
-                                         RowsetSharedPtr* base_rowset, RowsetSharedPtr* new_rowset,
-                                         DescriptorTbl desc_tbl,
-                                         const TabletSchema* base_schema_change);
-
     // schema change v2, it will not set alter task in base tablet
     static Status process_alter_tablet_v2(const TAlterTabletReqV2& request);
 
@@ -333,6 +328,7 @@ private:
 
     static std::shared_mutex _mutex;
     static std::unordered_set<int64_t> _tablet_ids_in_converting;
+    static std::set<std::string> _supported_functions;
 };
 
 using RowBlockDeleter = std::function<void(RowBlock*)>;

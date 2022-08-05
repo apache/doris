@@ -56,6 +56,7 @@
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
 #include "service/http_service.h"
+#include "service/single_replica_load_download_service.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/logging.h"
@@ -281,7 +282,8 @@ int main(int argc, char** argv) {
 
     // open pid file, obtain file lock and save pid
     string pid_file = string(getenv("PID_DIR")) + "/be.pid";
-    int fd = open(pid_file.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+    int fd = open(pid_file.c_str(), O_RDWR | O_CREAT,
+                  S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
     if (fd < 0) {
         fprintf(stderr, "fail to create pid file.");
         exit(-1);
@@ -378,6 +380,7 @@ int main(int argc, char** argv) {
     // init exec env
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
+    doris::TabletSchemaCache::create_global_schema_cache();
 
     // init and open storage engine
     doris::EngineOptions options;
@@ -396,7 +399,7 @@ int main(int argc, char** argv) {
     // SHOULD be called after exec env is initialized.
     EXIT_IF_ERROR(engine->start_bg_threads());
 
-    doris::telemetry::initTracer();
+    doris::telemetry::init_tracer();
 
     // begin to start services
     doris::ThriftRpcHelper::setup(exec_env);
@@ -413,11 +416,23 @@ int main(int argc, char** argv) {
 
     // 2. bprc service
     doris::BRpcService brpc_service(exec_env);
-    status = brpc_service.start(doris::config::brpc_port);
+    status = brpc_service.start(doris::config::brpc_port, doris::config::brpc_num_threads);
     if (!status.ok()) {
         LOG(ERROR) << "BRPC service did not start correctly, exiting";
         doris::shutdown_logging();
         exit(1);
+    }
+
+    doris::BRpcService single_replica_load_brpc_service(exec_env);
+    if (doris::config::enable_single_replica_load) {
+        status = single_replica_load_brpc_service.start(
+                doris::config::single_replica_load_brpc_port,
+                doris::config::single_replica_load_brpc_num_threads);
+        if (!status.ok()) {
+            LOG(ERROR) << "single replica load BRPC service did not start correctly, exiting";
+            doris::shutdown_logging();
+            exit(1);
+        }
     }
 
     // 3. http service
@@ -428,6 +443,18 @@ int main(int argc, char** argv) {
         LOG(ERROR) << "Doris Be http service did not start correctly, exiting";
         doris::shutdown_logging();
         exit(1);
+    }
+
+    doris::SingleReplicaLoadDownloadService download_service(
+            exec_env, doris::config::single_replica_load_download_port,
+            doris::config::single_replica_load_download_num_workers);
+    if (doris::config::enable_single_replica_load) {
+        status = download_service.start();
+        if (!status.ok()) {
+            LOG(ERROR) << "Doris Be download service did not start correctly, exiting";
+            doris::shutdown_logging();
+            exit(1);
+        }
     }
 
     // 4. heart beat server
@@ -472,15 +499,20 @@ int main(int argc, char** argv) {
 #endif
         doris::PerfCounters::refresh_proc_status();
 
-        // TODO(zxy) 10s is too long to clear the expired task mem tracker.
-        // A query mem tracker is about 57 bytes, assuming 10000 qps, which wastes about 55M of memory.
-        // It should be actively triggered at the end of query/load.
-        doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
+        // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
+        // this will cause coredump for ASAN build when running regression test,
+        // disable temporarily.
+        // TODO: fix the coredump
+        // doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
         sleep(1);
     }
 
     http_service.stop();
     brpc_service.join();
+    if (doris::config::enable_single_replica_load) {
+        download_service.stop();
+        single_replica_load_brpc_service.join();
+    }
     daemon.stop();
     heartbeat_thrift_server->stop();
     heartbeat_thrift_server->join();

@@ -257,6 +257,24 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
         } else
             return EmplaceResult(inserted);
     }
+
+    template <typename Data>
+    ALWAYS_INLINE FindResult find_key(Data& data, size_t row, Arena& pool) {
+        if (key_columns[0]->is_null_at(row)) {
+            bool has_null_key = data.has_null_key_data();
+            if constexpr (has_mapped)
+                return FindResult(&data.get_null_key_data(), has_null_key);
+            else
+                return FindResult(has_null_key);
+        }
+        auto key_holder = Base::get_key_holder(row, pool);
+        auto key = key_holder_get_key(key_holder);
+        auto it = data.find(key);
+        if constexpr (has_mapped)
+            return FindResult(it ? lookup_result_get_mapped(it) : nullptr, it != nullptr);
+        else
+            return FindResult(it != nullptr);
+    }
 };
 
 } // namespace ColumnsHashing

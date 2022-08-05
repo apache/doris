@@ -388,12 +388,12 @@ private:
 
     std::unique_ptr<MemTrackerLimiter> _mem_tracker;
     std::shared_ptr<MetricEntity> _entity = nullptr;
-    IntGauge* capacity = nullptr;
-    IntGauge* usage = nullptr;
-    DoubleGauge* usage_ratio = nullptr;
-    IntAtomicCounter* lookup_count = nullptr;
-    IntAtomicCounter* hit_count = nullptr;
-    DoubleGauge* hit_ratio = nullptr;
+    IntGauge* cache_capacity = nullptr;
+    IntGauge* cache_usage = nullptr;
+    DoubleGauge* cache_usage_ratio = nullptr;
+    IntAtomicCounter* cache_lookup_count = nullptr;
+    IntAtomicCounter* cache_hit_count = nullptr;
+    DoubleGauge* cache_hit_ratio = nullptr;
 };
 
 } // namespace doris

@@ -26,6 +26,7 @@
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/fixed_hash_map.h"
 #include "vec/exprs/vectorized_agg_fn.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class TPlanNode;
@@ -92,6 +93,11 @@ struct AggregationMethodSerialized {
         for (auto& column : key_columns) pos = column->deserialize_and_insert_from_arena(pos);
     }
 
+    static void insert_keys_into_columns(std::vector<StringRef>& keys, MutableColumns& key_columns,
+                                         const size_t num_rows, const Sizes&) {
+        for (auto& column : key_columns) column->deserialize_vec(keys, num_rows);
+    }
+
     void init_once() {
         if (!inited) {
             inited = true;
@@ -136,6 +142,12 @@ struct AggregationMethodStringNoCache {
         key_columns[0]->insert_data(key.data, key.size);
     }
 
+    static void insert_keys_into_columns(std::vector<StringRef>& keys, MutableColumns& key_columns,
+                                         const size_t num_rows, const Sizes&) {
+        key_columns[0]->reserve(num_rows);
+        key_columns[0]->insert_many_strings(keys.data(), num_rows);
+    }
+
     void init_once() {
         if (!inited) {
             inited = true;
@@ -146,7 +158,7 @@ struct AggregationMethodStringNoCache {
 
 /// For the case where there is one numeric key.
 /// FieldType is UInt8/16/32/64 for any type with corresponding bit width.
-template <typename FieldType, typename TData, bool consecutive_keys_optimization = true>
+template <typename FieldType, typename TData, bool consecutive_keys_optimization = false>
 struct AggregationMethodOneNumber {
     using Data = TData;
     using Key = typename Data::key_type;
@@ -172,6 +184,16 @@ struct AggregationMethodOneNumber {
         const auto* key_holder = reinterpret_cast<const char*>(&key);
         auto* column = static_cast<ColumnVectorHelper*>(key_columns[0].get());
         column->insert_raw_data<sizeof(FieldType)>(key_holder);
+    }
+
+    static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
+                                         const size_t num_rows, const Sizes&) {
+        key_columns[0]->reserve(num_rows);
+        auto* column = static_cast<ColumnVectorHelper*>(key_columns[0].get());
+        for (size_t i = 0; i != num_rows; ++i) {
+            const auto* key_holder = reinterpret_cast<const char*>(&keys[i]);
+            column->insert_raw_data<sizeof(FieldType)>(key_holder);
+        }
     }
 
     void init_once() {
@@ -226,7 +248,7 @@ struct AggregationMethodKeysFixed {
     AggregationMethodKeysFixed(const Other& other) : data(other.data) {}
 
     using State = ColumnsHashing::HashMethodKeysFixed<typename Data::value_type, Key, Mapped,
-                                                      has_nullable_keys>;
+                                                      has_nullable_keys, false>;
 
     static void insert_key_into_columns(const Key& key, MutableColumns& key_columns,
                                         const Sizes& key_sizes) {
@@ -275,6 +297,13 @@ struct AggregationMethodKeysFixed {
         }
     }
 
+    static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
+                                         const size_t num_rows, const Sizes& key_sizes) {
+        for (size_t i = 0; i != num_rows; ++i) {
+            insert_key_into_columns(keys[i], key_columns, key_sizes);
+        }
+    }
+
     void init_once() {
         if (!inited) {
             inited = true;
@@ -312,43 +341,77 @@ struct AggregationMethodSingleNullableColumn : public SingleColumnMethod {
             col->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
         }
     }
+
+    static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
+                                         const size_t num_rows, const Sizes&) {
+        auto col = key_columns[0].get();
+        col->reserve(num_rows);
+        if constexpr (std::is_same_v<Key, StringRef>) {
+            col->insert_many_strings(keys.data(), num_rows);
+        } else {
+            col->insert_many_raw_data(reinterpret_cast<char*>(keys.data()), num_rows);
+        }
+    }
 };
 
 using AggregatedDataWithUInt8Key =
         FixedImplicitZeroHashMapWithCalculatedSize<UInt8, AggregateDataPtr>;
 using AggregatedDataWithUInt16Key = FixedImplicitZeroHashMap<UInt16, AggregateDataPtr>;
-using AggregatedDataWithUInt32Key = HashMap<UInt32, AggregateDataPtr, HashCRC32<UInt32>>;
-using AggregatedDataWithUInt64Key = HashMap<UInt64, AggregateDataPtr, HashCRC32<UInt64>>;
-using AggregatedDataWithUInt128Key = HashMap<UInt128, AggregateDataPtr, HashCRC32<UInt128>>;
-using AggregatedDataWithUInt256Key = HashMap<UInt256, AggregateDataPtr, HashCRC32<UInt256>>;
+using AggregatedDataWithUInt32Key = PHHashMap<UInt32, AggregateDataPtr, HashCRC32<UInt32>>;
+using AggregatedDataWithUInt64Key = PHHashMap<UInt64, AggregateDataPtr, HashCRC32<UInt64>>;
+using AggregatedDataWithUInt128Key = PHHashMap<UInt128, AggregateDataPtr, HashCRC32<UInt128>>;
+using AggregatedDataWithUInt256Key = PHHashMap<UInt256, AggregateDataPtr, HashCRC32<UInt256>>;
+using AggregatedDataWithUInt32KeyPhase2 =
+        PHHashMap<UInt32, AggregateDataPtr, HashMixWrapper<UInt32>>;
+using AggregatedDataWithUInt64KeyPhase2 =
+        PHHashMap<UInt64, AggregateDataPtr, HashMixWrapper<UInt64>>;
+using AggregatedDataWithUInt128KeyPhase2 =
+        PHHashMap<UInt128, AggregateDataPtr, HashMixWrapper<UInt128>>;
+using AggregatedDataWithUInt256KeyPhase2 =
+        PHHashMap<UInt256, AggregateDataPtr, HashMixWrapper<UInt256>>;
 
 using AggregatedDataWithNullableUInt8Key = AggregationDataWithNullKey<AggregatedDataWithUInt8Key>;
 using AggregatedDataWithNullableUInt16Key = AggregationDataWithNullKey<AggregatedDataWithUInt16Key>;
 using AggregatedDataWithNullableUInt32Key = AggregationDataWithNullKey<AggregatedDataWithUInt32Key>;
 using AggregatedDataWithNullableUInt64Key = AggregationDataWithNullKey<AggregatedDataWithUInt64Key>;
+using AggregatedDataWithNullableUInt32KeyPhase2 =
+        AggregationDataWithNullKey<AggregatedDataWithUInt32KeyPhase2>;
+using AggregatedDataWithNullableUInt64KeyPhase2 =
+        AggregationDataWithNullKey<AggregatedDataWithUInt64KeyPhase2>;
 using AggregatedDataWithNullableShortStringKey =
         AggregationDataWithNullKey<AggregatedDataWithShortStringKey>;
 using AggregatedDataWithNullableUInt128Key =
         AggregationDataWithNullKey<AggregatedDataWithUInt128Key>;
+using AggregatedDataWithNullableUInt128KeyPhase2 =
+        AggregationDataWithNullKey<AggregatedDataWithUInt128KeyPhase2>;
 
 using AggregatedMethodVariants = std::variant<
         AggregationMethodSerialized<AggregatedDataWithStringKey>,
-        AggregationMethodOneNumber<UInt8, AggregatedDataWithUInt8Key, false>,
-        AggregationMethodOneNumber<UInt16, AggregatedDataWithUInt16Key, false>,
+        AggregationMethodOneNumber<UInt8, AggregatedDataWithUInt8Key>,
+        AggregationMethodOneNumber<UInt16, AggregatedDataWithUInt16Key>,
         AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32Key>,
         AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64Key>,
         AggregationMethodStringNoCache<AggregatedDataWithShortStringKey>,
         AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128Key>,
+        AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32KeyPhase2>,
+        AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64KeyPhase2>,
+        AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128KeyPhase2>,
         AggregationMethodSingleNullableColumn<
-                AggregationMethodOneNumber<UInt8, AggregatedDataWithNullableUInt8Key, false>>,
+                AggregationMethodOneNumber<UInt8, AggregatedDataWithNullableUInt8Key>>,
         AggregationMethodSingleNullableColumn<
-                AggregationMethodOneNumber<UInt16, AggregatedDataWithNullableUInt16Key, false>>,
+                AggregationMethodOneNumber<UInt16, AggregatedDataWithNullableUInt16Key>>,
         AggregationMethodSingleNullableColumn<
                 AggregationMethodOneNumber<UInt32, AggregatedDataWithNullableUInt32Key>>,
         AggregationMethodSingleNullableColumn<
                 AggregationMethodOneNumber<UInt64, AggregatedDataWithNullableUInt64Key>>,
         AggregationMethodSingleNullableColumn<
+                AggregationMethodOneNumber<UInt32, AggregatedDataWithNullableUInt32KeyPhase2>>,
+        AggregationMethodSingleNullableColumn<
+                AggregationMethodOneNumber<UInt64, AggregatedDataWithNullableUInt64KeyPhase2>>,
+        AggregationMethodSingleNullableColumn<
                 AggregationMethodOneNumber<UInt128, AggregatedDataWithNullableUInt128Key>>,
+        AggregationMethodSingleNullableColumn<
+                AggregationMethodOneNumber<UInt128, AggregatedDataWithNullableUInt128KeyPhase2>>,
         AggregationMethodSingleNullableColumn<
                 AggregationMethodStringNoCache<AggregatedDataWithNullableShortStringKey>>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, false>,
@@ -356,7 +419,13 @@ using AggregatedMethodVariants = std::variant<
         AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, false>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, true>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, false>,
-        AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, true>>;
+        AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, true>,
+        AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, false>,
+        AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, true>,
+        AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, false>,
+        AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, true>,
+        AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, false>,
+        AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, true>>;
 
 struct AggregatedDataVariants {
     AggregatedDataVariants() = default;
@@ -373,11 +442,17 @@ struct AggregatedDataVariants {
         int8_key,
         int16_key,
         int32_key,
+        int32_key_phase2,
         int64_key,
+        int64_key_phase2,
         int128_key,
+        int128_key_phase2,
         int64_keys,
+        int64_keys_phase2,
         int128_keys,
+        int128_keys_phase2,
         int256_keys,
+        int256_keys_phase2,
         string_key,
     };
 
@@ -394,22 +469,20 @@ struct AggregatedDataVariants {
             break;
         case Type::int8_key:
             if (is_nullable) {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                UInt8, AggregatedDataWithNullableUInt8Key, false>>>();
+                _aggregated_method_variant.emplace<AggregationMethodSingleNullableColumn<
+                        AggregationMethodOneNumber<UInt8, AggregatedDataWithNullableUInt8Key>>>();
             } else {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodOneNumber<UInt8, AggregatedDataWithUInt8Key, false>>();
+                _aggregated_method_variant
+                        .emplace<AggregationMethodOneNumber<UInt8, AggregatedDataWithUInt8Key>>();
             }
             break;
         case Type::int16_key:
             if (is_nullable) {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                UInt16, AggregatedDataWithNullableUInt16Key, false>>>();
+                _aggregated_method_variant.emplace<AggregationMethodSingleNullableColumn<
+                        AggregationMethodOneNumber<UInt16, AggregatedDataWithNullableUInt16Key>>>();
             } else {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodOneNumber<UInt16, AggregatedDataWithUInt16Key, false>>();
+                _aggregated_method_variant
+                        .emplace<AggregationMethodOneNumber<UInt16, AggregatedDataWithUInt16Key>>();
             }
             break;
         case Type::int32_key:
@@ -421,6 +494,16 @@ struct AggregatedDataVariants {
                         .emplace<AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32Key>>();
             }
             break;
+        case Type::int32_key_phase2:
+            if (is_nullable) {
+                _aggregated_method_variant
+                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
+                                UInt32, AggregatedDataWithNullableUInt32KeyPhase2>>>();
+            } else {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32KeyPhase2>>();
+            }
+            break;
         case Type::int64_key:
             if (is_nullable) {
                 _aggregated_method_variant.emplace<AggregationMethodSingleNullableColumn<
@@ -428,6 +511,16 @@ struct AggregatedDataVariants {
             } else {
                 _aggregated_method_variant
                         .emplace<AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64Key>>();
+            }
+            break;
+        case Type::int64_key_phase2:
+            if (is_nullable) {
+                _aggregated_method_variant
+                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
+                                UInt64, AggregatedDataWithNullableUInt64KeyPhase2>>>();
+            } else {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64KeyPhase2>>();
             }
             break;
         case Type::int128_key:
@@ -440,6 +533,16 @@ struct AggregatedDataVariants {
                         AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128Key>>();
             }
             break;
+        case Type::int128_key_phase2:
+            if (is_nullable) {
+                _aggregated_method_variant
+                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
+                                UInt128, AggregatedDataWithNullableUInt128KeyPhase2>>>();
+            } else {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128KeyPhase2>>();
+            }
+            break;
         case Type::int64_keys:
             if (is_nullable) {
                 _aggregated_method_variant
@@ -447,6 +550,15 @@ struct AggregatedDataVariants {
             } else {
                 _aggregated_method_variant
                         .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, false>>();
+            }
+            break;
+        case Type::int64_keys_phase2:
+            if (is_nullable) {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, true>>();
+            } else {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, false>>();
             }
             break;
         case Type::int128_keys:
@@ -458,6 +570,15 @@ struct AggregatedDataVariants {
                         .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, false>>();
             }
             break;
+        case Type::int128_keys_phase2:
+            if (is_nullable) {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, true>>();
+            } else {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, false>>();
+            }
+            break;
         case Type::int256_keys:
             if (is_nullable) {
                 _aggregated_method_variant
@@ -465,6 +586,15 @@ struct AggregatedDataVariants {
             } else {
                 _aggregated_method_variant
                         .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, false>>();
+            }
+            break;
+        case Type::int256_keys_phase2:
+            if (is_nullable) {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, true>>();
+            } else {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, false>>();
             }
             break;
         case Type::string_key:
@@ -518,6 +648,7 @@ private:
 
     bool _needs_finalize;
     bool _is_merge;
+    bool _is_first_phase;
     std::unique_ptr<MemPool> _mem_pool;
 
     std::unique_ptr<MemTracker> _data_mem_tracker;
@@ -544,10 +675,15 @@ private:
     bool _should_expand_hash_table = true;
     std::vector<char*> _streaming_pre_places;
 
+    bool _should_limit_output = false;
+    bool _reach_limit = false;
+
 private:
     /// Return true if we should keep expanding hash tables in the preagg. If false,
     /// the preagg should pass through any rows it can't fit in its tables.
     bool _should_expand_preagg_hash_tables();
+
+    size_t _get_hash_table_size();
 
     void _make_nullable_output_key(Block* block);
 
@@ -579,6 +715,141 @@ private:
             state.set_serialized_keys(agg_method.keys.data());
         }
     }
+
+    template <bool limit>
+    Status _execute_with_serialized_key_helper(Block* block) {
+        SCOPED_TIMER(_build_timer);
+        DCHECK(!_probe_expr_ctxs.empty());
+
+        size_t key_size = _probe_expr_ctxs.size();
+        ColumnRawPtrs key_columns(key_size);
+        {
+            SCOPED_TIMER(_expr_timer);
+            for (size_t i = 0; i < key_size; ++i) {
+                int result_column_id = -1;
+                RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
+                block->get_by_position(result_column_id).column =
+                        block->get_by_position(result_column_id)
+                                .column->convert_to_full_column_if_const();
+                key_columns[i] = block->get_by_position(result_column_id).column.get();
+            }
+        }
+
+        int rows = block->rows();
+        PODArray<AggregateDataPtr> places(rows);
+
+        if constexpr (limit) {
+            _find_in_hash_table(places.data(), key_columns, rows);
+
+            for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+                _aggregate_evaluators[i]->execute_batch_add_selected(
+                        block, _offsets_of_aggregate_states[i], places.data(), &_agg_arena_pool);
+            }
+        } else {
+            _emplace_into_hash_table(places.data(), key_columns, rows);
+
+            for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+                _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
+                                                            places.data(), &_agg_arena_pool);
+            }
+
+            if (_should_limit_output) {
+                _reach_limit = _get_hash_table_size() >= _limit;
+            }
+        }
+
+        return Status::OK();
+    }
+
+    template <bool limit>
+    Status _merge_with_serialized_key_helper(Block* block) {
+        SCOPED_TIMER(_merge_timer);
+
+        size_t key_size = _probe_expr_ctxs.size();
+        ColumnRawPtrs key_columns(key_size);
+
+        for (size_t i = 0; i < key_size; ++i) {
+            int result_column_id = -1;
+            RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
+            key_columns[i] = block->get_by_position(result_column_id).column.get();
+        }
+
+        int rows = block->rows();
+        PODArray<AggregateDataPtr> places(rows);
+
+        if constexpr (limit) {
+            _find_in_hash_table(places.data(), key_columns, rows);
+
+            for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+                DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
+                       _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
+                int col_id = ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())
+                                     ->column_id();
+                if (_aggregate_evaluators[i]->is_merge()) {
+                    auto column = block->get_by_position(col_id).column;
+                    if (column->is_nullable()) {
+                        column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
+                    }
+
+                    std::unique_ptr<char[]> deserialize_buffer(
+                            new char[_aggregate_evaluators[i]->function()->size_of_data() * rows]);
+
+                    _aggregate_evaluators[i]->function()->deserialize_vec(
+                            deserialize_buffer.get(), (ColumnString*)(column.get()),
+                            &_agg_arena_pool, rows);
+                    _aggregate_evaluators[i]->function()->merge_vec_selected(
+                            places.data(), _offsets_of_aggregate_states[i],
+                            deserialize_buffer.get(), &_agg_arena_pool, rows);
+
+                } else {
+                    _aggregate_evaluators[i]->execute_batch_add_selected(
+                            block, _offsets_of_aggregate_states[i], places.data(),
+                            &_agg_arena_pool);
+                }
+            }
+        } else {
+            _emplace_into_hash_table(places.data(), key_columns, rows);
+
+            for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+                DCHECK(_aggregate_evaluators[i]->input_exprs_ctxs().size() == 1 &&
+                       _aggregate_evaluators[i]->input_exprs_ctxs()[0]->root()->is_slot_ref());
+                int col_id = ((VSlotRef*)_aggregate_evaluators[i]->input_exprs_ctxs()[0]->root())
+                                     ->column_id();
+                if (_aggregate_evaluators[i]->is_merge()) {
+                    auto column = block->get_by_position(col_id).column;
+                    if (column->is_nullable()) {
+                        column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
+                    }
+
+                    std::unique_ptr<char[]> deserialize_buffer(
+                            new char[_aggregate_evaluators[i]->function()->size_of_data() * rows]);
+
+                    _aggregate_evaluators[i]->function()->deserialize_vec(
+                            deserialize_buffer.get(), (ColumnString*)(column.get()),
+                            &_agg_arena_pool, rows);
+                    _aggregate_evaluators[i]->function()->merge_vec(
+                            places.data(), _offsets_of_aggregate_states[i],
+                            deserialize_buffer.get(), &_agg_arena_pool, rows);
+
+                } else {
+                    _aggregate_evaluators[i]->execute_batch_add(block,
+                                                                _offsets_of_aggregate_states[i],
+                                                                places.data(), &_agg_arena_pool);
+                }
+            }
+
+            if (_should_limit_output) {
+                _reach_limit = _get_hash_table_size() >= _limit;
+            }
+        }
+
+        return Status::OK();
+    }
+
+    void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
+                                  const size_t num_rows);
+
+    void _find_in_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns, size_t num_rows);
 
     void release_tracker();
 

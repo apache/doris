@@ -174,6 +174,10 @@ public:
 
     virtual Status init(RuntimeState* state);
 
+    void add_slave_tablet_nodes(int64_t tablet_id, const std::vector<int64_t>& slave_nodes) {
+        _slave_tablet_nodes[tablet_id] = slave_nodes;
+    }
+
     // we use open/open_wait to parallel
     void open();
     virtual Status open_wait();
@@ -287,6 +291,8 @@ protected:
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
 
     std::vector<TTabletWithPartition> _all_tablets;
+    // map from tablet_id to node_id where slave replicas locate in
+    std::unordered_map<int64_t, std::vector<int64_t>> _slave_tablet_nodes;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
 
     AddBatchCounter _add_batch_counter;
@@ -477,6 +483,8 @@ protected:
     // TODO(zc): think about cache this data
     std::shared_ptr<OlapTableSchemaParam> _schema;
     OlapTableLocationParam* _location = nullptr;
+    bool _write_single_replica = false;
+    OlapTableLocationParam* _slave_location = nullptr;
     DorisNodesInfo* _nodes_info = nullptr;
 
     RuntimeProfile* _profile = nullptr;

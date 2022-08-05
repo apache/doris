@@ -91,18 +91,40 @@ public:
     virtual void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                        Arena* arena) const = 0;
 
+    virtual void merge_vec(const AggregateDataPtr* places, size_t offset, ConstAggregateDataPtr rhs,
+                           Arena* arena, const size_t num_rows) const = 0;
+
+    // same as merge_vec, but only call "merge" function when place is not nullptr
+    virtual void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                    ConstAggregateDataPtr rhs, Arena* arena,
+                                    const size_t num_rows) const = 0;
+
     /// Serializes state (to transmit it over the network, for example).
     virtual void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const = 0;
+
+    virtual void serialize_vec(const std::vector<AggregateDataPtr>& places, size_t offset,
+                               BufferWritable& buf, const size_t num_rows) const = 0;
 
     /// Deserializes state. This function is called only for empty (just created) states.
     virtual void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                              Arena* arena) const = 0;
+
+    virtual void deserialize_vec(AggregateDataPtr places, ColumnString* column, Arena* arena,
+                                 size_t num_rows) const = 0;
+
+    /// Deserializes state and merge it with current aggregation function.
+    virtual void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
+                                       Arena* arena) const = 0;
 
     /// Returns true if a function requires Arena to handle own states (see add(), merge(), deserialize()).
     virtual bool allocates_memory_in_arena() const { return false; }
 
     /// Inserts results into a column.
     virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
+
+    virtual void insert_result_into_vec(const std::vector<AggregateDataPtr>& places,
+                                        const size_t offset, IColumn& to,
+                                        const size_t num_rows) const = 0;
 
     /** Returns true for aggregate functions of type -State.
       * They are executed as other aggregate functions, but not finalized (return an aggregation state that can be combined with another).
@@ -114,6 +136,11 @@ public:
       */
     virtual void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                            const IColumn** columns, Arena* arena) const = 0;
+
+    // same as add_batch, but only call "add" function when place is not nullptr
+    virtual void add_batch_selected(size_t batch_size, AggregateDataPtr* places,
+                                    size_t place_offset, const IColumn** columns,
+                                    Arena* arena) const = 0;
 
     /** The same for single place.
       */
@@ -152,6 +179,15 @@ public:
         }
     }
 
+    void add_batch_selected(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                            const IColumn** columns, Arena* arena) const override {
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (places[i]) {
+                static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
+            }
+        }
+    }
+
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
         for (size_t i = 0; i < batch_size; ++i) {
@@ -174,6 +210,53 @@ public:
                          const IColumn** columns, Arena* arena, bool has_null) override {
         for (size_t i = batch_begin; i <= batch_end; ++i) {
             static_cast<const Derived*>(this)->add(place, columns, i, arena);
+        }
+    }
+
+    void insert_result_into_vec(const std::vector<AggregateDataPtr>& places, const size_t offset,
+                                IColumn& to, const size_t num_rows) const override {
+        for (size_t i = 0; i != num_rows; ++i) {
+            static_cast<const Derived*>(this)->insert_result_into(places[i] + offset, to);
+        }
+    }
+
+    void serialize_vec(const std::vector<AggregateDataPtr>& places, size_t offset,
+                       BufferWritable& buf, const size_t num_rows) const override {
+        for (size_t i = 0; i != num_rows; ++i) {
+            static_cast<const Derived*>(this)->serialize(places[i] + offset, buf);
+            buf.commit();
+        }
+    }
+
+    void deserialize_vec(AggregateDataPtr places, ColumnString* column, Arena* arena,
+                         size_t num_rows) const override {
+        const auto size_of_data = static_cast<const Derived*>(this)->size_of_data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            auto place = places + size_of_data * i;
+            VectorBufferReader buffer_reader(column->get_data_at(i));
+            static_cast<const Derived*>(this)->create(place);
+            static_cast<const Derived*>(this)->deserialize(place, buffer_reader, arena);
+        }
+    }
+
+    void merge_vec(const AggregateDataPtr* places, size_t offset, ConstAggregateDataPtr rhs,
+                   Arena* arena, const size_t num_rows) const override {
+        const auto size_of_data = static_cast<const Derived*>(this)->size_of_data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            static_cast<const Derived*>(this)->merge(places[i] + offset, rhs + size_of_data * i,
+                                                     arena);
+        }
+    }
+
+    void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                            ConstAggregateDataPtr rhs, Arena* arena,
+                            const size_t num_rows) const override {
+        const auto size_of_data = static_cast<const Derived*>(this)->size_of_data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            if (places[i]) {
+                static_cast<const Derived*>(this)->merge(places[i] + offset, rhs + size_of_data * i,
+                                                         arena);
+            }
         }
     }
 };
@@ -205,6 +288,18 @@ public:
     size_t align_of_data() const override { return alignof(Data); }
 
     void reset(AggregateDataPtr place) const override {}
+
+    void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
+                               Arena* arena) const override {
+        char deserialized_data[size_of_data()];
+        AggregateDataPtr deserialized_place = (AggregateDataPtr)deserialized_data;
+
+        auto derived = static_cast<const Derived*>(this);
+        derived->create(deserialized_place);
+        derived->deserialize(deserialized_place, buf, arena);
+        derived->merge(place, deserialized_place, arena);
+        derived->destroy(deserialized_place);
+    }
 };
 
 using AggregateFunctionPtr = std::shared_ptr<IAggregateFunction>;

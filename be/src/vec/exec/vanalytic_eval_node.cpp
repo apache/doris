@@ -127,7 +127,7 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
         AggFnEvaluator* evaluator = nullptr;
         RETURN_IF_ERROR(
-                AggFnEvaluator::create(_pool, analytic_node.analytic_functions[i], &evaluator));
+                AggFnEvaluator::create(_pool, analytic_node.analytic_functions[i], {}, &evaluator));
         _agg_functions.emplace_back(evaluator);
         for (size_t j = 0; j < _agg_expr_ctxs[i].size(); ++j) {
             _agg_intput_columns[i][j] = _agg_expr_ctxs[i][j]->root()->data_type()->create_column();

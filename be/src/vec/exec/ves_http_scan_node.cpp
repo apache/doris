@@ -385,6 +385,7 @@ void VEsHttpScanNode::debug_string(int ident_level, std::stringstream* out) cons
 void VEsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Status>& p_status) {
     START_AND_SCOPE_SPAN(_runtime_state->get_tracer(), span, "VEsHttpScanNode::scanner_worker");
     SCOPED_ATTACH_TASK(_runtime_state);
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     DCHECK(start_idx < length);

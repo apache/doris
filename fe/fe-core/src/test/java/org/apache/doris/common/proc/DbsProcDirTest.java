@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalDataSource;
@@ -38,7 +38,7 @@ public class DbsProcDirTest {
     private Database db1;
     private Database db2;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private InternalDataSource ds;
 
@@ -55,22 +55,22 @@ public class DbsProcDirTest {
 
     @After
     public void tearDown() {
-        catalog = null;
+        env = null;
     }
 
     @Test
     public void testRegister() {
         DbsProcDir dir;
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, ds);
         Assert.assertFalse(dir.register("db1", new BaseProcDir()));
     }
 
     @Test(expected = AnalysisException.class)
     public void testLookupNormal() throws AnalysisException {
-        new Expectations(catalog, ds) {
+        new Expectations(env, ds) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
@@ -103,7 +103,7 @@ public class DbsProcDirTest {
         DbsProcDir dir;
         ProcNodeInterface node;
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, ds);
         try {
             node = dir.lookup(String.valueOf(db1.getId()));
             Assert.assertNotNull(node);
@@ -112,7 +112,7 @@ public class DbsProcDirTest {
             Assert.fail();
         }
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, ds);
         try {
             node = dir.lookup(String.valueOf(db2.getId()));
             Assert.assertNotNull(node);
@@ -121,7 +121,7 @@ public class DbsProcDirTest {
             Assert.fail();
         }
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, ds);
         node = dir.lookup("10002");
         Assert.assertNull(node);
     }
@@ -130,7 +130,7 @@ public class DbsProcDirTest {
     public void testLookupInvalid() {
         DbsProcDir dir;
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, ds);
         try {
             dir.lookup(null);
         } catch (AnalysisException e) {
@@ -148,9 +148,9 @@ public class DbsProcDirTest {
 
     @Test
     public void testFetchResultNormal() throws AnalysisException {
-        new Expectations(catalog, ds) {
+        new Expectations(env, ds) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
@@ -187,7 +187,7 @@ public class DbsProcDirTest {
         DbsProcDir dir;
         ProcResult result;
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, ds);
         result = dir.fetchResult();
         Assert.assertNotNull(result);
         Assert.assertTrue(result instanceof BaseProcResult);
@@ -203,9 +203,9 @@ public class DbsProcDirTest {
 
     @Test
     public void testFetchResultInvalid() throws AnalysisException {
-        new Expectations(catalog, ds) {
+        new Expectations(env, ds) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalDataSource();
                 minTimes = 0;
                 result = ds;
 
@@ -225,7 +225,7 @@ public class DbsProcDirTest {
             e.printStackTrace();
         }
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, ds);
         result = dir.fetchResult();
         Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
                     "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota"),

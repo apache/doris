@@ -37,7 +37,9 @@ FileArrowScanner::FileArrowScanner(RuntimeState* state, RuntimeProfile* profile,
           _cur_file_reader(nullptr),
           _cur_file_eof(false),
           _batch(nullptr),
-          _arrow_batch_cur_idx(0) {}
+          _arrow_batch_cur_idx(0) {
+    _convert_arrow_block_timer = ADD_TIMER(_profile, "ConvertArrowBlockTimer");
+}
 
 FileArrowScanner::~FileArrowScanner() {
     FileArrowScanner::close();
@@ -176,6 +178,7 @@ Status FileArrowScanner::get_next(vectorized::Block* block, bool* eof) {
 }
 
 Status FileArrowScanner::_append_batch_to_block(Block* block) {
+    SCOPED_TIMER(_convert_arrow_block_timer);
     size_t num_elements = std::min<size_t>((_state->batch_size() - block->rows()),
                                            (_batch->num_rows() - _arrow_batch_cur_idx));
     for (auto i = 0; i < _file_slot_descs.size(); ++i) {
@@ -183,7 +186,11 @@ Status FileArrowScanner::_append_batch_to_block(Block* block) {
         if (slot_desc == nullptr) {
             continue;
         }
-        auto* array = _batch->GetColumnByName(slot_desc->col_name()).get();
+        int file_index = _cur_file_reader->get_cloumn_index(slot_desc->col_name());
+        if (file_index == -1) {
+            continue;
+        }
+        auto* array = _batch->column(file_index).get();
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         RETURN_IF_ERROR(arrow_column_to_doris_column(
                 array, _arrow_batch_cur_idx, column_with_type_and_name.column,
@@ -191,7 +198,7 @@ Status FileArrowScanner::_append_batch_to_block(Block* block) {
     }
     _rows += num_elements;
     _arrow_batch_cur_idx += num_elements;
-    return Status::OK();
+    return _fill_columns_from_path(block, num_elements);
 }
 
 void VFileParquetScanner::_update_profile(std::shared_ptr<Statistics>& statistics) {
@@ -225,7 +232,7 @@ ArrowReaderWrap* VFileParquetScanner::_new_arrow_reader(FileReader* file_reader,
                                                         int64_t range_start_offset,
                                                         int64_t range_size) {
     return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file,
-                                 range_start_offset, range_size);
+                                 range_start_offset, range_size, false);
 }
 
 void VFileParquetScanner::_init_profiles(RuntimeProfile* profile) {
@@ -249,7 +256,7 @@ ArrowReaderWrap* VFileORCScanner::_new_arrow_reader(FileReader* file_reader, int
                                                     int64_t range_start_offset,
                                                     int64_t range_size) {
     return new ORCReaderWrap(file_reader, batch_size, num_of_columns_from_file, range_start_offset,
-                             range_size);
+                             range_size, false);
 }
 
 } // namespace doris::vectorized

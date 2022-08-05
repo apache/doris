@@ -25,11 +25,11 @@
 
 namespace doris {
 
-LoadChannel::LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTrackerLimiter> mem_tracker,
+LoadChannel::LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                          int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
                          bool is_vec)
         : _load_id(load_id),
-          _mem_tracker(std::move(mem_tracker)),
+          _mem_tracker(mem_tracker),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
           _sender_ip(sender_ip),
@@ -50,7 +50,6 @@ LoadChannel::~LoadChannel() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
-    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
     int64_t index_id = params.index_id();
     std::shared_ptr<TabletsChannel> channel;
     {
@@ -61,7 +60,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _is_high_priority, _is_vec));
+            channel.reset(new TabletsChannel(key, _mem_tracker, _is_high_priority, _is_vec));
             _tablets_channels.insert({index_id, channel});
         }
     }
@@ -137,7 +136,6 @@ bool LoadChannel::is_finished() {
 
 Status LoadChannel::cancel() {
     std::lock_guard<std::mutex> l(_lock);
-    SCOPED_ATTACH_TASK(_mem_tracker.get(), ThreadContext::TaskType::LOAD);
     for (auto& it : _tablets_channels) {
         it.second->cancel();
     }

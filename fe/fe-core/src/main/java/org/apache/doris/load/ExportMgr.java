@@ -19,8 +19,8 @@ package org.apache.doris.load;
 
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -84,7 +84,7 @@ public class ExportMgr {
     }
 
     public void addExportJob(ExportStmt stmt) throws Exception {
-        long jobId = Catalog.getCurrentCatalog().getNextId();
+        long jobId = Env.getCurrentEnv().getNextId();
         ExportJob job = createJob(jobId, stmt);
         writeLock();
         try {
@@ -92,7 +92,7 @@ public class ExportMgr {
                 throw new LabelAlreadyUsedException(job.getLabel());
             }
             unprotectAddJob(job);
-            Catalog.getCurrentCatalog().getEditLog().logExportCreate(job);
+            Env.getCurrentEnv().getEditLog().logExportCreate(job);
         } finally {
             writeUnlock();
         }
@@ -168,16 +168,16 @@ public class ExportMgr {
                 TableName tableName = job.getTableName();
                 if (tableName == null || tableName.getTbl().equals("DUMMY")) {
                     // forward compatibility, no table name is saved before
-                    Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
+                    Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
                     if (db == null) {
                         continue;
                     }
-                    if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(),
+                    if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(),
                                                                            db.getFullName(), PrivPredicate.SHOW)) {
                         continue;
                     }
                 } else {
-                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                    if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(),
                                                                             tableName.getDb(), tableName.getTbl(),
                                                                             PrivPredicate.SHOW)) {
                         continue;
