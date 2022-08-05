@@ -104,6 +104,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TableIndexes;
+import org.apache.doris.catalog.TableProperties;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -118,7 +119,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
@@ -1722,20 +1722,21 @@ public class InternalDataSource implements DataSourceIf<Database> {
         long baseIndexId = idGeneratorBuffer.getNextId();
         olapTable.setBaseIndexId(baseIndexId);
 
+        olapTable.setReplicationAllocation(replicaAlloc);
+
         // set base index info to table
         // this should be done before create partition.
         Map<String, String> properties = stmt.getProperties();
-
-        // get use light schema change
-        Boolean useLightSchemaChange = false;
+        TableProperties tableProperties = null;
         try {
-            useLightSchemaChange = PropertyAnalyzer.analyzeUseLightSchemaChange(properties);
+            tableProperties = new TableProperties.Builder().prepare(stmt).analyze(properties).build();
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
+
         // use light schema change optimization
-        olapTable.setUseLightSchemaChange(useLightSchemaChange);
-        if (useLightSchemaChange) {
+        olapTable.setUseLightSchemaChange(tableProperties.useLightSchemaChange);
+        if (tableProperties.useLightSchemaChange) {
             for (Column column : baseSchema) {
                 column.setUniqueId(olapTable.incAndGetMaxColUniqueId());
                 LOG.debug("table: {}, newColumn: {}, uniqueId: {}", olapTable.getName(), column.getName(),
@@ -1744,83 +1745,22 @@ public class InternalDataSource implements DataSourceIf<Database> {
         } else {
             LOG.debug("table: {} doesn't use light schema change", olapTable.getName());
         }
-
         // get storage format
-        TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
-        try {
-            storageFormat = PropertyAnalyzer.analyzeStorageFormat(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        olapTable.setStorageFormat(storageFormat);
-
+        olapTable.setStorageFormat(tableProperties.storageFormat);
         // get compression type
-        TCompressionType compressionType = TCompressionType.LZ4;
-        try {
-            compressionType = PropertyAnalyzer.analyzeCompressionType(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        olapTable.setCompressionType(compressionType);
-
+        olapTable.setCompressionType(tableProperties.compressionType);
         // check data sort properties
-        DataSortInfo dataSortInfo = PropertyAnalyzer.analyzeDataSortInfo(properties, keysType,
-                keysDesc.keysColumnSize(), storageFormat);
-        olapTable.setDataSortInfo(dataSortInfo);
-
-        boolean enableUniqueKeyMergeOnWrite = false;
-        try {
-            enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
-
+        olapTable.setDataSortInfo(tableProperties.dataSortInfo);
+        olapTable.setEnableUniqueKeyMergeOnWrite(tableProperties.enableUniqueKeyMergeOnWrite);
         // analyze bloom filter columns
-        Set<String> bfColumns = null;
-        double bfFpp = 0;
-        try {
-            bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(properties, baseSchema, keysType);
-            if (bfColumns != null && bfColumns.isEmpty()) {
-                bfColumns = null;
-            }
-
-            bfFpp = PropertyAnalyzer.analyzeBloomFilterFpp(properties);
-            if (bfColumns != null && bfFpp == 0) {
-                bfFpp = FeConstants.default_bloom_filter_fpp;
-            } else if (bfColumns == null) {
-                bfFpp = 0;
-            }
-
-            olapTable.setBloomFilterInfo(bfColumns, bfFpp);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-
-        olapTable.setReplicationAllocation(replicaAlloc);
-
+        olapTable.setBloomFilterInfo(tableProperties.bfColumns, tableProperties.bfFpp);
         // set in memory
-        boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY,
-                false);
-        olapTable.setIsInMemory(isInMemory);
-
+        olapTable.setIsInMemory(tableProperties.isInMemory);
         // set remote storage
-        String remoteStoragePolicy = PropertyAnalyzer.analyzeRemoteStoragePolicy(properties);
-        olapTable.setRemoteStoragePolicy(remoteStoragePolicy);
-
+        olapTable.setRemoteStoragePolicy(tableProperties.remoteStoragePolicy);
         // set storage policy
-        String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
-
-        Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
-
-        olapTable.setStoragePolicy(storagePolicy);
-
-        TTabletType tabletType;
-        try {
-            tabletType = PropertyAnalyzer.analyzeTabletType(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
+        Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(tableProperties.storagePolicy);
+        olapTable.setStoragePolicy(tableProperties.storagePolicy);
 
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
@@ -1829,60 +1769,37 @@ public class InternalDataSource implements DataSourceIf<Database> {
 
             // use table name as this single partition name
             long partitionId = partitionNameToId.get(tableName);
-            DataProperty dataProperty = null;
-            try {
-                dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                        DataProperty.DEFAULT_DATA_PROPERTY);
-            } catch (AnalysisException e) {
-                throw new DdlException(e.getMessage());
-            }
-            Preconditions.checkNotNull(dataProperty);
-            partitionInfo.setDataProperty(partitionId, dataProperty);
+            Preconditions.checkNotNull(tableProperties.dataProperty);
+            partitionInfo.setDataProperty(partitionId, tableProperties.dataProperty);
             partitionInfo.setReplicaAllocation(partitionId, replicaAlloc);
-            partitionInfo.setIsInMemory(partitionId, isInMemory);
-            partitionInfo.setTabletType(partitionId, tabletType);
+            partitionInfo.setIsInMemory(partitionId, tableProperties.isInMemory);
+            partitionInfo.setTabletType(partitionId, tableProperties.tabletType);
         }
 
         // check colocation properties
-        try {
-            String colocateGroup = PropertyAnalyzer.analyzeColocate(properties);
-            if (colocateGroup != null) {
-                if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
-                    throw new AnalysisException("Random distribution for colocate table is unsupported");
-                }
-                String fullGroupName = db.getId() + "_" + colocateGroup;
-                ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
-                if (groupSchema != null) {
-                    // group already exist, check if this table can be added to this group
-                    groupSchema.checkColocateSchema(olapTable);
-                }
-                // add table to this group, if group does not exist, create a new one
-                Env.getCurrentColocateIndex()
-                        .addTableToGroup(db.getId(), olapTable, colocateGroup, null /* generate group id inside */);
-                olapTable.setColocateGroup(colocateGroup);
+        if (tableProperties.colocateGroup != null) {
+            if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
+                throw new AnalysisException("Random distribution for colocate table is unsupported");
             }
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
+            String fullGroupName = db.getId() + "_" + tableProperties.colocateGroup;
+            ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
+            if (groupSchema != null) {
+                // group already exist, check if this table can be added to this group
+                groupSchema.checkColocateSchema(olapTable);
+            }
+            // add table to this group, if group does not exist, create a new one
+            Env.getCurrentColocateIndex().addTableToGroup(
+                    db.getId(), olapTable, tableProperties.colocateGroup, null /* generate group id inside */);
+            olapTable.setColocateGroup(tableProperties.colocateGroup);
         }
 
         // get base index storage type. default is COLUMN
-        TStorageType baseIndexStorageType = null;
-        try {
-            baseIndexStorageType = PropertyAnalyzer.analyzeStorageType(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
+        TStorageType baseIndexStorageType = tableProperties.storageType;
         Preconditions.checkNotNull(baseIndexStorageType);
         // set base index meta
-        int schemaVersion = 0;
-        try {
-            schemaVersion = PropertyAnalyzer.analyzeSchemaVersion(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
         int schemaHash = Util.generateSchemaHash();
-        olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash, shortKeyColumnCount,
-                baseIndexStorageType, keysType);
+        olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, tableProperties.schemaVersion, schemaHash,
+                shortKeyColumnCount, baseIndexStorageType, keysType);
 
         for (AlterClause alterClause : stmt.getRollupAlterClauseList()) {
             AddRollupClause addRollupClause = (AddRollupClause) alterClause;
@@ -1903,34 +1820,22 @@ public class InternalDataSource implements DataSourceIf<Database> {
             short rollupShortKeyColumnCount = Env.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
             int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = idGeneratorBuffer.getNextId();
-            olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
-                    rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
+            olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns,
+                    tableProperties.schemaVersion, rollupSchemaHash, rollupShortKeyColumnCount,
+                    rollupIndexStorageType, keysType);
         }
 
         // analyse sequence column
-        Type sequenceColType = null;
-        try {
-            sequenceColType = PropertyAnalyzer.analyzeSequenceType(properties, olapTable.getKeysType());
-            if (sequenceColType != null) {
-                // TODO(zhannngchen) will support sequence column later.
-                if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                    throw new AnalysisException("Unique key table with MoW(merge on write) not support "
+        if (tableProperties.sequenceColType != null) {
+            // TODO(zhannngchen) will support sequence column later.
+            if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                throw new AnalysisException("Unique key table with MoW(merge on write) not support "
                         + "sequence column for now");
-                }
-                olapTable.setSequenceInfo(sequenceColType);
             }
-        } catch (Exception e) {
-            throw new DdlException(e.getMessage());
+            olapTable.setSequenceInfo(tableProperties.sequenceColType);
         }
-
         // analyze version info
-        Long versionInfo = null;
-        try {
-            versionInfo = PropertyAnalyzer.analyzeVersionInfo(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        Preconditions.checkNotNull(versionInfo);
+        Preconditions.checkNotNull(tableProperties.versionInfo);
 
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
@@ -1958,10 +1863,12 @@ public class InternalDataSource implements DataSourceIf<Database> {
                 Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
                         olapTable.getBaseIndexId(), partitionId, partitionName, olapTable.getIndexIdToMeta(),
                         partitionDistributionInfo, partitionInfo.getDataProperty(partitionId).getStorageMedium(),
-                        partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
-                        olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
-                        olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                        idGeneratorBuffer);
+                        partitionInfo.getReplicaAllocation(partitionId), tableProperties.versionInfo,
+                        tableProperties.bfColumns, tableProperties.bfFpp, tabletIdSet,
+                        olapTable.getCopiedIndexes(), tableProperties.isInMemory, tableProperties.storageFormat,
+                        tableProperties.tabletType, tableProperties.compressionType,
+                        olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(),
+                        tableProperties.storagePolicy, idGeneratorBuffer);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
@@ -1980,7 +1887,7 @@ public class InternalDataSource implements DataSourceIf<Database> {
                         }
                     }
 
-                    if (storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
+                    if (tableProperties.storagePolicy.equals("") && properties != null && !properties.isEmpty()) {
                         // here, all properties should be checked
                         throw new DdlException("Unknown properties: " + properties);
                     }
@@ -2009,16 +1916,18 @@ public class InternalDataSource implements DataSourceIf<Database> {
                     // use partition storage policy if it exist.
                     String partionStoragePolicy = partitionInfo.getStoragePolicy(entry.getValue());
                     if (!partionStoragePolicy.equals("")) {
-                        storagePolicy = partionStoragePolicy;
+                        tableProperties.storagePolicy = partionStoragePolicy;
                     }
-                    Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
+                    Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(tableProperties.storagePolicy);
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
                             olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(), olapTable.getIndexIdToMeta(),
                             partitionDistributionInfo, dataProperty.getStorageMedium(),
-                            partitionInfo.getReplicaAllocation(entry.getValue()), versionInfo, bfColumns, bfFpp,
-                            tabletIdSet, olapTable.getCopiedIndexes(), isInMemory, storageFormat,
-                            partitionInfo.getTabletType(entry.getValue()), compressionType,
-                            olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
+                            partitionInfo.getReplicaAllocation(entry.getValue()), tableProperties.versionInfo,
+                            tableProperties.bfColumns, tableProperties.bfFpp,
+                            tabletIdSet, olapTable.getCopiedIndexes(), tableProperties.isInMemory,
+                            tableProperties.storageFormat, partitionInfo.getTabletType(entry.getValue()),
+                            tableProperties.compressionType, olapTable.getDataSortInfo(),
+                            olapTable.getEnableUniqueKeyMergeOnWrite(), tableProperties.storagePolicy,
                             idGeneratorBuffer);
                     olapTable.addPartition(partition);
                 }
