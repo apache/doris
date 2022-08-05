@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.implementation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.util.JoinUtils;
 
 /**
  * Implementation rule that convert logical join to physical nested loop join.
@@ -28,7 +29,7 @@ public class LogicalJoinToNestedLoopJoin extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
-                .when(join -> !join.getCondition().isPresent())
+                .when(JoinUtils::shouldNestedLoopJoin)
                 .then(join -> new PhysicalNestedLoopJoin<>(
                         join.getJoinType(),
                         join.getCondition(),

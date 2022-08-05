@@ -23,11 +23,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.Aggregate;
-import org.apache.doris.nereids.trees.plans.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.Project;
-import org.apache.doris.nereids.trees.plans.Scan;
+import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -110,8 +110,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitLogicalJoin(LogicalJoin<Plan, Plan> join, Void context) {
         return JoinEstimation.estimate(groupExpression.getCopyOfChildStats(0),
-                groupExpression.getCopyOfChildStats(1),
-                join.getCondition(), join.getJoinType());
+                groupExpression.getCopyOfChildStats(1), join);
     }
 
     @Override
@@ -132,16 +131,14 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, Void context) {
         return JoinEstimation.estimate(groupExpression.getCopyOfChildStats(0),
-                groupExpression.getCopyOfChildStats(1),
-                hashJoin.getCondition(), hashJoin.getJoinType());
+                groupExpression.getCopyOfChildStats(1), hashJoin);
     }
 
     @Override
     public StatsDeriveResult visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<Plan, Plan> nestedLoopJoin,
             Void context) {
         return JoinEstimation.estimate(groupExpression.getCopyOfChildStats(0),
-                groupExpression.getCopyOfChildStats(1),
-                nestedLoopJoin.getCondition(), nestedLoopJoin.getJoinType());
+                groupExpression.getCopyOfChildStats(1), nestedLoopJoin);
     }
 
     // TODO: We should subtract those pruned column, and consider the expression transformations in the node.

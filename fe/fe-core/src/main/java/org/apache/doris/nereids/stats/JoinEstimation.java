@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -42,8 +43,9 @@ public class JoinEstimation {
     /**
      * Do estimate.
      */
-    public static StatsDeriveResult estimate(StatsDeriveResult leftStats, StatsDeriveResult rightStats,
-            Optional<Expression> eqCondition, JoinType joinType) {
+    public static StatsDeriveResult estimate(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
+        Optional<Expression> eqCondition = join.getCondition();
+        JoinType joinType = join.getJoinType();
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(leftStats);
         statsDeriveResult.merge(rightStats);
         List<Expression> eqConjunctList = Lists.newArrayList();

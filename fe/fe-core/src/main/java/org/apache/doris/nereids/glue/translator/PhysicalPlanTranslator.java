@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.CrossJoinNode;
@@ -345,8 +346,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
         JoinType joinType = hashJoin.getJoinType();
 
-        if (joinType.equals(JoinType.CROSS_JOIN)
-                || (joinType.equals(JoinType.INNER_JOIN) && !hashJoin.getCondition().isPresent())) {
+        if (!JoinUtils.shouldNestedLoopJoin(hashJoin)) {
             throw new RuntimeException("Physical hash join could not execute without equal join condition.");
         } else {
             Expression eqJoinExpression = hashJoin.getCondition().get();
@@ -379,14 +379,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<Plan, Plan> nestedLoopJoin,
             PlanTranslatorContext context) {
         // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
+        // TODO: we should add a helper method to wrap this logic.
+        //   Maybe something like private List<PlanFragment> postOrderVisitChildren(
+        //       PhysicalPlan plan, PlanVisitor visitor, Context context).
         PlanFragment rightFragment = nestedLoopJoin.child(1).accept(this, context);
         PlanFragment leftFragment = nestedLoopJoin.child(0).accept(this, context);
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
-        JoinType joinType = nestedLoopJoin.getJoinType();
-
-        if (joinType.equals(JoinType.CROSS_JOIN)
-                || (joinType.equals(JoinType.INNER_JOIN) && !nestedLoopJoin.getCondition().isPresent())) {
+        if (JoinUtils.shouldNestedLoopJoin(nestedLoopJoin)) {
             CrossJoinNode crossJoinNode =
                     new CrossJoinNode(context.nextPlanNodeId(), leftFragmentPlanRoot, rightFragmentPlanRoot, null);
             rightFragment.getPlanRoot().setCompactData(false);

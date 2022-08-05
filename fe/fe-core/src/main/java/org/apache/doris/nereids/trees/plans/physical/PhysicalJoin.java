@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 
 import com.google.common.collect.ImmutableList;
 
@@ -36,7 +37,7 @@ import java.util.Optional;
 public abstract class PhysicalJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
-        extends PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
     protected final JoinType joinType;
 
     protected final Optional<Expression> condition;

@@ -15,15 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.JoinType;
 
-import java.util.List;
+import java.util.Optional;
 
 /**
- * Common interface for logical/physical project.
+ * Common interface for logical/physical join.
  */
-public interface Project {
-    List<NamedExpression> getProjects();
+public interface Join {
+    JoinType getJoinType();
+
+    Optional<Expression> getCondition();
 }

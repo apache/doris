@@ -21,7 +21,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJoin;
 
 import com.google.common.base.Preconditions;
@@ -119,5 +121,10 @@ public class JoinUtils {
         }
 
         return childSlots;
+    }
+
+    public static boolean shouldNestedLoopJoin(Join join) {
+        JoinType joinType = join.getJoinType();
+        return (joinType.isInnerJoin() && !join.getCondition().isPresent()) || joinType.isCrossJoin();
     }
 }

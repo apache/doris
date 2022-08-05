@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Sum;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -189,11 +190,13 @@ public class StatsCalculatorTest {
         StatsDeriveResult rightStats = new StatsDeriveResult(rightRowCount, slotColumnStatsMap2);
 
         EqualTo equalTo = new EqualTo(slot1, slot2);
-        StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats,
-                rightStats, Optional.of(equalTo), JoinType.LEFT_SEMI_JOIN);
+
+        FakeJoin fakeSemiJoin = new FakeJoin(JoinType.LEFT_SEMI_JOIN, Optional.of(equalTo));
+        FakeJoin fakeInnerJoin = new FakeJoin(JoinType.INNER_JOIN, Optional.of(equalTo));
+
+        StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeSemiJoin);
         Assertions.assertEquals(leftRowCount, semiJoinStats.getRowCount());
-        StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats,
-                rightStats, Optional.of(equalTo), JoinType.INNER_JOIN);
+        StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeInnerJoin);
         Assertions.assertEquals(2500000, innerJoinStats.getRowCount());
     }
 
@@ -239,4 +242,23 @@ public class StatsCalculatorTest {
         Assertions.assertNotNull(stats.getSlotToColumnStats().get(slot1));
     }
 
+    private static class FakeJoin implements Join {
+        private final JoinType joinType;
+        private final Optional<Expression> condition;
+
+        public FakeJoin(JoinType joinType, Optional<Expression> condition) {
+            this.joinType = joinType;
+            this.condition = condition;
+        }
+
+        @Override
+        public JoinType getJoinType() {
+            return joinType;
+        }
+
+        @Override
+        public Optional<Expression> getCondition() {
+            return condition;
+        }
+    }
 }

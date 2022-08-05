@@ -63,6 +63,7 @@ public class PhysicalNestedLoopJoin<
 
     @Override
     public String toString() {
+        // TODO: Maybe we could pull up this to the abstract class in the future.
         StringBuilder sb = new StringBuilder();
         sb.append("PhysicalNestedLoopJoin ([").append(joinType).append("]");
         condition.ifPresent(
