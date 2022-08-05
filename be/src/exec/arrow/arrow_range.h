@@ -296,7 +296,8 @@ public:
         case TYPE_DATE:
         case TYPE_DATEV2: {
             auto origin_value = reinterpret_cast<
-                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(data);
+                    const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
+                    data);
             origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
             break;
         }
@@ -327,7 +328,8 @@ public:
         case TYPE_DATE:
         case TYPE_DATEV2: {
             auto origin_value = reinterpret_cast<
-                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(data);
+                    const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
+                    data);
             origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
             break;
         }
