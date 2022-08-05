@@ -151,7 +151,7 @@ public class EsUtil {
 
     private static JSONObject getMapping(String indexMapping) {
         JSONObject jsonObject = (JSONObject) JSONValue.parse(indexMapping);
-        // the indexName use alias takes the first mapping
+        // if the indexName use alias takes the first mapping
         Iterator<String> keys = jsonObject.keySet().iterator();
         String docKey = keys.next();
         JSONObject docData = (JSONObject) jsonObject.get(docKey);
