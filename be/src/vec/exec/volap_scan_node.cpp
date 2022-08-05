@@ -39,9 +39,11 @@
 namespace doris::vectorized {
 using doris::operator<<;
 
-#define RETURN_IF_PUSH_DOWN  \
-    if (*push_down) {        \
-        return Status::OK(); \
+#define RETURN_IF_PUSH_DOWN(stmt) \
+    if (!push_down) {             \
+        stmt;                     \
+    } else {                      \
+        return;                   \
     }
 
 VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -675,16 +677,15 @@ Status VOlapScanNode::normalize_conjuncts() {
             }
         }
     }
-    for (auto it = _id_to_slot_column_value_range.begin();
-         it != _id_to_slot_column_value_range.end(); it++) {
+    for (auto& it : _id_to_slot_column_value_range) {
         std::visit(
                 [&](auto&& range) {
                     if (range.is_empty_value_range()) {
                         _eos = true;
                     }
                 },
-                it->second.second);
-        _column_value_ranges[it->second.first->col_name()] = it->second.second;
+                it.second.second);
+        _column_value_ranges[it.second.first->col_name()] = it.second.second;
     }
 
     return Status::OK();
@@ -1472,7 +1473,6 @@ template <PrimitiveType T>
 Status VOlapScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr_ctx,
                                                      SlotDescriptor* slot,
                                                      ColumnValueRange<T>& range, bool* push_down) {
-    RETURN_IF_PUSH_DOWN
     auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(slot->type().precision,
                                                                            slot->type().scale);
     bool effect = false;
@@ -1545,7 +1545,6 @@ Status VOlapScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprC
                                                              SlotDescriptor* slot,
                                                              ColumnValueRange<T>& range,
                                                              bool* push_down) {
-    RETURN_IF_PUSH_DOWN
     bool is_fixed_range = range.is_fixed_value_range();
     auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(range.column_name());
     bool effect = false;
@@ -1632,7 +1631,6 @@ template <PrimitiveType T>
 Status VOlapScanNode::_normalize_is_null_predicate(VExpr* expr, VExprContext* expr_ctx,
                                                    SlotDescriptor* slot, ColumnValueRange<T>& range,
                                                    bool* push_down) {
-    RETURN_IF_PUSH_DOWN
     auto is_null_checker = [&](const std::string& fn_name) { return fn_name == "is_null_pred"; };
     auto is_not_null_checker = [&](const std::string& fn_name) {
         return fn_name == "is_not_null_pred";
@@ -1662,7 +1660,6 @@ Status VOlapScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContex
                                                         SlotDescriptor* slot,
                                                         ColumnValueRange<T>& range,
                                                         bool* push_down) {
-    RETURN_IF_PUSH_DOWN
     if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 2);
 
@@ -1699,7 +1696,6 @@ Status VOlapScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContex
 
 Status VOlapScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx,
                                               SlotDescriptor* slot, bool* push_down) {
-    RETURN_IF_PUSH_DOWN
     if (TExprNodeType::BLOOM_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 1);
         _bloom_filters_push_down.emplace_back(
@@ -1714,7 +1710,6 @@ Status VOlapScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ct
 
 Status VOlapScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ctx,
                                                   SlotDescriptor* slot, bool* push_down) {
-    RETURN_IF_PUSH_DOWN
     bool opposite = false;
     VExpr* fn_expr = expr;
     if (TExprNodeType::COMPOUND_PRED == expr->node_type() &&
@@ -1723,9 +1718,9 @@ Status VOlapScanNode::_normalize_function_filters(VExpr* expr, VExprContext* exp
         opposite = true;
     }
 
-    std::string str;
     if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
         doris_udf::FunctionContext* fn_ctx = nullptr;
+        std::string str;
         if (_should_push_down_function_filter(reinterpret_cast<VectorizedFnCall*>(fn_expr),
                                               expr_ctx, &str, &fn_ctx)) {
             std::string col = slot->col_name();
@@ -1795,23 +1790,24 @@ VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_
                 }
                 std::visit(
                         [&](auto& value_range) {
-                            _normalize_in_and_eq_predicate(conjunct_expr_root,
-                                                           *(_vconjunct_ctx_ptr.get()), slot,
-                                                           value_range, &push_down);
-                            _normalize_not_in_and_not_eq_predicate(conjunct_expr_root,
-                                                                   *(_vconjunct_ctx_ptr.get()),
-                                                                   slot, value_range, &push_down);
-                            _normalize_is_null_predicate(conjunct_expr_root,
-                                                         *(_vconjunct_ctx_ptr.get()), slot,
-                                                         value_range, &push_down);
-                            _normalize_noneq_binary_predicate(conjunct_expr_root,
-                                                              *(_vconjunct_ctx_ptr.get()), slot,
-                                                              value_range, &push_down);
-                            _normalize_bloom_filter(conjunct_expr_root, *(_vconjunct_ctx_ptr.get()),
-                                                    slot, &push_down);
-                            _normalize_function_filters(conjunct_expr_root,
-                                                        *(_vconjunct_ctx_ptr.get()), slot,
-                                                        &push_down);
+                            RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
+                                    conjunct_expr_root, *(_vconjunct_ctx_ptr.get()), slot,
+                                    value_range, &push_down));
+                            RETURN_IF_PUSH_DOWN(_normalize_not_in_and_not_eq_predicate(
+                                    conjunct_expr_root, *(_vconjunct_ctx_ptr.get()), slot,
+                                    value_range, &push_down));
+                            RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
+                                    conjunct_expr_root, *(_vconjunct_ctx_ptr.get()), slot,
+                                    value_range, &push_down));
+                            RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
+                                    conjunct_expr_root, *(_vconjunct_ctx_ptr.get()), slot,
+                                    value_range, &push_down));
+                            RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(conjunct_expr_root,
+                                                                        *(_vconjunct_ctx_ptr.get()),
+                                                                        slot, &push_down));
+                            RETURN_IF_PUSH_DOWN(_normalize_function_filters(
+                                    conjunct_expr_root, *(_vconjunct_ctx_ptr.get()), slot,
+                                    &push_down));
                         },
                         *range);
             }
