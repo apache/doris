@@ -56,32 +56,7 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         return Status::EndOfFile("Empty Orc File");
     }
     // seek file position after _reader created.
-    RETURN_IF_ERROR(_seek_start_stripe());
-
-    int64_t row_number = 0;
-    int end_group = _total_groups;
-    for (int i = 0; i < _total_groups; i++) {
-        int64_t _offset = _reader->GetRawORCReader()->getStripe(i)->getOffset();
-        int64_t row = _reader->GetRawORCReader()->getStripe(i)->getNumberOfRows();
-        if (_offset < _range_start_offset) {
-            row_number += row;
-        } else if (_offset == _range_start_offset) {
-            _current_group = i;
-        }
-        if (_range_start_offset + _range_size <= _offset) {
-            end_group = i;
-            break;
-        }
-    }
-    LOG(INFO) << "This reader read orc file from offset: " << _range_start_offset
-              << " with size: " << _range_size << ". Also mean that read from strip id from "
-              << _current_group << " to " << end_group;
-    _total_groups = end_group;
-
-    if (!_reader->Seek(row_number).ok()) {
-        LOG(WARNING) << "Failed to seek to the line number: " << row_number;
-        return Status::InternalError("Failed to seek to the line number");
-    }
+    RETURN_IF_ERROR(_seek_start_stripe());   
 
     // map
     arrow::Result<std::shared_ptr<arrow::Schema>> maybe_schema = _reader->ReadSchema();
