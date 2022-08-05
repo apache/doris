@@ -163,7 +163,7 @@ public class EsRestClient {
     }
 
     /**
-     * Get all alias.
+     * Get all aliases.
      **/
     public Map<String, List<String>> getAliases() {
         String res = execute("_aliases");
@@ -189,11 +189,10 @@ public class EsRestClient {
      **/
     public List<String> listTable() {
         List<String> indices = getIndices().stream().distinct().collect(Collectors.toList());
-        getAliases().entrySet().stream().filter(e -> indices.contains(e.getKey()))
-                .flatMap(e -> e.getValue().stream()).distinct().forEach(indices::add);
+        getAliases().entrySet().stream().filter(e -> indices.contains(e.getKey())).flatMap(e -> e.getValue().stream())
+                .distinct().forEach(indices::add);
         return indices;
     }
-
 
     /**
      * Get Shard location.

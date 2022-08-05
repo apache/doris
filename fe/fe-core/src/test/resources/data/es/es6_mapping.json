@@ -1,0 +1,31 @@
+{
+  "test1": {
+    "mappings": {
+      "doc": {
+        "properties": {
+          "age": {
+            "type": "long"
+          },
+          "array": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          },
+          "name": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
