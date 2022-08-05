@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_multi_columns_delete", "delete") {
+suite("test_multi_columns_delete") {
     def tableName = "test_multi_columns_delete"
 
     sql """ SET enable_vectorized_engine = TRUE; """
