@@ -102,8 +102,6 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddMinutes>();
     factory.register_function<FunctionAddHours>();
     factory.register_function<FunctionAddDays>();
-    factory.register_alias("days_add", "date_add");
-    factory.register_alias("days_add", "adddate");
     factory.register_function<FunctionAddWeeks>();
     factory.register_function<FunctionAddMonths>();
     factory.register_function<FunctionAddYears>();
@@ -142,6 +140,11 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCurTime>();
     factory.register_function<FunctionCurrentTime>();
     factory.register_function<FunctionUtcTimeStamp>();
+
+    // alias
+    factory.register_alias("days_add", "date_add");
+    factory.register_alias("days_add", "adddate");
+    factory.register_alias("months_add", "add_months");
 }
 
 } // namespace doris::vectorized
