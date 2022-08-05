@@ -1031,9 +1031,33 @@ public class SingleNodePlanner {
 
             for (int i = 1; i < selectStmt.getTableRefs().size(); ++i) {
                 TableRef innerRef = selectStmt.getTableRefs().get(i);
+                boolean aggOutputNotHaveMaterializedSlot = false;
+                AggregateInfo aggregateInfo = null;
+                TupleDescriptor output = null;
+                if (innerRef instanceof InlineViewRef) {
+                    InlineViewRef inlineViewRef = (InlineViewRef) innerRef;
+                    QueryStmt queryStmt = inlineViewRef.getViewStmt();
+                    if (queryStmt instanceof SelectStmt) {
+                        aggregateInfo = ((SelectStmt) queryStmt).getAggInfo();
+                        if (aggregateInfo != null) {
+                            output = aggregateInfo.getOutputTupleDesc();
+                            aggOutputNotHaveMaterializedSlot =
+                                    output.getSlots().stream().noneMatch(SlotDescriptor::isMaterialized);
+                        }
+                    }
+                }
+
                 root = createJoinNode(analyzer, root, innerRef, selectStmt);
                 // Have the build side of a join copy data to a compact representation
                 // in the tuple buffer.
+                if (aggOutputNotHaveMaterializedSlot
+                        && aggregateInfo
+                        .getOutputTupleDesc()
+                        .getSlots()
+                        .stream()
+                        .anyMatch(SlotDescriptor::isMaterialized)) {
+                    aggregateInfo.materializeRequiredSlots(analyzer, null);
+                }
                 root.getChildren().get(1).setCompactData(true);
                 root.assignConjuncts(analyzer);
             }
