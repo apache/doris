@@ -123,36 +123,36 @@ public:
 
     Status init(const std::string& jsonpath, const std::string& json_root, bool is_dynamic_schema);
 
-    Status read_json_column(std::vector<MutableColumnPtr>& columns,
+    Status read_json_column(Block& block,
                             const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                             bool* eof);
 
 private:
     Status (VSIMDJsonReader::*_vhandle_json_callback)(
-            std::vector<vectorized::MutableColumnPtr>& columns,
+            Block& block,
             const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row, bool* eof);
 
-    Status _vhandle_dynamic_json(std::vector<MutableColumnPtr>& columns,
+    Status _vhandle_dynamic_json(Block& block,
                                 const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                                 bool* eof);
 
-    Status _vhandle_simple_json(std::vector<MutableColumnPtr>& columns,
+    Status _vhandle_simple_json(Block& block,
                                 const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                                 bool* eof);
 
-    Status _vhandle_flat_array_complex_json(std::vector<MutableColumnPtr>& columns,
+    Status _vhandle_flat_array_complex_json(Block& block,
                                             const std::vector<SlotDescriptor*>& slot_descs,
                                             bool* is_empty_row, bool* eof);
 
-    Status _vhandle_nested_complex_json(std::vector<MutableColumnPtr>& columns,
+    Status _vhandle_nested_complex_json(Block& block,
                                         const std::vector<SlotDescriptor*>& slot_descs,
                                         bool* is_empty_row, bool* eof);
 
     Status _write_columns_by_jsonpath(simdjson::ondemand::value value,
                                       const std::vector<SlotDescriptor*>& slot_descs,
-                                      std::vector<MutableColumnPtr>& columns, bool* valid);
+                                      Block& block, bool* valid);
 
-    Status _set_column_value(simdjson::ondemand::value value, std::vector<MutableColumnPtr>& columns,
+    Status _set_column_value(simdjson::ondemand::value value, Block& block,
                              const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _write_data_to_column(simdjson::ondemand::value value,

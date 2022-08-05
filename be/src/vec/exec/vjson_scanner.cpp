@@ -63,8 +63,13 @@ Status VJsonScanner<JsonReader>::get_next(vectorized::Block* output_block, bool*
         }
 
         bool is_empty_row = false;
-        RETURN_IF_ERROR(_cur_vjson_reader->read_json_column(columns, _src_slot_descs, &is_empty_row,
-                                                            &_cur_reader_eof));
+        if constexpr(std::is_same_v<JsonReader, VSIMDJsonReader>) {
+            RETURN_IF_ERROR(_cur_vjson_reader->read_json_column(_src_block, _src_slot_descs, &is_empty_row,
+                                                                &_cur_reader_eof));
+        } else {
+            RETURN_IF_ERROR(_cur_vjson_reader->read_json_column(columns, _src_slot_descs, &is_empty_row,
+                                                                &_cur_reader_eof));
+        }
         if (is_empty_row) {
             // Read empty row, just continue
             continue;
@@ -549,13 +554,13 @@ Status VSIMDJsonReader::init(const std::string& jsonpath, const std::string& jso
     return Status::OK();
 }
 
-Status VSIMDJsonReader::read_json_column(std::vector<MutableColumnPtr>& columns,
+Status VSIMDJsonReader::read_json_column(Block& block,
                                      const std::vector<SlotDescriptor*>& slot_descs,
                                      bool* is_empty_row, bool* eof) {
-    return (this->*_vhandle_json_callback)(columns, slot_descs, is_empty_row, eof);
+    return (this->*_vhandle_json_callback)(block, slot_descs, is_empty_row, eof);
 }
 
-Status VSIMDJsonReader::_vhandle_simple_json(std::vector<MutableColumnPtr>& columns,
+Status VSIMDJsonReader::_vhandle_simple_json(Block& block,
                                          const std::vector<SlotDescriptor*>& slot_descs,
                                          bool* is_empty_row, bool* eof) {
     simdjson::ondemand::value objectValue;
@@ -595,10 +600,10 @@ Status VSIMDJsonReader::_vhandle_simple_json(std::vector<MutableColumnPtr>& colu
         }
 
         if (_json_doc.type() == simdjson::ondemand::json_type::array) {                                   // handle case 1
-            RETURN_IF_ERROR(_set_column_value(objectValue, columns, slot_descs, &valid));
+            RETURN_IF_ERROR(_set_column_value(objectValue, block, slot_descs, &valid));
             ++array_iter;
         } else { // handle case 2
-            RETURN_IF_ERROR(_set_column_value(_json_doc, columns, slot_descs, &valid));
+            RETURN_IF_ERROR(_set_column_value(_json_doc, block, slot_descs, &valid));
         }
         _next_line++;
         if (!valid) {
@@ -621,7 +626,7 @@ Status VSIMDJsonReader::_vhandle_simple_json(std::vector<MutableColumnPtr>& colu
 // set valid to false and return OK if we met an invalid row.
 // return other status if encounter other problmes.
 Status VSIMDJsonReader::_set_column_value(simdjson::ondemand::value objectValue,
-                                      std::vector<MutableColumnPtr>& columns,
+                                      Block& block,
                                       const std::vector<SlotDescriptor*>& slot_descs, bool* valid) {
     if (objectValue.type() != simdjson::ondemand::json_type::object) {
         // Here we expect the incoming `objectValue` to be a Json Object, such as {"key" : "value"},
@@ -630,89 +635,78 @@ Status VSIMDJsonReader::_set_column_value(simdjson::ondemand::value objectValue,
         return Status::OK();
     }
 
-    int nullcount = 0;
-    int ctx_idx = 0;
     auto object_val = objectValue.get_object();
-    for (auto slot_desc : slot_descs) {
-        if (!slot_desc->is_materialized()) {
+    size_t cur_row_count = block.rows();
+    // iterate through object, simdjson::ondemond will parsing on the fly
+    for (auto field: object_val) {
+        std::string key(field.unescaped_key().value());
+        auto column_type_and_name = block.try_get_by_name(key);
+        if (!column_type_and_name) {
             continue;
         }
-
-        int dest_index = ctx_idx++;
-        auto* column_ptr = columns[dest_index].get();
-        // do not use object_val.find_field since it's order sensitive
-        // reference: https://github.com/simdjson/simdjson/blob/master/doc/basics.md
-        auto target = object_val[std::string_view{slot_desc->col_name().c_str(), slot_desc->col_name().size()}];
-        if (target.error() != simdjson::error_code::NO_SUCH_FIELD) {
-            RETURN_IF_ERROR(_write_data_to_column(target.value(), slot_desc, column_ptr, valid));
-            if (!(*valid)) {
-                return Status::OK();
-            }
-        } else { // not found
-            if (slot_desc->is_nullable()) {
-                auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
-                nullable_column->insert_default();
-                nullcount++;
-            } else {
-                RETURN_IF_ERROR(_append_error_msg(
-                        objectValue,
-                        "The column `{}` is not nullable, but it's not found in jsondata.",
-                        slot_desc->col_name(), valid));
-                break;
-            }
+        _write_data_to_column(field.value(),  nullptr, column_type_and_name->column->assume_mutable().get(), valid);
+        if (!(*valid)) {
+            return Status::OK();
         }
     }
-
-    if (nullcount == slot_descs.size()) {
+    
+    int nullcount = 0;
+    // fill missing slot
+    for (const auto& column_type_name : block) {
+        auto column = column_type_name.column;
+        if (column->size() < cur_row_count + 1) {
+            assert(column->size() == cur_row_count);
+            column->assume_mutable()->insert_default();
+            ++nullcount;
+        }
+        assert(column->size() == cur_row_count + 1);
+    }
+    if (nullcount == block.columns()) {
         RETURN_IF_ERROR(_append_error_msg(objectValue, "All fields is null, this is a invalid row.",
                                           "", valid));
         return Status::OK();
     }
+   
     *valid = true;
     return Status::OK();
 }
 
 Status VSIMDJsonReader::_write_data_to_column(simdjson::ondemand::value value,
                                           SlotDescriptor* slot_desc,
-                                          vectorized::IColumn* column_ptr, bool* valid) {
-    const char* str_value = nullptr;
-    int32_t wbytes = 0;
-
-    if (slot_desc->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
+                                          vectorized::IColumn* column, bool* valid) {
+    vectorized::ColumnNullable* nullable_column = nullptr;
+    vectorized::IColumn* column_ptr = nullptr;
+    if (column->is_nullable()) {
+        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column);
         nullable_column->get_null_map_data().push_back(0);
         column_ptr = &nullable_column->get_nested_column();
     }
 
+
+    // TODO: if the vexpr can support another 'slot_desc type' than 'TYPE_VARCHAR',
+    // we need use a function to support these types to insert data in columns.
+    ColumnString* column_string = assert_cast<ColumnString*>(column_ptr);
     if (value.is_null()) {
-        if (slot_desc->is_nullable()) {
-            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
+        if (column->is_nullable()) {
             nullable_column->insert_default();
         } else {
             RETURN_IF_ERROR(_append_error_msg(
                 value, "Json value is null, but the column `{}` is not nullable.",
                 slot_desc->col_name(), valid));
+            *valid = false;
             return Status::OK();
         }
     } else if (value.type() == simdjson::ondemand::json_type::boolean) {
         if (value.get_bool()) {
-            wbytes = 1;
-            str_value = (char*)"1";
+            column_string->insert_data("1", 1);
         } else {
-            wbytes = 1;
-            str_value = (char*)"0";
+            column_string->insert_data("0", 1);
         }
     } else {
         // just return it's str representation
         auto str_view = simdjson::to_json_string(value).value();
-        str_value = str_view.data();
-        wbytes = str_view.length();
+        column_string->insert_data(str_view.data(), str_view.length());
     }
-
-    // TODO: if the vexpr can support another 'slot_desc type' than 'TYPE_VARCHAR',
-    // we need use a function to support these types to insert data in columns.
-    DCHECK(slot_desc->type().type == TYPE_VARCHAR);
-    assert_cast<ColumnString*>(column_ptr)->insert_data(str_value, wbytes);
 
     *valid = true;
     return Status::OK();
@@ -869,14 +863,14 @@ Status VSIMDJsonReader::_append_error_msg(simdjson::ondemand::value object_value
     return Status::OK();
 }
 
-Status VSIMDJsonReader::_vhandle_flat_array_complex_json(std::vector<MutableColumnPtr>& columns,
+Status VSIMDJsonReader::_vhandle_flat_array_complex_json(Block& block,
                                             const std::vector<SlotDescriptor*>& slot_descs,
                                             bool* is_empty_row, bool* eof) {
     // 
     return Status::OK();
 }
 
-Status VSIMDJsonReader::_vhandle_nested_complex_json(std::vector<MutableColumnPtr>& columns,
+Status VSIMDJsonReader::_vhandle_nested_complex_json(Block& block,
                                         const std::vector<SlotDescriptor*>& slot_descs,
                                         bool* is_empty_row, bool* eof) {
     // 
