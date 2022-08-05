@@ -133,6 +133,9 @@ public class EsUtil {
         }
     }
 
+    /**
+     * Get Array fields.
+     **/
     public static List<String> getArrayFields(String indexMapping) {
         JSONObject mappings = getMapping(indexMapping);
         if (!mappings.containsKey("_meta")) {
@@ -168,7 +171,7 @@ public class EsUtil {
         if (rootSchema == null) {
             properties = (JSONObject) mappings.get("properties");
             // Compatible es6 with no type passed in.
-            if (mappingType == null) {
+            if (mappingType == null && properties == null) {
                 String typeKey = (String) mappings.keySet().iterator().next();
                 JSONObject typeProps = (JSONObject) ((JSONObject) mappings.get(typeKey)).get("properties");
                 if (typeProps != null) {

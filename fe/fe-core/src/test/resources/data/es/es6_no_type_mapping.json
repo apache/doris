@@ -1,0 +1,120 @@
+{
+  "test": {
+    "mappings": {
+      "_doc": {
+        "properties": {
+          "mappings": {
+            "properties": {
+              "test1": {
+                "properties": {
+                  "type": {
+                    "type": "text",
+                    "fields": {
+                      "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                      }
+                    }
+                  }
+                }
+              },
+              "test2": {
+                "properties": {
+                  "fields": {
+                    "properties": {
+                      "keyword": {
+                        "properties": {
+                          "ignore_above": {
+                            "type": "long"
+                          },
+                          "type": {
+                            "type": "text",
+                            "fields": {
+                              "keyword": {
+                                "type": "keyword",
+                                "ignore_above": 256
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "type": {
+                    "type": "text",
+                    "fields": {
+                      "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                      }
+                    }
+                  }
+                }
+              },
+              "test3": {
+                "properties": {
+                  "type": {
+                    "type": "text",
+                    "fields": {
+                      "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                      }
+                    }
+                  }
+                }
+              },
+              "test4": {
+                "properties": {
+                  "type": {
+                    "type": "text",
+                    "fields": {
+                      "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "settings": {
+            "properties": {
+              "number_of_replicas": {
+                "type": "long"
+              },
+              "number_of_shards": {
+                "type": "long"
+              }
+            }
+          },
+          "test1": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          },
+          "test2": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          },
+          "test3": {
+            "type": "float"
+          },
+          "test4": {
+            "type": "date"
+          }
+        }
+      }
+    }
+  }
+}

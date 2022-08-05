@@ -19,7 +19,9 @@ package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.common.util.JsonUtil;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.google.common.collect.ImmutableList;
 import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -36,6 +38,7 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -155,6 +158,28 @@ public class EsRestClient {
                 ret.add(index);
             }
         });
+        return ret;
+    }
+
+    /**
+     * Get all aliases.
+     **/
+    public Map<String, List<String>> getAliases() {
+        String res = execute("_aliases");
+        Map<String, List<String>> ret = new HashMap<>();
+        JsonNode root = JsonUtil.readTree(res);
+        if (root == null) {
+            return ret;
+        }
+        Iterator<Map.Entry<String, JsonNode>> elements = root.fields();
+        while (elements.hasNext()) {
+            Map.Entry<String, JsonNode> element = elements.next();
+            JsonNode aliases = element.getValue().get("aliases");
+            Iterator<String> aliasNames = aliases.fieldNames();
+            if (aliasNames.hasNext()) {
+                ret.put(element.getKey(), ImmutableList.copyOf(aliasNames));
+            }
+        }
         return ret;
     }
 
