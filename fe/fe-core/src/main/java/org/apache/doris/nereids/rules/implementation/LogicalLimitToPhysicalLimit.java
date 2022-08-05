@@ -15,38 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.rules.implementation;
+
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 
 /**
- * Types for all Plan in Nereids.
+ * Implementation rule that convert logical limit to physical limit.
  */
-public enum PlanType {
-    UNKNOWN,
-
-    // logical plan
-    LOGICAL_UNBOUND_RELATION,
-    LOGICAL_BOUND_RELATION,
-    LOGICAL_PROJECT,
-    LOGICAL_FILTER,
-    LOGICAL_JOIN,
-    LOGICAL_AGGREGATE,
-    LOGICAL_SORT,
-    LOGICAL_LIMIT,
-    LOGICAL_OLAP_SCAN,
-    LOGICAL_APPLY,
-    LOGICAL_CORRELATED_JOIN,
-    LOGICAL_ENFORCE_SINGLE_ROW,
-    GROUP_PLAN,
-
-    // physical plan
-    PHYSICAL_OLAP_SCAN,
-    PHYSICAL_PROJECT,
-    PHYSICAL_FILTER,
-    PHYSICAL_BROADCAST_HASH_JOIN,
-    PHYSICAL_AGGREGATE,
-    PHYSICAL_SORT,
-    PHYSICAL_LIMIT,
-    PHYSICAL_HASH_JOIN,
-    PHYSICAL_EXCHANGE,
-    PHYSICAL_DISTRIBUTION;
+public class LogicalLimitToPhysicalLimit extends OneImplementationRuleFactory {
+    @Override
+    public Rule build() {
+        return logicalLimit().then(limit -> new PhysicalLimit<>(
+                limit.getLimit(),
+                limit.getOffset(),
+                limit.getLogicalProperties(),
+                limit.child())
+        ).toRule(RuleType.LOGICAL_LIMIT_TO_PHYSICAL_LIMIT_RULE);
+    }
 }
