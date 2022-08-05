@@ -19,17 +19,20 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.DdlException;
 
 import java.util.Collection;
+import java.util.Set;
 
 public class IdGeneratorUtil {
 
-    public static long getBufferSize(CreateTableStmt stmt, ReplicaAllocation replicaAlloc) throws DdlException,
-            AnalysisException {
+    public static long getBufferSizeForCreateTable(CreateTableStmt stmt, ReplicaAllocation replicaAlloc)
+            throws DdlException {
         long bufferSize = 1;
         long partitionNum = stmt.getPartitionDesc() == null ? 1 :
                 stmt.getPartitionDesc().getSinglePartitionDescs().size();
@@ -47,7 +50,7 @@ public class IdGeneratorUtil {
         return bufferSize;
     }
 
-    public static long getBufferSize(OlapTable table, Collection<Long> partitionIds) {
+    public static long getBufferSizeForTruncateTable(OlapTable table, Collection<Long> partitionIds) {
         long bufferSize = 0;
         for (Long partitionId : partitionIds) {
             bufferSize = bufferSize + 1;
@@ -55,6 +58,19 @@ public class IdGeneratorUtil {
             long indexNum = table.getIndexIdToMeta().size();
             long bucketNum = table.getPartition(partitionId).getDistributionInfo().getBucketNum();
             bufferSize = bufferSize + (replicaNum + 1) * indexNum * bucketNum;
+        }
+        return bufferSize;
+    }
+
+    public static long getBufferSizeForAlterTable(OlapTable table, Set<Long> indexIdSet) {
+        long bufferSize = 1 + indexIdSet.size();
+        for (Long indexId : indexIdSet) {
+            for (Partition partition : table.getPartitions()) {
+                MaterializedIndex originIndex = partition.getIndex(indexId);
+                for (Tablet baseTablet : originIndex.getTablets()) {
+                    bufferSize = bufferSize + 1 + baseTablet.getReplicas().size();
+                }
+            }
         }
         return bufferSize;
     }
