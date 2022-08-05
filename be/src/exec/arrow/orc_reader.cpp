@@ -56,7 +56,7 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         return Status::EndOfFile("Empty Orc File");
     }
     // seek file position after _reader created.
-    RETURN_IF_ERROR(_seek_start_stripe());   
+    RETURN_IF_ERROR(_seek_start_stripe());
 
     // map
     arrow::Result<std::shared_ptr<arrow::Schema>> maybe_schema = _reader->ReadSchema();
