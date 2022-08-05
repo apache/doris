@@ -31,6 +31,14 @@ import java.util.Set;
  * Extracts the SlotReference contained in the expression.
  */
 public class SlotExtractor {
+    private static final DefaultExpressionVisitor<Void, Set<Slot>> SLOT_COLLECTOR
+            = new DefaultExpressionVisitor<Void, Set<Slot>>() {
+                @Override
+                public Void visitSlotReference(SlotReference slotReference, Set<Slot> context) {
+                    context.add(slotReference);
+                    return null;
+                }
+            };
 
     /**
      * extract slot reference.
@@ -38,7 +46,7 @@ public class SlotExtractor {
     public static Set<Slot> extractSlot(Collection<Expression> expressions) {
         Set<Slot> slots = Sets.newHashSet();
         for (Expression expression : expressions) {
-            slots.addAll(extractSlot(expression));
+            extractSlot(expression, slots);
         }
         return slots;
     }
@@ -49,22 +57,12 @@ public class SlotExtractor {
     public static Set<Slot> extractSlot(Expression... expressions) {
         Set<Slot> slots = Sets.newHashSet();
         for (Expression expression : expressions) {
-            slots.addAll(extractSlot(expression));
+            extractSlot(expression, slots);
         }
         return slots;
     }
 
-    private static Set<Slot> extractSlot(Expression expression) {
-        Set<Slot> slots = Sets.newHashSet();
-        new SlotCollector().visit(expression, slots);
-        return slots;
-    }
-
-    private static class SlotCollector extends DefaultExpressionVisitor<Void, Set<Slot>> {
-        @Override
-        public Void visitSlotReference(SlotReference slotReference, Set<Slot> context) {
-            context.add(slotReference);
-            return null;
-        }
+    private static void extractSlot(Expression expression, Set<Slot> slots) {
+        expression.accept(SLOT_COLLECTOR, slots);
     }
 }
