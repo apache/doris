@@ -1081,12 +1081,14 @@ public class HashJoinNode extends PlanNode {
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
                 msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
-                msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
+                // Enable it after we support new optimizers
+                // msg.addToProjections(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
             }
         }
         if (vOutputTupleDesc != null) {
             msg.hash_join_node.setVoutputTupleId(vOutputTupleDesc.getId().asInt());
-            msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
+            // Enable it after we support new optimizers
+            // msg.setOutputTupleId(vOutputTupleDesc.getId().asInt());
         }
         if (vIntermediateTupleDescList != null) {
             for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {

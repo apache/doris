@@ -119,8 +119,9 @@ Status VBlockingJoinNode::open(RuntimeState* state) {
     // Seed left child in preparation for get_next().
     while (true) {
         release_block_memory(_left_block);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next(state, &_left_block, &_left_side_eos),
-                                       child(0)->get_next_span(), _left_side_eos);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(0)->get_next_after_projects(state, &_left_block, &_left_side_eos),
+                child(0)->get_next_span(), _left_side_eos);
         COUNTER_UPDATE(_left_child_row_counter, _left_block.rows());
         _left_block_pos = 0;
 

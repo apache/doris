@@ -467,8 +467,9 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
     Block block;
     RETURN_IF_CANCELLED(state);
     do {
-        RETURN_IF_ERROR_AND_CHECK_SPAN(_children[0]->get_next(state, &block, &_input_eos),
-                                       _children[0]->get_next_span(), _input_eos);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                _children[0]->get_next_after_projects(state, &block, &_input_eos),
+                _children[0]->get_next_span(), _input_eos);
     } while (!_input_eos && block.rows() == 0);
 
     if (_input_eos && block.rows() == 0) {
