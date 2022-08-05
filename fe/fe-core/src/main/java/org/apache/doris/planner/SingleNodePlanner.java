@@ -1041,6 +1041,14 @@ public class SingleNodePlanner {
                 root = createJoinNode(analyzer, root, innerRef, selectStmt);
                 // Have the build side of a join copy data to a compact representation
                 // in the tuple buffer.
+                if (aggOutputNotHaveMaterializedSlot
+                        && aggregateInfo
+                        .getOutputTupleDesc()
+                        .getSlots()
+                        .stream()
+                        .anyMatch(SlotDescriptor::isMaterialized)) {
+                    aggregateInfo.materializeRequiredSlots(analyzer, null);
+                }
                 root.getChildren().get(1).setCompactData(true);
                 root.assignConjuncts(analyzer);
             }
@@ -2281,6 +2289,7 @@ public class SingleNodePlanner {
         for (SlotId id : slotIds) {
             final SlotDescriptor slot = analyzer.getDescTbl().getSlotDesc(id);
             slot.setIsMaterialized(true);
+            slot.materializeSrcExpr();
         }
         for (TupleId id : tupleIds) {
             final TupleDescriptor tuple = analyzer.getDescTbl().getTupleDesc(id);
