@@ -59,6 +59,9 @@ private:
     bool _cur_file_eof; // is read over?
     int64_t _range_start_offset;
     int64_t _range_size;
+
+private:
+    std::unique_ptr<doris::StripeReader> _strip_reader;
 };
 
 } // namespace doris

@@ -38,14 +38,6 @@ ORCReaderWrap::ORCReaderWrap(FileReader* file_reader, int64_t batch_size,
     _cur_file_eof = false;
 }
 
-ORCReaderWrap::~ORCReaderWrap() {
-    _closed = true;
-    _queue_writer_cond.notify_one();
-    if (_thread.joinable()) {
-        _thread.join();
-    }
-}
-
 Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
                                   const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                   const std::vector<ExprContext*>& conjunct_ctxs,
@@ -187,26 +179,6 @@ Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
         _current_group++;
     } while (skip_current_group);
 
-    return Status::OK();
-}
-
-Status ORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) {
-    std::unique_lock<std::mutex> lock(_mtx);
-    while (!_closed && _queue.empty()) {
-        if (_batch_eof) {
-            _include_column_ids.clear();
-            *eof = true;
-            _batch_eof = false;
-            return Status::OK();
-        }
-        _queue_reader_cond.wait_for(lock, std::chrono::seconds(1));
-    }
-    if (UNLIKELY(_closed)) {
-        return Status::InternalError(_status.message());
-    }
-    *batch = _queue.front();
-    _queue.pop_front();
-    _queue_writer_cond.notify_one();
     return Status::OK();
 }
 

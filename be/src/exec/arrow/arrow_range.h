@@ -295,7 +295,8 @@ public:
 
         case TYPE_DATE:
         case TYPE_DATEV2: {
-            auto origin_value = reinterpret_cast<const doris::vectorized::DateV2Value*>(data);
+            auto origin_value = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(data);
             origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
             break;
         }
@@ -325,7 +326,8 @@ public:
         switch (conjunct_type) {
         case TYPE_DATE:
         case TYPE_DATEV2: {
-            auto origin_value = reinterpret_cast<const doris::vectorized::DateV2Value*>(data);
+            auto origin_value = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(data);
             origin_value->unix_timestamp(&out_value, TimezoneUtils::default_time_zone);
             break;
         }
