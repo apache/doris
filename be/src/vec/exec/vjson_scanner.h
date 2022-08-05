@@ -37,10 +37,13 @@
 
 namespace doris {
 class ExprContext;
+class RuntimeState;
+class ScannerCounter;
 
 namespace vectorized {
 class VJsonReader;
 
+template<typename JsonReader>
 class VJsonScanner : public JsonScanner {
 public:
     VJsonScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
@@ -59,7 +62,7 @@ private:
     Status open_next_reader();
 
 private:
-    std::unique_ptr<VJsonReader> _cur_vjson_reader;
+    std::unique_ptr<JsonReader> _cur_vjson_reader = nullptr;
 };
 
 class VJsonReader : public JsonReader {
@@ -108,6 +111,88 @@ private:
 
     Status _append_error_msg(const rapidjson::Value& objectValue, std::string error_msg,
                              std::string col_name, bool* valid);
+};
+
+class VSIMDJsonReader {
+public:
+    VSIMDJsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
+                bool strip_outer_array, bool num_as_string, bool fuzzy_parse, bool* scanner_eof,
+                FileReader* file_reader = nullptr, LineReader* line_reader = nullptr);
+
+    ~VSIMDJsonReader();
+
+    Status init(const std::string& jsonpath, const std::string& json_root, bool is_dynamic_schema);
+
+    Status read_json_column(std::vector<MutableColumnPtr>& columns,
+                            const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+                            bool* eof);
+
+private:
+    Status (VSIMDJsonReader::*_vhandle_json_callback)(
+            std::vector<vectorized::MutableColumnPtr>& columns,
+            const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row, bool* eof);
+
+    Status _vhandle_dynamic_json(std::vector<MutableColumnPtr>& columns,
+                                const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+                                bool* eof);
+
+    Status _vhandle_simple_json(std::vector<MutableColumnPtr>& columns,
+                                const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+                                bool* eof);
+
+    Status _vhandle_flat_array_complex_json(std::vector<MutableColumnPtr>& columns,
+                                            const std::vector<SlotDescriptor*>& slot_descs,
+                                            bool* is_empty_row, bool* eof);
+
+    Status _vhandle_nested_complex_json(std::vector<MutableColumnPtr>& columns,
+                                        const std::vector<SlotDescriptor*>& slot_descs,
+                                        bool* is_empty_row, bool* eof);
+
+    Status _write_columns_by_jsonpath(simdjson::ondemand::value value,
+                                      const std::vector<SlotDescriptor*>& slot_descs,
+                                      std::vector<MutableColumnPtr>& columns, bool* valid);
+
+    Status _set_column_value(simdjson::ondemand::value value, std::vector<MutableColumnPtr>& columns,
+                             const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
+
+    Status _write_data_to_column(simdjson::ondemand::value value,
+                                 SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
+                                 bool* valid);
+
+    Status _parse_json(bool* is_empty_row, bool* eof);
+
+    Status _parse_json_doc(size_t* size, bool* eof);
+
+    Status _append_error_msg(simdjson::ondemand::value object_value, std::string error_msg,
+                             std::string col_name, bool* valid);
+
+    std::unique_ptr<simdjson::ondemand::parser> _json_parser = nullptr;
+    simdjson::ondemand::document _json_doc;
+
+    int _next_line;
+    int _total_lines;
+    doris::RuntimeState* _state;
+    doris::ScannerCounter* _counter;
+    RuntimeProfile* _profile;
+    FileReader* _file_reader;
+    LineReader* _line_reader;
+    bool _closed;
+    bool _strip_outer_array;
+    bool _num_as_string;
+    bool _fuzzy_parse;
+    RuntimeProfile::Counter* _bytes_read_counter;
+    RuntimeProfile::Counter* _read_timer;
+    RuntimeProfile::Counter* _file_read_timer;
+
+    std::unordered_map<std::string, int> _name_map;
+    std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
+    std::vector<JsonPath> _parsed_json_root;
+
+    bool* _scanner_eof;
+
+    static constexpr size_t _buffer_size = 1024 * 1024 * 8;
+    static constexpr size_t _padded_size = _buffer_size + simdjson::SIMDJSON_PADDING;
+    char _simdjson_ondemand_padding_buffer[_padded_size];
 };
 
 } // namespace vectorized
