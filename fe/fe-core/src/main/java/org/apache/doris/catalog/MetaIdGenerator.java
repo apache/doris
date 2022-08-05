@@ -59,6 +59,7 @@ public class MetaIdGenerator {
         nextId = nextId + bufferSize;
         if (nextId > batchEndId) {
             batchEndId = batchEndId + ((nextId - batchEndId) / BATCH_ID_INTERVAL + 1) * BATCH_ID_INTERVAL;
+            Preconditions.checkState(nextId <= batchEndId);
             if (editLog != null) {
                 editLog.logSaveNextId(batchEndId);
             }
