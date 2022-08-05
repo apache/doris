@@ -36,6 +36,7 @@ import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
+import org.apache.doris.nereids.DorisParser.LimitClauseContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
 import org.apache.doris.nereids.DorisParser.MultiStatementsContext;
@@ -53,6 +54,7 @@ import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
+import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
@@ -111,6 +113,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -119,6 +122,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
+import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
@@ -186,8 +190,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             // TODO: need to add withQueryResultClauses and withCTE
             LogicalPlan query = plan(ctx.queryTerm());
-            LogicalPlan queryOrganization = withQueryOrganization(query, ctx.queryOrganization());
-            return queryOrganization;
+            return withQueryOrganization(query, ctx.queryOrganization());
         });
     }
 
@@ -564,23 +567,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return visit(namedCtx.namedExpression(), Expression.class);
     }
 
-    /**
-     * Create OrderKey list.
-     *
-     * @param ctx QueryOrganizationContext
-     * @return List of OrderKey
-     */
-    @Override
-    public List<OrderKey> visitQueryOrganization(QueryOrganizationContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
-            if (ctx.sortClause().ORDER() != null) {
-                return visit(ctx.sortClause().sortItem(), OrderKey.class);
-            } else {
-                return ImmutableList.of();
-            }
-        });
-    }
-
     @Override
     public LogicalPlan visitFromClause(FromClauseContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
@@ -667,9 +653,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return typedVisit(ctx);
     }
 
-    private LogicalPlan withQueryOrganization(LogicalPlan children, QueryOrganizationContext ctx) {
-        List<OrderKey> orderKeys = visitQueryOrganization(ctx);
-        return orderKeys.isEmpty() ? children : new LogicalSort(orderKeys, children);
+    private LogicalPlan withQueryOrganization(LogicalPlan inputPlan, QueryOrganizationContext ctx) {
+        Optional<SortClauseContext> sortClauseContext = Optional.ofNullable(ctx.sortClause());
+        Optional<LimitClauseContext> limitClauseContext = Optional.ofNullable(ctx.limitClause());
+        LogicalPlan sort = withSort(inputPlan, sortClauseContext);
+        return withLimit(sort, limitClauseContext);
+    }
+
+    private LogicalPlan withSort(LogicalPlan input, Optional<SortClauseContext> sortCtx) {
+        return input.optionalMap(sortCtx, () -> {
+            List<OrderKey> orderKeys = visit(sortCtx.get().sortItem(), OrderKey.class);
+            return new LogicalSort(orderKeys, input);
+        });
+    }
+
+    private LogicalPlan withLimit(LogicalPlan input, Optional<LimitClauseContext> limitCtx) {
+        return input.optionalMap(limitCtx, () -> {
+            long limit = Long.parseLong(limitCtx.get().limit.getText());
+            long offset = 0;
+            Token offsetToken = limitCtx.get().offset;
+            if (offsetToken != null) {
+                if (input instanceof LogicalSort) {
+                    offset = Long.parseLong(offsetToken.getText());
+                } else {
+                    throw new IllegalStateException("OFFSET requires an ORDER BY clause");
+                }
+            }
+            return new LogicalLimit<>(limit, offset, input);
+        });
     }
 
     /**
