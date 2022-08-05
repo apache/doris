@@ -65,7 +65,7 @@ const uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(nullptr) * 10000);
 std::mutex TaskWorkerPool::_s_task_signatures_lock;
 std::map<TTaskType::type, std::set<int64_t>> TaskWorkerPool::_s_task_signatures;
-FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache;
+FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache(config::max_master_service_client_cache_size_per_host);
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                                const TMasterInfo& master_info, ThreadModel thread_model)

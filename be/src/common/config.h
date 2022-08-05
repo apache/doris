@@ -541,11 +541,15 @@ CONF_String(es_scroll_keepalive, "5m");
 // HTTP connection timeout for es
 CONF_mInt32(es_http_timeout_ms, "5000");
 
-// the max client cache number per each host
+// the max basic client cache number per each host
+// basically this will be used by `ThriftRpcHelper::rpc`
 // There are variety of client cache in BE, but currently we use the
 // same cache size configuration.
 // TODO(cmy): use different config to set different client cache if necessary.
-CONF_Int32(max_client_cache_size_per_host, "10");
+CONF_Int32(max_basic_client_cache_size_per_host, "10");
+
+// the max client cache number per host for Frontend Master Service
+CONF_Int32(max_master_service_client_cache_size_per_host, "20");
 
 // Dir to save files downloaded by SmallFileMgr
 CONF_String(small_file_dir, "${DORIS_HOME}/lib/small_file/");

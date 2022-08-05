@@ -25,6 +25,7 @@
 
 #include "agent/utils.h"
 #include "common/status.h"
+#include "common/config.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "olap/data_dir.h"
