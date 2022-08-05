@@ -64,7 +64,7 @@ suite("test_explain_tpch_sf_1_q20", "tpch_sf1") {
 				"  |  order by: <slot 23> `s_name` ASC") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
 				"  |  equal join conjunct: <slot 25> = <slot 36>\n" + 
-				"     runtime filters: RF000[in_or_bloom] <- <slot 36>") && 
+				"  |  runtime filters: RF000[in_or_bloom] <- <slot 36>") && 
 		explainStr.contains("vec output tuple id: 13") && 
 		explainStr.contains("output slot ids: 38 39 \n" + 
 				"  |  hash output slot ids: 26 27 ") && 
