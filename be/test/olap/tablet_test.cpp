@@ -376,6 +376,7 @@ TEST_F(TestTablet, rowset_tree_update) {
     tschema.keys_type = TKeysType::UNIQUE_KEYS;
     TabletMetaSharedPtr tablet_meta = new_tablet_meta(tschema, true);
     TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
+    RowsetIdUnorderedSet rowset_ids;
     tablet->init();
 
     RowsetMetaSharedPtr rsm1(new RowsetMeta());
@@ -386,6 +387,7 @@ TEST_F(TestTablet, rowset_tree_update) {
     RowsetSharedPtr rs_ptr1;
     MockRowset::create_rowset(tablet->tablet_schema(), "", rsm1, &rs_ptr1, false);
     tablet->add_inc_rowset(rs_ptr1);
+    rowset_ids.insert(id1);
 
     RowsetMetaSharedPtr rsm2(new RowsetMeta());
     init_rs_meta(rsm2, 8, 8, convert_key_bounds({{"500", "999"}}));
@@ -396,27 +398,33 @@ TEST_F(TestTablet, rowset_tree_update) {
     RowsetSharedPtr rs_ptr2;
     MockRowset::create_rowset(tablet->tablet_schema(), "", rsm2, &rs_ptr2, false);
     tablet->add_inc_rowset(rs_ptr2);
+    rowset_ids.insert(id2);
+
+    RowsetId id3;
+    id3.init(540081);
+    rowset_ids.insert(id3);
 
     RowLocation loc;
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("99", &loc, 7).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("99", &rowset_ids, &loc, 7).is_not_found());
     // Version too low.
-    ASSERT_TRUE(tablet->lookup_row_key("101", &loc, 3).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 3).is_not_found());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
-    ASSERT_TRUE(tablet->lookup_row_key("101", &loc, 7).precise_code() ==
+    LOG(INFO) << tablet->lookup_row_key("101", &rowset_ids, &loc, 7).to_string();
+    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 7).precise_code() ==
                 OLAP_ERR_ROWSET_LOAD_FAILED);
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("201", &loc, 7).is_not_found());
-    ASSERT_TRUE(tablet->lookup_row_key("300", &loc, 7).precise_code() ==
+    ASSERT_TRUE(tablet->lookup_row_key("201", &rowset_ids, &loc, 7).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("300", &rowset_ids, &loc, 7).precise_code() ==
                 OLAP_ERR_ROWSET_LOAD_FAILED);
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("499", &loc, 7).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("499", &rowset_ids, &loc, 7).is_not_found());
     // Version too low.
-    ASSERT_TRUE(tablet->lookup_row_key("500", &loc, 7).is_not_found());
+    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 7).is_not_found());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
-    ASSERT_TRUE(tablet->lookup_row_key("500", &loc, 8).precise_code() ==
+    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 8).precise_code() ==
                 OLAP_ERR_ROWSET_LOAD_FAILED);
 }
 
