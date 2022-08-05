@@ -83,6 +83,7 @@ import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -344,7 +345,7 @@ public class Env {
     private int masterHttpPort;
     private String masterIp;
 
-    private CatalogIdGenerator idGenerator = new CatalogIdGenerator(NEXT_ID_INIT_VALUE);
+    private MetaIdGenerator idGenerator = new MetaIdGenerator(NEXT_ID_INIT_VALUE);
 
     private EditLog editLog;
     private int clusterId;
@@ -1535,7 +1536,7 @@ public class Env {
                 MetaHelper.complete(filename, dir);
             } else {
                 LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
-                         localImageVersion, version);
+                        localImageVersion, version);
             }
         } catch (Exception e) {
             throw new IOException(e);
@@ -2889,6 +2890,12 @@ public class Env {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
+            // show lightSchemaChange only when it is set true
+            if (olapTable.getUseLightSchemaChange()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
+                sb.append(olapTable.getUseLightSchemaChange()).append("\"");
+            }
+
             // storage policy
             if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
@@ -2898,7 +2905,7 @@ public class Env {
             // sequence type
             if (olapTable.hasSequenceCol()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
-                    + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
+                        + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
                 sb.append(olapTable.getSequenceType().toString()).append("\"");
             }
 
@@ -3203,6 +3210,10 @@ public class Env {
     // Get the next available, needn't lock because of nextId is atomic.
     public long getNextId() {
         return idGenerator.getNextId();
+    }
+
+    public IdGeneratorBuffer getIdGeneratorBuffer(long bufferSize) {
+        return idGenerator.getIdGeneratorBuffer(bufferSize);
     }
 
     public HashMap<Long, TStorageMedium> getPartitionIdToStorageMediumMap() {
@@ -4113,7 +4124,7 @@ public class Env {
                     olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
                     // storage policy re-use modify in memory
                     Optional.ofNullable(tableProperty.getStoragePolicy()).filter(p -> !p.isEmpty())
-                        .ifPresent(p -> olapTable.getPartitionInfo().setStoragePolicy(partition.getId(), p));
+                            .ifPresent(p -> olapTable.getPartitionInfo().setStoragePolicy(partition.getId(), p));
                 }
             }
         } finally {
@@ -4998,7 +5009,7 @@ public class Env {
             Optional<Table> table = db.getTable(tableId);
             if (table.isPresent()) {
                 return new TableName(InternalDataSource.INTERNAL_DS_NAME,
-                                    db.getFullName(), table.get().getName());
+                        db.getFullName(), table.get().getName());
             }
         }
         return null;

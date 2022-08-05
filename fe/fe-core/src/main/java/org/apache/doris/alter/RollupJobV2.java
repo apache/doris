@@ -138,10 +138,10 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         super(JobType.ROLLUP);
     }
 
-    public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs,
-            long baseIndexId, long rollupIndexId, String baseIndexName, String rollupIndexName,
-            List<Column> rollupSchema, int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
-            short rollupShortKeyColumnCount, OriginStatement origStmt) {
+    public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs, long baseIndexId,
+            long rollupIndexId, String baseIndexName, String rollupIndexName, List<Column> rollupSchema,
+            int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType, short rollupShortKeyColumnCount,
+            OriginStatement origStmt) {
         super(jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
 
         this.baseIndexId = baseIndexId;
@@ -150,6 +150,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.rollupIndexName = rollupIndexName;
 
         this.rollupSchema = rollupSchema;
+
         this.baseSchemaHash = baseSchemaHash;
         this.rollupSchemaHash = rollupSchemaHash;
         this.rollupKeysType = rollupKeysType;
@@ -376,8 +377,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                     List<Column> fullSchema = tbl.getBaseSchema(true);
                     DescriptorTable descTable = new DescriptorTable();
+                    TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                     for (Column column : fullSchema) {
-                        TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                         destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);

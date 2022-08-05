@@ -278,6 +278,11 @@ void VecDateTimeValue::set_zero(int type) {
 
 void VecDateTimeValue::set_type(int type) {
     _type = type;
+    if (type == TIME_DATE) {
+        _hour = 0;
+        _minute = 0;
+        _second = 0;
+    }
 }
 
 void VecDateTimeValue::set_max_time(bool neg) {
@@ -793,7 +798,7 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
                 return false;
             }
             uint32_t year = 0;
-            calc_week(*this, mysql_week_mode(3), &year);
+            calc_week(*this, mysql_week_mode(3), &year, true);
             pos = int_to_str(year, buf);
             to = append_with_prefix(buf, pos - buf, '0', 4, to);
             break;
@@ -829,15 +834,18 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
     return true;
 }
 
-uint8_t VecDateTimeValue::calc_week(const VecDateTimeValue& value, uint8_t mode, uint32_t* year) {
+uint8_t VecDateTimeValue::calc_week(const VecDateTimeValue& value, uint8_t mode, uint32_t* year,
+                                    bool disable_lut) {
     // mode=3 is used for week_of_year()
-    if (config::enable_time_lut && mode == 3 && value._year >= 1950 && value._year < 2030) {
+    if (config::enable_time_lut && !disable_lut && mode == 3 && value._year >= 1950 &&
+        value._year < 2030) {
         return doris::TimeLUT::GetImplement()
                 ->week_of_year_table[value._year - doris::LUT_START_YEAR][value._month - 1]
                                     [value._day - 1];
     }
     // mode=4 is used for week()
-    if (config::enable_time_lut && mode == 4 && value._year >= 1950 && value._year < 2030) {
+    if (config::enable_time_lut && !disable_lut && mode == 4 && value._year >= 1950 &&
+        value._year < 2030) {
         return doris::TimeLUT::GetImplement()
                 ->week_table[value._year - doris::LUT_START_YEAR][value._month - 1][value._day - 1];
     }
@@ -2328,6 +2336,10 @@ uint8_t DateV2Value<T>::week(uint8_t mode) const {
 
 template <typename T>
 uint32_t DateV2Value<T>::year_week(uint8_t mode) const {
+    if (config::enable_time_lut && mode == 4 && this->year() >= 1950 && this->year() < 2030) {
+        return doris::TimeLUT::GetImplement()
+                ->year_week_table[this->year() - 1950][this->month() - 1][this->day() - 1];
+    }
     uint16_t year = 0;
     // The range of the week in the year_week is 1-53, so the mode WEEK_YEAR is always true.
     uint8_t week =
@@ -2797,7 +2809,7 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             // numeric, four digits; used with %v
             uint16_t year = 0;
             calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(3),
-                      &year);
+                      &year, true);
             pos = int_to_str(year, buf);
             to = append_with_prefix(buf, pos - buf, '0', 4, to);
             break;
@@ -2806,7 +2818,7 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             // Year for the week where Sunday is the first day of the week,
             // numeric, four digits; used with %V
             uint16_t year = 0;
-            calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(3),
+            calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(2),
                       &year);
             pos = int_to_str(year, buf);
             to = append_with_prefix(buf, pos - buf, '0', 4, to);
@@ -2938,7 +2950,16 @@ bool DateV2Value<T>::from_date_int64(int64_t value) {
 template <typename T>
 uint8_t DateV2Value<T>::calc_week(const uint32_t& day_nr, const uint16_t& year,
                                   const uint8_t& month, const uint8_t& day, uint8_t mode,
-                                  uint16_t* to_year) {
+                                  uint16_t* to_year, bool disable_lut) {
+    if (config::enable_time_lut && !disable_lut && mode == 3 && year >= 1950 && year < 2030) {
+        return doris::TimeLUT::GetImplement()
+                ->week_of_year_table[year - doris::LUT_START_YEAR][month - 1][day - 1];
+    }
+    // mode=4 is used for week()
+    if (config::enable_time_lut && !disable_lut && mode == 4 && year >= 1950 && year < 2030) {
+        return doris::TimeLUT::GetImplement()
+                ->week_table[year - doris::LUT_START_YEAR][month - 1][day - 1];
+    }
     bool monday_first = mode & WEEK_MONDAY_FIRST;
     bool week_year = mode & WEEK_YEAR;
     bool first_weekday = mode & WEEK_FIRST_WEEKDAY;

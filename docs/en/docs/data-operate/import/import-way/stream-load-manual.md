@@ -141,9 +141,9 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
     Import the filter conditions specified by the task. Stream load supports filtering of where statements specified for raw data. The filtered data will not be imported or participated in the calculation of filter ratio, but will be counted as `num_rows_unselected`.
 
-+ partition
++ partitions
 
-    Partition information for tables to be imported will not be imported if the data to be imported does not belong to the specified Partition. These data will be included in `dpp.abnorm.ALL`.
+    Partitions information for tables to be imported will not be imported if the data to be imported does not belong to the specified Partition. These data will be included in `dpp.abnorm.ALL`.
 
 + columns
 
@@ -175,7 +175,7 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
   The default two-phase bulk transaction commit is off.
 
-  > **Open method:** Configure `disable_stream_load_2pc=false` in be.conf (restart takes effect) and declare `two_phase_commit=true` in HEADER.
+  > **Open method:** Configure `disable_stream_load_2pc=false` in be.conf and declare `two_phase_commit=true` in HEADER.
 
   Example：
 
@@ -216,7 +216,7 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
       "status": "Success",
       "msg": "transaction [18037] abort successfully."
   }
-   ```
+  ```
 
 ### Return results
 
@@ -303,7 +303,6 @@ Users can't cancel Stream load manually. Stream load will be cancelled automatic
 Users can view completed stream load tasks through `show stream load`.
 
 By default, BE does not record Stream Load records. If you want to view records that need to be enabled on BE, the configuration parameter is: `enable_stream_load_record=true`. For details, please refer to [BE Configuration Items](https://doris.apache. org/zh-CN/docs/admin-manual/config/be-config)
-
 
 ## Relevant System Configuration
 

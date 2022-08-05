@@ -23,14 +23,16 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -39,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -71,14 +74,21 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
      * Do estimate.
      */
     public void estimate() {
+
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
         groupExpression.getOwnerGroup().setStatistics(stats);
-        Plan plan = groupExpression.getPlan();
-        long limit = plan.getLimit();
-        if (limit != -1) {
-            stats.setRowCount(Math.min(limit, stats.getRowCount()));
-        }
         groupExpression.setStatDerived(true);
+
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalLimit(LogicalLimit<Plan> limit, Void context) {
+        return computeLimit(limit);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalLimit(PhysicalLimit<Plan> limit, Void context) {
+        return computeLimit(limit);
     }
 
     @Override
@@ -163,7 +173,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         FilterSelectivityCalculator selectivityCalculator =
                 new FilterSelectivityCalculator(stats.getSlotToColumnStats());
         double selectivity = selectivityCalculator.estimate(filter.getPredicates());
-        stats.multiplyDouble(selectivity);
+        stats.updateRowCountBySelectivity(selectivity);
         return stats;
     }
 
@@ -191,6 +201,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 new HashMap<>(), new HashMap<>());
         stats.setSlotToColumnStats(slotToColumnStats);
         return stats;
+    }
+
+    private StatsDeriveResult computeLimit(Limit limit) {
+        StatsDeriveResult stats = groupExpression.getCopyOfChildStats(0);
+        return stats.updateRowCountByLimit(limit.getLimit());
     }
 
     private StatsDeriveResult computeAggregate(Aggregate aggregate) {
