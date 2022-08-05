@@ -131,7 +131,7 @@ Status DeltaWriter::init() {
 
     RETURN_NOT_OK(_tablet->create_rowset_writer(_req.txn_id, _req.load_id, PREPARED, OVERLAPPING,
                                                 _tablet_schema, &_rowset_writer));
-    _schema.reset(new Schema(*_tablet_schema));
+    _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();
 
     // create flush handler

@@ -41,25 +41,25 @@ public:
     ~RowCursor();
 
     // Create a RowCursor based on the schema
-    Status init(const TabletSchema& schema);
+    Status init(TabletSchemaSPtr schema);
     Status init(const std::vector<TabletColumn>& schema);
 
     // Create a RowCursor based on the first n columns of the schema
     Status init(const std::vector<TabletColumn>& schema, size_t column_count);
-    Status init(const TabletSchema& schema, size_t column_count);
+    Status init(TabletSchemaSPtr schema, size_t column_count);
 
     // Create a RowCursor based on the schema and column id list
     // which is used for the calculation process only uses some discontinuous prefix columns
-    Status init(const TabletSchema& schema, const std::vector<uint32_t>& columns);
+    Status init(TabletSchemaSPtr schema, const std::vector<uint32_t>& columns);
 
     // Initialize with the size of the key, currently only used when splitting the range of key
-    Status init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys);
+    Status init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& keys);
 
-    Status init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys,
+    Status init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& keys,
                          const std::shared_ptr<Schema>& shared_schema);
 
     //allocate memory for string type, which include char, varchar, hyperloglog
-    Status allocate_memory_for_string_type(const TabletSchema& schema);
+    Status allocate_memory_for_string_type(TabletSchemaSPtr schema);
 
     RowCursorCell cell(uint32_t cid) const { return RowCursorCell(nullable_cell_ptr(cid)); }
 
@@ -151,7 +151,7 @@ private:
     Status _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
     Status _alloc_buf();
 
-    Status _init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys);
+    Status _init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& scan_keys);
 
     std::unique_ptr<Schema> _schema;
 
