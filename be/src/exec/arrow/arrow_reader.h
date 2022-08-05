@@ -79,7 +79,8 @@ private:
 // base of arrow reader
 class ArrowReaderWrap {
 public:
-    ArrowReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file);
+    ArrowReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file,
+                    bool caseSensitive);
     virtual ~ArrowReaderWrap();
 
     virtual Status init_reader(const TupleDescriptor* tuple_desc,
@@ -96,6 +97,7 @@ public:
     std::shared_ptr<Statistics>& statistics() { return _statistics; }
     void close();
     virtual Status size(int64_t* size) { return Status::NotSupported("Not Implemented size"); }
+    int get_cloumn_index(std::string column_name);
 
     void prefetch_batch();
 
@@ -124,6 +126,7 @@ protected:
     std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
     const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
     std::thread _thread;
+    bool _caseSensitive;
 };
 
 } // namespace doris

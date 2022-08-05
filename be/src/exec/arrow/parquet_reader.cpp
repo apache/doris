@@ -32,14 +32,15 @@
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple.h"
+#include "util/string_util.h"
 
 namespace doris {
 
 // Broker
 ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
                                      int32_t num_of_columns_from_file, int64_t range_start_offset,
-                                     int64_t range_size)
-        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file),
+                                     int64_t range_size, bool caseSensitive)
+        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file, caseSensitive),
           _rows_of_group(0),
           _current_line_of_group(0),
           _current_line_of_batch(0),
@@ -84,12 +85,14 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         // map
         auto* schemaDescriptor = _file_metadata->schema();
         for (int i = 0; i < _file_metadata->num_columns(); ++i) {
+            std::string schemaName;
             // Get the Column Reader for the boolean column
             if (schemaDescriptor->Column(i)->max_definition_level() > 1) {
-                _map_column.emplace(schemaDescriptor->Column(i)->path()->ToDotVector()[0], i);
+                schemaName = schemaDescriptor->Column(i)->path()->ToDotVector()[0];
             } else {
-                _map_column.emplace(schemaDescriptor->Column(i)->name(), i);
+                schemaName = schemaDescriptor->Column(i)->name();
             }
+            _map_column.emplace(_caseSensitive ? schemaName : to_lower(schemaName), i);
         }
 
         _timezone = timezone;
