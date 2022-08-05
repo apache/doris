@@ -63,7 +63,9 @@ Segment::Segment(uint32_t segment_id, TabletSchemaSPtr tablet_schema)
         : _segment_id(segment_id), _tablet_schema(tablet_schema), _meta_mem_usage(0) {}
 
 Segment::~Segment() {
+#ifndef BE_TEST
     StorageEngine::instance()->segment_meta_mem_tracker()->release(_meta_mem_usage);
+#endif
 }
 
 Status Segment::_open() {
@@ -78,7 +80,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     // trying to prune the current segment by segment-level zone map
     if (read_options.conditions != nullptr) {
         for (auto& column_condition : read_options.conditions->columns()) {
-            int32_t column_unique_id = _tablet_schema->column(column_condition.first).unique_id();
+            int32_t column_unique_id = column_condition.first;
             if (_column_readers.count(column_unique_id) < 1 ||
                 !_column_readers.at(column_unique_id)->has_zone_map()) {
                 continue;

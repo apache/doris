@@ -40,6 +40,7 @@ public:
     Schema(const TabletSchema& tablet_schema) {
         size_t num_columns = tablet_schema.num_columns();
         std::vector<ColumnId> col_ids(num_columns);
+        _unique_ids.resize(num_columns);
         std::vector<TabletColumn> columns;
         columns.reserve(num_columns);
 
@@ -47,6 +48,7 @@ public:
         for (uint32_t cid = 0; cid < num_columns; ++cid) {
             col_ids[cid] = cid;
             const TabletColumn& column = tablet_schema.column(cid);
+            _unique_ids[cid] = column.unique_id();
             if (column.is_key()) {
                 ++num_key_columns;
             }
@@ -62,6 +64,7 @@ public:
     // All the columns of one table may exist in the columns param, but col_ids is only a subset.
     Schema(const std::vector<TabletColumn>& columns, const std::vector<ColumnId>& col_ids) {
         size_t num_key_columns = 0;
+        _unique_ids.resize(columns.size());
         for (size_t i = 0; i < columns.size(); ++i) {
             if (columns[i].is_key()) {
                 ++num_key_columns;
@@ -69,6 +72,7 @@ public:
             if (columns[i].name() == DELETE_SIGN) {
                 _delete_sign_idx = i;
             }
+            _unique_ids[i] = columns[i].unique_id();
         }
         _init(columns, col_ids, num_key_columns);
     }
@@ -76,8 +80,10 @@ public:
     // Only for UT
     Schema(const std::vector<TabletColumn>& columns, size_t num_key_columns) {
         std::vector<ColumnId> col_ids(columns.size());
+        _unique_ids.resize(columns.size());
         for (uint32_t cid = 0; cid < columns.size(); ++cid) {
             col_ids[cid] = cid;
+            _unique_ids[cid] = columns[cid].unique_id();
         }
 
         _init(columns, col_ids, num_key_columns);
@@ -85,11 +91,13 @@ public:
 
     Schema(const std::vector<const Field*>& cols, size_t num_key_columns) {
         std::vector<ColumnId> col_ids(cols.size());
+        _unique_ids.resize(cols.size());
         for (uint32_t cid = 0; cid < cols.size(); ++cid) {
             col_ids[cid] = cid;
             if (cols.at(cid)->name() == DELETE_SIGN) {
                 _delete_sign_idx = cid;
             }
+            _unique_ids[cid] = cols[cid]->unique_id();
         }
 
         _init(cols, col_ids, num_key_columns);
@@ -133,7 +141,9 @@ public:
     size_t num_columns() const { return _cols.size(); }
     size_t num_column_ids() const { return _col_ids.size(); }
     const std::vector<ColumnId>& column_ids() const { return _col_ids; }
+    const std::vector<int32_t>& unique_ids() const { return _unique_ids; }
     ColumnId column_id(size_t index) const { return _col_ids[index]; }
+    int32_t unique_id(size_t index) const { return _unique_ids[index]; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     bool has_sequence_col() const { return _has_sequence_col; }
 
@@ -148,6 +158,7 @@ private:
     // NOTE: The ColumnId here represents the sequential index number (starting from 0) of
     // a column in current row, not the unique id-identifier of each column
     std::vector<ColumnId> _col_ids;
+    std::vector<int32_t> _unique_ids;
     // NOTE: Both _cols[cid] and _col_offsets[cid] can only be accessed when the cid is
     // contained in _col_ids
     std::vector<Field*> _cols;
