@@ -73,33 +73,37 @@ suite("test_explain_tpch_sf_1_q2", "tpch_sf1") {
 				"  |  order by: <slot 32> `s_acctbal` DESC, <slot 33> `n_name` ASC, <slot 34> `s_name` ASC, <slot 35> `p_partkey` ASC") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
 				"  |  equal join conjunct: <slot 78> = <slot 10> min(`ps_supplycost`)\n" + 
-				"  |  equal join conjunct: <slot 81> = <slot 9> `ps_partkey`") && 
+				"  |  equal join conjunct: <slot 81> = <slot 9> `ps_partkey`\n" + 
+				"  |  runtime filters: RF000[in_or_bloom] <- <slot 10> min(`ps_supplycost`), RF001[in_or_bloom] <- <slot 9> `ps_partkey`") && 
 		explainStr.contains("vec output tuple id: 19") && 
 		explainStr.contains("output slot ids: 121 122 125 126 127 128 129 132 \n" + 
 				"  |  hash output slot ids: 81 82 85 86 87 88 89 92 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 77> = `r_regionkey`") && 
+				"  |  equal join conjunct: <slot 77> = `r_regionkey`\n" + 
+				"  |  runtime filters: RF002[in_or_bloom] <- `r_regionkey`") && 
 		explainStr.contains("vec output tuple id: 15") && 
 		explainStr.contains("output slot ids: 78 81 82 85 86 87 88 89 92 \n" + 
 				"  |  hash output slot ids: 64 65 68 69 70 71 72 75 61 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 60> = `n_nationkey`") && 
+				"  |  equal join conjunct: <slot 60> = `n_nationkey`\n" + 
+				"  |  runtime filters: RF003[in_or_bloom] <- `n_nationkey`") && 
 		explainStr.contains("vec output tuple id: 14") && 
 		explainStr.contains("output slot ids: 61 64 65 68 69 70 71 72 75 77 \n" + 
 				"  |  hash output slot ids: 17 50 51 54 55 56 57 58 29 47 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 42> = `s_suppkey`") && 
+				"  |  equal join conjunct: <slot 42> = `s_suppkey`\n" + 
+				"  |  runtime filters: RF004[in_or_bloom] <- `s_suppkey`") && 
 		explainStr.contains("vec output tuple id: 13") && 
 		explainStr.contains("output slot ids: 47 50 51 54 55 56 57 58 60 \n" + 
 				"  |  hash output slot ids: 16 19 20 21 40 43 27 44 15 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `ps_partkey` = `p_partkey`\n" + 
-				"  |  runtime filters: RF000[in_or_bloom] <- `p_partkey`") && 
+				"  |  runtime filters: RF005[in_or_bloom] <- `p_partkey`") && 
 		explainStr.contains("vec output tuple id: 12") && 
 		explainStr.contains("output slot ids: 40 42 43 44 \n" + 
 				"  |  hash output slot ids: 18 24 13 14 ") && 
 		explainStr.contains("TABLE: partsupp(partsupp), PREAGGREGATION: ON\n" + 
-				"     runtime filters: RF000[in_or_bloom] -> `ps_partkey`") && 
+				"     runtime filters: RF000[in_or_bloom] -> <slot 13>, RF004[in_or_bloom] -> <slot 24>, RF005[in_or_bloom] -> `ps_partkey`") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
 				"  |  output: min(<slot 10> min(`ps_supplycost`))\n" + 
 				"  |  group by: <slot 9> `ps_partkey`") && 
@@ -108,33 +112,40 @@ suite("test_explain_tpch_sf_1_q2", "tpch_sf1") {
 				"  |  output: min(<slot 109>)\n" + 
 				"  |  group by: <slot 110>") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 108> = `r_regionkey`") && 
+				"  |  equal join conjunct: <slot 108> = `r_regionkey`\n" + 
+				"  |  runtime filters: RF006[in_or_bloom] <- `r_regionkey`") && 
 		explainStr.contains("vec output tuple id: 18") && 
 		explainStr.contains("output slot ids: 109 110 \n" + 
 				"  |  hash output slot ids: 102 103 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 101> = `n_nationkey`") && 
+				"  |  equal join conjunct: <slot 101> = `n_nationkey`\n" + 
+				"  |  runtime filters: RF007[in_or_bloom] <- `n_nationkey`") && 
 		explainStr.contains("vec output tuple id: 17") && 
 		explainStr.contains("output slot ids: 102 103 108 \n" + 
 				"  |  hash output slot ids: 97 98 6 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `ps_suppkey` = `s_suppkey`\n" + 
-				"  |  runtime filters: RF001[in_or_bloom] <- `s_suppkey`") && 
+				"  |  runtime filters: RF008[in_or_bloom] <- `s_suppkey`") && 
 		explainStr.contains("vec output tuple id: 16") && 
 		explainStr.contains("output slot ids: 97 98 101 \n" + 
 				"  |  hash output slot ids: 0 1 4 ") && 
 		explainStr.contains("TABLE: partsupp(partsupp), PREAGGREGATION: ON\n" + 
-				"     runtime filters: RF001[in_or_bloom] -> `ps_suppkey`") && 
+				"     runtime filters: RF008[in_or_bloom] -> `ps_suppkey`") && 
 		explainStr.contains("TABLE: region(region), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `r_name` = 'EUROPE'") && 
-		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON\n" + 
+				"     runtime filters: RF006[in_or_bloom] -> <slot 6>") && 
+		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
+				"     runtime filters: RF007[in_or_bloom] -> <slot 4>") && 
 		explainStr.contains("TABLE: region(region), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `r_name` = 'EUROPE'") && 
-		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON\n" + 
+				"     runtime filters: RF002[in_or_bloom] -> <slot 29>") && 
+		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
+				"     runtime filters: RF003[in_or_bloom] -> <slot 27>") && 
 		explainStr.contains("TABLE: part(part), PREAGGREGATION: ON\n" + 
-				"     PREDICATES: `p_size` = 15, `p_type` LIKE '%BRASS'") 
+				"     PREDICATES: `p_size` = 15, `p_type` LIKE '%BRASS'\n" + 
+				"     runtime filters: RF001[in_or_bloom] -> <slot 14>")
             
         }
     }
