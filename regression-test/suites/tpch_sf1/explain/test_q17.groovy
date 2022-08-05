@@ -75,7 +75,7 @@ suite("test_explain_tpch_sf_1_q17", "tpch_sf1") {
 		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON") && 
 		explainStr.contains("TABLE: part(part), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `p_brand` = 'Brand#23', `p_container` = 'MED BOX'\n" + 
-				"     runtime filters: RF000[in_or_bloom] -> <slot 7>") && 
+				"     runtime filters: RF000[in_or_bloom] -> <slot 7>")
             
         }
     }

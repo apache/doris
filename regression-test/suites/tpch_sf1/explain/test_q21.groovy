@@ -118,7 +118,7 @@ suite("test_explain_tpch_sf_1_q21", "tpch_sf1") {
 		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `o_orderstatus` = 'F'") && 
 		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
-				"     runtime filters: RF001[in_or_bloom] -> <slot 76>") && 
+				"     runtime filters: RF001[in_or_bloom] -> <slot 76>")
             
         }
     }
