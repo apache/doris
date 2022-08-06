@@ -473,7 +473,7 @@ public class HashJoinNode extends PlanNode {
             }
         }
         // 2. compute srcToOutputMap
-        vSrcToOutputSMap = ExprSubstitutionMap.subtraction(outputSmap, srcTblRefToOutputTupleSmap);
+        vSrcToOutputSMap = ExprSubstitutionMap.subtraction(outputSmap, srcTblRefToOutputTupleSmap, analyzer);
         for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
             Preconditions.checkState(vSrcToOutputSMap.getRhs().get(i) instanceof SlotRef);
             SlotRef rSlotRef = (SlotRef) vSrcToOutputSMap.getRhs().get(i);

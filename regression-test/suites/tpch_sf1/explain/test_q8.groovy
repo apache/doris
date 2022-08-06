@@ -75,51 +75,61 @@ suite("test_explain_tpch_sf_1_q8", "tpch_sf1") {
 				"  |  output: sum(CASE WHEN <slot 117> = 'BRAZIL' THEN <slot 105> * (1 - <slot 106>) ELSE 0 END), sum(<slot 105> * (1 - <slot 106>))\n" + 
 				"  |  group by: year(<slot 114>)") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 104> = `r_regionkey`") && 
+				"  |  equal join conjunct: <slot 104> = `r_regionkey`\n" + 
+				"  |  runtime filters: RF000[in_or_bloom] <- `r_regionkey`") && 
 		explainStr.contains("vec output tuple id: 17") && 
 		explainStr.contains("output slot ids: 105 106 114 117 \n" + 
 				"  |  hash output slot ids: 96 99 87 88 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 86> = `n1`.`n_nationkey`") && 
+				"  |  equal join conjunct: <slot 86> = `n1`.`n_nationkey`\n" + 
+				"  |  runtime filters: RF001[in_or_bloom] <- `n1`.`n_nationkey`") && 
 		explainStr.contains("vec output tuple id: 16") && 
 		explainStr.contains("output slot ids: 87 88 96 99 104 \n" + 
 				"  |  hash output slot ids: 80 83 71 72 14 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 68> = `c_custkey`") && 
+				"  |  equal join conjunct: <slot 68> = `c_custkey`\n" + 
+				"  |  runtime filters: RF002[in_or_bloom] <- `c_custkey`") && 
 		explainStr.contains("vec output tuple id: 15") && 
 		explainStr.contains("output slot ids: 71 72 80 83 86 \n" + 
 				"  |  hash output slot ids: 66 69 57 58 12 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 53> = `n2`.`n_nationkey`") && 
+				"  |  equal join conjunct: <slot 53> = `n2`.`n_nationkey`\n" + 
+				"  |  runtime filters: RF003[in_or_bloom] <- `n2`.`n_nationkey`") && 
 		explainStr.contains("vec output tuple id: 14") && 
 		explainStr.contains("output slot ids: 57 58 66 68 69 \n" + 
 				"  |  hash output slot ids: 3 54 56 45 46 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 40> = `o_orderkey`") && 
+				"  |  equal join conjunct: <slot 40> = `o_orderkey`\n" + 
+				"  |  runtime filters: RF004[in_or_bloom] <- `o_orderkey`") && 
 		explainStr.contains("vec output tuple id: 13") && 
 		explainStr.contains("output slot ids: 45 46 53 54 56 \n" + 
 				"  |  hash output slot ids: 0 36 37 10 44 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 32> = `s_suppkey`") && 
+				"  |  equal join conjunct: <slot 32> = `s_suppkey`\n" + 
+				"  |  runtime filters: RF005[in_or_bloom] <- `s_suppkey`") && 
 		explainStr.contains("vec output tuple id: 12") && 
 		explainStr.contains("output slot ids: 36 37 40 44 \n" + 
 				"  |  hash output slot ids: 33 17 29 30 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `l_partkey` = `p_partkey`\n" + 
-				"  |  runtime filters: RF000[in_or_bloom] <- `p_partkey`") && 
+				"  |  runtime filters: RF006[in_or_bloom] <- `p_partkey`") && 
 		explainStr.contains("vec output tuple id: 11") && 
 		explainStr.contains("output slot ids: 29 30 32 33 \n" + 
 				"  |  hash output slot ids: 1 2 7 8 ") && 
 		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
-				"     runtime filters: RF000[in_or_bloom] -> `l_partkey`") && 
+				"     runtime filters: RF004[in_or_bloom] -> <slot 8>, RF005[in_or_bloom] -> <slot 7>, RF006[in_or_bloom] -> `l_partkey`") && 
 		explainStr.contains("TABLE: region(region), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `r_name` = 'AMERICA'") && 
-		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: customer(customer), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON\n" + 
+				"     runtime filters: RF000[in_or_bloom] -> <slot 14>") && 
+		explainStr.contains("TABLE: customer(customer), PREAGGREGATION: ON\n" + 
+				"     runtime filters: RF001[in_or_bloom] -> <slot 12>") && 
 		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON") && 
 		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
-				"     PREDICATES: `o_orderdate` >= '1995-01-01 00:00:00', `o_orderdate` <= '1996-12-31 00:00:00'") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON") && 
+				"     PREDICATES: `o_orderdate` >= '1995-01-01 00:00:00', `o_orderdate` <= '1996-12-31 00:00:00'\n" + 
+				"     runtime filters: RF002[in_or_bloom] -> <slot 10>") && 
+		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
+				"     runtime filters: RF003[in_or_bloom] -> <slot 17>") && 
 		explainStr.contains("TABLE: part(part), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `p_type` = 'ECONOMY ANODIZED STEEL'") 
             

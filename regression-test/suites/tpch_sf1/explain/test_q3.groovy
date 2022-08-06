@@ -61,23 +61,25 @@ suite("test_explain_tpch_sf_1_q3", "tpch_sf1") {
 				"  |  output: sum(<slot 27> * (1 - <slot 28>))\n" + 
 				"  |  group by: <slot 26>, <slot 30>, <slot 31>") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 24> = `c_custkey`") && 
+				"  |  equal join conjunct: <slot 24> = `c_custkey`\n" + 
+				"  |  runtime filters: RF000[in_or_bloom] <- `c_custkey`") && 
 		explainStr.contains("vec output tuple id: 6") && 
 		explainStr.contains("output slot ids: 26 27 28 30 31 \n" + 
 				"  |  hash output slot ids: 18 19 20 22 23 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `l_orderkey` = `o_orderkey`\n" + 
-				"  |  runtime filters: RF000[in_or_bloom] <- `o_orderkey`") && 
+				"  |  runtime filters: RF001[in_or_bloom] <- `o_orderkey`") && 
 		explainStr.contains("vec output tuple id: 5") && 
 		explainStr.contains("output slot ids: 18 19 20 22 23 24 \n" + 
 				"  |  hash output slot ids: 0 1 2 3 4 7 ") && 
 		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l_shipdate` > '1995-03-15 00:00:00'\n" + 
-				"     runtime filters: RF000[in_or_bloom] -> `l_orderkey`") && 
+				"     runtime filters: RF001[in_or_bloom] -> `l_orderkey`") && 
 		explainStr.contains("TABLE: customer(customer), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `c_mktsegment` = 'BUILDING'") && 
 		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
-				"     PREDICATES: `o_orderdate` < '1995-03-15 00:00:00'") 
+				"     PREDICATES: `o_orderdate` < '1995-03-15 00:00:00'\n" + 
+				"     runtime filters: RF000[in_or_bloom] -> <slot 7>")
             
         }
     }
