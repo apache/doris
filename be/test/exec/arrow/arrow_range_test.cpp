@@ -35,18 +35,13 @@ class RuntimeState;
 
 class ArrowRangeTest : public testing::Test {
 public:
-    ArrowRangeTest() { init(); }
-    void init();
+    ArrowRangeTest() = default;
 
 protected:
     virtual void SetUp() {}
     virtual void TearDown() {}
 
-private:
-    ExecEnv* _env;
 };
-
-void ArrowRangeTest::init() {}
 
 TEST_F(ArrowRangeTest, normal) {}
 
