@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
- * Rule for change inner join left associative to right.
+ * Rule for change inner join LAsscom (associative and commutive).
  */
 @Developing
 public class JoinLAsscom extends OneExplorationRuleFactory {
@@ -39,18 +39,18 @@ public class JoinLAsscom extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalJoin(), groupPlan())
-                .when(JoinLAsscomHelper::check)
-                .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()
-                        && (join.left().getJoinType().isInnerJoin() || join.left().getJoinType().isLeftOuterJoin()))
-                .then(topJoin -> {
+            .when(JoinLAsscomHelper::check)
+            .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()
+                    && (join.left().getJoinType().isInnerJoin() || join.left().getJoinType().isLeftOuterJoin()))
+            .then(topJoin -> {
 
-                    LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
-                    JoinLAsscomHelper helper = JoinLAsscomHelper.of(topJoin, bottomJoin);
-                    if (!helper.initJoinOnCondition()) {
-                        return null;
-                    }
+                LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
+                JoinLAsscomHelper helper = JoinLAsscomHelper.of(topJoin, bottomJoin);
+                if (!helper.initJoinOnCondition()) {
+                    return null;
+                }
 
-                    return helper.newTopJoin();
-                }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
+                return helper.newTopJoin();
+            }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
     }
 }

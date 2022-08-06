@@ -23,7 +23,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 /**
  * Rule for change inner join left associative to right.
@@ -47,8 +46,7 @@ public class JoinLAsscomProject extends OneExplorationRuleFactory {
                     && (join.left().child().getJoinType().isInnerJoin() || join.left().child().getJoinType()
                     .isLeftOuterJoin()))
             .then(topJoin -> {
-                LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.left();
-                LogicalJoin<GroupPlan, GroupPlan> bottomJoin = project.child();
+                LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
 
                 JoinLAsscomHelper helper = JoinLAsscomHelper.of(topJoin, bottomJoin);
                 if (!helper.initJoinOnCondition()) {

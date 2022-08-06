@@ -116,7 +116,7 @@ public class Utils {
      * Warning, plan must have bound, because exists Slot Cast to SlotReference.
      */
     public static List<SlotReference> getOutputSlotReference(Plan plan) {
-        return plan.getOutput().stream().map(slot -> (SlotReference) slot)
+        return plan.getOutput().stream().map(SlotReference.class::cast)
                 .collect(Collectors.toList());
     }
 }

@@ -39,6 +39,13 @@ import java.util.Optional;
  * Common function for JoinLAsscom
  */
 public class JoinLAsscomHelper {
+    /*
+     *      topJoin                newTopJoin
+     *      /     \                 /     \
+     * bottomJoin  C   -->  newBottomJoin  B
+     *  /    \                  /    \
+     * A      B                A      C
+     */
     private final LogicalJoin topJoin;
     private final LogicalJoin<GroupPlan, GroupPlan> bottomJoin;
     private final Plan a;
@@ -58,25 +65,27 @@ public class JoinLAsscomHelper {
     /**
      * Init plan and output.
      */
-    public JoinLAsscomHelper(LogicalJoin topJoin, LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
+    public JoinLAsscomHelper(LogicalJoin<? extends Plan, GroupPlan> topJoin,
+            LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
         this.topJoin = topJoin;
         this.bottomJoin = bottomJoin;
 
         a = bottomJoin.left();
         b = bottomJoin.right();
-        c = (Plan) topJoin.right();
+        c = topJoin.right();
 
         Preconditions.checkArgument(topJoin.getCondition().isPresent(), "topJoin onClause must be present.");
-        topJoinOnClause = (Expression) topJoin.getCondition().get();
+        topJoinOnClause = topJoin.getCondition().get();
         Preconditions.checkArgument(bottomJoin.getCondition().isPresent(), "bottomJoin onClause must be present.");
-        bottomJoinOnClause = (Expression) bottomJoin.getCondition().get();
+        bottomJoinOnClause = bottomJoin.getCondition().get();
 
         aOutputSlots = Utils.getOutputSlotReference(a);
         bOutputSlots = Utils.getOutputSlotReference(b);
         cOutputSlots = Utils.getOutputSlotReference(c);
     }
 
-    public static JoinLAsscomHelper of(LogicalJoin topJoin, LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
+    public static JoinLAsscomHelper of(LogicalJoin<? extends Plan, GroupPlan> topJoin,
+            LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
         return new JoinLAsscomHelper(topJoin, bottomJoin);
     }
 
@@ -88,30 +97,25 @@ public class JoinLAsscomHelper {
         for (Expression topJoinOnClauseConjunct : topJoinOnClauseConjuncts) {
             // Ignore join with some OnClause like:
             // Join C = B + A for above example.
-            if (ExpressionUtils.isIntersecting(
-                    topJoinOnClauseConjunct.collect(SlotReference.class::isInstance), aOutputSlots)
-                    && ExpressionUtils.isIntersecting(
-                    topJoinOnClauseConjunct.collect(SlotReference.class::isInstance), bOutputSlots)
-                    && ExpressionUtils.isIntersecting(
-                    topJoinOnClauseConjunct.collect(SlotReference.class::isInstance), cOutputSlots)
+            List<SlotReference> topJoinUsedSlot = topJoinOnClauseConjunct.collect(SlotReference.class::isInstance);
+            if (ExpressionUtils.isIntersecting(topJoinUsedSlot, aOutputSlots)
+                    && ExpressionUtils.isIntersecting(topJoinUsedSlot, bOutputSlots)
+                    && ExpressionUtils.isIntersecting(topJoinUsedSlot, cOutputSlots)
             ) {
                 return false;
             }
         }
-        List<Expression> bottomJoinOnClauseConjuncts = ExpressionUtils.extractConjunction(
-                bottomJoinOnClause);
 
         List<Expression> allOnCondition = Lists.newArrayList();
         allOnCondition.addAll(topJoinOnClauseConjuncts);
-        allOnCondition.addAll(bottomJoinOnClauseConjuncts);
+        allOnCondition.addAll(ExpressionUtils.extractConjunction(bottomJoinOnClause));
 
-        List<SlotReference> newBottomJoinSlots = Lists.newArrayList();
-        newBottomJoinSlots.addAll(aOutputSlots);
+        HashSet<SlotReference> newBottomJoinSlots = new HashSet<>(aOutputSlots);
         newBottomJoinSlots.addAll(cOutputSlots);
 
         for (Expression onCondition : allOnCondition) {
             List<SlotReference> slots = onCondition.collect(SlotReference.class::isInstance);
-            if (new HashSet<>(newBottomJoinSlots).containsAll(slots)) {
+            if (newBottomJoinSlots.containsAll(slots)) {
                 newBottomJoinOnCondition.add(onCondition);
             } else {
                 newTopJoinOnCondition.add(onCondition);
@@ -143,9 +147,11 @@ public class JoinLAsscomHelper {
         List<NamedExpression> projectExprs = project.getProjects();
         List<NamedExpression> newRightProjectExprs = Lists.newArrayList();
         List<NamedExpression> newLeftProjectExpr = Lists.newArrayList();
+
+        HashSet<SlotReference> bOutputSlotsSet = new HashSet<>(bOutputSlots);
         for (NamedExpression projectExpr : projectExprs) {
             List<SlotReference> usedSlotRefs = projectExpr.collect(SlotReference.class::isInstance);
-            if (new HashSet<>(bOutputSlots).containsAll(usedSlotRefs)) {
+            if (bOutputSlotsSet.containsAll(usedSlotRefs)) {
                 newRightProjectExprs.add(projectExpr);
             } else {
                 newLeftProjectExpr.add(projectExpr);
@@ -167,32 +173,26 @@ public class JoinLAsscomHelper {
      * Create topJoin for project-inside.
      */
     public LogicalJoin newProjectTopJoin() {
+        Plan left;
+        Plan right;
+
         List<NamedExpression> newLeftProjectExpr = getProjectExprs().first;
         List<NamedExpression> newRightProjectExprs = getProjectExprs().second;
-
-        // no right project
-        if (newRightProjectExprs.size() == 0) {
-            return new LogicalJoin(
-                    topJoin.getJoinType(),
-                    Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
-                    newBottomJoin(), b);
-        }
-
-        LogicalProject newRightProject = new LogicalProject<>(newRightProjectExprs, b);
-        if (newLeftProjectExpr.size() == 0) {
-            // no left project
-            return new LogicalJoin(
-                    topJoin.getJoinType(),
-                    Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
-                    newBottomJoin(), newRightProject);
+        if (!newLeftProjectExpr.isEmpty()) {
+            left = new LogicalProject<>(newLeftProjectExpr, newBottomJoin());
         } else {
-            // exist both left and right project
-            LogicalProject newLeftProject = new LogicalProject<>(newLeftProjectExpr, newBottomJoin());
-            return new LogicalJoin(
-                    topJoin.getJoinType(),
-                    Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
-                    newLeftProject, newRightProject);
+            left = newBottomJoin();
         }
+        if (!newRightProjectExprs.isEmpty()) {
+            right = new LogicalProject<>(newRightProjectExprs, b);
+        } else {
+            right = b;
+        }
+
+        return new LogicalJoin<>(
+                topJoin.getJoinType(),
+                Optional.of(ExpressionUtils.and(newTopJoinOnCondition)),
+                left, right);
     }
 
     /**
