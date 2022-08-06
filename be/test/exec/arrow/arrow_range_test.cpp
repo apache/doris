@@ -62,19 +62,19 @@ protected:
     std::vector<ExprContext*> _binary_expr;
     std::vector<ExprContext*> _in_expr;
 
-    std::vector<ExprContext*> create_binary_exprs();
+    std::vector<ExprContext*> create_binary_exprs(TExprOpcode::type op);
 
     virtual void SetUp() {}
 
     virtual void TearDown() {}
 };
 
-std::vector<ExprContext*> ArrowRangeTest::create_binary_exprs() {
+std::vector<ExprContext*> ArrowRangeTest::create_binary_exprs(TExprOpcode::type op) {
     std::vector<ExprContext*> _binary_expr;
     TExpr texpr;
     {
         TExprNode node0;
-        node0.opcode = TExprOpcode::GT;
+        node0.opcode = op;
         node0.child_type = TPrimitiveType::BIGINT;
         node0.node_type = TExprNodeType::BINARY_PRED;
         node0.num_children = 2;
@@ -111,10 +111,81 @@ std::vector<ExprContext*> ArrowRangeTest::create_binary_exprs() {
     return _binary_expr;
 }
 
-TEST_F(ArrowRangeTest, normal) {
-    IntegerArrowRange range(0, 10);
-    std::vector<ExprContext*> _binary_expr = create_binary_exprs();
-    EXPECT_TRUE(range.determine_filter_row_group(_binary_expr));
+TEST_F(ArrowRangeTest, binary_ops) {
+    // 1. = 10
+    {
+        std::vector<ExprContext*> binary_expr = create_binary_exprs(TExprOpcode::EQ);
+        IntegerArrowRange range1(0, 8);
+        EXPECT_TRUE(range1.determine_filter_row_group(binary_expr));
+        IntegerArrowRange range2(8, 10);
+        EXPECT_FALSE(range2.determine_filter_row_group(binary_expr));
+        IntegerArrowRange range3(11, 20);
+        EXPECT_TRUE(range3.determine_filter_row_group(binary_expr));
+    }
+
+    // 2. != 10
+    {
+        std::vector<ExprContext*> binary_expr = create_binary_exprs(TExprOpcode::NE);
+        IntegerArrowRange range4(0, 8);
+        EXPECT_FALSE(range4.determine_filter_row_group(binary_expr));
+        IntegerArrowRange range5(8, 10);
+        EXPECT_TRUE(range5.determine_filter_row_group(binary_expr));
+        IntegerArrowRange range6(11, 20);
+        EXPECT_FALSE(range6.determine_filter_row_group(binary_expr));
+    }
+
+    // 3. > 10
+    {
+        std::vector<ExprContext*> binary_expr = create_binary_exprs(TExprOpcode::GT);
+        IntegerArrowRange range1(0, 8);
+        EXPECT_TRUE(range1.determine_filter_row_group(binary_expr));
+        IntegerArrowRange range2(8, 10);
+        EXPECT_TRUE(range2.determine_filter_row_group(binary_expr));
+        IntegerArrowRange range3(11, 20);
+        EXPECT_FALSE(range3.determine_filter_row_group(binary_expr));
+    }
+    // 4. >= 10
+    {
+        std::vector<ExprContext*> binary_expr = create_binary_exprs(TExprOpcode::GE);
+        IntegerArrowRange range1(0, 8);
+        EXPECT_TRUE(range1.determine_filter_row_group(binary_expr));
+        IntegerArrowRange range2(8, 10);
+        EXPECT_FALSE(range2.determine_filter_row_group(binary_expr));
+        IntegerArrowRange range3(11, 20);
+        EXPECT_FALSE(range3.determine_filter_row_group(binary_expr));
+    }
+    // 5. < 10
+    {
+        std::vector<ExprContext*> binary_expr = create_binary_exprs(TExprOpcode::LT);
+        IntegerArrowRange range1(0, 8);
+        EXPECT_FALSE(range1.determine_filter_row_group(binary_expr));
+        IntegerArrowRange range2(8, 10);
+        EXPECT_FALSE(range2.determine_filter_row_group(binary_expr));
+        IntegerArrowRange range3(11, 20);
+        EXPECT_TRUE(range3.determine_filter_row_group(binary_expr));
+
+        IntegerArrowRange range4(10, 20);
+        EXPECT_TRUE(range4.determine_filter_row_group(binary_expr));
+    }
+    // 6. <= 10
+    {
+        std::vector<ExprContext*> binary_expr = create_binary_exprs(TExprOpcode::LE);
+        IntegerArrowRange range1(0, 8);
+        EXPECT_FALSE(range1.determine_filter_row_group(binary_expr));
+        IntegerArrowRange range2(8, 10);
+        EXPECT_FALSE(range2.determine_filter_row_group(binary_expr));
+        IntegerArrowRange range3(11, 20);
+        EXPECT_TRUE(range3.determine_filter_row_group(binary_expr));
+
+        IntegerArrowRange range4(10, 20);
+        EXPECT_FALSE(range4.determine_filter_row_group(binary_expr));
+    }
+    // 7. non support op
+    {
+        std::vector<ExprContext*> binary_expr = create_binary_exprs(TExprOpcode::EQ_FOR_NULL);
+        IntegerArrowRange range1(0, 8);
+        EXPECT_FALSE(range1.determine_filter_row_group(binary_expr));
+    }
 }
 
 } // end namespace doris
