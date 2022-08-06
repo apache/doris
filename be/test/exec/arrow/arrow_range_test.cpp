@@ -24,9 +24,22 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exprs/binary_predicate.h"
+#include "exprs/in_predicate.h"
 #include "gen_cpp/PaloBrokerService_types.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
+#include "gen_cpp/Types_types.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/primitive_type.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/string_value.h"
+#include "runtime/tuple_row.h"
 #include "util/cpu_info.h"
+#include "util/debug_util.h"
+#include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -35,14 +48,73 @@ class RuntimeState;
 
 class ArrowRangeTest : public testing::Test {
 public:
-    ArrowRangeTest() = default;
+    ArrowRangeTest() {
+        _mem_pool.reset(new MemPool());
+        _state = _pool.add(new RuntimeState(TQueryGlobals()));
+        _state->init_instance_mem_tracker();
+        _state->_exec_env = ExecEnv::GetInstance();
+    }
 
 protected:
-    virtual void SetUp() {}
-    virtual void TearDown() {}
+    RuntimeState* _state;
+    ObjectPool _pool;
+    std::shared_ptr<MemPool> _mem_pool;
+    std::vector<ExprContext*> _binary_expr;
+    std::vector<ExprContext*> _in_expr;
 
+    std::vector<ExprContext*> create_binary_exprs();
+
+    virtual void SetUp() {}
+
+    virtual void TearDown() {}
 };
 
-TEST_F(ArrowRangeTest, normal) {}
+std::vector<ExprContext*> ArrowRangeTest::create_binary_exprs() {
+    std::vector<ExprContext*> _binary_expr;
+    TExpr texpr;
+    {
+        TExprNode node0;
+        node0.opcode = TExprOpcode::GT;
+        node0.child_type = TPrimitiveType::BIGINT;
+        node0.node_type = TExprNodeType::BINARY_PRED;
+        node0.num_children = 2;
+        node0.__isset.opcode = true;
+        node0.__isset.child_type = true;
+        node0.type = gen_type_desc(TPrimitiveType::BOOLEAN);
+        texpr.nodes.emplace_back(node0);
+
+        TExprNode node1;
+        node1.node_type = TExprNodeType::SLOT_REF;
+        node1.type = gen_type_desc(TPrimitiveType::INT);
+        node1.__isset.slot_ref = true;
+        node1.num_children = 0;
+        node1.slot_ref.slot_id = 0;
+        node1.slot_ref.tuple_id = 0;
+        node1.output_column = true;
+        node1.__isset.output_column = true;
+        texpr.nodes.emplace_back(node1);
+
+        TExprNode node2;
+        TIntLiteral intLiteral;
+        intLiteral.value = 10;
+        node2.node_type = TExprNodeType::INT_LITERAL;
+        node2.type = gen_type_desc(TPrimitiveType::BIGINT);
+        node2.__isset.int_literal = true;
+        node2.int_literal = intLiteral;
+        texpr.nodes.emplace_back(node2);
+    }
+
+    std::vector<TExpr> conjuncts;
+    conjuncts.emplace_back(texpr);
+    Expr::create_expr_trees(&_pool, conjuncts, &_binary_expr);
+
+    return _binary_expr;
+}
+
+TEST_F(ArrowRangeTest, normal) {
+    IntegerArrowRange range(0, 10);
+    std::vector<ExprContext*> _binary_expr = create_binary_exprs();
+    EXPECT_TRUE(range.determine_filter_row_group(_binary_expr));
+}
 
 } // end namespace doris
