@@ -50,8 +50,8 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
-            .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("RemoteUsedCapacity").add("UsedPct")
-            .add("MaxDiskUsedPct").add("Tag").add("ErrMsg").add("Version").add("Status")
+            .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
+            .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
             .build();
 
     public static final int HOSTNAME_INDEX = 3;
@@ -154,12 +154,6 @@ public class BackendsProcDir implements ProcDirInterface {
             Pair<Double, String> totalCapacity = DebugUtil.getByteUint(totalB);
             backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalCapacity.first) + " " + totalCapacity.second);
 
-            // remote used capacity
-            long remoteB = backend.getRemoteUsedCapacityB();
-            Pair<Double, String> totalRemoteUsedCapacity = DebugUtil.getByteUint(remoteB);
-            backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteUsedCapacity.first) + " "
-                    + totalRemoteUsedCapacity.second);
-
             // used percent
             double used = 0.0;
             if (totalB <= 0) {
@@ -169,6 +163,13 @@ public class BackendsProcDir implements ProcDirInterface {
             }
             backendInfo.add(String.format("%.2f", used) + " %");
             backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
+
+            // remote used capacity
+            long remoteUsedB = backend.getRemoteUsedCapacityB();
+            Pair<Double, String> totalRemoteUsedCapacity = DebugUtil.getByteUint(remoteUsedB);
+            backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteUsedCapacity.first) + " "
+                    + totalRemoteUsedCapacity.second);
+
             // tags
             backendInfo.add(backend.getTagMapString());
             // err msg
