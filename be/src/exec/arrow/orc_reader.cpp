@@ -74,7 +74,13 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         _map_column.emplace(schemaName, i + 1);
     }
     RETURN_IF_ERROR(column_indices(tuple_slot_descs));
-
+    if (config::orc_predicate_push_down) {
+        int64_t file_size = 0;
+        size(&file_size);
+        _strip_reader.reset(new StripeReader(conjunct_ctxs, this));
+        _strip_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids,
+                                          _current_group, _total_groups);
+    }
     _thread = std::thread(&ArrowReaderWrap::prefetch_batch, this);
 
     return Status::OK();
