@@ -129,7 +129,7 @@ Status StripeReader::init_filter_groups(const TupleDescriptor* tuple_desc,
 void StripeReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
                                    const std::map<std::string, int>& map_column,
                                    const std::unordered_set<int>& include_column_ids) {
-    if (tuple_desc->slots().empty()) {
+    if (!tuple_desc || tuple_desc->slots().empty()) {
         return;
     }
     for (int i = 0; i < tuple_desc->slots().size(); i++) {

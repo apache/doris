@@ -43,6 +43,7 @@ set(EXEC_TEST_FILES
     exec/json_scanner_with_jsonpath_test.cpp
     exec/parquet_scanner_test.cpp
     exec/orc_scanner_test.cpp
+    exec/arrow/arrow_range_test.cpp
     exec/plain_text_line_reader_uncompressed_test.cpp
     exec/plain_text_line_reader_gzip_test.cpp
     exec/plain_text_line_reader_bzip_test.cpp
