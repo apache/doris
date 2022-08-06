@@ -211,9 +211,6 @@ public class SortNode extends PlanNode {
         outputSmap = new ExprSubstitutionMap();
 
         for (int i = 0; i < slotExprs.size(); ++i) {
-            if (!sortTupleSlots.get(i).isMaterialized()) {
-                continue;
-            }
             resolvedTupleExprs.add(slotExprs.get(i));
             outputSmap.put(slotExprs.get(i), new SlotRef(sortTupleSlots.get(i)));
         }
@@ -274,6 +271,12 @@ public class SortNode extends PlanNode {
 
     @Override
     public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
+        List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
+        for (int i = 0; i < slotDescriptorList.size(); i++) {
+            if (!slotDescriptorList.get(i).isMaterialized()) {
+                resolvedTupleExprs.remove(i);
+            }
+        }
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(resolvedTupleExprs, null, result);
         return new HashSet<>(result);

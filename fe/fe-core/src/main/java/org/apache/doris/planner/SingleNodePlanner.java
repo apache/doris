@@ -228,9 +228,6 @@ public class SingleNodePlanner {
      */
     private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit)
             throws UserException {
-        if (stmt instanceof SelectStmt) {
-            analyzer.materializeSlots(stmt.getBaseTblResultExprs());
-        }
         long newDefaultOrderByLimit = defaultOrderByLimit;
         if (newDefaultOrderByLimit == -1) {
             newDefaultOrderByLimit = 65535;
@@ -2315,6 +2312,7 @@ public class SingleNodePlanner {
         for (SlotId id : slotIds) {
             final SlotDescriptor slot = analyzer.getDescTbl().getSlotDesc(id);
             slot.setIsMaterialized(true);
+            slot.materializeSrcExpr();
         }
         for (TupleId id : tupleIds) {
             final TupleDescriptor tuple = analyzer.getDescTbl().getTupleDesc(id);
