@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/arrow/arrow_range.h"
+
 #include <gtest/gtest.h>
 
 #include <map>
@@ -22,7 +24,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exec/arrow/arrow_range.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
 #include "util/cpu_info.h"
@@ -45,12 +46,8 @@ private:
     ExecEnv* _env;
 };
 
-void ArrowRangeTest::init() {
+void ArrowRangeTest::init() {}
 
-}
-
-TEST_F(ArrowRangeTest, normal) {
-
-}
+TEST_F(ArrowRangeTest, normal) {}
 
 } // end namespace doris
