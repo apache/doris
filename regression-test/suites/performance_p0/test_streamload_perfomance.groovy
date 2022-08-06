@@ -15,31 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("redundant_conjuncts", "performance") {
-    sql """
-        SET enable_vectorized_engine = true;
-    """
+suite("test_streamload_perfomance") {
+    def tableName = "test_streamload_performance1"
 
-    sql """
-    DROP TABLE IF EXISTS redundant_conjuncts;
-    """
-    sql """
-    CREATE TABLE `redundant_conjuncts` (
-      `k1` int(11) NULL COMMENT "",
-      `v1` int(11) NULL COMMENT ""
-    ) ENGINE=OLAP
-    DUPLICATE KEY(`k1`, `v1`)
-    DISTRIBUTED BY HASH(`k1`) BUCKETS 10
-    PROPERTIES (
-      "replication_allocation" = "tag.location.default: 1"
-    );
-    """
-    
-    qt_redundant_conjuncts """
-    EXPLAIN SELECT v1 FROM redundant_conjuncts WHERE k1 = 1 AND k1 = 1;
-    """
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            id int,
+            name varchar(255)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+        """
 
-    qt_redundant_conjuncts_gnerated_by_extract_common_filter """
-    EXPLAIN SELECT v1 FROM redundant_conjuncts WHERE k1 = 1 OR k1 = 2;
-    """
+        def rowCount = 10000
+        def rowIt = java.util.stream.LongStream.range(0, rowCount)
+                .mapToObj({i -> [i, "a_" + i]})
+                .iterator()
+
+        streamLoad {
+            table tableName
+            time 5000
+            inputIterator rowIt
+        }
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName}"
+    }
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sql_block_rule", "sql_block_rule") {
+suite("test_sql_block_rule") {
     sql """
                   DROP SQL_BLOCK_RULE if exists test_rule_num
                 """

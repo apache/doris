@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_update_unique", "update") {
+suite("test_update_unique", "p0") {
     def tbName = "test_update_unique"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """

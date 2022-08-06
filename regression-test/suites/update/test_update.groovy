@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_update", "update") {
+suite("test_update", "p0") {
     // todo:test update
     sql "show tables"
 }
