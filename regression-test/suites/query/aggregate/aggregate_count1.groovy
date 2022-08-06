@@ -44,7 +44,7 @@ suite("aggregate_count1", "query") {
             "\n" +
             "PROPERTIES(\"replication_num\" = \"1\");\n" +
             "\n"
-    sql "insert into example_db.demoTable values ('张三0',11,'1234567','123','321312','1999-02-13','中国','男',false)," +
+    sql "insert into aggregate_count1 values ('张三0',11,'1234567','123','321312','1999-02-13','中国','男',false)," +
             "('张三1',11,'12345678','123','321312','1999-02-13','中国','男',false)," +
             "('张三2',11,'12345671','123','321312','1999-02-13','中国','男',false)," +
             "('张三3',11,'12345673','123','321312','1999-02-13','中国','男',false)," +
@@ -54,7 +54,7 @@ suite("aggregate_count1", "query") {
             "('张三7',11,'123445167','123','321312','1998-02-13','中国','男',false);"
     qt_select "SELECT count(1) FROM (WITH t1 AS (\n" +
             "     WITH t AS (\n" +
-            "                SELECT * FROM example_db.demoTable\n" +
+            "                SELECT * FROM aggregate_count1\n" +
             "        )\n" +
             "        SELECT\n" +
             "                identityCode,\n" +
