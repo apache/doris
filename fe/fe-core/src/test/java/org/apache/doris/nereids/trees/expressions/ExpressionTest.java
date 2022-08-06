@@ -23,7 +23,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class ExpressionTest {
-
     @Test
     public void testConstantExpression() {
         // literal is constant
