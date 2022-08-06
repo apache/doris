@@ -42,6 +42,9 @@ Status StripeReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                                         const std::vector<int>& include_column_ids,
                                         int start_rowgroup, int end_rowgroup) {
     std::unordered_set<int> column_ids(include_column_ids.begin(), include_column_ids.end());
+    if (!tuple_desc) {
+        return Status::OK();
+    }
     _init_conjuncts(tuple_desc, map_column, column_ids);
     auto* raw_reader = _parent->getReader()->GetRawORCReader();
 
