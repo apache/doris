@@ -20,11 +20,33 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "schema_desc.h"
+#include "vparquet_reader.h"
+//#include "vparquet_column_chunk_reader.h"
 
 namespace doris::vectorized {
 class ColumnReader {
 public:
-    Status read_column_data();
+    ColumnReader(const ParquetReadColumn& column) : _column(column) {};
+    virtual ~ColumnReader() = 0;
+    virtual Status read_column_data(const tparquet::RowGroup& row_group_meta, ColumnPtr* data) = 0;
+    static Status create(const FileReader* file, int64_t chunk_size, const FieldSchema* field,
+                         const ParquetReadColumn& column, const TypeDescriptor& col_type,
+                         const tparquet::RowGroup& row_group, const ColumnReader* reader);
+    virtual void close() = 0;
+
+protected:
+    const ParquetReadColumn& _column;
+    //    const ColumnChunkReader& _chunk_reader;
 };
-Status create(const FieldDescriptor* field, const tparquet::RowGroup& row_group);
+
+class ScalarColumnReader : public ColumnReader {
+public:
+    ScalarColumnReader(const ParquetReadColumn& column) : ColumnReader(column) {};
+    ~ScalarColumnReader() override = default;
+    Status init(const FileReader* file, const FieldSchema* field,
+                const tparquet::ColumnChunk* chunk, const TypeDescriptor& col_type,
+                int64_t chunk_size);
+    Status read_column_data(const tparquet::RowGroup& row_group_meta, ColumnPtr* data) override;
+    void close() override;
+};
 }; // namespace doris::vectorized

@@ -52,6 +52,8 @@ private:
     SlotDescriptor* slot_desc;
     int parquet_column_id;
     tparquet::Type::type parquet_type;
+    //    int64_t start_offset;
+    //    int64_t chunk_size;
 };
 
 class ParquetReader {

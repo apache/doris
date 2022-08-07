@@ -24,6 +24,8 @@
 #include "vparquet_file_metadata.h"
 #include "vparquet_reader.h"
 
+#define MAX_PARQUET_BLOCK_SIZE 1024
+
 namespace doris::vectorized {
 class ParquetReadColumn;
 class RowGroupReader {
@@ -33,7 +35,7 @@ public:
                    const std::vector<ParquetReadColumn>& read_columns,
                    const std::map<std::string, int>& map_column,
                    const std::vector<ExprContext*>& conjunct_ctxs);
-    ~RowGroupReader() = default;
+    ~RowGroupReader();
     void init(const TupleDescriptor* tuple_desc, int64_t split_start_offset, int64_t split_size);
     Status get_next_row_group(const int32_t* group_id);
     Status fill_columns_data(Block* block, const int32_t group_id);

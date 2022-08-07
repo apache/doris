@@ -18,6 +18,7 @@
 #include "vparquet_group_reader.h"
 
 #include "parquet_pred_cmp.h"
+#include "schema_desc.h"
 #include "vparquet_column_reader.h"
 
 namespace doris::vectorized {
@@ -33,6 +34,16 @@ RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
           _map_column(map_column),
           _conjunct_ctxs(conjunct_ctxs),
           _current_row_group(-1) {}
+
+RowGroupReader::~RowGroupReader() {
+    for (auto& column_reader : _column_readers) {
+        auto reader = column_reader.second;
+        reader->close();
+        delete reader;
+        reader = nullptr;
+    }
+    _column_readers.clear();
+}
 
 void RowGroupReader::init(const TupleDescriptor* tuple_desc, int64_t split_start_offset,
                           int64_t split_size) {
@@ -90,9 +101,15 @@ void RowGroupReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
 
 void RowGroupReader::_init_column_readers() {
     for (auto& read_col : _read_columns) {
-        ColumnReader reader;
-        // reader.init();
-        _column_readers[read_col.slot_desc->id()] = &reader;
+        SlotDescriptor* slot_desc = read_col.slot_desc;
+        FieldDescriptor schema = _file_metadata->schema();
+        const auto& field = schema.get_column(slot_desc->col_name());
+        const tparquet::RowGroup row_group =
+                _file_metadata->to_thrift_metadata().row_groups[_current_row_group];
+        ColumnReader* reader;
+        ColumnReader::create(_file_reader, MAX_PARQUET_BLOCK_SIZE, field, read_col,
+                             slot_desc->type(), row_group, reader);
+        _column_readers[slot_desc->id()] = reader;
     }
 }
 
