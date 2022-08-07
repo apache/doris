@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.Queriable;
+import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -45,6 +46,7 @@ import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.Data;
@@ -421,6 +423,15 @@ public class ConnectProcessor {
 
         MysqlChannel channel = ctx.getMysqlChannel();
         channel.sendAndFlush(packet);
+        // note(wb) we should write profile after return result to mysql client
+        // because write profile maybe take too much time
+        // explain query stmt do not have profile
+        if (executor != null && !executor.getParsedStmt().isExplain()
+                && (executor.getParsedStmt() instanceof QueryStmt // currently only QueryStmt and insert need profile
+                    || executor.getParsedStmt() instanceof LogicalPlanAdapter
+                    || executor.getParsedStmt() instanceof InsertStmt)) {
+            executor.writeProfile(true);
+        }
     }
 
     public TMasterOpResult proxyExecute(TMasterOpRequest request) {
