@@ -111,8 +111,8 @@ Status ParquetReader::read_next_batch(Block* block) {
     // metadata has been processed, fill parquet data to block
     // block is the batch data of a row group. a row group has N batch
     // push to scanner queue
-    return Status::OK();
     _fill_block_data(block, group_id);
+    return Status::OK();
 }
 
 void ParquetReader::_fill_block_data(Block* block, int group_id) {
