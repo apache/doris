@@ -416,6 +416,8 @@ public class DateLiteral extends LiteralExpr {
                         builder.appendLiteral(":");
                     }
                 }
+                // The default resolver style is 'SMART', which parses "2022-06-31" as "2022-06-30"
+                // and does not throw an exception. 'STRICT' is used here.
                 DateTimeFormatter formatter = builder.toFormatter().withResolverStyle(ResolverStyle.STRICT);
                 dateTime = formatter.parse(s);
                 parsed = true;
