@@ -37,7 +37,6 @@ public class EliminateAliasNode implements AnalysisRuleFactory {
                 RuleType.PROJECT_ELIMINATE_ALIAS_NODE.build(
                         logicalProject(logicalSubQueryAlias())
                                 .then(project -> project.withChildren(ImmutableList.of(project.child().child())))
-                //.then(project -> eliminateSubQueryAliasNode(project, project.children()))
                 ),
                 RuleType.FILTER_ELIMINATE_ALIAS_NODE.build(
                         logicalFilter(logicalSubQueryAlias())
