@@ -101,6 +101,7 @@ Status RowGroupReader::fill_columns_data(Block* block, const int32_t group_id) {
     for (auto& read_col : _read_columns) {
         auto& column_with_type_and_name = block->get_by_name(read_col.slot_desc->col_name());
         RETURN_IF_ERROR(_column_readers[read_col.slot_desc->id()]->read_column_data());
+        VLOG_DEBUG << column_with_type_and_name.name;
     }
     // use data fill utils read column data to column ptr
     return Status::OK();
@@ -139,9 +140,10 @@ bool RowGroupReader::_is_misaligned_range_group(const tparquet::RowGroup& row_gr
           row_group_mid < _split_start_offset + _split_size)) {
         return true;
     }
+    return false;
 }
 
-Status RowGroupReader::_process_row_group_filter(tparquet::RowGroup& row_group,
+Status RowGroupReader::_process_row_group_filter(const tparquet::RowGroup& row_group,
                                                  const std::vector<ExprContext*>& conjunct_ctxs,
                                                  bool* filter_group) {
     _process_column_stat_filter(row_group, conjunct_ctxs, filter_group);
@@ -152,7 +154,7 @@ Status RowGroupReader::_process_row_group_filter(tparquet::RowGroup& row_group,
     return Status::OK();
 }
 
-Status RowGroupReader::_process_column_stat_filter(tparquet::RowGroup& row_group,
+Status RowGroupReader::_process_column_stat_filter(const tparquet::RowGroup& row_group,
                                                    const std::vector<ExprContext*>& conjunct_ctxs,
                                                    bool* filter_group) {
     int total_group = _file_metadata->num_row_groups();

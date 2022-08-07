@@ -25,6 +25,7 @@
 #include "vparquet_reader.h"
 
 namespace doris::vectorized {
+class ParquetReadColumn;
 class RowGroupReader {
 public:
     RowGroupReader(doris::FileReader* file_reader,
@@ -40,7 +41,7 @@ public:
 private:
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
 
-    Status _process_column_stat_filter(tparquet::RowGroup& row_group,
+    Status _process_column_stat_filter(const tparquet::RowGroup& row_group,
                                        const std::vector<ExprContext*>& conjunct_ctxs,
                                        bool* filter_group);
 
@@ -49,7 +50,7 @@ private:
 
     void _init_column_readers();
 
-    Status _process_row_group_filter(tparquet::RowGroup& row_group,
+    Status _process_row_group_filter(const tparquet::RowGroup& row_group,
                                      const std::vector<ExprContext*>& conjunct_ctxs,
                                      bool* filter_group);
 
