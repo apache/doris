@@ -17,7 +17,7 @@
 
 -- Modified
 
-select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=16, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */
 s_name, count(*) as numwait
 from orders join
 (
@@ -48,3 +48,4 @@ order by
     numwait desc,
     t4.s_name
 limit 100;
+

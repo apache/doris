@@ -34,7 +34,7 @@ Doris's new privilege management system refers to Mysql's privilege management m
 
 	In a permission system, a user is identified as a User Identity. User ID consists of two parts: username and userhost. Username is a user name, which is composed of English upper and lower case. Userhost represents the IP from which the user link comes. User_identity is presented as username@'userhost', representing the username from userhost.
 
-	Another expression of user_identity is username@['domain'], where domain is the domain name, which can be resolved into a set of IPS by DNS BNS (Baidu Name Service). The final expression is a set of username@'userhost', so we use username@'userhost'to represent it.
+	Another expression of user_identity is username@['domain'], where domain is the domain name, which can be resolved into a set of IPS by DNS . The final expression is a set of username@'userhost', so we use username@'userhost'to represent it.
 
 2. Privilege
 

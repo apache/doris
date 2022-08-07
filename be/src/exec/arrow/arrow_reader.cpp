@@ -30,6 +30,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
 #include "runtime/tuple.h"
+#include "util/string_util.h"
 #include "util/thrift_util.h"
 
 namespace doris {
@@ -37,8 +38,10 @@ namespace doris {
 // Broker
 
 ArrowReaderWrap::ArrowReaderWrap(FileReader* file_reader, int64_t batch_size,
-                                 int32_t num_of_columns_from_file)
-        : _batch_size(batch_size), _num_of_columns_from_file(num_of_columns_from_file) {
+                                 int32_t num_of_columns_from_file, bool caseSensitive)
+        : _batch_size(batch_size),
+          _num_of_columns_from_file(num_of_columns_from_file),
+          _caseSensitive(caseSensitive) {
     _arrow_file = std::shared_ptr<ArrowFile>(new ArrowFile(file_reader));
     _rb_reader = nullptr;
     _total_groups = 0;
@@ -48,6 +51,11 @@ ArrowReaderWrap::ArrowReaderWrap(FileReader* file_reader, int64_t batch_size,
 
 ArrowReaderWrap::~ArrowReaderWrap() {
     close();
+    _closed = true;
+    _queue_writer_cond.notify_one();
+    if (_thread.joinable()) {
+        _thread.join();
+    }
 }
 
 void ArrowReaderWrap::close() {
@@ -74,6 +82,75 @@ Status ArrowReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tuple
         }
     }
     return Status::OK();
+}
+
+int ArrowReaderWrap::get_cloumn_index(std::string column_name) {
+    std::string real_column_name = _caseSensitive ? column_name : to_lower(column_name);
+    auto iter = _map_column.find(real_column_name);
+    if (iter != _map_column.end()) {
+        return iter->second;
+    } else {
+        std::stringstream str_error;
+        str_error << "Invalid Column Name:" << real_column_name;
+        LOG(WARNING) << str_error.str();
+        return -1;
+    }
+}
+
+Status ArrowReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) {
+    std::unique_lock<std::mutex> lock(_mtx);
+    while (!_closed && _queue.empty()) {
+        if (_batch_eof) {
+            _include_column_ids.clear();
+            *eof = true;
+            _batch_eof = false;
+            return Status::OK();
+        }
+        _queue_reader_cond.wait_for(lock, std::chrono::seconds(1));
+    }
+    if (UNLIKELY(_closed)) {
+        return Status::InternalError(_status.message());
+    }
+    *batch = _queue.front();
+    _queue.pop_front();
+    _queue_writer_cond.notify_one();
+    return Status::OK();
+}
+
+void ArrowReaderWrap::prefetch_batch() {
+    auto insert_batch = [this](const auto& batch) {
+        std::unique_lock<std::mutex> lock(_mtx);
+        while (!_closed && _queue.size() == _max_queue_size) {
+            _queue_writer_cond.wait_for(lock, std::chrono::seconds(1));
+        }
+        if (UNLIKELY(_closed)) {
+            return;
+        }
+        _queue.push_back(batch);
+        _queue_reader_cond.notify_one();
+    };
+    int current_group = _current_group;
+    int total_groups = _total_groups;
+    while (true) {
+        if (_closed || current_group >= total_groups) {
+            _batch_eof = true;
+            _queue_reader_cond.notify_one();
+            return;
+        }
+        if (filter_row_group(current_group)) {
+            current_group++;
+            continue;
+        }
+
+        arrow::RecordBatchVector batches;
+        read_batches(batches, current_group);
+        if (!_status.ok()) {
+            _closed = true;
+            return;
+        }
+        std::for_each(batches.begin(), batches.end(), insert_batch);
+        current_group++;
+    }
 }
 
 ArrowFile::ArrowFile(FileReader* file) : _file(file) {}

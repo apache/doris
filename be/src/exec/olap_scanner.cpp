@@ -53,6 +53,7 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _need_agg_finalize(need_agg_finalize),
           _version(-1) {
     _mem_tracker = tracker;
+    _tablet_schema = std::make_shared<TabletSchema>();
 }
 
 Status OlapScanner::prepare(
@@ -63,11 +64,7 @@ Status OlapScanner::prepare(
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     set_tablet_reader();
     // set limit to reduce end of rowset and segment mem use
-    _tablet_reader->set_batch_size(
-            _parent->limit() == -1
-                    ? _parent->_runtime_state->batch_size()
-                    : std::min(static_cast<int64_t>(_parent->_runtime_state->batch_size()),
-                               _parent->limit()));
+    _tablet_reader->set_batch_size(_parent->_batch_size);
 
     // Get olap table
     TTabletId tablet_id = scan_range.tablet_id;
@@ -83,12 +80,12 @@ Status OlapScanner::prepare(
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-        _tablet_schema = _tablet->tablet_schema();
+        _tablet_schema->copy_from(*_tablet->tablet_schema());
         if (!_parent->_olap_scan_node.columns_desc.empty() &&
             _parent->_olap_scan_node.columns_desc[0].col_unique_id >= 0) {
-            _tablet_schema.clear_columns();
+            _tablet_schema->clear_columns();
             for (const auto& column_desc : _parent->_olap_scan_node.columns_desc) {
-                _tablet_schema.append_column(TabletColumn(column_desc));
+                _tablet_schema->append_column(TabletColumn(column_desc));
             }
         }
         {
@@ -193,7 +190,7 @@ Status OlapScanner::_init_tablet_reader_params(
     RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
 
     _tablet_reader_params.tablet = _tablet;
-    _tablet_reader_params.tablet_schema = &_tablet_schema;
+    _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
     _tablet_reader_params.version = Version(0, _version);
@@ -238,7 +235,7 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.return_columns.push_back(i);
         }
         for (auto index : _return_columns) {
-            if (_tablet_schema.column(index).is_key()) {
+            if (_tablet_schema->column(index).is_key()) {
                 continue;
             } else {
                 _tablet_reader_params.return_columns.push_back(index);
@@ -274,8 +271,8 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
             continue;
         }
         int32_t index = slot->col_unique_id() >= 0
-                                ? _tablet_schema.field_index(slot->col_unique_id())
-                                : _tablet_schema.field_index(slot->col_name());
+                                ? _tablet_schema->field_index(slot->col_unique_id())
+                                : _tablet_schema->field_index(slot->col_name());
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalid. field=" << slot->col_name();
@@ -283,22 +280,22 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
-        if (slot->is_nullable() && !_tablet_schema.column(index).is_nullable())
+        if (slot->is_nullable() && !_tablet_schema->column(index).is_nullable())
             _tablet_columns_convert_to_null_set.emplace(index);
         _query_slots.push_back(slot);
     }
 
     // expand the sequence column
-    if (_tablet->tablet_schema().has_sequence_col() && need_seq_col) {
+    if (_tablet_schema->has_sequence_col() && need_seq_col) {
         bool has_replace_col = false;
         for (auto col : _return_columns) {
-            if (_tablet_schema.column(col).aggregation() ==
+            if (_tablet_schema->column(col).aggregation() ==
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
                 has_replace_col = true;
                 break;
             }
         }
-        if (auto sequence_col_idx = _tablet_schema.sequence_col_idx();
+        if (auto sequence_col_idx = _tablet_schema->sequence_col_idx();
             has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
                                          sequence_col_idx) == _return_columns.end()) {
             _return_columns.push_back(sequence_col_idx);
@@ -314,9 +311,12 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
 Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     // 2. Allocate Row's Tuple buf
-    uint8_t* tuple_buf =
-            batch->tuple_data_pool()->allocate(state->batch_size() * _tuple_desc->byte_size());
-    bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
+    uint8_t* tuple_buf = batch->tuple_data_pool()->allocate(_batch_size * _tuple_desc->byte_size());
+    if (tuple_buf == nullptr) {
+        LOG(WARNING) << "Allocate mem for row batch failed.";
+        return Status::RuntimeError("Allocate mem for row batch failed.");
+    }
+    bzero(tuple_buf, _batch_size * _tuple_desc->byte_size());
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
     std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker));
@@ -329,6 +329,11 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
         ObjectPool tmp_object_pool;
         // release the memory of the object which can't pass the conjuncts.
         ObjectPool unused_object_pool;
+        if (batch->tuple_data_pool()->total_reserved_bytes() >= raw_bytes_threshold) {
+            return Status::RuntimeError(
+                    "Scanner row bytes buffer is too small, please try to increase be config "
+                    "'doris_scanner_row_bytes'.");
+        }
         while (true) {
             // Batch is full or reach raw_rows_threshold or raw_bytes_threshold, break
             if (batch->is_full() ||
@@ -631,6 +636,7 @@ void OlapScanner::_update_realtime_counter() {
     COUNTER_UPDATE(_parent->_raw_rows_counter, stats.raw_rows_read);
     // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
     _raw_rows_read += stats.raw_rows_read;
+
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
 }
 

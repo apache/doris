@@ -52,12 +52,12 @@ public class EliminateAliasNode implements AnalysisRuleFactory {
                                         ImmutableList.of(join.left().child(), join.right().child())))
                 ),
                 RuleType.JOIN_LEFT_CHILD_ELIMINATE_ALIAS_NODE.build(
-                        logicalJoin(logicalSubQueryAlias(), groupPlan())
+                        logicalJoin(logicalSubQueryAlias(), group())
                                 .then(join -> join.withChildren(
                                         ImmutableList.of(join.left().child(), join.right())))
                 ),
                 RuleType.JOIN_RIGHT_CHILD_ELIMINATE_ALIAS_NODE.build(
-                        logicalJoin(groupPlan(), logicalSubQueryAlias())
+                        logicalJoin(group(), logicalSubQueryAlias())
                                 .then(join -> join.withChildren(
                                         ImmutableList.of(join.left(), join.right().child())))
                 )

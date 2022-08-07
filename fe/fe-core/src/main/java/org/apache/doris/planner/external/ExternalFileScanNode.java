@@ -272,8 +272,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         try {
             buildScanRange();
         } catch (IOException e) {
-            LOG.error("Finalize failed.", e);
-            throw new UserException("Finalize failed.", e);
+            LOG.warn("Finalize failed.", e);
+            throw new UserException("Finalize failed: " + e.getMessage());
         }
     }
 
@@ -309,7 +309,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             totalFileSize += split.getLength();
 
             List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
-                    partitionKeys);
+                    partitionKeys, false);
 
             TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath);
 

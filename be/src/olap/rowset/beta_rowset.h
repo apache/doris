@@ -77,7 +77,7 @@ public:
     Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
 
 protected:
-    BetaRowset(const TabletSchema* schema, const std::string& tablet_path,
+    BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
                RowsetMetaSharedPtr rowset_meta);
 
     // init segment groups
@@ -86,6 +86,8 @@ protected:
     Status do_load(bool use_cache) override;
 
     void do_close() override;
+
+    bool check_current_rowset_segment() override;
 
 private:
     friend class RowsetFactory;

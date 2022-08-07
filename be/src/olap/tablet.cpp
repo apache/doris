@@ -20,6 +20,7 @@
 #include <ctype.h>
 #include <fmt/core.h>
 #include <glog/logging.h>
+#include <opentelemetry/common/threadlocal.h>
 #include <pthread.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
@@ -40,6 +41,7 @@
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "olap/base_compaction.h"
+#include "olap/base_tablet.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -53,6 +55,7 @@
 #include "olap/storage_policy_mgr.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
+#include "olap/tablet_schema.h"
 #include "segment_loader.h"
 #include "util/path_util.h"
 #include "util/pretty_printer.h"
@@ -117,7 +120,7 @@ Status Tablet::_init_once_action() {
     for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
         Version version = rs_meta->version();
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(&_schema, _tablet_path, rs_meta, &rowset);
+        res = RowsetFactory::create_rowset(_schema, _tablet_path, rs_meta, &rowset);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init rowset. tablet_id=" << tablet_id()
                          << ", schema_hash=" << schema_hash() << ", version=" << version
@@ -132,7 +135,7 @@ Status Tablet::_init_once_action() {
     for (auto& stale_rs_meta : _tablet_meta->all_stale_rs_metas()) {
         Version version = stale_rs_meta->version();
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(&_schema, _tablet_path, stale_rs_meta, &rowset);
+        res = RowsetFactory::create_rowset(_schema, _tablet_path, stale_rs_meta, &rowset);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init stale rowset. tablet_id:" << tablet_id()
                          << ", schema_hash:" << schema_hash() << ", version=" << version
@@ -142,7 +145,7 @@ Status Tablet::_init_once_action() {
         _stale_rs_version_map[version] = std::move(rowset);
     }
 
-    if (_schema.keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
+    if (_schema->keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
         _rowset_tree = std::make_unique<RowsetTree>();
         res = _rowset_tree->Init(rowset_vec);
     }
@@ -206,7 +209,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
     for (auto& rs_meta : rowsets_to_clone) {
         Version version = {rs_meta->start_version(), rs_meta->end_version()};
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(&_schema, _tablet_path, rs_meta, &rowset);
+        res = RowsetFactory::create_rowset(_schema, _tablet_path, rs_meta, &rowset);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init rowset. version=" << version;
             return res;
@@ -400,7 +403,7 @@ const RowsetSharedPtr Tablet::rowset_with_max_version() const {
     return iter->second;
 }
 
-const RowsetMetaSharedPtr Tablet::rowset_meta_with_max_schema_version(
+RowsetMetaSharedPtr Tablet::rowset_meta_with_max_schema_version(
         const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
     return *std::max_element(rowset_metas.begin(), rowset_metas.end(),
                              [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
@@ -1419,6 +1422,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         tablet_info->__set_used(false);
     }
 
+    if (tablet_state() == TABLET_SHUTDOWN) {
+        tablet_info->__set_used(false);
+    }
+
     // the report version is the largest continuous version, same logic as in FE side
     tablet_info->version = cversion.second;
     // Useless but it is a required filed in TTabletInfo
@@ -1597,8 +1604,8 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
     do {
         // there is no data in init rowset, so overlapping info is unknown.
         std::unique_ptr<RowsetWriter> rs_writer;
-        res = create_rowset_writer(version, VISIBLE, OVERLAP_UNKNOWN,
-                                   &_tablet_meta->tablet_schema(), -1, -1, &rs_writer);
+        res = create_rowset_writer(version, VISIBLE, OVERLAP_UNKNOWN, tablet_schema(), -1, -1,
+                                   &rs_writer);
 
         if (!res.ok()) {
             LOG(WARNING) << "failed to init rowset writer for tablet " << full_name();
@@ -1630,8 +1637,8 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
 
 Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
                                     const SegmentsOverlapPB& overlap,
-                                    const doris::TabletSchema* tablet_schema,
-                                    int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
+                                    TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
+                                    int64_t newest_write_timestamp,
                                     std::unique_ptr<RowsetWriter>* rowset_writer) {
     RowsetWriterContext context;
     context.version = version;
@@ -1648,7 +1655,7 @@ Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB&
 Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
                                     const RowsetStatePB& rowset_state,
                                     const SegmentsOverlapPB& overlap,
-                                    const doris::TabletSchema* tablet_schema,
+                                    TabletSchemaSPtr tablet_schema,
                                     std::unique_ptr<RowsetWriter>* rowset_writer) {
     RowsetWriterContext context;
     context.txn_id = txn_id;
@@ -1681,7 +1688,7 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
 }
 
 Status Tablet::create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
-    return RowsetFactory::create_rowset(&tablet_schema(), tablet_path(), rowset_meta, rowset);
+    return RowsetFactory::create_rowset(tablet_schema(), tablet_path(), rowset_meta, rowset);
 }
 
 Status Tablet::cooldown() {
@@ -1736,7 +1743,7 @@ Status Tablet::cooldown() {
     new_rowset_meta->set_fs(dest_fs);
     new_rowset_meta->set_creation_time(time(nullptr));
     RowsetSharedPtr new_rowset;
-    RowsetFactory::create_rowset(&_schema, _tablet_path, new_rowset_meta, &new_rowset);
+    RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
 
     std::vector to_add {std::move(new_rowset)};
     std::vector to_delete {std::move(old_rowset)};
@@ -1859,11 +1866,14 @@ Status Tablet::remove_all_remote_rowsets() {
     return _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, tablet_gc_key, storage_policy());
 }
 
-const TabletSchema& Tablet::tablet_schema() const {
+TabletSchemaSPtr Tablet::tablet_schema() const {
     std::shared_lock wrlock(_meta_lock);
+    if (UNLIKELY(_tablet_meta->all_rs_metas().empty())) {
+        return BaseTablet::tablet_schema();
+    }
     const RowsetMetaSharedPtr rowset_meta =
             rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas());
-    return *rowset_meta->tablet_schema();
+    return rowset_meta->tablet_schema();
 }
 
 Status Tablet::lookup_row_key(const Slice& encoded_key, RowLocation* row_location,
@@ -1931,6 +1941,17 @@ void Tablet::update_self_owned_remote_rowsets(
             }
         }
     }
+}
+
+bool Tablet::check_all_rowset_segment() {
+    for (auto& version_rowset : _rs_version_map) {
+        RowsetSharedPtr rowset = version_rowset.second;
+        if (!rowset->check_rowset_segment()) {
+            LOG(WARNING) << "Tablet Segment Check. find a bad tablet, tablet_id=" << tablet_id();
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace doris

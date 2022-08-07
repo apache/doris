@@ -84,30 +84,32 @@ suite("test_explain_tpch_sf_1_q21", "tpch_sf1") {
 				"  |  hash output slot ids: 114 37 110 ") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
 				"  |  equal join conjunct: <slot 100> = `l2`.`l_orderkey`\n" + 
-				"  |  other join predicates: <slot 155> != <slot 151>") && 
-		explainStr.contains("other join predicates: <slot 155> != <slot 151>") && 
+				"  |  other join predicates: <slot 155> != <slot 151>\n" + 
+				"  |  runtime filters: RF000[in_or_bloom] <- `l2`.`l_orderkey`") && 
 		explainStr.contains("vec output tuple id: 13") && 
 		explainStr.contains("output slot ids: 110 111 114 \n" + 
 				"  |  hash output slot ids: 1 99 100 103 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 96> = `n_nationkey`") && 
+				"  |  equal join conjunct: <slot 96> = `n_nationkey`\n" + 
+				"  |  runtime filters: RF001[in_or_bloom] <- `n_nationkey`") && 
 		explainStr.contains("vec output tuple id: 12") && 
 		explainStr.contains("output slot ids: 99 100 103 \n" + 
 				"  |  hash output slot ids: 90 91 94 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[The src data has been redistributed]\n" + 
-				"  |  equal join conjunct: <slot 84> = `o_orderkey`") && 
+				"  |  equal join conjunct: <slot 84> = `o_orderkey`\n" + 
+				"  |  runtime filters: RF002[in_or_bloom] <- `o_orderkey`") && 
 		explainStr.contains("vec output tuple id: 11") && 
 		explainStr.contains("output slot ids: 90 91 94 96 \n" + 
 				"  |  hash output slot ids: 83 84 87 89 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `l1`.`l_suppkey` = `s_suppkey`\n" + 
-				"  |  runtime filters: RF000[in_or_bloom] <- `s_suppkey`") && 
+				"  |  runtime filters: RF003[in_or_bloom] <- `s_suppkey`") && 
 		explainStr.contains("vec output tuple id: 10") && 
 		explainStr.contains("output slot ids: 83 84 87 89 \n" + 
 				"  |  hash output slot ids: 34 35 70 76 ") && 
 		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l1`.`l_receiptdate` > `l1`.`l_commitdate`\n" + 
-				"     runtime filters: RF000[in_or_bloom] -> `l1`.`l_suppkey`") && 
+				"     runtime filters: RF000[in_or_bloom] -> <slot 35>, RF002[in_or_bloom] -> <slot 35>, RF003[in_or_bloom] -> `l1`.`l_suppkey`") && 
 		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l3`.`l_receiptdate` > `l3`.`l_commitdate`") && 
 		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON") && 
@@ -115,7 +117,8 @@ suite("test_explain_tpch_sf_1_q21", "tpch_sf1") {
 				"     PREDICATES: `n_name` = 'SAUDI ARABIA'") && 
 		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `o_orderstatus` = 'F'") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON") 
+		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
+				"     runtime filters: RF001[in_or_bloom] -> <slot 76>")
             
         }
     }

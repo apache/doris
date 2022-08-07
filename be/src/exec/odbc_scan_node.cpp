@@ -201,8 +201,10 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
                             slot_desc->col_name());
                 }
             } else if (column_data.strlen_or_ind > column_data.buffer_length) {
-                return Status::InternalError("nonnull column contains nullptr. table={}, column={}",
-                                             _table_name, slot_desc->col_name());
+                return Status::InternalError(
+                        "column value length longer than buffer length. "
+                        "table={}, column={}, buffer_length",
+                        _table_name, slot_desc->col_name(), column_data.buffer_length);
             } else {
                 RETURN_IF_ERROR(write_text_slot(static_cast<char*>(column_data.target_value_ptr),
                                                 column_data.strlen_or_ind, slot_desc, state));

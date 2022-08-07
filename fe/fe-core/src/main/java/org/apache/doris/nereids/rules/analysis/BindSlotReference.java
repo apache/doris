@@ -176,7 +176,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return bounded.get(0);
                 default:
                     throw new AnalysisException(unboundSlot + " is ambiguous： "
-                            + bounded.stream()
+                        + bounded.stream()
                             .map(Slot::toString)
                             .collect(Collectors.joining(", ")));
             }
@@ -284,6 +284,10 @@ public class BindSlotReference implements AnalysisRuleFactory {
             Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),
                     "BoundStar can not wrap UnboundSlot"
             );
+        }
+
+        public String toSql() {
+            return children.stream().map(Expression::toSql).collect(Collectors.joining(", "));
         }
 
         public List<Slot> getSlots() {

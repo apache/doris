@@ -24,13 +24,14 @@
 #include "io/file_reader.h"
 #include "runtime/mem_pool.h"
 #include "runtime/tuple.h"
+#include "util/string_util.h"
 
 namespace doris {
 
 ORCReaderWrap::ORCReaderWrap(FileReader* file_reader, int64_t batch_size,
                              int32_t num_of_columns_from_file, int64_t range_start_offset,
-                             int64_t range_size)
-        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file),
+                             int64_t range_size, bool caseSensitive)
+        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file, caseSensitive),
           _range_start_offset(range_start_offset),
           _range_size(range_size) {
     _reader = nullptr;
@@ -66,16 +67,15 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
     }
     std::shared_ptr<arrow::Schema> schema = maybe_schema.ValueOrDie();
     for (size_t i = 0; i < schema->num_fields(); ++i) {
+        std::string schemaName =
+                _caseSensitive ? schema->field(i)->name() : to_lower(schema->field(i)->name());
         // orc index started from 1.
-        _map_column.emplace(schema->field(i)->name(), i + 1);
+
+        _map_column.emplace(schemaName, i + 1);
     }
     RETURN_IF_ERROR(column_indices(tuple_slot_descs));
 
-    bool eof = false;
-    RETURN_IF_ERROR(_next_stripe_reader(&eof));
-    if (eof) {
-        return Status::EndOfFile("end of file");
-    }
+    _thread = std::thread(&ArrowReaderWrap::prefetch_batch, this);
 
     return Status::OK();
 }
@@ -143,23 +143,23 @@ Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
     return Status::OK();
 }
 
-Status ORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) {
-    *eof = false;
-    do {
-        auto st = _rb_reader->ReadNext(batch);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to get next batch, errmsg=" << st;
-            return Status::InternalError(st.ToString());
-        }
-        if (*batch == nullptr) {
-            // try next stripe
-            RETURN_IF_ERROR(_next_stripe_reader(eof));
-            if (*eof) {
-                break;
-            }
-        }
-    } while (*batch == nullptr);
-    return Status::OK();
+void ORCReaderWrap::read_batches(arrow::RecordBatchVector& batches, int current_group) {
+    bool eof = false;
+    Status status = _next_stripe_reader(&eof);
+    if (!status.ok()) {
+        _closed = true;
+        return;
+    }
+    if (eof) {
+        _closed = true;
+        return;
+    }
+
+    _status = _rb_reader->ReadAll(&batches);
+}
+
+bool ORCReaderWrap::filter_row_group(int current_group) {
+    return false;
 }
 
 } // namespace doris

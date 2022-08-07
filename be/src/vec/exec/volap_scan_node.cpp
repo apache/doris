@@ -1876,35 +1876,58 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
     }
 
     // post volap scanners to thread-pool
-    PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
     auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
-    PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
+    ThreadPoolToken* thread_token = nullptr;
+    if (_limit > -1 && _limit < 1024) {
+        thread_token = state->get_query_fragments_ctx()->get_serial_token();
+    } else {
+        thread_token = state->get_query_fragments_ctx()->get_token();
+    }
     auto iter = olap_scanners.begin();
-    while (iter != olap_scanners.end()) {
-        PriorityThreadPool::Task task;
-        task.work_function = [this, scanner = *iter, parent_span = cur_span] {
-            opentelemetry::trace::Scope scope {parent_span};
-            this->scanner_thread(scanner);
-        };
-        task.priority = _nice;
-        task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
-        (*iter)->start_wait_worker_timer();
-
-        TabletStorageType type = (*iter)->get_storage_type();
-        bool ret = false;
-        COUNTER_UPDATE(_scanner_sched_counter, 1);
-        if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-            ret = thread_pool->offer(task);
-        } else {
-            ret = remote_thread_pool->offer(task);
+    if (thread_token != nullptr) {
+        while (iter != olap_scanners.end()) {
+            auto s = thread_token->submit_func([this, scanner = *iter, parent_span = cur_span] {
+                opentelemetry::trace::Scope scope {parent_span};
+                this->scanner_thread(scanner);
+            });
+            if (s.ok()) {
+                (*iter)->start_wait_worker_timer();
+                COUNTER_UPDATE(_scanner_sched_counter, 1);
+                olap_scanners.erase(iter++);
+            } else {
+                LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s.get_error_msg();
+            }
+            ++_total_assign_num;
         }
+    } else {
+        PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
+        PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
+        while (iter != olap_scanners.end()) {
+            PriorityThreadPool::Task task;
+            task.work_function = [this, scanner = *iter, parent_span = cur_span] {
+                opentelemetry::trace::Scope scope {parent_span};
+                this->scanner_thread(scanner);
+            };
+            task.priority = _nice;
+            task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
+            (*iter)->start_wait_worker_timer();
 
-        if (ret) {
-            olap_scanners.erase(iter++);
-        } else {
-            LOG(FATAL) << "Failed to assign scanner task to thread pool!";
+            TabletStorageType type = (*iter)->get_storage_type();
+            bool ret = false;
+            COUNTER_UPDATE(_scanner_sched_counter, 1);
+            if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
+                ret = thread_pool->offer(task);
+            } else {
+                ret = remote_thread_pool->offer(task);
+            }
+
+            if (ret) {
+                olap_scanners.erase(iter++);
+            } else {
+                LOG(FATAL) << "Failed to assign scanner task to thread pool!";
+            }
+            ++_total_assign_num;
         }
-        ++_total_assign_num;
     }
 
     return assigned_thread_num;

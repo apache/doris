@@ -19,8 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
 
+#include "olap/tablet_schema.h"
 #include "testutil/mock_rowset.h"
 
 namespace doris {
@@ -60,8 +62,8 @@ TEST(TabletMetaTest, TestReviseMeta) {
         RowsetMetaSharedPtr meta_ptr = std::make_shared<RowsetMeta>();
         meta_ptr->init_from_pb(rs_meta_pb);
         RowsetSharedPtr rowset_ptr;
-        TabletSchema schema;
-        MockRowset::create_rowset(&schema, "", meta_ptr, &rowset_ptr, false);
+        TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
+        MockRowset::create_rowset(schema, "", meta_ptr, &rowset_ptr, false);
         src_rowsets.push_back(rowset_ptr);
         tablet_meta.add_rs_meta(rowset_ptr->rowset_meta());
     }

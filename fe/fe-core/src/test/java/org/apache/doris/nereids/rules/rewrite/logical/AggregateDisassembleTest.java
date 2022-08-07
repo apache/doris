@@ -17,10 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -34,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
@@ -52,11 +49,7 @@ public class AggregateDisassembleTest {
 
     @BeforeAll
     public final void beforeAll() {
-        Table student = new Table(0L, "student", Table.TableType.OLAP,
-                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, true, "0", ""),
-                        new Column("name", Type.STRING, true, AggregateType.NONE, true, "", ""),
-                        new Column("age", Type.INT, true, AggregateType.NONE, true, "", "")));
-        rStudent = new LogicalOlapScan(student, ImmutableList.of("student"));
+        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
     }
 
     /**

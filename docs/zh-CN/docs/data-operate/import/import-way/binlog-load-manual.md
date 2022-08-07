@@ -464,9 +464,6 @@ binlog_desc
 
 用户可以通过 STOP/PAUSE/RESUME 三个命令来控制作业的停止，暂停和恢复。可以通过 [STOP SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-SYNC-JOB.md) ; [PAUSE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB.md); 以及 [RESUME SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB.md); 
 
-## 案例实战
-
-[Apache Doris Binlog Load使用方法及示例](https://doris.apache.org/zh-CN/blogs/PracticalCases/doris-binlog-load.html)
 
 ## 相关参数
 

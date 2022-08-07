@@ -1134,7 +1134,7 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
             int32_t old_col_idx = base_tablet->field_index(column.column_name);
             if (old_col_idx != -1) {
                 uint32_t old_unique_id =
-                        base_tablet->tablet_schema().column(old_col_idx).unique_id();
+                        base_tablet->tablet_schema()->column(old_col_idx).unique_id();
                 col_idx_to_unique_id[new_col_idx] = old_unique_id;
             } else {
                 // Not exist in old tablet, it is a new added column
@@ -1316,6 +1316,32 @@ void TabletManager::get_all_tablets_storage_format(TCheckStorageFormatResult* re
     }
     result->__isset.v1_tablets = true;
     result->__isset.v2_tablets = true;
+}
+
+std::set<int64_t> TabletManager::check_all_tablet_segment(bool repair) {
+    std::set<int64_t> bad_tablets;
+    for (const auto& tablets_shard : _tablets_shards) {
+        std::lock_guard<std::shared_mutex> wrlock(tablets_shard.lock);
+        for (const auto& item : tablets_shard.tablet_map) {
+            TabletSharedPtr tablet = item.second;
+            if (!tablet->check_all_rowset_segment()) {
+                bad_tablets.insert(tablet->tablet_id());
+                if (repair) {
+                    tablet->set_tablet_state(TABLET_SHUTDOWN);
+                    tablet->save_meta();
+                    {
+                        std::lock_guard<std::shared_mutex> shutdown_tablets_wrlock(
+                                _shutdown_tablets_lock);
+                        _shutdown_tablets.push_back(tablet);
+                    }
+                    LOG(WARNING) << "There are some segments lost, set tablet to shutdown state."
+                                 << "tablet_id=" << tablet->tablet_id()
+                                 << ", tablet_path=" << tablet->tablet_path();
+                }
+            }
+        }
+    }
+    return bad_tablets;
 }
 
 } // end namespace doris

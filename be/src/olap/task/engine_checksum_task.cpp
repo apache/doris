@@ -77,7 +77,7 @@ Status EngineChecksumTask::_compute_checksum() {
         }
     }
 
-    for (size_t i = 0; i < tablet->tablet_schema().num_columns(); ++i) {
+    for (size_t i = 0; i < tablet->tablet_schema()->num_columns(); ++i) {
         reader_params.return_columns.push_back(i);
     }
 

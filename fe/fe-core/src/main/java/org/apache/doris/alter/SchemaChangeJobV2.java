@@ -416,8 +416,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
                     List<Column> fullSchema = tbl.getBaseSchema(true);
                     DescriptorTable descTable = new DescriptorTable();
+                    TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                     for (Column column : fullSchema) {
-                        TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                         destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);
@@ -648,7 +648,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.setStorageFormat(storageFormat);
         }
 
-        //update max column unique id
+        // update max column unique id
         int maxColUniqueId = tbl.getMaxColUniqueId();
         for (Column column : tbl.getFullSchema()) {
             if (column.getUniqueId() > maxColUniqueId) {
@@ -709,6 +709,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         tbl.deleteIndexInfo(shadowIndexName);
                     }
                     tbl.setState(OlapTableState.NORMAL);
+                    LOG.info("set table's state to NORMAL when cancel job: {}", tbl.getId(), jobId);
                 } finally {
                     tbl.writeUnlock();
                 }
@@ -856,8 +857,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             List<Comparable> info = Lists.newArrayList();
             info.add(jobId);
             info.add(tableName);
-            info.add(TimeUtils.longToTimeString(createTimeMs));
-            info.add(TimeUtils.longToTimeString(finishedTimeMs));
+            info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
+            info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
             // only show the origin index name
             info.add(indexIdToName.get(shadowIndexId).substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
             info.add(shadowIndexId);

@@ -17,10 +17,14 @@
 
 #include "olap/rowset/segment_v2/segment.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <memory>
 #include <utility>
 
-#include "common/logging.h"                       // LOG
+#include "common/config.h"
+#include "common/logging.h" // LOG
+#include "io/cache/file_cache_manager.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/page_io.h"
@@ -34,22 +38,34 @@
 namespace doris {
 namespace segment_v2 {
 
+using io::FileCacheManager;
+
 Status Segment::open(io::FileSystem* fs, const std::string& path, uint32_t segment_id,
-                     const TabletSchema* tablet_schema, std::shared_ptr<Segment>* output) {
+                     TabletSchemaSPtr tablet_schema, std::shared_ptr<Segment>* output) {
     std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader));
-    segment->_file_reader = std::move(file_reader);
+    if (config::file_cache_type.empty()) {
+        segment->_file_reader = std::move(file_reader);
+    } else {
+        std::string cache_path = path.substr(0, path.size() - 4);
+        io::FileReaderSPtr cache_reader = FileCacheManager::instance()->new_file_cache(
+                cache_path, config::file_cache_alive_time_sec, file_reader,
+                config::file_cache_type);
+        segment->_file_reader = std::move(cache_reader);
+    }
     RETURN_IF_ERROR(segment->_open());
     *output = std::move(segment);
     return Status::OK();
 }
 
-Segment::Segment(uint32_t segment_id, const TabletSchema* tablet_schema)
-        : _segment_id(segment_id), _tablet_schema(*tablet_schema), _meta_mem_usage(0) {}
+Segment::Segment(uint32_t segment_id, TabletSchemaSPtr tablet_schema)
+        : _segment_id(segment_id), _tablet_schema(tablet_schema), _meta_mem_usage(0) {}
 
 Segment::~Segment() {
+#ifndef BE_TEST
     StorageEngine::instance()->segment_meta_mem_tracker()->release(_meta_mem_usage);
+#endif
 }
 
 Status Segment::_open() {
@@ -64,7 +80,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     // trying to prune the current segment by segment-level zone map
     if (read_options.conditions != nullptr) {
         for (auto& column_condition : read_options.conditions->columns()) {
-            int32_t column_unique_id = _tablet_schema.column(column_condition.first).unique_id();
+            int32_t column_unique_id = column_condition.first;
             if (_column_readers.count(column_unique_id) < 1 ||
                 !_column_readers.at(column_unique_id)->has_zone_map()) {
                 continue;
@@ -145,7 +161,7 @@ Status Segment::load_index() {
         opts.stats = &tmp_stats;
         opts.type = INDEX_PAGE;
 
-        if (_tablet_schema.keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta()) {
+        if (_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta()) {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());
             RETURN_IF_ERROR(
                     _pk_index_reader->parse(_file_reader, _footer.primary_key_index_meta()));
@@ -173,15 +189,15 @@ Status Segment::_create_column_readers() {
         _column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
     }
 
-    for (uint32_t ordinal = 0; ordinal < _tablet_schema.num_columns(); ++ordinal) {
-        auto& column = _tablet_schema.column(ordinal);
+    for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
+        auto& column = _tablet_schema->column(ordinal);
         auto iter = _column_id_to_footer_ordinal.find(column.unique_id());
         if (iter == _column_id_to_footer_ordinal.end()) {
             continue;
         }
 
         ColumnReaderOptions opts;
-        opts.kept_in_memory = _tablet_schema.is_in_memory();
+        opts.kept_in_memory = _tablet_schema->is_in_memory();
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, _footer.columns(iter->second),
                                              _footer.num_rows(), _file_reader, &reader));

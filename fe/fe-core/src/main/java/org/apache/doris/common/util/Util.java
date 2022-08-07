@@ -496,4 +496,13 @@ public class Util {
             throw new AnalysisException(String.format("External catalog '%s' is not allowed in '%s'", catalog, msg));
         }
     }
+
+    public static boolean isS3CompatibleStorageSchema(String schema) {
+        for (String objectStorage : Config.s3_compatible_object_storages.split(",")) {
+            if (objectStorage.equalsIgnoreCase(schema)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

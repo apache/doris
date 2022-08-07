@@ -20,7 +20,7 @@ suite("test_schema_change", "schema_change") {
      def tbName = "alter_table_column_type"
 
      def getJobState = { tableName ->
-          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
           return jobStateResult[0][9]
      }
 
@@ -41,7 +41,7 @@ suite("test_schema_change", "schema_change") {
                 PARTITION p201707 VALUES LESS THAN ('2021-12-01')
             )
             DISTRIBUTED BY HASH(siteid) BUCKETS 5
-            PROPERTIES("replication_num" = "1"); 
+            PROPERTIES("replication_num" = "1", "light_schema_change" = "true"); 
          """
      sql """ insert into ${tbName} values('2021-11-01',1,1,'用户A',1),('2021-11-01',1,1,'用户B',1),('2021-11-01',1,1,'用户A',3),('2021-11-02',1,1,'用户A',1),('2021-11-02',1,1,'用户B',1),('2021-11-02',101,112332121,'用户B',112312),('2021-11-02',103,112332211,'用户B',112312); """
      sql """ alter  table ${tbName} modify column citycode string """

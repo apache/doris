@@ -65,7 +65,7 @@ protected:
     Status modify_rowsets();
     void gc_output_rowset();
 
-    Status construct_output_rowset_writer(const TabletSchema* schema);
+    Status construct_output_rowset_writer(TabletSchemaSPtr schema);
     Status construct_input_rowset_readers();
 
     Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);

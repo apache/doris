@@ -43,15 +43,12 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     private final NereidsParser parser = new NereidsParser();
 
     private final List<String> testSql = Lists.newArrayList(
-            "SELECT * FROM T1",
-            "SELECT * FROM T1 ORDER BY ID",
-            "SELECT * FROM T1 JOIN T2 ON T1.ID = T2.ID",
-            "SELECT * FROM T1 T",
+            //"SELECT * FROM (SELECT * FROM T1 T) T2",
+            "SELECT * FROM T1 TT1 JOIN (SELECT * FROM T2 TT2) T ON TT1.ID = T.ID",
+            "SELECT * FROM T1 TT1 JOIN (SELECT TT2.ID FROM T2 TT2) T ON TT1.ID = T.ID",
             "SELECT T.ID FROM T1 T",
-            "SELECT * FROM (SELECT * FROM T1 T) T2",
-            "SELECT T1.ID ID FROM T1",
-            "SELECT T.ID FROM T1 T",
-            "SELECT A.ID FROM T1 A, T2 B WHERE A.ID = B.ID GROUP BY A.ID ORDER BY A.ID"
+            "SELECT A.ID FROM T1 A, T2 B WHERE A.ID = B.ID",
+            "SELECT * FROM T1 JOIN T1 T2 ON T1.ID = T2.ID"
     );
 
     @Override
@@ -94,19 +91,24 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testAnalyze() {
-        checkAnalyze(testSql.get(8));
+        checkAnalyze(testSql.get(0));
     }
 
     @Test
-    public void testParse() {
+    public void testParseAllCase() {
         for (String sql : testSql) {
             System.out.println(parser.parseSingle(sql).treeString());
         }
     }
 
     @Test
+    public void testParse() {
+        System.out.println(parser.parseSingle(testSql.get(10)).treeString());
+    }
+
+    @Test
     public void testFinalizeAnalyze() {
-        finalizeAnalyze(testSql.get(5));
+        finalizeAnalyze(testSql.get(0));
     }
 
     @Test
@@ -119,9 +121,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testPlan() throws AnalysisException {
-        PhysicalPlan plan = testPlanCase(testSql.get(8));
-        PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
-        System.out.println(root.getPlanRoot());
+        testPlanCase(testSql.get(0));
     }
 
     @Test
@@ -132,12 +132,15 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         }
     }
 
-    private PhysicalPlan testPlanCase(String sql) throws AnalysisException {
-        return new NereidsPlanner(connectContext).plan(
+    private void testPlanCase(String sql) throws AnalysisException {
+        PhysicalPlan plan = new NereidsPlanner(connectContext).plan(
                 parser.parseSingle(sql),
                 new PhysicalProperties(),
                 connectContext
         );
+        System.out.println(plan.treeString());
+        PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
+        System.out.println(root.getPlanRoot().getPlanTreeExplainStr());
     }
 
     private void checkAnalyze(String sql) {

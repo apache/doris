@@ -237,7 +237,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     return true;
 }
 
-Status DeleteHandler::init(const TabletSchema& schema,
+Status DeleteHandler::init(TabletSchemaSPtr schema,
                            const std::vector<DeletePredicatePB>& delete_conditions, int64_t version,
                            const TabletReader* reader) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
@@ -258,7 +258,7 @@ Status DeleteHandler::init(const TabletSchema& schema,
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
-        temp.del_cond->set_tablet_schema(&schema);
+        temp.del_cond->set_tablet_schema(schema);
         for (const auto& sub_predicate : delete_condition.sub_predicates()) {
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {
@@ -308,19 +308,6 @@ Status DeleteHandler::init(const TabletSchema& schema,
     _is_inited = true;
 
     return Status::OK();
-}
-
-bool DeleteHandler::is_filter_data(const int64_t data_version, const RowCursor& row) const {
-    // According to semantics, the delete condition stored in _del_conds should be an OR relationship,
-    // so as long as the data matches one of the _del_conds, it will return true.
-    for (const auto& del_cond : _del_conds) {
-        if (data_version <= del_cond.filter_version &&
-            del_cond.del_cond->delete_conditions_eval(row)) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 std::vector<int64_t> DeleteHandler::get_conds_version() {

@@ -326,7 +326,7 @@ public class DatabaseTransactionMgr {
             checkRunningTxnExceedLimit(sourceType);
 
             long tid = idGenerator.getNextTransactionId();
-            LOG.info("begin transaction: txn id {} with label {} from coordinator {}, listner id: {}",
+            LOG.info("begin transaction: txn id {} with label {} from coordinator {}, listener id: {}",
                     tid, label, coordinator, listenerId);
             TransactionState transactionState = new TransactionState(dbId, tableIdList,
                     tid, label, requestId, sourceType, coordinator, listenerId, timeoutSecond * 1000);
@@ -1771,5 +1771,20 @@ public class DatabaseTransactionMgr {
         }
         LOG.info("clean {} labels on db {} with label '{}' in database transaction mgr.", removedTxnIds.size(), dbId,
                 label);
+    }
+
+    public long getTxnNumByStatus(TransactionStatus status) {
+        readLock();
+        try {
+            if (idToRunningTransactionState.size() > 10000) {
+                return idToRunningTransactionState.values().parallelStream()
+                        .filter(t -> t.getTransactionStatus() == status).count();
+            } else {
+                return idToRunningTransactionState.values().stream().filter(t -> t.getTransactionStatus() == status)
+                        .count();
+            }
+        } finally {
+            readUnlock();
+        }
     }
 }

@@ -925,6 +925,12 @@ Default: 0
 
 The maximum number of threads per disk is also the maximum queue depth of each disk
 
+### `number_slave_replica_download_threads`
+
+Default: 64
+
+Number of threads for slave replica synchronize data, used for single replica load.
+
 ### `number_tablet_writer_threads`
 
 Default: 16
@@ -1099,6 +1105,36 @@ This configuration is used for the context gc thread scheduling cycle. Note: The
 
 * Type: int32
 * Description: The queue length of the SendBatch thread pool. In NodeChannels' sending data tasks,  the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
+
+### `single_replica_load_brpc_port`
+
+* Type: int32
+* Description: The port of BRPC on BE, used for single replica load. There is a independent BRPC thread pool for the communication between the Master replica and Slave replica during single replica load, which prevents data synchronization between the replicas from preempt the thread resources for data distribution and query tasks when the load concurrency is large.
+* Default value: 9070
+
+### `single_replica_load_brpc_num_threads`
+
+* Type: int32
+* Description: This configuration is mainly used to modify the number of bthreads for single replica load brpc. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
+* Default value: 64
+
+### `single_replica_load_download_port`
+
+* Type: int32
+* Description: The port of http for segment download on BE, used for single replica load. There is a independent HTTP thread pool for the Slave replica to download segments during single replica load, which prevents data synchronization between the replicas from preempt the thread resources for other http tasks when the load concurrency is large.
+* Default value: 8050
+
+### `single_replica_load_download_num_workers`
+
+* Type: int32
+* Description: This configuration is mainly used to modify the number of http threads for segment download, used for single replica load. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
+* Default value: 64
+
+### `slave_replica_writer_rpc_timeout_sec`
+
+* Type: int32
+* Description: This configuration is mainly used to modify timeout of brpc between master replica and slave replica, used for single replica load.
+* Default value: 60
 
 ### `sleep_one_second`
 

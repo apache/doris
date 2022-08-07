@@ -222,6 +222,14 @@ public class BrokerUtil {
 
     public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
             throws UserException {
+        return parseColumnsFromPath(filePath, columnsFromPath, true);
+    }
+
+    public static List<String> parseColumnsFromPath(
+            String filePath,
+            List<String> columnsFromPath,
+            boolean caseSensitive)
+            throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
         }
@@ -246,7 +254,8 @@ public class BrokerUtil {
                 throw new UserException("Fail to parse columnsFromPath, expected: "
                         + columnsFromPath + ", filePath: " + filePath);
             }
-            int index = columnsFromPath.indexOf(pair[0]);
+            String parsedColumnName = caseSensitive ? pair[0] : pair[0].toLowerCase();
+            int index = columnsFromPath.indexOf(parsedColumnName);
             if (index == -1) {
                 continue;
             }

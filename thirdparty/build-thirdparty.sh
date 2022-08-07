@@ -59,7 +59,14 @@ fi
 
 eval set -- "$OPTS"
 
-PARALLEL=$(($(nproc) / 4 + 1))
+KERNEL="$(uname -s)"
+
+if [[ "${KERNEL}" == 'Darwin' ]]; then
+    PARALLEL=$(($(sysctl -n hw.logicalcpu) / 4 + 1))
+else
+    PARALLEL=$(($(nproc) / 4 + 1))
+fi
+
 if [[ $# -ne 1 ]]; then
     while true; do
         case "$1" in
@@ -141,8 +148,6 @@ elif [[ "$CC" == *clang ]]; then
     boost_toolset=clang
     libhdfs_cxx17=-std=c++1z
 fi
-
-KERNEL="$(uname -s)"
 
 # prepare installed prefix
 mkdir -p "${TP_DIR}/installed/lib64"
@@ -591,7 +596,7 @@ build_re2() {
     check_if_source_exist "${RE2_SOURCE}"
     cd "${TP_SOURCE_DIR}/${RE2_SOURCE}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
+    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
 }
 
@@ -600,6 +605,13 @@ build_hyperscan() {
     check_if_source_exist "${RAGEL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${RAGEL_SOURCE}"
 
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        cxxflags='-static'
+    else
+        cxxflags=''
+    fi
+
+    CXXFLAGS="${cxxflags}" \
     ./configure --prefix="${TP_INSTALL_DIR}"
     make install
 
