@@ -176,7 +176,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return bounded.get(0);
                 default:
                     throw new AnalysisException(unboundSlot + " is ambiguous： "
-                            + bounded.stream()
+                        + bounded.stream()
                             .map(Slot::toString)
                             .collect(Collectors.joining(", ")));
             }
