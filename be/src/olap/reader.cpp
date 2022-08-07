@@ -402,7 +402,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
         }
 
         Status res = _keys_param.start_keys[i].init_scan_key(
-                *_tablet_schema, read_params.start_key[i].values(), schema);
+                _tablet_schema, read_params.start_key[i].values(), schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -424,7 +424,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
-        Status res = _keys_param.end_keys[i].init_scan_key(*_tablet_schema,
+        Status res = _keys_param.end_keys[i].init_scan_key(_tablet_schema,
                                                            read_params.end_key[i].values(), schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
@@ -549,13 +549,14 @@ void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Condit
                                          std::set<uint32_t>* load_bf_columns) {
     // add all columns with condition to load_bf_columns
     for (const auto& cond_column : conditions->columns()) {
-        if (!_tablet_schema->column(cond_column.first).is_bf_column()) {
+        int32_t column_id = _tablet_schema->field_index(cond_column.first);
+        if (!_tablet_schema->column(column_id).is_bf_column()) {
             continue;
         }
         for (const auto& cond : cond_column.second->conds()) {
             if (cond->op == OP_EQ ||
                 (cond->op == OP_IN && cond->operand_set.size() < MAX_OP_IN_FIELD_NUM)) {
-                load_bf_columns->insert(cond_column.first);
+                load_bf_columns->insert(column_id);
             }
         }
     }
@@ -612,7 +613,7 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     }
 
     auto delete_init = [&]() -> Status {
-        return _delete_handler.init(*_tablet_schema, _tablet->delete_predicates(),
+        return _delete_handler.init(_tablet_schema, _tablet->delete_predicates(),
                                     read_params.version.second, this);
     };
 

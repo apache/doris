@@ -15,32 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_streamload_perfomance", "performance") {
-    def tableName = "test_streamload_performance1"
+package org.apache.doris.nereids.trees.plans;
 
-    try {
-        sql """
-        CREATE TABLE IF NOT EXISTS ${tableName} (
-            id int,
-            name varchar(255)
-        )
-        DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES (
-          "replication_num" = "1"
-        )
-        """
+/**
+ * Common interface for logical/physical limit.
+ */
+public interface Limit {
+    long getLimit();
 
-        def rowCount = 10000
-        def rowIt = java.util.stream.LongStream.range(0, rowCount)
-                .mapToObj({i -> [i, "a_" + i]})
-                .iterator()
-
-        streamLoad {
-            table tableName
-            time 5000
-            inputIterator rowIt
-        }
-    } finally {
-        try_sql "DROP TABLE IF EXISTS ${tableName}"
-    }
+    long getOffset();
 }

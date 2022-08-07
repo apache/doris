@@ -65,6 +65,30 @@ private:
     int64_t _get_row_group_start_offset(const tparquet::RowGroup& row_group);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
 
+    bool _determine_filter_row_group(const std::vector<ExprContext*>& conjuncts,
+                                     const std::string& encoded_min,
+                                     const std::string& encoded_max);
+
+    void _eval_binary_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
+                                bool& need_filter);
+
+    void _eval_in_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
+                            bool& need_filter);
+
+    bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values,
+                      const char* min_bytes, const char* max_bytes);
+
+    bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes,
+                  const char* max_bytes);
+
+    bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes);
+
+    bool _eval_ge(PrimitiveType conjunct_type, void* value, const char* max_bytes);
+
+    bool _eval_lt(PrimitiveType conjunct_type, void* value, const char* min_bytes);
+
+    bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes);
+
 private:
     doris::FileReader* _file_reader;
     const std::shared_ptr<FileMetaData>& _file_metadata;
