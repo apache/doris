@@ -622,7 +622,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
             // build left deep join tree
-            left = left == null ? right : new LogicalJoin<>(JoinType.INNER_JOIN, Optional.empty(), left, right);
+            left = left == null ? right : new LogicalJoin<>(JoinType.CROSS_JOIN, Optional.empty(), left, right);
             left = withJoinRelations(left, relation);
             // TODO: pivot and lateral view
         }
