@@ -40,6 +40,9 @@ TEST_F(ParquetReaderTest, normal) {
     std::shared_ptr<FileMetaData> metaData;
     parse_thrift_footer(&reader, metaData);
     tparquet::FileMetaData t_metadata = metaData->to_thrift_metadata();
+    for (auto value : t_metadata.row_groups) {
+        LOG(WARNING) << "row group num_rows: " << value.num_rows;
+    }
 }
 
 } // namespace vectorized
