@@ -37,15 +37,22 @@
 
 namespace doris {
 
+static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* k_engine = nullptr;
+
 class TestRowIdConversion : public testing::TestWithParam<std::tuple<KeysType, bool, bool>> {
 protected:
     void SetUp() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
+        char buffer[MAX_PATH_LEN];
+        EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
+        absolute_dir = std::string(buffer) + kTestDir;
+
+        if (FileUtils::check_exist(absolute_dir)) {
+            EXPECT_TRUE(FileUtils::remove_all(absolute_dir).ok());
         }
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
-        _data_dir = std::make_unique<DataDir>(kTestDir);
+        EXPECT_TRUE(FileUtils::create_dir(absolute_dir).ok());
+        EXPECT_TRUE(FileUtils::create_dir(absolute_dir + "/tablet_path").ok());
+        _data_dir = std::make_unique<DataDir>(absolute_dir);
         _data_dir->update_capacity();
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
@@ -53,8 +60,8 @@ protected:
     }
 
     void TearDown() override {
-        if (FileUtils::check_exist(kTestDir)) {
-            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
+        if (FileUtils::check_exist(absolute_dir)) {
+            EXPECT_TRUE(FileUtils::remove_all(absolute_dir).ok());
         }
         if (k_engine != nullptr) {
             k_engine->stop();
@@ -109,6 +116,7 @@ protected:
         rowset_writer_context->data_dir = _data_dir.get();
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
+        rowset_writer_context->tablet_path = "tablet_path";
         rowset_writer_context->version = Version(inc_id, inc_id);
         rowset_writer_context->segments_overlap = overlap;
         rowset_writer_context->max_rows_per_segment = max_rows_per_segment;
@@ -392,7 +400,8 @@ protected:
     }
 
 private:
-    const std::string kTestDir = "./ut_dir/rowid_conversion_test";
+    const std::string kTestDir = "ut_dir/rowid_conversion_test";
+    string absolute_dir;
     std::unique_ptr<DataDir> _data_dir;
 };
 
