@@ -274,7 +274,7 @@ public class HudiScanNode extends BrokerScanNode {
 
             TScanRangeLocations curLocations = newLocations(context.params, brokerDesc);
             List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
-                    getPartitionKeys());
+                    getPartitionKeys(), false);
             int numberOfColumnsFromFile = context.slotDescByName.size() - partitionValuesFromPath.size();
 
             TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(fileSplit, fileFormatType,

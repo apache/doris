@@ -973,7 +973,7 @@ Status Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& 
     RowCursor start_key;
     // 如果有startkey，用startkey初始化；反之则用minkey初始化
     if (start_key_strings.size() > 0) {
-        if (start_key.init_scan_key(*_schema, start_key_strings.values()) != Status::OK()) {
+        if (start_key.init_scan_key(_schema, start_key_strings.values()) != Status::OK()) {
             LOG(WARNING) << "fail to initial key strings with RowCursor type.";
             return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
         }
@@ -984,12 +984,12 @@ Status Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& 
         }
         key_num = start_key_strings.size();
     } else {
-        if (start_key.init(*_schema, num_short_key_columns()) != Status::OK()) {
+        if (start_key.init(_schema, num_short_key_columns()) != Status::OK()) {
             LOG(WARNING) << "fail to initial key strings with RowCursor type.";
             return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
         }
 
-        start_key.allocate_memory_for_string_type(*_schema);
+        start_key.allocate_memory_for_string_type(_schema);
         start_key.build_min_key();
         key_num = num_short_key_columns();
     }
@@ -997,7 +997,7 @@ Status Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& 
     RowCursor end_key;
     // 和startkey一样处理，没有则用maxkey初始化
     if (end_key_strings.size() > 0) {
-        if (!end_key.init_scan_key(*_schema, end_key_strings.values())) {
+        if (!end_key.init_scan_key(_schema, end_key_strings.values())) {
             LOG(WARNING) << "fail to parse strings to key with RowCursor type.";
             return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
         }
@@ -1007,12 +1007,12 @@ Status Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& 
             return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
         }
     } else {
-        if (end_key.init(*_schema, num_short_key_columns()) != Status::OK()) {
+        if (end_key.init(_schema, num_short_key_columns()) != Status::OK()) {
             LOG(WARNING) << "fail to initial key strings with RowCursor type.";
             return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
         }
 
-        end_key.allocate_memory_for_string_type(*_schema);
+        end_key.allocate_memory_for_string_type(_schema);
         end_key.build_max_key();
     }
 

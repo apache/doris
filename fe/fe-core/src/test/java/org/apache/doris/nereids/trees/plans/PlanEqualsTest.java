@@ -213,11 +213,11 @@ public class PlanEqualsTest {
         // TODO: Depend on List<OrderKey> Equals
         List<OrderKey> orderKeyList = Lists.newArrayList();
 
-        PhysicalHeapSort physicalHeapSort = new PhysicalHeapSort(orderKeyList, -1, 0, logicalProperties, child);
+        PhysicalHeapSort physicalHeapSort = new PhysicalHeapSort(orderKeyList, logicalProperties, child);
         Assertions.assertEquals(physicalHeapSort, physicalHeapSort);
 
         List<OrderKey> orderKeyListClone = Lists.newArrayList();
-        PhysicalHeapSort physicalHeapSortClone = new PhysicalHeapSort(orderKeyListClone, -1, 0, logicalProperties,
+        PhysicalHeapSort physicalHeapSortClone = new PhysicalHeapSort(orderKeyListClone, logicalProperties,
                 child);
         Assertions.assertEquals(physicalHeapSort, physicalHeapSortClone);
     }

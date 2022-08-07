@@ -183,7 +183,7 @@ under the License.
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>com.sleepycat</groupId>
+            <groupId>org.apache.doris</groupId>
             <artifactId>je</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.mortbay.jetty/jetty -->

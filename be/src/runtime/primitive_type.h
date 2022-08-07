@@ -209,7 +209,6 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
     using ColumnType = vectorized::ColumnString;
 };
 
-// only for adapt get_predicate_column_ptr
 template <PrimitiveType type>
 struct PredicatePrimitiveTypeTraits {
     using PredicateFieldType = typename PrimitiveTypeTraits<type>::CppType;

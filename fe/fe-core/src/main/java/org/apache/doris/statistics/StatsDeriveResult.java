@@ -112,10 +112,21 @@ public class StatsDeriveResult {
         this.slotToColumnStats = slotToColumnStats;
     }
 
-    public StatsDeriveResult multiplyDouble(double selectivity) {
+    public StatsDeriveResult updateRowCountBySelectivity(double selectivity) {
         rowCount *= selectivity;
         for (Entry<Slot, ColumnStats> entry : slotToColumnStats.entrySet()) {
-            entry.getValue().multiplyDouble(selectivity);
+            entry.getValue().updateBySelectivity(selectivity);
+        }
+        return this;
+    }
+
+    public StatsDeriveResult updateRowCountByLimit(long limit) {
+        if (limit > 0 && rowCount > 0 && rowCount > limit) {
+            double selectivity = ((double) limit) / rowCount;
+            rowCount = limit;
+            for (Entry<Slot, ColumnStats> entry : slotToColumnStats.entrySet()) {
+                entry.getValue().updateBySelectivity(selectivity);
+            }
         }
         return this;
     }

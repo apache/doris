@@ -40,10 +40,11 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-/**  TableProperty contains additional information about OlapTable
- *  TableProperty includes properties to persistent the additional information
- *  Different properties is recognized by prefix such as dynamic_partition
- *  If there is different type properties is added, write a method such as buildDynamicProperty to build it.
+/**
+ * TableProperty contains additional information about OlapTable
+ * TableProperty includes properties to persistent the additional information
+ * Different properties is recognized by prefix such as dynamic_partition
+ * If there is different type properties is added, write a method such as buildDynamicProperty to build it.
  */
 public class TableProperty implements Writable {
     private static final Logger LOG = LogManager.getLogger(TableProperty.class);
@@ -71,6 +72,8 @@ public class TableProperty implements Writable {
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
     private TCompressionType compressionType = TCompressionType.LZ4F;
+
+    private Boolean useSchemaLightChange;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -110,6 +113,7 @@ public class TableProperty implements Writable {
 
     /**
      * Reset properties to correct values.
+     *
      * @return this for chained
      */
     public TableProperty resetPropertiesForRestore() {
@@ -139,6 +143,12 @@ public class TableProperty implements Writable {
 
     public TableProperty buildInMemory() {
         isInMemory = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_INMEMORY, "false"));
+        return this;
+    }
+
+    public TableProperty buildUseLightSchemaChange() {
+        useSchemaLightChange = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE, "false"));
         return this;
     }
 
@@ -251,13 +261,17 @@ public class TableProperty implements Writable {
         return compressionType;
     }
 
+    public Boolean getUseSchemaLightChange() {
+        return useSchemaLightChange;
+    }
+
     public void setEnableUniqueKeyMergeOnWrite(boolean enable) {
         properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
     }
 
     public boolean getEnableUniqueKeyMergeOnWrite() {
         return Boolean.parseBoolean(properties.getOrDefault(
-                    PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
+                PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
     }
 
     public void buildReplicaAllocation() {
@@ -286,7 +300,8 @@ public class TableProperty implements Writable {
                 .buildDataSortInfo()
                 .buildRemoteStoragePolicy()
                 .buildCompressionType()
-                .buildStoragePolicy();
+                .buildStoragePolicy()
+                .buildUseLightSchemaChange();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
