@@ -52,6 +52,8 @@ import java.util.Set;
 
 /**
  * Sorting.
+ * Attention, in some corner case, we need enable projection planner to promise the correctness of the Plan.
+ * Please refer to this regression test:regression-test/suites/query/aggregate/aggregate_count1.groovy.
  */
 public class SortNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(SortNode.class);
