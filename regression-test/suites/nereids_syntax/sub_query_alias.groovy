@@ -29,16 +29,19 @@ suite("sub_query_alias") {
         SET enable_nereids_planner=true
     """
 
-    List<List<Object>> res = sql """
+    sql """
         SELECT * FROM customer c join lineorder l on c.c_custkey = l.lo_custkey
     """
 
     sql """
-        SELECT * FROM 
-        customer c JOIN (
-            SELECT l.lo_custkey, l.lo_tax 
-            FROM lineorder l 
-        ) l1
-        ON c.c_custkey = l1.lo_custkey
+        select * from (select l.lo_tax, l.lo_custkey from lineorder l) l1
+    """
+
+    sql """
+        select * from customer c, lineorder l where c.c_custkey = l.lo_custkey
+    """
+
+    sql """
+        SELECT * FROM customer c JOIN (SELECT * FROM lineorder l) l2 ON c.c_custkey = l2.lo_custkey
     """
 }
