@@ -145,9 +145,12 @@ private:
         bool is_match = false;
         switch (conjunct->op()) {
         case TExprOpcode::FILTER_IN:
-            //  _min  in_min    in_max _max
-            //  --|-----^---------^------|---
-            if (largeEqual(in_min, _min) && largeEqual(_max, in_max)) {
+            //  in_min  (min) (in_max) _max
+            //  --|-------^------^-------|---
+            // ||
+            //  _min  (in_min)  (_max)  in_max
+            //  --|------^--------|-------^-----
+            if (largeEqual(in_max, _min) || largeEqual(_max, in_min)) {
                 is_match = true;
             }
             break;

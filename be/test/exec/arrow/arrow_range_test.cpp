@@ -59,10 +59,9 @@ protected:
     RuntimeState* _state;
     ObjectPool _pool;
     std::shared_ptr<MemPool> _mem_pool;
-    std::vector<ExprContext*> _binary_expr;
-    std::vector<ExprContext*> _in_expr;
 
     std::vector<ExprContext*> create_binary_exprs(TExprOpcode::type op);
+    std::vector<ExprContext*> create_in_exprs(TExprOpcode::type op);
 
     virtual void SetUp() {}
 
@@ -109,6 +108,32 @@ std::vector<ExprContext*> ArrowRangeTest::create_binary_exprs(TExprOpcode::type 
     Expr::create_expr_trees(&_pool, conjuncts, &_binary_expr);
 
     return _binary_expr;
+}
+
+std::vector<ExprContext*> ArrowRangeTest::create_in_exprs(TExprOpcode::type op) {
+    std::vector<ExprContext*> _in_expr;
+    TExprNode node0;
+    node0.opcode = op;
+    node0.child_type = TPrimitiveType::BIGINT;
+    node0.node_type = TExprNodeType::IN_PRED;
+    node0.num_children = 0;
+    node0.__isset.opcode = true;
+    node0.__isset.child_type = true;
+    node0.type = gen_type_desc(TPrimitiveType::BOOLEAN);
+
+    InPredicate in_pre(node0);
+    auto slot_ref = _pool.add(new SlotRef(TYPE_INT, 0));
+    in_pre._children.push_back(slot_ref);
+    RowDescriptor row_desc;
+    in_pre.prepare(_state, row_desc, nullptr);
+
+    int value_10 = 10;
+    in_pre.insert(&value_10);
+    int value_8 = 8;
+    in_pre.insert(&value_8);
+
+    _in_expr.emplace_back(_pool.add(new ExprContext(&in_pre)));
+    return _in_expr;
 }
 
 TEST_F(ArrowRangeTest, binary_ops) {
