@@ -95,9 +95,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _vstream_mgr = new doris::vectorized::VDataStreamMgr();
     _result_mgr = new ResultBufferMgr();
     _result_queue_mgr = new ResultQueueMgr();
-    _backend_client_cache = new BackendServiceClientCache(config::max_basic_client_cache_size_per_host);
-    _frontend_client_cache = new FrontendServiceClientCache(config::max_basic_client_cache_size_per_host);
-    _broker_client_cache = new BrokerServiceClientCache(config::max_basic_client_cache_size_per_host);
+    _backend_client_cache =
+            new BackendServiceClientCache(config::max_basic_client_cache_size_per_host);
+    _frontend_client_cache =
+            new FrontendServiceClientCache(config::max_basic_client_cache_size_per_host);
+    _broker_client_cache =
+            new BrokerServiceClientCache(config::max_basic_client_cache_size_per_host);
     _task_pool_mem_tracker_registry = new MemTrackerTaskPool();
     _thread_mgr = new ThreadResourceMgr();
     if (config::doris_enable_scanner_thread_pool_per_disk &&

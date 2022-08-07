@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "agent/task_worker_pool.h"
-
 #include <pthread.h>
 #include <sys/stat.h>
 
@@ -27,6 +25,7 @@
 #include <sstream>
 #include <string>
 
+#include "agent/task_worker_pool.h"
 #include "common/status.h"
 #include "env/env.h"
 #include "gen_cpp/Types_types.h"
@@ -65,7 +64,8 @@ const uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(nullptr) * 10000);
 std::mutex TaskWorkerPool::_s_task_signatures_lock;
 std::map<TTaskType::type, std::set<int64_t>> TaskWorkerPool::_s_task_signatures;
-FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache(config::max_master_service_client_cache_size_per_host);
+FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache(
+        config::max_master_service_client_cache_size_per_host);
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                                const TMasterInfo& master_info, ThreadModel thread_model)
