@@ -30,10 +30,10 @@ public:
     RowGroupReader(doris::FileReader* file_reader,
                    const std::shared_ptr<FileMetaData>& file_metadata,
                    const std::vector<ParquetReadColumn>& read_columns,
+                   const std::map<std::string, int>& map_column,
                    const std::vector<ExprContext*>& conjunct_ctxs);
     ~RowGroupReader() = default;
-    void init(const TupleDescriptor* tuple_desc, int64_t split_start_offset, int64_t split_size,
-              const std::map<std::string, int>& _map_column);
+    void init(const TupleDescriptor* tuple_desc, int64_t split_start_offset, int64_t split_size);
     Status get_next_row_group(const int32_t* group_id);
     Status fill_columns_data(Block* block, const int32_t group_id);
 
@@ -45,8 +45,7 @@ private:
                                        bool* filter_group);
 
     void _init_conjuncts(const TupleDescriptor* tuple_desc,
-                         const std::vector<ExprContext*>& conjunct_ctxs,
-                         const std::map<std::string, int>& map_column);
+                         const std::vector<ExprContext*>& conjunct_ctxs);
 
     void _init_column_readers();
 
@@ -95,10 +94,13 @@ private:
     std::unordered_map<int32_t, ColumnReader*> _column_readers;
     const TupleDescriptor* _tuple_desc; // get all slot info
     const std::vector<ParquetReadColumn>& _read_columns;
+    const std::map<std::string, int>& _map_column;
+    std::unordered_set<int> _parquet_column_ids;
     const std::vector<ExprContext*>& _conjunct_ctxs;
     std::unordered_map<int, std::vector<ExprContext*>> _slot_conjuncts;
     int64_t _split_start_offset;
     int64_t _split_size;
     int32_t _current_row_group;
+    int32_t _filtered_num_row_groups = 0;
 };
 } // namespace doris::vectorized

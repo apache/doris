@@ -125,9 +125,9 @@ void ParquetReader::_init_row_group_reader(const TupleDescriptor* tuple_desc,
                                            int64_t range_start_offset, int64_t range_size,
                                            const std::vector<ExprContext*>& conjunct_ctxs) {
     // todo: extract as create()
-    _row_group_reader.reset(
-            new RowGroupReader(_file_reader, _file_metadata, _read_columns, conjunct_ctxs));
-    _row_group_reader->init(tuple_desc, range_start_offset, range_size, _map_column);
+    _row_group_reader.reset(new RowGroupReader(_file_reader, _file_metadata, _read_columns,
+                                               _map_column, conjunct_ctxs));
+    _row_group_reader->init(tuple_desc, range_start_offset, range_size);
 }
 
 bool ParquetReader::_has_page_index(std::vector<tparquet::ColumnChunk> columns) {

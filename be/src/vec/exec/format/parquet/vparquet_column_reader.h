@@ -22,6 +22,9 @@
 #include "schema_desc.h"
 
 namespace doris::vectorized {
-class ColumnReader {};
+class ColumnReader {
+public:
+    Status read_column_data();
+};
 Status create(const FieldDescriptor* field, const tparquet::RowGroup& row_group);
 }; // namespace doris::vectorized

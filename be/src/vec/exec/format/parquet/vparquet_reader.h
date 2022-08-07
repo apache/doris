@@ -41,6 +41,7 @@ namespace doris::vectorized {
 //        int64_t filtered_total_bytes = 0;
 //        int64_t total_bytes = 0;
 //    };
+class RowGroupReader;
 
 class ParquetReadColumn {
 public:

@@ -25,37 +25,40 @@ namespace doris::vectorized {
 RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
                                const std::shared_ptr<FileMetaData>& file_metadata,
                                const std::vector<ParquetReadColumn>& read_columns,
+                               const std::map<std::string, int>& map_column,
                                const std::vector<ExprContext*>& conjunct_ctxs)
         : _file_reader(file_reader),
           _file_metadata(file_metadata),
           _read_columns(read_columns),
+          _map_column(map_column),
           _conjunct_ctxs(conjunct_ctxs),
           _current_row_group(-1) {}
 
 void RowGroupReader::init(const TupleDescriptor* tuple_desc, int64_t split_start_offset,
-                          int64_t split_size, const std::map<std::string, int>& map_column) {
+                          int64_t split_size) {
     _tuple_desc = tuple_desc;
     _split_start_offset = split_start_offset;
     _split_size = split_size;
-    _init_conjuncts(tuple_desc, _conjunct_ctxs, map_column);
+    _init_conjuncts(tuple_desc, _conjunct_ctxs);
     _init_column_readers();
 }
 
 void RowGroupReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
-                                     const std::vector<ExprContext*>& conjunct_ctxs,
-                                     const std::map<std::string, int>& map_column) {
+                                     const std::vector<ExprContext*>& conjunct_ctxs) {
     if (tuple_desc->slots().empty()) {
         return;
     }
-    std::unordered_set<int> parquet_column_ids(_include_column_ids.begin(),
-                                               _include_column_ids.end());
+    for (auto& read_col : _read_columns) {
+        _parquet_column_ids.emplace(read_col.parquet_column_id);
+    }
+
     for (int i = 0; i < tuple_desc->slots().size(); i++) {
-        auto col_iter = map_column.find(tuple_desc->slots()[i]->col_name());
-        if (col_iter == map_column.end()) {
+        auto col_iter = _map_column.find(tuple_desc->slots()[i]->col_name());
+        if (col_iter == _map_column.end()) {
             continue;
         }
         int parquet_col_id = col_iter->second;
-        if (parquet_column_ids.end() == parquet_column_ids.find(parquet_col_id)) {
+        if (_parquet_column_ids.end() == _parquet_column_ids.find(parquet_col_id)) {
             continue;
         }
         for (int conj_idx = 0; conj_idx < conjunct_ctxs.size(); conj_idx++) {
@@ -88,13 +91,17 @@ void RowGroupReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
 void RowGroupReader::_init_column_readers() {
     for (auto& read_col : _read_columns) {
         ColumnReader reader;
-        //        reader.init();
+        // reader.init();
         _column_readers[read_col.slot_desc->id()] = &reader;
     }
 }
 
 Status RowGroupReader::fill_columns_data(Block* block, const int32_t group_id) {
     // get ColumnWithTypeAndName from src_block
+    for (auto& read_col : _read_columns) {
+        auto& column_with_type_and_name = block->get_by_name(read_col.slot_desc->col_name());
+        RETURN_IF_ERROR(_column_readers[read_col.slot_desc->id()]->read_column_data());
+    }
     // use data fill utils read column data to column ptr
     return Status::OK();
 }
@@ -112,7 +119,7 @@ Status RowGroupReader::get_next_row_group(const int32_t* group_id) {
             continue;
         }
         bool filter_group = false;
-        RETURN_IF_ERROR(_process_row_group_filter(_conjunct_ctxs, &filter_group));
+        RETURN_IF_ERROR(_process_row_group_filter(row_group, _conjunct_ctxs, &filter_group));
         if (!filter_group) {
             group_id = &_current_row_group;
             break;
@@ -149,10 +156,6 @@ Status RowGroupReader::_process_column_stat_filter(tparquet::RowGroup& row_group
                                                    const std::vector<ExprContext*>& conjunct_ctxs,
                                                    bool* filter_group) {
     int total_group = _file_metadata->num_row_groups();
-    std::unordered_set<int> parquet_column_ids;
-    for (auto& read_col : _read_columns) {
-        parquet_column_ids.emplace(read_col.parquet_column_id);
-    }
     // It will not filter if head_group_offset equals tail_group_offset
     int64_t total_rows = 0;
     int64_t total_bytes = 0;
@@ -161,12 +164,12 @@ Status RowGroupReader::_process_column_stat_filter(tparquet::RowGroup& row_group
         total_bytes += row_group.total_byte_size;
         for (SlotId slot_id = 0; slot_id < _tuple_desc->slots().size(); slot_id++) {
             const std::string& col_name = _tuple_desc->slots()[slot_id]->col_name();
-            auto col_iter = _read_columns;
+            auto col_iter = _map_column.find(col_name);
             if (col_iter == _map_column.end()) {
                 continue;
             }
             int parquet_col_id = col_iter->second;
-            if (parquet_column_ids.end() == parquet_column_ids.find(parquet_col_id)) {
+            if (_parquet_column_ids.end() == _parquet_column_ids.find(parquet_col_id)) {
                 // Column not exist in parquet file
                 continue;
             }
