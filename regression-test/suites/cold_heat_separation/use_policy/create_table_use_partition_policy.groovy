@@ -19,7 +19,7 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
 // and modified by Doris.
 
-suite("create_table_use_partion_policy", "policy") {
+suite("create_table_use_partion_policy") {
     def create_table_partion_use_not_create_policy = try_sql """
         CREATE TABLE create_table_partion_use_not_create_policy
         (

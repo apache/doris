@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_duplicate_table", "data_model") {
+suite("test_duplicate_table") {
     def dbName = "test_duplicate_db"
     List<List<Object>> db = sql "show databases like '${dbName}'"
     if (db.size() == 0) {
