@@ -17,6 +17,7 @@
 
 #include <glog/logging.h>
 #include <gtest/gtest.h>
+
 #include "io/buffered_reader.h"
 #include "io/file_reader.h"
 #include "io/local_file_reader.h"
@@ -29,19 +30,16 @@ namespace vectorized {
 
 class ParquetReaderTest : public testing::Test {
 public:
-    ParquetThriftReaderTest() {}
+    ParquetReaderTest() {}
 };
 
 TEST_F(ParquetReaderTest, normal) {
     LocalFileReader reader("./be/test/exec/test_data/parquet_scanner/localfile.parquet", 0);
     auto st = reader.open();
     EXPECT_TRUE(st.ok());
-    std::shared_ptr <FileMetaData> metaData;
+    std::shared_ptr<FileMetaData> metaData;
     parse_thrift_footer(&reader, metaData);
     tparquet::FileMetaData t_metadata = metaData->to_thrift_metadata();
-
-
-
 }
 
 } // namespace vectorized

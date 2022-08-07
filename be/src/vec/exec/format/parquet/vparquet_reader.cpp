@@ -109,24 +109,25 @@ Status ParquetReader::read_next_batch(Block* block) {
         }
     }
     // metadata has been processed, fill parquet data to block
-    _fill_block_data(block, group_id);
-    block = _batch;
+    // block is the batch data of a row group. a row group has N batch
     // push to scanner queue
     return Status::OK();
+    _fill_block_data(block, group_id);
 }
 
 void ParquetReader::_fill_block_data(Block* block, int group_id) {
+    // make and init src block here
     // read column chunk
-    // _batch =
-    _row_group_reader->fill_column_data(block, group_id);
+    _row_group_reader->fill_columns_data(block, group_id);
 }
 
 void ParquetReader::_init_row_group_reader(const TupleDescriptor* tuple_desc,
                                            int64_t range_start_offset, int64_t range_size,
                                            const std::vector<ExprContext*>& conjunct_ctxs) {
     // todo: extract as create()
-    _row_group_reader.reset(new RowGroupReader(_file_reader, _file_metadata, _read_columns));
-    _row_group_reader->init(tuple_desc, range_start_offset, range_size, conjunct_ctxs, _map_column);
+    _row_group_reader.reset(
+            new RowGroupReader(_file_reader, _file_metadata, _read_columns, conjunct_ctxs));
+    _row_group_reader->init(tuple_desc, range_start_offset, range_size, _map_column);
 }
 
 bool ParquetReader::_has_page_index(std::vector<tparquet::ColumnChunk> columns) {

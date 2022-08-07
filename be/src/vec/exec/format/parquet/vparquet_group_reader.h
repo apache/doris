@@ -35,7 +35,7 @@ public:
     void init(const TupleDescriptor* tuple_desc, int64_t split_start_offset, int64_t split_size,
               const std::map<std::string, int>& _map_column);
     Status get_next_row_group(const int32_t* group_id);
-    Status fill_column_data(Block* block, const int32_t group_id);
+    Status fill_columns_data(Block* block, const int32_t group_id);
 
 private:
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);

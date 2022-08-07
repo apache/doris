@@ -93,7 +93,9 @@ void RowGroupReader::_init_column_readers() {
     }
 }
 
-Status RowGroupReader::fill_column_data(Block* block, const int32_t group_id) {
+Status RowGroupReader::fill_columns_data(Block* block, const int32_t group_id) {
+    // get ColumnWithTypeAndName from src_block
+    // use data fill utils read column data to column ptr
     return Status::OK();
 }
 
@@ -152,10 +154,8 @@ Status RowGroupReader::_process_column_stat_filter(tparquet::RowGroup& row_group
         parquet_column_ids.emplace(read_col.parquet_column_id);
     }
     // It will not filter if head_group_offset equals tail_group_offset
-    int64_t total_groups = 0;
     int64_t total_rows = 0;
     int64_t total_bytes = 0;
-    bool update_statistics = false;
     for (int row_group_id = 0; row_group_id < total_group; row_group_id++) {
         total_rows += row_group.num_rows;
         total_bytes += row_group.total_byte_size;
@@ -179,28 +179,20 @@ Status RowGroupReader::_process_column_stat_filter(tparquet::RowGroup& row_group
                 continue;
             }
             // Min-max of statistic is plain-encoded value
-            const std::string& min = statistic.min;
-            const std::string& max = statistic.max;
-            //            bool group_need_filter = _determine_filter_row_group(slot_iter->second, min, max);
-            //            if (group_need_filter) {
-            //                update_statistics = true;
-            //                _add_filter_group(row_group_id, row_group);
-            //                VLOG_DEBUG << "Filter row group id: " << row_group_id;
-            //                break;
-            //            }
+            *filter_group =
+                    _determine_filter_row_group(slot_iter->second, statistic.min, statistic.max);
+            if (*filter_group) {
+                _filtered_num_row_groups++;
+                VLOG_DEBUG << "Filter row group id: " << row_group_id;
+                break;
+            }
         }
     }
-    //    _parent->statistics()->total_groups = total_groups;
-    //    _parent->statistics()->total_rows = total_rows;
-    //    _parent->statistics()->total_bytes = total_bytes;
-    //    if (update_statistics) {
-    //        _parent->statistics()->filtered_row_groups = _filtered_num_row_groups;
-    //        _parent->statistics()->filtered_rows = _filtered_num_rows;
-    //        _parent->statistics()->filtered_total_bytes = _filtered_total_byte_size;
-    //        VLOG_DEBUG << "Parquet file: " << _file_metadata->schema()->name()
-    //                   << ", Num of read row group: " << total_group
-    //                   << ", and num of skip row group: " << _filtered_num_row_groups;
-    //    }
+    VLOG_DEBUG << "DEBUG total_rows: " << total_rows;
+    VLOG_DEBUG << "DEBUG total_bytes: " << total_bytes;
+    VLOG_DEBUG << "Parquet file: " << _file_metadata->schema().debug_string()
+               << ", Num of read row group: " << total_group
+               << ", and num of skip row group: " << _filtered_num_row_groups;
     return Status::OK();
 }
 

@@ -95,7 +95,6 @@ private:
     std::vector<int> _include_column_ids;   // columns that need to get from file
     std::vector<ParquetReadColumn> _read_columns;
     // parquet file reader object
-    Block* _batch;
     bool* _batch_eof;
     int64_t _range_start_offset;
     int64_t _range_size;
