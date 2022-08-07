@@ -49,6 +49,9 @@ Status BaseCompaction::prepare_compact() {
 }
 
 Status BaseCompaction::execute_compact_impl() {
+    if (config::enable_base_compaction_idle_sched) {
+        Thread::set_idle_sched();
+    }
     std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
@@ -81,16 +84,35 @@ Status BaseCompaction::execute_compact_impl() {
     return Status::OK();
 }
 
+void BaseCompaction::_filter_input_rowset() {
+    // if enable dup key skip big file and no delete predicate
+    // we skip big files too save resources
+    if (!config::enable_dup_key_base_compaction_skip_big_file ||
+        _tablet->keys_type() != KeysType::DUP_KEYS || _tablet->delete_predicates().size() != 0) {
+        return;
+    }
+    int64_t max_size = config::base_compaction_dup_key_max_file_size_mbytes * 1024 * 1024;
+    // first find a proper rowset for start
+    auto rs_iter = _input_rowsets.begin();
+    while (rs_iter != _input_rowsets.end()) {
+        if ((*rs_iter)->rowset_meta()->total_disk_size() >= max_size) {
+            rs_iter = _input_rowsets.erase(rs_iter);
+        } else {
+            break;
+        }
+    }
+}
+
 Status BaseCompaction::pick_rowsets_to_compact() {
     _input_rowsets.clear();
     _tablet->pick_candidate_rowsets_to_base_compaction(&_input_rowsets);
-    if (_input_rowsets.size() <= 1) {
-        return Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION);
-    }
-
     std::sort(_input_rowsets.begin(), _input_rowsets.end(), Rowset::comparator);
     RETURN_NOT_OK(check_version_continuity(_input_rowsets));
     RETURN_NOT_OK(_check_rowset_overlapping(_input_rowsets));
+    _filter_input_rowset();
+    if (_input_rowsets.size() <= 1) {
+        return Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION);
+    }
 
     // If there are delete predicate rowsets in tablet, start_version > 0 implies some rowsets before
     // delete version cannot apply these delete predicates, which can cause incorrect query result.

@@ -73,6 +73,8 @@ public:
 
     static void set_thread_name(const std::string& name, int64_t tid);
 
+    static void set_idle_sched(int64_t tid);
+
     // not the system TID, since pthread_t is less prone to being recycled.
     void add_thread(const pthread_t& pthread_id, const std::string& name,
                     const std::string& category, int64_t tid);
@@ -134,6 +136,17 @@ void ThreadMgr::set_thread_name(const std::string& name, int64_t tid) {
     int err = prctl(PR_SET_NAME, name.c_str());
     if (err < 0 && errno != EPERM) {
         LOG(ERROR) << "set_thread_name";
+    }
+}
+
+void ThreadMgr::set_idle_sched(int64_t tid) {
+    if (tid == getpid()) {
+        return;
+    }
+    struct sched_param sp = {.sched_priority = 0};
+    int err = sched_setscheduler(0, SCHED_IDLE, &sp);
+    if (err < 0 && errno != EPERM) {
+        LOG(ERROR) << "set_thread_idle_sched";
     }
 }
 
@@ -260,6 +273,10 @@ Thread::~Thread() {
 
 void Thread::set_self_name(const std::string& name) {
     ThreadMgr::set_thread_name(name, current_thread_id());
+}
+
+void Thread::set_idle_sched() {
+    ThreadMgr::set_idle_sched(current_thread_id());
 }
 
 void Thread::join() {

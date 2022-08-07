@@ -89,6 +89,8 @@ public:
 
     static void set_self_name(const std::string& name);
 
+    static void set_idle_sched();
+
     ~Thread();
 
     // Blocks until this thread finishes execution. Once this method returns, the thread
