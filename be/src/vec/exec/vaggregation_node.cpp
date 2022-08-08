@@ -68,10 +68,10 @@ static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
         {0, 0.0},
         // Expand into L3 cache if we look like we're getting some reduction.
         // At present, The L2 cache is generally 1024k or more
-        {1024 * 1024, 1.1},
+        {8 * 1024 * 1024, 1.1},
         // Expand into main memory if we're getting a significant reduction.
         // The L3 cache is generally 16MB or more
-        {16 * 1024 * 1024, 2.0},
+        {32 * 1024 * 1024, 2.0},
 };
 
 static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =

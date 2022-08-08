@@ -294,6 +294,7 @@ private:
 
     std::mutex _scan_blocks_lock;
     std::condition_variable _scan_block_added_cv;
+    std::condition_variable _scan_block_consumed_cv;
 
     std::vector<Block*> _free_blocks;
     std::mutex _free_blocks_lock;

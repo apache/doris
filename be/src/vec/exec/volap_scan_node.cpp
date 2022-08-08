@@ -306,6 +306,12 @@ void VOlapScanNode::schedule_thread(RuntimeState* state) {
 
     // read from scanner
     while (LIKELY(status.ok())) {
+        {
+            std::unique_lock<std::mutex> l(_scan_blocks_lock);
+            while (_scan_row_batches_bytes > _max_scanner_queue_size_bytes / 2) {
+                _scan_block_consumed_cv.wait(l);
+            }
+        }
         int assigned_thread_num = _start_scanner_thread_task(state, block_per_scanner);
 
         {
@@ -321,7 +327,7 @@ void VOlapScanNode::schedule_thread(RuntimeState* state) {
 
             // 2 wait when all scanner are running & no result in queue
             while (UNLIKELY(_running_thread == assigned_thread_num && _scan_blocks.empty() &&
-                            !_scanner_done)) {
+                            !_scanner_done && !_schedule_done)) {
                 SCOPED_TIMER(_scanner_wait_batch_timer);
                 _scan_block_added_cv.wait(l);
             }
@@ -1606,6 +1612,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
     // change done status
     _schedule_done = true;
     // notify all scanner thread
+    _scan_block_consumed_cv.notify_all();
     _scan_block_added_cv.notify_all();
 
     // join transfer thread
@@ -1700,6 +1707,7 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 
     // return block
     if (nullptr != scan_block) {
+        _scan_block_consumed_cv.notify_one();
         // get scanner's block memory
         block->swap(*scan_block);
         VLOG_ROW << "VOlapScanNode output rows: " << block->rows();
