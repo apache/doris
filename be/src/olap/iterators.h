@@ -23,7 +23,6 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
-#include "olap/rowid_conversion.h"
 #include "olap/tablet_schema.h"
 #include "vec/core/block.h"
 
