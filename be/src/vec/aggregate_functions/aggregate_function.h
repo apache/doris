@@ -183,10 +183,8 @@ public:
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                    const IColumn** columns, Arena* arena) const override {
-        if constexpr (std::is_same_v<Derived, AggregateFunctionBitmapCount<
-                                                      false, ColumnComplexType<BitmapValue>>> ||
-                      std::is_same_v<Derived, AggregateFunctionBitmapCount<
-                                                      true, ColumnComplexType<BitmapValue>>>) {
+        if constexpr (std::is_same_v<Derived, AggregateFunctionBitmapCount<false, ColumnBitmap>> ||
+                      std::is_same_v<Derived, AggregateFunctionBitmapCount<true, ColumnBitmap>>) {
             phmap::flat_hash_map<AggregateDataPtr, std::vector<int>> place_rows;
             for (int i = 0; i < batch_size; ++i) {
                 auto iter = place_rows.find(places[i] + place_offset);
