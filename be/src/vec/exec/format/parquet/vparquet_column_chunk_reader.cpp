@@ -14,27 +14,135 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #include "vparquet_column_chunk_reader.h"
 
 namespace doris::vectorized {
 
-Status ColumnChunkReader::init() {
-    return Status();
+ColumnChunkReader::ColumnChunkReader(BufferedStreamReader* reader,
+                                     tparquet::ColumnChunk* column_chunk, FieldSchema* fieldSchema)
+        : _max_rep_level(fieldSchema->repetition_level),
+          _max_def_level(fieldSchema->definition_level),
+          _stream_reader(reader),
+          _metadata(column_chunk->meta_data) {}
+
+Status ColumnChunkReader::init(size_t type_length) {
+    size_t start_offset = _metadata.__isset.dictionary_page_offset
+                                  ? _metadata.dictionary_page_offset
+                                  : _metadata.data_page_offset;
+    size_t chunk_size = _metadata.total_compressed_size;
+    _page_reader = std::make_unique<PageReader>(_stream_reader, start_offset, chunk_size);
+
+    if (_metadata.__isset.dictionary_page_offset) {
+        RETURN_IF_ERROR(_decode_dict_page());
+    }
+    // seek to the first data page
+    _page_reader->seek_to_page(_metadata.data_page_offset);
+
+    // get the block compression codec
+    RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, _block_compress_codec));
+    // -1 means unfixed length type
+    _type_length = type_length;
+
+    return Status::OK();
 }
 
-Status ColumnChunkReader::read_min_max_stat() {
-    return Status();
+Status ColumnChunkReader::next_page() {
+    RETURN_IF_ERROR(_page_reader->next_page());
+    _num_values = _page_reader->get_page_header()->data_page_header.num_values;
+    return Status::OK();
 }
 
-Status ColumnChunkReader::decode_dict_page() {
-    return Status();
+Status ColumnChunkReader::load_page_data() {
+    const auto& header = *_page_reader->get_page_header();
+    // int32_t compressed_size = header.compressed_page_size;
+    int32_t uncompressed_size = header.uncompressed_page_size;
+
+    if (_block_compress_codec != nullptr) {
+        Slice compressed_data;
+        RETURN_IF_ERROR(_page_reader->get_page_date(compressed_data));
+        // check decompressed buffer size
+        _reserve_decompress_buf(uncompressed_size);
+        _page_data = Slice(_decompress_buf.get(), uncompressed_size);
+        RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &_page_data));
+    } else {
+        RETURN_IF_ERROR(_page_reader->get_page_date(_page_data));
+    }
+
+    // Initialize repetition level and definition level. Skip when level = 0, which means required field.
+    if (_max_rep_level > 0) {
+        RETURN_IF_ERROR(_rep_level_decoder.init(&_page_data,
+                                                header.data_page_header.repetition_level_encoding,
+                                                _max_rep_level, _num_values));
+    }
+    if (_max_def_level > 0) {
+        RETURN_IF_ERROR(_def_level_decoder.init(&_page_data,
+                                                header.data_page_header.definition_level_encoding,
+                                                _max_def_level, _num_values));
+    }
+
+    auto encoding = header.data_page_header.encoding;
+    // change the deprecated encoding to RLE_DICTIONARY
+    if (encoding == tparquet::Encoding::PLAIN_DICTIONARY) {
+        encoding = tparquet::Encoding::RLE_DICTIONARY;
+    }
+    Decoder::getDecoder(_metadata.type, encoding, _page_decoder);
+    _page_decoder->set_data(&_page_data);
+    if (_type_length > 0) {
+        _page_decoder->set_type_length(_type_length);
+    }
+
+    return Status::OK();
 }
 
-Status ColumnChunkReader::decode_nested_page() {
-    return Status();
+Status ColumnChunkReader::_decode_dict_page() {
+    int64_t dict_offset = _metadata.dictionary_page_offset;
+    _page_reader->seek_to_page(dict_offset);
+    _page_reader->next_page();
+    const tparquet::PageHeader& header = *_page_reader->get_page_header();
+    DCHECK_EQ(tparquet::PageType::DICTIONARY_PAGE, header.type);
+    // TODO(gaoxin): decode dictionary page
+    return Status::OK();
 }
 
-Status ColumnChunkReader::read_next_page() {
-    return Status();
+void ColumnChunkReader::_reserve_decompress_buf(size_t size) {
+    if (size > _decompress_buf_size) {
+        _decompress_buf_size = BitUtil::next_power_of_two(size);
+        _decompress_buf.reset(new uint8_t[_decompress_buf_size]);
+    }
+}
+
+Status ColumnChunkReader::skip_values(size_t num_values) {
+    if (UNLIKELY(_num_values < num_values)) {
+        return Status::IOError("Skip too many values in current page");
+    }
+    _num_values -= num_values;
+    return _page_decoder->skip_values(num_values);
+}
+
+size_t ColumnChunkReader::get_rep_levels(level_t* levels, size_t n) {
+    DCHECK_GT(_max_rep_level, 0);
+    return _def_level_decoder.get_levels(levels, n);
+}
+
+size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
+    DCHECK_GT(_max_def_level, 0);
+    return _rep_level_decoder.get_levels(levels, n);
+}
+
+Status ColumnChunkReader::decode_values(ColumnPtr& doris_column, size_t num_values) {
+    if (UNLIKELY(_num_values < num_values)) {
+        return Status::IOError("Decode too many values in current page");
+    }
+    _num_values -= num_values;
+    return _page_decoder->decode_values(doris_column, num_values);
+}
+
+Status ColumnChunkReader::decode_values(Slice& slice, size_t num_values) {
+    if (UNLIKELY(_num_values < num_values)) {
+        return Status::IOError("Decode too many values in current page");
+    }
+    _num_values -= num_values;
+    return _page_decoder->decode_values(slice, num_values);
 }
 } // namespace doris::vectorized

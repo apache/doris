@@ -185,10 +185,11 @@ bool BufferedReader::closed() {
     return _reader->closed();
 }
 
-BufferedFileStreamReader::BufferedFileStreamReader(FileReader* file, int64_t offset, int64_t length)
+BufferedFileStreamReader::BufferedFileStreamReader(FileReader* file, uint64_t offset,
+                                                   uint64_t length)
         : _file(file), _file_start_offset(offset), _file_end_offset(offset + length) {}
 
-Status BufferedFileStreamReader::seek(int64_t position) {
+Status BufferedFileStreamReader::seek(uint64_t position) {
     if (_file_position != position) {
         RETURN_IF_ERROR(_file->seek(position));
         _file_position = position;
@@ -196,8 +197,8 @@ Status BufferedFileStreamReader::seek(int64_t position) {
     return Status::OK();
 }
 
-Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, int64_t offset,
-                                            int64_t* bytes_to_read) {
+Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset,
+                                            size_t* bytes_to_read) {
     if (offset < _file_start_offset) {
         return Status::IOError("Out-of-bounds Access");
     }
@@ -230,19 +231,15 @@ Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, int64_t offset,
     RETURN_IF_ERROR(seek(_buf_end_offset));
     bool eof = false;
     int64_t buf_remaining = _buf_end_offset - _buf_start_offset;
-    RETURN_IF_ERROR(
-            _file->read(_buf.get() + buf_remaining, _buf_size - buf_remaining, &to_read, &eof));
+    RETURN_IF_ERROR(_file->read(_buf.get() + buf_remaining, to_read, &to_read, &eof));
     *bytes_to_read = buf_remaining + to_read;
     _buf_end_offset += to_read;
     *buf = _buf.get();
     return Status::OK();
 }
 
-Status BufferedFileStreamReader::read_bytes(Slice& slice, int64_t offset) {
-    int64_t bytes_to_read = slice.size;
-    Status st = read_bytes((const uint8_t**)&slice.data, offset, &bytes_to_read);
-    slice.size = bytes_to_read;
-    return st;
+Status BufferedFileStreamReader::read_bytes(Slice& slice, uint64_t offset) {
+    return read_bytes((const uint8_t**)&slice.data, offset, &slice.size);
 }
 
 } // namespace doris

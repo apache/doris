@@ -27,6 +27,7 @@
 #include "io/local_file_reader.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
+#include "vec/exec/format/parquet/vparquet_column_chunk_reader.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
 
 namespace doris {
@@ -121,6 +122,60 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
     ASSERT_EQ(schemaDescriptor.get_column_index("friend"), 3);
     ASSERT_EQ(schemaDescriptor.get_column_index("mark"), 4);
+}
+
+TEST_F(ParquetThriftReaderTest, column_reader) {
+    // type-decoder.parquet is the part of following table:
+    // create table type-decoder (
+    //   int_col int)
+    // TODO(gaoxin): add more hive types
+    LocalFileReader reader("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", 0);
+    auto st = reader.open();
+    EXPECT_TRUE(st.ok());
+
+    std::shared_ptr<FileMetaData> metaData;
+    parse_thrift_footer(&reader, metaData);
+    tparquet::FileMetaData t_metadata = metaData->to_thrift_metadata();
+
+    // read the `int_col` column, it's the int-type column, and has ten values:
+    // -1, 2, -3, 4, -5, 6, -7, 8, -9, 10
+    tparquet::ColumnChunk column_chunk = t_metadata.row_groups[0].columns[0];
+    tparquet::ColumnMetaData chunk_meta = column_chunk.meta_data;
+    size_t start_offset = chunk_meta.__isset.dictionary_page_offset
+                                  ? chunk_meta.dictionary_page_offset
+                                  : chunk_meta.data_page_offset;
+    size_t chunk_size = chunk_meta.total_compressed_size;
+    BufferedFileStreamReader stream_reader(&reader, start_offset, chunk_size);
+
+    FieldDescriptor schema_descriptor;
+    schema_descriptor.parse_from_thrift(t_metadata.schema);
+    auto field_schema = const_cast<FieldSchema*>(schema_descriptor.get_column(0));
+
+    ColumnChunkReader chunk_reader(&stream_reader, &column_chunk, field_schema);
+    size_t batch_size = 10;
+    size_t int_length = 4;
+    char data[batch_size * int_length];
+    Slice slice(data, batch_size * int_length);
+    chunk_reader.init();
+    uint64_t int_sum = 0;
+    while (chunk_reader.has_next_page()) {
+        // seek to next page header
+        chunk_reader.next_page();
+        // load data to decoder
+        chunk_reader.load_page_data();
+        while (chunk_reader.num_values() > 0) {
+            size_t num_values = chunk_reader.num_values() < batch_size
+                                        ? chunk_reader.num_values() < batch_size
+                                        : batch_size;
+            chunk_reader.decode_values(slice, num_values);
+            auto out_data = reinterpret_cast<Int32*>(slice.data);
+            for (int i = 0; i < num_values; i++) {
+                Int32 value = out_data[i];
+                int_sum += value;
+            }
+        }
+    }
+    ASSERT_EQ(int_sum, 5);
 }
 
 } // namespace vectorized

@@ -110,6 +110,14 @@ public:
     // GetNextRun will return more from the same run.
     size_t GetNextRun(T* val, size_t max_run);
 
+    size_t get_values(T* values, size_t num_values);
+
+    // Get the count of current repeated value
+    size_t repeated_count();
+
+    // Get current repeated value, make sure that count equals repeated_count()
+    T get_repeated_value(size_t count);
+
 private:
     bool ReadHeader();
 
@@ -332,6 +340,54 @@ inline size_t RleDecoder<T>::GetNextRun(T* val, size_t max_run) {
         }
     }
     return ret;
+}
+
+template <typename T>
+inline size_t RleDecoder<T>::get_values(T* values, size_t num_values) {
+    size_t read_num = 0;
+    while (read_num < num_values) {
+        size_t read_this_time = num_values - read_num;
+
+        if (LIKELY(repeat_count_ > 0)) {
+            read_this_time = std::min((size_t)repeat_count_, read_this_time);
+            std::fill(values, values + read_this_time, current_value_);
+            values += read_this_time;
+            repeat_count_ -= read_this_time;
+            read_num += read_this_time;
+        } else if (literal_count_ > 0) {
+            read_this_time = std::min((size_t)literal_count_, read_this_time);
+            for (int i = 0; i < read_this_time; ++i) {
+                bool result = bit_reader_.GetValue(bit_width_, values);
+                DCHECK(result);
+                values++;
+            }
+            literal_count_ -= read_this_time;
+            read_num += read_this_time;
+        } else {
+            if (!ReadHeader()) {
+                return read_num;
+            }
+        }
+    }
+    return read_num;
+}
+
+template <typename T>
+inline size_t RleDecoder<T>::repeated_count() {
+    if (repeat_count_ > 0) {
+        return repeat_count_;
+    }
+    if (literal_count_ == 0) {
+        ReadHeader();
+    }
+    return repeat_count_;
+}
+
+template <typename T>
+inline T RleDecoder<T>::get_repeated_value(size_t count) {
+    DCHECK_GE(repeat_count_, count);
+    repeat_count_ -= count;
+    return current_value_;
 }
 
 template <typename T>
