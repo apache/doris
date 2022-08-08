@@ -99,6 +99,7 @@ public class EsUtilTest extends EsTestCase {
         Assert.assertEquals("k2", searchContext1.docValueFieldsContext().get("k2"));
     }
 
+
     @Test
     public void testWorkFlow(@Injectable EsRestClient client) throws Exception {
         EsTable table = fakeEsTable("fake", "test", "doc", columns);
@@ -310,4 +311,5 @@ public class EsUtilTest extends EsTestCase {
                 + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
                 + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
     }
+
 }
