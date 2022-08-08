@@ -46,8 +46,8 @@ public class BindViewTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
         createTables(
                 "CREATE TABLE IF NOT EXISTS T1 (\n"
-                        + "    id bigint,\n"
-                        + "    score bigint\n"
+                        + "    ID bigint,\n"
+                        + "    SCORE bigint\n"
                         + ")\n"
                         + "DUPLICATE KEY(id)\n"
                         + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
@@ -55,8 +55,8 @@ public class BindViewTest extends TestWithFeService {
                         + "  \"replication_num\" = \"1\"\n"
                         + ")\n",
                 "CREATE TABLE IF NOT EXISTS T2 (\n"
-                        + "    id bigint,\n"
-                        + "    score bigint\n"
+                        + "    ID bigint,\n"
+                        + "    SCORE bigint\n"
                         + ")\n"
                         + "DUPLICATE KEY(id)\n"
                         + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
@@ -76,12 +76,12 @@ public class BindViewTest extends TestWithFeService {
 
     @Test
     public void testAnalyzeView() {
-        System.out.println(analyze(parse(testSql.get(1))).treeString());
+        System.out.println(analyze(parse(testSql.get(0))).treeString());
     }
 
     @Test
     public void testPlanView() throws AnalysisException {
-        System.out.println(plan(parse(testSql.get(1))).treeString());
+        System.out.println(plan(parse(testSql.get(0))).treeString());
     }
 
     @Test

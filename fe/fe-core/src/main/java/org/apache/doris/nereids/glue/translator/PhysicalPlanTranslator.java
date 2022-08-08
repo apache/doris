@@ -372,6 +372,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalProject(PhysicalProject<Plan> project, PlanTranslatorContext context) {
         PlanFragment inputFragment = project.child(0).accept(this, context);
+
+        TupleDescriptor desc = context.generateTupleDesc();
+        project.getProjects().forEach(e -> {
+            context.createSlotDesc(desc, (SlotReference) e.toSlot());
+        });
+
         List<Expr> execExprList = project.getProjects()
                 .stream()
                 .map(e -> ExpressionTranslator.translate(e, context))
