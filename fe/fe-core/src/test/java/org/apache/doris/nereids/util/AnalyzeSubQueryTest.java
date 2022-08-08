@@ -103,7 +103,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testParse() {
-        System.out.println(parser.parseSingle(testSql.get(10)).treeString());
+        System.out.println(parser.parseSingle(testSql.get(0)).treeString());
     }
 
     @Test
