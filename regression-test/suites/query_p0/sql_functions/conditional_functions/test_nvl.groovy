@@ -16,5 +16,5 @@
 // under the License.
 
 suite("test_nvl") {
-    qt_select "select nvl(k6, \"false\") k from test_query_db.test order by k1"
+    qt_select "select nvl(k6, \"false\") k from test order by k1"
 }

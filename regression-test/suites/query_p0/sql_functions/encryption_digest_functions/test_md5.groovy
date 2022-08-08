@@ -16,5 +16,5 @@
 // under the License.
 
 suite("test_md5") {
-    qt_select "select md5(k6) from test_query_db.test order by k6"
+    qt_select "select md5(k6) from test order by k6"
 }

@@ -16,5 +16,5 @@
 // under the License.
 
 suite("test_dayofweek") {
-    qt_select "select k1, dayofweek(k10) from test_query_db.baseall order by k1"
+    qt_select "select k1, dayofweek(k10) from baseall order by k1"
 }

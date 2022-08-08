@@ -16,5 +16,5 @@
 // under the License.
 
 suite("test_btimap_count") {
-    order_qt_select "select bitmap_count(bitmap_hash(k2)) from test_query_db.baseall"
+    order_qt_select "select bitmap_count(bitmap_hash(k2)) from baseall"
 }

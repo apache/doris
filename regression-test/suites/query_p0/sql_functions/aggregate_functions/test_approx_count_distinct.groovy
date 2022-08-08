@@ -16,5 +16,5 @@
 // under the License.
 
 suite("test_approx_count_distinct") {
-    qt_select "select approx_count_distinct(k1) from test_query_db.baseall"
+    qt_select "select approx_count_distinct(k1) from baseall"
 }

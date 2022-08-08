@@ -17,9 +17,8 @@
 
 suite("test_query_except") {
     // test query except, depend on query_test_data_load.groovy
-    sql "use test_query_db"
     qt_select_except1 """
-                      SELECT * FROM (SELECT k1 FROM test_query_db.baseall
-                                     EXCEPT SELECT k1 FROM test_query_db.test) a ORDER BY k1
+                      SELECT * FROM (SELECT k1 FROM baseall
+                                     EXCEPT SELECT k1 FROM test) a ORDER BY k1
                       """
 }

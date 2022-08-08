@@ -17,10 +17,7 @@
 
 suite("load_test_query_db") {
     // init query case data
-    def dbName = "test_query_db"
-    sql "DROP DATABASE IF EXISTS ${dbName}"
-    sql "CREATE DATABASE ${dbName}"
-    sql "USE $dbName"
+    sql """ drop table if exists baseall """
     sql """
         CREATE TABLE `baseall` (
             `k0` boolean null comment "",
@@ -40,6 +37,8 @@ suite("load_test_query_db") {
         ) engine=olap
         DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
         """
+
+    sql """ drop table if exists test """
     sql """
         CREATE TABLE `test` (
             `k0` boolean null comment "",
@@ -88,6 +87,7 @@ suite("load_test_query_db") {
     sql "insert into ${dbName}.bigtable select * from ${dbName}.baseall"
 
     // table for compaction
+    sql """ drop table if exists compaction_tbl """
     sql """
     CREATE TABLE compaction_tbl
     (

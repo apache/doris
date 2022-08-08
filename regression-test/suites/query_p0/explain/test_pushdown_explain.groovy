@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_pushdown_explain") {
-    sql "use test_query_db"
-    
     explain {
         sql("select k1 from baseall where k1 = 1")
         contains "PREDICATES: `k1` = 1"

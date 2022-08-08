@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_with") {
-    sql "use test_query_db"
     qt_select """
                 select 1 from (with w as (select 1 from baseall 
                 where exists (select 1 from baseall)) select 1 from w ) tt
