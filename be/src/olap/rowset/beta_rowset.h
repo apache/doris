@@ -76,6 +76,8 @@ public:
 
     Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
 
+    Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
+
 protected:
     BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
                RowsetMetaSharedPtr rowset_meta);

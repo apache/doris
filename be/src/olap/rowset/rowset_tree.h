@@ -72,11 +72,11 @@ public:
     Status Init(const RowsetVector& rowsets);
     ~RowsetTree();
 
-    // Return all Rowsets whose range may contain the given encoded key.
+    // Return Rowsets whose id in rowset_ids and range may contain the given encoded key.
     //
     // The returned pointers are guaranteed to be valid at least until this
     // RowsetTree object is Reset().
-    void FindRowsetsWithKeyInRange(const Slice& encoded_key,
+    void FindRowsetsWithKeyInRange(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
                                    vector<std::pair<RowsetSharedPtr, int32_t>>* rowsets) const;
 
     // Call 'cb(rowset, index)' for each (rowset, index) pair such that

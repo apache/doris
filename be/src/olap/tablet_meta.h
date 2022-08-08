@@ -70,6 +70,7 @@ class DataDir;
 class TabletMeta;
 class DeleteBitmap;
 using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
+using DeleteBitmapPtr = std::shared_ptr<DeleteBitmap>;
 
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
@@ -337,7 +338,7 @@ public:
     /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
-     * @return 0 if the insertion took place, 1 if the assignment took place
+     * @return 1 if the insertion took place, 0 if the assignment took place
      */
     int set(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap);
 

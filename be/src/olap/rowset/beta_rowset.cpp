@@ -95,6 +95,22 @@ Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segm
     return Status::OK();
 }
 
+Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment) {
+    DCHECK(seg_id >= 0);
+    auto fs = _rowset_meta->fs();
+    if (!fs || _schema == nullptr) {
+        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+    }
+    auto seg_path = segment_file_path(seg_id);
+    auto s = segment_v2::Segment::open(fs, seg_path, seg_id, _schema, segment);
+    if (!s.ok()) {
+        LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << unique_id()
+                     << " : " << s.to_string();
+        return Status::OLAPInternalError(OLAP_ERR_ROWSET_LOAD_FAILED);
+    }
+    return Status::OK();
+}
+
 Status BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
     // NOTE: We use std::static_pointer_cast for performance
     result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this())));
