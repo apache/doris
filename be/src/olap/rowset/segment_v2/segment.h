@@ -89,6 +89,7 @@ public:
 
     Status lookup_row_key(const Slice& key, RowLocation* row_location);
 
+    // only used by UT
     const SegmentFooterPB& footer() const { return _footer; }
 
     Status load_index();

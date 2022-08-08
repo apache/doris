@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/schema_scanner/schema_segments_scanner.h"
+#include "exec/schema_scanner/schema_rowsets_scanner.h"
 
 #include <cstddef>
 
@@ -31,7 +31,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
 namespace doris {
-SchemaScanner::ColumnDesc SchemaSegmentsScanner::_s_tbls_columns[] = {
+SchemaScanner::ColumnDesc SchemaRowsetsScanner::_s_tbls_columns[] = {
         //   name,       type,          size,     is_null
         {"BACKEND_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"ROWSET_ID", TYPE_VARCHAR, sizeof(StringValue), true},
@@ -41,21 +41,21 @@ SchemaScanner::ColumnDesc SchemaSegmentsScanner::_s_tbls_columns[] = {
         {"NUM_SEGMENTS", TYPE_BIGINT, sizeof(int64_t), true},
         {"START_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
         {"END_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
-        // size_t or int64_t???
         {"INDEX_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
         {"DATA_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
-        {"SEGMENT_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
-        {"SEGMENTS_NUM_ROWS", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CREATION_TIME", TYPE_BIGINT, sizeof(int64_t), true},
+        {"OLDEST_WRITE_TIMESTAMP", TYPE_BIGINT, sizeof(int64_t), true},
+        {"NEWEST_WRITE_TIMESTAMP", TYPE_BIGINT, sizeof(int64_t), true},
+
 };
 
-SchemaSegmentsScanner::SchemaSegmentsScanner()
+SchemaRowsetsScanner::SchemaRowsetsScanner()
         : SchemaScanner(_s_tbls_columns,
                         sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
           backend_id_(0),
-          rowsets_idx_(0),
-          segments_idx_(0) {};
+          rowsets_idx_(0) {};
 
-Status SchemaSegmentsScanner::start(RuntimeState* state) {
+Status SchemaRowsetsScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
@@ -64,26 +64,22 @@ Status SchemaSegmentsScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaSegmentsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
+Status SchemaRowsetsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
     if (nullptr == tuple || nullptr == pool || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
-    while (segments_idx_ >= segments_.size()) {
-        if (rowsets_idx_ < rowsets_.size()) {
-            RETURN_IF_ERROR(get_new_segments());
-        } else {
-            *eos = true;
-            return Status::OK();
-        }
+    if (rowsets_idx_ >= rowsets_.size()) {
+        *eos = true;
+        return Status::OK();
     }
     *eos = false;
     return fill_one_row(tuple, pool);
 }
 
-Status SchemaSegmentsScanner::get_all_rowsets() {
+Status SchemaRowsetsScanner::get_all_rowsets() {
     std::vector<TabletSharedPtr> tablets =
             StorageEngine::instance()->tablet_manager()->get_all_tablet();
     for (const auto& tablet : tablets) {
@@ -101,21 +97,10 @@ Status SchemaSegmentsScanner::get_all_rowsets() {
     return Status::OK();
 }
 
-Status SchemaSegmentsScanner::get_new_segments() {
-    BetaRowsetSharedPtr beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowsets_[rowsets_idx_]);
-    segments_.clear();
-    RETURN_IF_ERROR(beta_rowset->load_segments(&segments_));
-    ++rowsets_idx_;
-    segments_idx_ = 0;
-    return Status::OK();
-}
-
-Status SchemaSegmentsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
+Status SchemaRowsetsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // set all bit to not null
     memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
-    RowsetSharedPtr rowset = rowsets_[rowsets_idx_ - 1];
-    SegmentSharedPtr segment = segments_[segments_idx_];
-    const SegmentFooterPB& segment_footer = segment->footer();
+    RowsetSharedPtr rowset = rowsets_[rowsets_idx_];
     // BACKEND_ID
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
@@ -125,7 +110,7 @@ Status SchemaSegmentsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        std::string rowset_id = rowset->rowset_meta()->rowset_id().to_string();
+        std::string rowset_id = rowset->rowset_id().to_string();
         str_slot->ptr = (char*)pool->allocate(rowset_id.size());
         str_slot->len = rowset_id.size();
         memcpy(str_slot->ptr, rowset_id.c_str(), str_slot->len);
@@ -170,18 +155,22 @@ Status SchemaSegmentsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
         *(reinterpret_cast<size_t*>(slot)) = rowset->data_disk_size();
     }
-    // SEGMENT_VERSION
+    // CREATION_TIME
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[10]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = static_cast<int64_t>(segment_footer.version());
+        *(reinterpret_cast<size_t*>(slot)) = rowset->creation_time();
     }
-    // SEGMENTS_NUM_ROWS
+    // OLDEST_WRITE_TIMESTAMP
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[11]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = segment_footer.num_rows();
+        *(reinterpret_cast<size_t*>(slot)) = rowset->oldest_write_timestamp();
     }
-    // ++segment_footer_PB_idx_;
-    ++segments_idx_;
+    // NEWEST_WRITE_TIMESTAMP
+    {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[12]->tuple_offset());
+        *(reinterpret_cast<size_t*>(slot)) = rowset->newest_write_timestamp();
+    }
+    ++rowsets_idx_;
     return Status::OK();
 }
 } // namespace doris

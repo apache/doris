@@ -396,6 +396,9 @@ public class SchemaTable extends Table {
                                     .column("END_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("INDEX_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("DATA_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CREATION_TIME", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("OLDEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())).build();
     private SchemaTableType schemaTableType;
 

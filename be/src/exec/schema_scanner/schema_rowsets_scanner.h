@@ -27,28 +27,24 @@
 #include "runtime/mem_pool.h"
 #include "runtime/runtime_state.h"
 namespace doris {
-class SchemaSegmentsScanner : public SchemaScanner {
+class SchemaRowsetsScanner : public SchemaScanner {
 public:
-    using SegmentFooterPBPtr = std::shared_ptr<segment_v2::SegmentFooterPB>;
-    SchemaSegmentsScanner();
-    ~SchemaSegmentsScanner() override = default;
+    SchemaRowsetsScanner();
+    ~SchemaRowsetsScanner() override = default;
 
     Status start(RuntimeState* state) override;
     Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos) override;
 
 private:
     Status get_all_rowsets();
-    Status get_new_segments();
+    // Status get_new_segments();
     Status fill_one_row(Tuple* tuple, MemPool* pool);
 
 private:
     static SchemaScanner::ColumnDesc _s_tbls_columns[];
     int64_t backend_id_ = 0;
     std::vector<RowsetSharedPtr> rowsets_;
-    std::vector<segment_v2::SegmentSharedPtr> segments_;
     // used for traversing rowsets_
     int rowsets_idx_ = 0;
-    // used for traversing segment_
-    int segments_idx_ = 0;
 };
 } // namespace doris
