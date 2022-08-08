@@ -303,7 +303,7 @@ Status Compaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>
 }
 
 Status Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
-    if (rowsets.size() == 0) {
+    if (rowsets.empty()) {
         return Status::OK();
     }
     RowsetSharedPtr prev_rowset = rowsets.front();
