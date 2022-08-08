@@ -172,7 +172,10 @@ Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPo
     }
     *eof = res.precise_code() == OLAP_ERR_DATA_EOF;
     if (UNLIKELY(_reader_context.record_rowids)) {
-        RETURN_IF_ERROR(_vcollect_iter.current_block_row_locations(&_block_row_locations));
+        res = _vcollect_iter.current_block_row_locations(&_block_row_locations);
+        if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
+            return res;
+        }
         DCHECK_EQ(_block_row_locations.size(), block->rows());
     }
     return Status::OK();

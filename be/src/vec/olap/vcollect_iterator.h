@@ -25,7 +25,6 @@
 
 #include "olap/olap_define.h"
 #include "olap/reader.h"
-#include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset_reader.h"
 #include "vec/core/block.h"
 
@@ -145,9 +144,7 @@ private:
 
         RowLocation current_row_location() override;
 
-        Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override {
-            return Status::NotSupported("Level0Iterator don't need to implement the function");
-        }
+        Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
 
     private:
         Status _refresh_current_row();
