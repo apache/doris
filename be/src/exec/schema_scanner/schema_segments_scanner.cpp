@@ -87,8 +87,6 @@ Status SchemaSegmentsScanner::get_all_rowsets() {
     std::vector<TabletSharedPtr> tablets =
             StorageEngine::instance()->tablet_manager()->get_all_tablet();
     for (const auto& tablet : tablets) {
-        TabletMetaSharedPtr tabletMetas = tablet->tablet_meta();
-
         // all rowset
         std::vector<std::pair<Version, RowsetSharedPtr>> all_rowsets;
         {
