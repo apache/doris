@@ -1033,7 +1033,7 @@ public class SingleNodePlanner {
                 TableRef innerRef = selectStmt.getTableRefs().get(i);
                 // Optimization of CountStar would change the materialization of some outputSlot,
                 // it would cause the nullability inconsistent of SlotRef between outputTupleDesc
-                // and agg/groupBy expr. So if some not materialized slot in outputTuple of aggInfo
+                // and agg/groupBy expr. So if some not materialized slots in outputTuple of aggInfo
                 // is set to materialized after the optimization of CountStar, we need to call
                 // aggregateInfo.materializeRequiredSlots again to make sure all required slots is
                 // materialized.
