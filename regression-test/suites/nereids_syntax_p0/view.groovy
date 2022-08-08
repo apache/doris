@@ -25,17 +25,52 @@ suite("view") {
     """
 
     create_view_1 """
-        create view if not exists v1 as select c_custkey, c_name, c_address, c_city from customer
+        create view if not exists v1 as select 
+        c_custkey, c_name, c_address, c_city 
+        from customer
     """
 
     create_view_2 """
-        create view if not exists v2 as select lo_custkey, lo_orderkey, lo_linenumber from lineorder
+        create view if not exists v2 as select 
+        lo_custkey, lo_orderkey, lo_linenumber 
+        from lineorder
     """
 
     create_view_3 """
-        create view if not exists v3 as select v1.c_custkey, t.lo_custkey from v1 join (select lo_custkey from v2) t on v1.c_custkey = t.lo_custkey;
+        create view if not exists v3 as select 
+        v1.c_custkey, t.* 
+        from v1 join (
+            select lo_custkey 
+            from v2
+            ) t on v1.c_custkey = t.lo_custkey;
     """
 
-    qt_view """
+    qt_select_1 """
+        select * 
+        from customer c join (
+            select * 
+            from v1
+            ) t 
+        on c.c_custkey = t.c_custkey + 1;
+    """
+
+    qt_select_2 """
+        select * 
+        from lineorder l join (
+            select * 
+            from v2
+            ) t 
+        on l.lo_custkey = t.lo_custkey - 1;
+    """
+
+    qt_select_3 """
+        select * from (
+            select * 
+            from 
+            part p join v2 on p.p_partkey = v2.lo_partkey) t1 
+        join (
+            select * 
+            from v1 join v3 on v1.c_custkey = v3.c_custkey + 1) t2 
+        on t1.p_partkey = t2.lo_partkey;
     """
 }
