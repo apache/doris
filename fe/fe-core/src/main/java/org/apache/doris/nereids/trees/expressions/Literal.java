@@ -80,11 +80,6 @@ public abstract class Literal extends Expression implements LeafExpression {
     }
 
     @Override
-    public boolean isConstant() {
-        return true;
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
