@@ -145,7 +145,7 @@ public class EsRestClient {
     /**
      * Get all index.
      **/
-    public List<String> getIndexes() {
+    public List<String> getIndices() {
         String indexes = execute("_cat/indices?h=index&format=json&s=index:asc");
         if (indexes == null) {
             throw new DorisEsException("get es indexes error");
@@ -188,7 +188,7 @@ public class EsRestClient {
      * Returns the merge of index and alias
      **/
     public List<String> listTable() {
-        List<String> indexes = getIndexes().stream().distinct().collect(Collectors.toList());
+        List<String> indexes = getIndices().stream().distinct().collect(Collectors.toList());
         getAliases().entrySet().stream().filter(e -> indexes.contains(e.getKey()))
                 .flatMap(e -> e.getValue().stream()).distinct().forEach(indexes::add);
         return indexes;
