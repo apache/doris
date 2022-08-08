@@ -64,6 +64,11 @@ abstract class SuiteScript extends Script {
                     return true
                 }
             }
+
+        if (groups.size() == 1) {
+             // There is no specified group, mark it as p0
+             groups.add("p0")
+        }
         return groups.join(",")
     }
 }

@@ -434,10 +434,6 @@ public class StmtExecutor implements ProfileWriter {
                             span.setAttribute("queryId", DebugUtil.printId(newQueryId));
                         }
                         handleQueryStmt();
-                        // explain query stmt do not have profile
-                        if (!parsedStmt.isExplain()) {
-                            writeProfile(true);
-                        }
                         break;
                     } catch (RpcException e) {
                         if (i == retryTime - 1) {
@@ -469,7 +465,6 @@ public class StmtExecutor implements ProfileWriter {
                     handleInsertStmt();
                     if (!((InsertStmt) parsedStmt).getQueryStmt().isExplain()) {
                         queryType = "Insert";
-                        writeProfile(true);
                     }
                 } catch (Throwable t) {
                     LOG.warn("handle insert stmt fail", t);

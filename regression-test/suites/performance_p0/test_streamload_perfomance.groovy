@@ -15,22 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("tpch_sf1_q02_nereids") {
-    String realDb = context.config.getDbNameByFile(context.file)
-    // get parent directory's group
-    realDb = realDb.substring(0, realDb.lastIndexOf("_"))
+suite("test_streamload_perfomance") {
+    def tableName = "test_streamload_performance1"
 
-    sql "use ${realDb}"
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            id int,
+            name varchar(255)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+        """
 
-    sql 'set enable_nereids_planner=true'
-    // nereids need vectorized
-    sql 'set enable_vectorized_engine=true'
+        def rowCount = 10000
+        def rowIt = java.util.stream.LongStream.range(0, rowCount)
+                .mapToObj({i -> [i, "a_" + i]})
+                .iterator()
 
-    sql 'set exec_mem_limit=2147483648*2'
-
-    test {
-        sql(new File(context.file.parentFile, "../sql/q02.sql").text)
-
-        resultFile(file = "../sql/q02.out", tag = "q02")
+        streamLoad {
+            table tableName
+            time 5000
+            inputIterator rowIt
+        }
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName}"
     }
 }

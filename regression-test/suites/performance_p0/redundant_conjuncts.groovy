@@ -15,22 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("tpch_sf1_q06_nereids") {
-    String realDb = context.config.getDbNameByFile(context.file)
-    // get parent directory's group
-    realDb = realDb.substring(0, realDb.lastIndexOf("_"))
+suite("redundant_conjuncts") {
+    sql """
+        SET enable_vectorized_engine = true;
+    """
 
-    sql "use ${realDb}"
+    sql """
+    DROP TABLE IF EXISTS redundant_conjuncts;
+    """
+    sql """
+    CREATE TABLE `redundant_conjuncts` (
+      `k1` int(11) NULL COMMENT "",
+      `v1` int(11) NULL COMMENT ""
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`, `v1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+    PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    
+    qt_redundant_conjuncts """
+    EXPLAIN SELECT v1 FROM redundant_conjuncts WHERE k1 = 1 AND k1 = 1;
+    """
 
-    sql 'set enable_nereids_planner=true'
-    // nereids need vectorized
-    sql 'set enable_vectorized_engine=true'
-
-    sql 'set exec_mem_limit=2147483648*2'
-
-    test {
-        sql(new File(context.file.parentFile, "../sql/q06.sql").text)
-
-        resultFile(file = "../sql/q06.out", tag = "q06")
-    }
+    qt_redundant_conjuncts_gnerated_by_extract_common_filter """
+    EXPLAIN SELECT v1 FROM redundant_conjuncts WHERE k1 = 1 OR k1 = 2;
+    """
 }
