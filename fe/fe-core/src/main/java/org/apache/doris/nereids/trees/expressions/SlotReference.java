@@ -23,6 +23,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -36,6 +37,14 @@ public class SlotReference extends Slot {
     private final List<String> qualifier;
     private final DataType dataType;
     private final boolean nullable;
+
+    public SlotReference(String name, DataType dataType) {
+        this(NamedExpressionUtil.newExprId(), name, dataType, true, ImmutableList.of());
+    }
+
+    public SlotReference(String name, DataType dataType, boolean nullable) {
+        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, ImmutableList.of());
+    }
 
     public SlotReference(String name, DataType dataType, boolean nullable, List<String> qualifier) {
         this(NamedExpressionUtil.newExprId(), name, dataType, nullable, qualifier);

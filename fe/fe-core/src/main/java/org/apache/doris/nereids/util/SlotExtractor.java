@@ -15,32 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.visitor;
+package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Set;
 
 /**
  * Extracts the SlotReference contained in the expression.
  */
-public class SlotExtractor extends IterationVisitor<List<Slot>> {
+public class SlotExtractor {
+    private static final DefaultExpressionVisitor<Void, Set<Slot>> SLOT_COLLECTOR
+            = new DefaultExpressionVisitor<Void, Set<Slot>>() {
+                @Override
+                public Void visitSlotReference(SlotReference slotReference, Set<Slot> context) {
+                    context.add(slotReference);
+                    return null;
+                }
+            };
 
     /**
      * extract slot reference.
      */
     public static Set<Slot> extractSlot(Collection<Expression> expressions) {
-
-        Set<Slot> slots = Sets.newLinkedHashSet();
+        Set<Slot> slots = Sets.newHashSet();
         for (Expression expression : expressions) {
-            slots.addAll(extractSlot(expression));
+            extractSlot(expression, slots);
         }
         return slots;
     }
@@ -49,24 +55,14 @@ public class SlotExtractor extends IterationVisitor<List<Slot>> {
      * extract slot reference.
      */
     public static Set<Slot> extractSlot(Expression... expressions) {
-
-        Set<Slot> slots = Sets.newLinkedHashSet();
+        Set<Slot> slots = Sets.newHashSet();
         for (Expression expression : expressions) {
-            slots.addAll(extractSlot(expression));
+            extractSlot(expression, slots);
         }
         return slots;
     }
 
-    private static List<Slot> extractSlot(Expression expression) {
-        List<Slot> slots = Lists.newArrayList();
-        new SlotExtractor().visit(expression, slots);
-        return slots;
-    }
-
-
-    @Override
-    public Void visitSlotReference(SlotReference slotReference, List<Slot> context) {
-        context.add(slotReference);
-        return null;
+    private static void extractSlot(Expression expression, Set<Slot> slots) {
+        expression.accept(SLOT_COLLECTOR, slots);
     }
 }
