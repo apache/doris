@@ -613,7 +613,7 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     }
 
     auto delete_init = [&]() -> Status {
-        return _delete_handler.init(_tablet_schema, _tablet->delete_predicates(),
+        return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
                                     read_params.version.second, this);
     };
 
@@ -621,7 +621,6 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
         return delete_init();
     }
 
-    std::shared_lock rdlock(_tablet->get_header_lock());
     return delete_init();
 }
 
