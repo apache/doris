@@ -163,7 +163,7 @@ public class EsRestClient {
     }
 
     /**
-     * Get all aliases.
+     * Get all alias.
      **/
     public Map<String, List<String>> getAliases() {
         String res = execute("_aliases");
@@ -188,10 +188,10 @@ public class EsRestClient {
      * Returns the merge of index and alias
      **/
     public List<String> listTable() {
-        List<String> indexes = getIndices().stream().distinct().collect(Collectors.toList());
-        getAliases().entrySet().stream().filter(e -> indexes.contains(e.getKey()))
-                .flatMap(e -> e.getValue().stream()).distinct().forEach(indexes::add);
-        return indexes;
+        List<String> indices = getIndices().stream().distinct().collect(Collectors.toList());
+        getAliases().entrySet().stream().filter(e -> indices.contains(e.getKey()))
+                .flatMap(e -> e.getValue().stream()).distinct().forEach(indices::add);
+        return indices;
     }
 
 
