@@ -100,15 +100,6 @@ public class EsUtilTest extends EsTestCase {
     }
 
     @Test
-    public void testTypeNotExist() throws Exception {
-        EsTable table = fakeEsTable("fake", "test", "not_exists", columns);
-        SearchContext searchContext = new SearchContext(table);
-        // type not exists
-        ExceptionChecker.expectThrows(DorisEsException.class,
-                () -> MappingPhase.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json")));
-    }
-
-    @Test
     public void testWorkFlow(@Injectable EsRestClient client) throws Exception {
         EsTable table = fakeEsTable("fake", "test", "doc", columns);
         SearchContext searchContext1 = new SearchContext(table);
