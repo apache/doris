@@ -37,6 +37,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/tuple.h"
 #include "util/thrift_util.h"
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -596,30 +597,36 @@ ParquetFile::~ParquetFile() {
 }
 
 arrow::Status ParquetFile::Close() {
+    std::lock_guard<std::mutex> lock(_lock);
+    if (_is_closed) {
+        return arrow::Status::OK();
+    }
+
     if (_file != nullptr) {
         _file->close();
         delete _file;
         _file = nullptr;
     }
+    _is_closed = true;
     return arrow::Status::OK();
 }
 
 bool ParquetFile::closed() const {
-    if (_file != nullptr) {
-        return _file->closed();
-    } else {
-        return true;
+    return _is_closed;
+}
+
+arrow::Status ParquetFile::Seek(int64_t position) {
+    _pos = position;
+    // NOTE: Only readat operation is used, so _file seek is not called here.
+    return arrow::Status::OK();
+}
+
+arrow::Result<int64_t> ParquetFile::Read(int64_t nbytes, void* out) {
+    if (_is_closed) {
+        return arrow::Status::IOError("Already closed");
     }
-}
-
-arrow::Result<int64_t> ParquetFile::Read(int64_t nbytes, void* buffer) {
-    return ReadAt(_pos, nbytes, buffer);
-}
-
-arrow::Result<int64_t> ParquetFile::ReadAt(int64_t position, int64_t nbytes, void* out) {
     int64_t reads = 0;
     int64_t bytes_read = 0;
-    _pos = position;
     while (nbytes > 0) {
         Status result = _file->readat(_pos, nbytes, &reads, out);
         if (!result.ok()) {
@@ -637,25 +644,14 @@ arrow::Result<int64_t> ParquetFile::ReadAt(int64_t position, int64_t nbytes, voi
     return bytes_read;
 }
 
-arrow::Result<int64_t> ParquetFile::GetSize() {
-    return _file->size();
-}
-
-arrow::Status ParquetFile::Seek(int64_t position) {
-    _pos = position;
-    // NOTE: Only readat operation is used, so _file seek is not called here.
-    return arrow::Status::OK();
-}
-
-arrow::Result<int64_t> ParquetFile::Tell() const {
-    return _pos;
-}
-
 arrow::Result<std::shared_ptr<arrow::Buffer>> ParquetFile::Read(int64_t nbytes) {
+    if (_is_closed) {
+        return arrow::Status::IOError("Already closed");
+    }
     auto buffer = arrow::AllocateBuffer(nbytes, arrow::default_memory_pool());
     ARROW_RETURN_NOT_OK(buffer);
     std::shared_ptr<arrow::Buffer> read_buf = std::move(buffer.ValueOrDie());
-    auto bytes_read = ReadAt(_pos, nbytes, read_buf->mutable_data());
+    auto bytes_read = Read(nbytes, read_buf->mutable_data());
     ARROW_RETURN_NOT_OK(bytes_read);
     // If bytes_read is equal with read_buf's capacity, we just assign
     if (bytes_read.ValueOrDie() == nbytes) {
@@ -663,6 +659,26 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> ParquetFile::Read(int64_t nbytes) 
     } else {
         return arrow::SliceBuffer(read_buf, 0, bytes_read.ValueOrDie());
     }
+}
+
+arrow::Result<int64_t> ParquetFile::ReadAt(int64_t position, int64_t nbytes, void* out) {
+    std::lock_guard<std::mutex> lock(_lock);
+    ARROW_RETURN_NOT_OK(Seek(position));
+    return Read(nbytes, out);
+}
+
+arrow::Result<std::shared_ptr<arrow::Buffer>> ParquetFile::ReadAt(int64_t position, int64_t nbytes) {
+    std::lock_guard<std::mutex> lock(_lock);
+    ARROW_RETURN_NOT_OK(Seek(position));
+    return Read(nbytes);
+}
+
+arrow::Result<int64_t> ParquetFile::GetSize() {
+    return _file->size();
+}
+
+arrow::Result<int64_t> ParquetFile::Tell() const {
+    return _pos;
 }
 
 } // namespace doris
