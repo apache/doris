@@ -104,7 +104,7 @@ Status VOlapScanner::prepare(
                 ss << "failed to initialize storage reader. tablet=" << _tablet->full_name()
                    << ", res=" << acquire_reader_st
                    << ", backend=" << BackendOptions::get_localhost();
-                return Status::InternalError(ss.str().c_str());
+                return Status::InternalError(ss.str());
             }
         }
     }
@@ -134,7 +134,7 @@ Status VOlapScanner::open() {
         ss << "failed to initialize storage reader. tablet="
            << _tablet_reader_params.tablet->full_name() << ", res=" << res
            << ", backend=" << BackendOptions::get_localhost();
-        return Status::InternalError(ss.str().c_str());
+        return Status::InternalError(ss.str());
     }
     return Status::OK();
 }
@@ -255,11 +255,9 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
             continue;
         }
 
-        int32_t index = _tablet_schema->field_index(slot->col_unique_id());
-        if (index < 0) {
-            // rollup/materialized view should use col_name to find index
-            index = _tablet_schema->field_index(slot->col_name());
-        }
+        int32_t index = slot->col_unique_id() >= 0
+                                ? _tablet_schema->field_index(slot->col_unique_id())
+                                : _tablet_schema->field_index(slot->col_name());
 
         if (index < 0) {
             std::stringstream ss;
@@ -352,7 +350,9 @@ Status VOlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
-    if (_vconjunct_ctx) _vconjunct_ctx->close(state);
+    if (_vconjunct_ctx) {
+        _vconjunct_ctx->close(state);
+    }
     // olap scan node will call scanner.close() when finished
     // will release resources here
     // if not clear rowset readers in read_params here

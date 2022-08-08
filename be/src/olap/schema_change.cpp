@@ -817,7 +817,7 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
             vectorized::VExprContext* ctx = nullptr;
             RETURN_IF_ERROR(
                     vectorized::VExpr::create_expr_tree(&pool, *_schema_mapping[idx].expr, &ctx));
-
+            Defer defer {[&]() { ctx->close(state); }};
             RETURN_IF_ERROR(ctx->prepare(state, row_desc));
             RETURN_IF_ERROR(ctx->open(state));
 
@@ -834,8 +834,6 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                                           ref_block->get_by_position(result_column_id).column));
             }
             swap_idx_map[result_column_id] = idx;
-
-            ctx->close(state);
         } else {
             // same type, just swap column
             swap_idx_map[ref_idx] = idx;
@@ -1632,15 +1630,10 @@ bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_row
         }
         rs_readers.push_back(rs_reader);
     }
-    // get cur schema if rowset schema exist, rowset schema must be newer than tablet schema
-    TabletSchemaSPtr cur_tablet_schema = src_rowsets.back()->rowset_meta()->tablet_schema();
-    if (cur_tablet_schema == nullptr) {
-        cur_tablet_schema = new_tablet->tablet_schema();
-    }
 
     Merger::Statistics stats;
-    auto res = Merger::merge_rowsets(new_tablet, READER_ALTER_TABLE, cur_tablet_schema, rs_readers,
-                                     rowset_writer, &stats);
+    auto res = Merger::merge_rowsets(new_tablet, READER_ALTER_TABLE, new_tablet->tablet_schema(),
+                                     rs_readers, rowset_writer, &stats);
     if (!res) {
         LOG(WARNING) << "failed to merge rowsets. tablet=" << new_tablet->full_name()
                      << ", version=" << rowset_writer->version().first << "-"
@@ -1660,12 +1653,6 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
         RowsetReaderSharedPtr rs_reader;
         RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
         rs_readers.push_back(rs_reader);
-    }
-
-    // get cur schema if rowset schema exist, rowset schema must be newer than tablet schema
-    auto cur_tablet_schema = src_rowsets.back()->rowset_meta()->tablet_schema();
-    if (cur_tablet_schema == nullptr) {
-        cur_tablet_schema = new_tablet->tablet_schema();
     }
 
     Merger::Statistics stats;
