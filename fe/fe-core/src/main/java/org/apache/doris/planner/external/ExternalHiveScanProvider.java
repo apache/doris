@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TFileType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -154,7 +155,7 @@ public class ExternalHiveScanProvider implements ExternalFileScanProvider {
 
 
     protected Configuration setConfiguration() {
-        Configuration conf = new Configuration();
+        Configuration conf = new HdfsConfiguration();
         Map<String, String> dfsProperties = hmsTable.getDfsProperties();
         for (Map.Entry<String, String> entry : dfsProperties.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
