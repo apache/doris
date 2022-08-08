@@ -51,10 +51,10 @@ import java.util.Map;
  * So, we can use partitionInfo to select the necessary `be` to send query.
  */
 public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
-    public static final String SEGMENTS = "segments";
+    public static final String ROWSETS = "rowsets";
 
-    public static boolean isBackendSchemaTable(String tableName) {
-        if (tableName.equalsIgnoreCase(SEGMENTS)) {
+    public static boolean isBackendPartitionedSchemaTable(String tableName) {
+        if (tableName.equalsIgnoreCase(ROWSETS)) {
             return true;
         }
         return false;

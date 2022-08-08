@@ -385,7 +385,7 @@ public class SchemaTable extends Table {
                                     .column("CHARACTER_SET_CLIENT", ScalarType.createVarchar(32))
                                     .column("COLLATION_CONNECTION", ScalarType.createVarchar(32))
                                     .column("DATABASE_COLLATION", ScalarType.createVarchar(32)).build()))
-            .put("segments", new SchemaTable(SystemIdGenerator.getNextId(), "segments", TableType.SCHEMA,
+            .put("rowsets", new SchemaTable(SystemIdGenerator.getNextId(), "rowsets", TableType.SCHEMA,
                             builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("ROWSET_ID", ScalarType.createVarchar(64))
                                     .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
@@ -396,8 +396,6 @@ public class SchemaTable extends Table {
                                     .column("END_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("INDEX_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("DATA_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("SEGMENT_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("SEGMENTS_NUM_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())).build();
     private SchemaTableType schemaTableType;
 
