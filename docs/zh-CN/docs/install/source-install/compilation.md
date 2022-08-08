@@ -143,7 +143,7 @@ under the License.
 你也可以自己创建一个 Doris 开发环境镜像，具体可参阅 `docker/README.md` 文件。
 
 
-## 直接编译（CentOS/Ubuntu）
+## 直接编译（Ubuntu）
 
 你可以在自己的 linux 环境中直接尝试编译 Doris。
 
@@ -173,26 +173,6 @@ under the License.
        sudo apt install gcc-10 g++-10 
        sudo apt-get install autoconf automake libtool autopoint
        ```
-
-      如果是CentOS 可以执行以下命令
-       ```
-       sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk
-       sudo yum install centos-release-scl
-       sudo yum install devtoolset-10
-       scl enable devtoolset-10 bash
-       ```
-      如果当前仓库没有提供devtoolset-10 可以添加如下repo 使用oracle 提供 package
-       ```
-       [ol7_software_collections]
-       name=Software Collection packages for Oracle Linux 7 ($basearch)
-       baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/SoftwareCollections/$basearch/
-       gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
-       gpgcheck=1
-       enabled=1
-       ```
-
-   安装完成后，自行设置环境变量 `PATH`, `JAVA_HOME` 等。(可以通过`alternatives --list`命令找到jdk的安装目录)
-   注意： Doris 0.14.0 的版本仍然使用gcc7 的依赖编译，之后的代码将使用gcc10 的依赖
 
 2. 编译 Doris
 
