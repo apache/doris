@@ -34,6 +34,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
+import static java.util.Objects.deepEquals;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -147,7 +148,6 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
         System.out.println(root1.getPlanRoot().getExplainString());
         System.out.println(root2.getPlanRoot().getExplainString());
-        System.out.println(root1.getPlanRoot().getExplainString().equals(root2.getPlanRoot().getExplainString()));
     }
 
     private void testPlanCase(String sql) throws AnalysisException {
