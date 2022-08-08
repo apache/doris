@@ -34,6 +34,10 @@ suite("sub_query_alias") {
 
     sql """
         select t.c_custkey, t.lo_custkey from (select * from customer c, lineorder l where c.c_custkey = l.lo_custkey) t;
-    """     
+    """
+
+    sql """
+        select * from customer c join customer c1 on c.c_custkey = c1.c_custkey;
+    """
 }
 
