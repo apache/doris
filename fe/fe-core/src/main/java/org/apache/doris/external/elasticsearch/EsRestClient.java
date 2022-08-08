@@ -163,7 +163,7 @@ public class EsRestClient {
     }
 
     /**
-     * Get all aliases.
+     * Get all alias.
      **/
     public Map<String, List<String>> getAliases() {
         String res = execute("_aliases");
