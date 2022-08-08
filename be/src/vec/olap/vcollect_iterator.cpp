@@ -241,8 +241,11 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
         if (!res.ok() && res.precise_code() != OLAP_ERR_DATA_EOF) {
             return res;
         }
-        if (res.precise_code() == OLAP_ERR_DATA_EOF && _block->rows() == 0) {
+        if (res.precise_code() == OLAP_ERR_DATA_EOF && block->rows() == 0) {
             return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+        }
+        if (UNLIKELY(_reader->_reader_context.record_rowids)) {
+            RETURN_NOT_OK(_rs_reader->current_block_row_locations(&_block_row_locations));
         }
         return Status::OK();
     }
@@ -252,6 +255,17 @@ RowLocation VCollectIterator::Level0Iterator::current_row_location() {
     RowLocation& segment_row_id = _block_row_locations[_ref.row_pos];
     return RowLocation(_rs_reader->rowset()->rowset_id(), segment_row_id.segment_id,
                        segment_row_id.row_id);
+}
+
+Status VCollectIterator::Level0Iterator::current_block_row_locations(
+        std::vector<RowLocation>* block_row_locations) {
+    block_row_locations->resize(_block_row_locations.size());
+    for (auto i = 0; i < _block_row_locations.size(); i++) {
+        RowLocation& row_location = _block_row_locations[i];
+        (*block_row_locations)[i] = RowLocation(_rs_reader->rowset()->rowset_id(),
+                                                row_location.segment_id, row_location.row_id);
+    }
+    return Status::OK();
 }
 
 VCollectIterator::Level1Iterator::Level1Iterator(
@@ -474,11 +488,17 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
 
 Status VCollectIterator::Level1Iterator::current_block_row_locations(
         std::vector<RowLocation>* block_row_locations) {
-    // The function only used for compaction, so _merge is always true.
-    DCHECK(_merge);
-    DCHECK(_reader->_reader_context.record_rowids);
-    *block_row_locations = _block_row_locations;
-    return Status::OK();
+    if (!_merge) {
+        if (UNLIKELY(_cur_child == nullptr)) {
+            block_row_locations->clear();
+            return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+        }
+        return _cur_child->current_block_row_locations(block_row_locations);
+    } else {
+        DCHECK(_reader->_reader_context.record_rowids);
+        *block_row_locations = _block_row_locations;
+        return Status::OK();
+    }
 }
 
 } // namespace vectorized
