@@ -34,7 +34,6 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import static java.util.Objects.deepEquals;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -44,7 +43,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     private final NereidsParser parser = new NereidsParser();
 
     private final List<String> testSql = Lists.newArrayList(
-            //"SELECT * FROM (SELECT * FROM T1 T) T2",
+            "SELECT * FROM (SELECT * FROM T1 T) T2",
             "SELECT * FROM T1 TT1 JOIN (SELECT * FROM T2 TT2) T ON TT1.ID = T.ID",
             "SELECT * FROM T1 TT1 JOIN (SELECT TT2.ID FROM T2 TT2) T ON TT1.ID = T.ID",
             "SELECT T.ID FROM T1 T",
@@ -136,14 +135,14 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     @Test
     public void testOneAndTwo() throws AnalysisException {
         PlanFragment root1 = new PhysicalPlanTranslator().translatePlan(new NereidsPlanner(connectContext).plan(
-                parser.parseSingle(testSql.get(0)),
-                new PhysicalProperties(),
-                connectContext),
+                        parser.parseSingle(testSql.get(0)),
+                        new PhysicalProperties(),
+                        connectContext),
                 new PlanTranslatorContext());
         PlanFragment root2 = new PhysicalPlanTranslator().translatePlan(new NereidsPlanner(connectContext).plan(
-                parser.parseSingle(testSql.get(1)),
-                new PhysicalProperties(),
-                connectContext),
+                        parser.parseSingle(testSql.get(1)),
+                        new PhysicalProperties(),
+                        connectContext),
                 new PlanTranslatorContext());
 
         System.out.println(root1.getPlanRoot().getExplainString());
