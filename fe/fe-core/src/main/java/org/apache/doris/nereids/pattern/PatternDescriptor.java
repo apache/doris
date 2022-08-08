@@ -48,6 +48,10 @@ public class PatternDescriptor<INPUT_TYPE extends Plan> {
         return new PatternDescriptor<>(pattern.withPredicates(predicates), defaultPromise);
     }
 
+    public PatternDescriptor<INPUT_TYPE> whenNot(Predicate<INPUT_TYPE> predicate) {
+        return when(predicate.negate());
+    }
+
     public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> then(
             Function<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
         return new PatternMatcher<>(pattern, defaultPromise, ctx -> matchedAction.apply(ctx.root));

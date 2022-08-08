@@ -31,40 +31,41 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Physical hash join plan.
+ * Use nested loop algorithm to do join.
  */
-public class PhysicalHashJoin<
+public class PhysicalNestedLoopJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
         extends PhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public PhysicalHashJoin(JoinType joinType, Optional<Expression> condition, LogicalProperties logicalProperties,
-                            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+    public PhysicalNestedLoopJoin(JoinType joinType, Optional<Expression> condition,
+            LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(joinType, condition, Optional.empty(), logicalProperties, leftChild, rightChild);
     }
 
     /**
-     * Constructor of PhysicalHashJoinNode.
+     * Constructor of PhysicalNestedLoopJoin.
      *
      * @param joinType Which join type, left semi join, inner join...
      * @param condition join condition.
      */
-    public PhysicalHashJoin(JoinType joinType, Optional<Expression> condition,
-                            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-                            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(PlanType.PHYSICAL_HASH_JOIN, joinType, condition,
+    public PhysicalNestedLoopJoin(JoinType joinType, Optional<Expression> condition,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, condition,
                 groupExpression, logicalProperties, leftChild, rightChild);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalHashJoin((PhysicalHashJoin<Plan, Plan>) this, context);
+        return visitor.visitPhysicalNestedLoopJoin((PhysicalNestedLoopJoin<Plan, Plan>) this, context);
     }
 
     @Override
     public String toString() {
+        // TODO: Maybe we could pull up this to the abstract class in the future.
         StringBuilder sb = new StringBuilder();
-        sb.append("PhysicalHashJoin ([").append(joinType).append("]");
+        sb.append("PhysicalNestedLoopJoin ([").append(joinType).append("]");
         condition.ifPresent(
                 expression -> sb.append(", [").append(expression).append("]")
         );
@@ -75,17 +76,17 @@ public class PhysicalHashJoin<
     @Override
     public PhysicalBinary<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalHashJoin<>(joinType, condition, logicalProperties, children.get(0), children.get(1));
+        return new PhysicalNestedLoopJoin<>(joinType, condition, logicalProperties, children.get(0), children.get(1));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalHashJoin<>(joinType, condition, groupExpression, logicalProperties, left(), right());
+        return new PhysicalNestedLoopJoin<>(joinType, condition, groupExpression, logicalProperties, left(), right());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalHashJoin<>(joinType, condition, Optional.empty(),
-            logicalProperties.get(), left(), right());
+        return new PhysicalNestedLoopJoin<>(joinType, condition, Optional.empty(),
+                logicalProperties.get(), left(), right());
     }
 }

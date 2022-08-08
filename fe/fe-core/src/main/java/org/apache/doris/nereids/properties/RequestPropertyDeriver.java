@@ -25,6 +25,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -86,6 +87,31 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             requestPropertyToChildren.add(propertiesForShuffle);
         }
         if (!JoinUtils.onlyShuffle(hashJoin)) {
+            requestPropertyToChildren.add(propertiesForBroadcast);
+        }
+
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<Plan, Plan> nestedLoopJoin, PlanContext context) {
+        // TODO: copy from physicalHashJoin, should update according to physical nested loop join properties.
+        // for broadcast join
+        List<PhysicalProperties> propertiesForBroadcast = Lists.newArrayList(
+                new PhysicalProperties(),
+                new PhysicalProperties(new DistributionSpecReplicated())
+        );
+        // for shuffle join
+        Pair<List<SlotReference>, List<SlotReference>> onClauseUsedSlots
+                = JoinUtils.getOnClauseUsedSlots(nestedLoopJoin);
+        List<PhysicalProperties> propertiesForShuffle = Lists.newArrayList(
+                new PhysicalProperties(new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
+                new PhysicalProperties(new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
+
+        if (!JoinUtils.onlyBroadcast(nestedLoopJoin)) {
+            requestPropertyToChildren.add(propertiesForShuffle);
+        }
+        if (!JoinUtils.onlyShuffle(nestedLoopJoin)) {
             requestPropertyToChildren.add(propertiesForBroadcast);
         }
 

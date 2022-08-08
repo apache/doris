@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
 import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
+import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
@@ -48,6 +49,7 @@ public class RuleSet {
             .add(new LogicalAggToPhysicalHashAgg())
             .add(new LogicalFilterToPhysicalFilter())
             .add(new LogicalJoinToHashJoin())
+            .add(new LogicalJoinToNestedLoopJoin())
             .add(new LogicalOlapScanToPhysicalOlapScan())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())

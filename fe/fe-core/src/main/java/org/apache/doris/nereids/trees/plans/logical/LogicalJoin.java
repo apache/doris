@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
@@ -39,7 +40,7 @@ import java.util.stream.Collectors;
  * Logical join plan.
  */
 public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
-        extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
 
     private final JoinType joinType;
     private final Optional<Expression> condition;

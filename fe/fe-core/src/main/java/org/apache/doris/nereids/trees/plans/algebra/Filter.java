@@ -15,39 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.trees.plans.algebra;
+
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 /**
- * Types for all Plan in Nereids.
+ * Common interface for logical/physical filter.
  */
-public enum PlanType {
-    UNKNOWN,
-
-    // logical plan
-    LOGICAL_UNBOUND_RELATION,
-    LOGICAL_BOUND_RELATION,
-    LOGICAL_PROJECT,
-    LOGICAL_FILTER,
-    LOGICAL_JOIN,
-    LOGICAL_AGGREGATE,
-    LOGICAL_SORT,
-    LOGICAL_LIMIT,
-    LOGICAL_OLAP_SCAN,
-    LOGICAL_APPLY,
-    LOGICAL_CORRELATED_JOIN,
-    LOGICAL_ENFORCE_SINGLE_ROW,
-    GROUP_PLAN,
-
-    // physical plan
-    PHYSICAL_OLAP_SCAN,
-    PHYSICAL_PROJECT,
-    PHYSICAL_FILTER,
-    PHYSICAL_BROADCAST_HASH_JOIN,
-    PHYSICAL_AGGREGATE,
-    PHYSICAL_SORT,
-    PHYSICAL_LIMIT,
-    PHYSICAL_HASH_JOIN,
-    PHYSICAL_NESTED_LOOP_JOIN,
-    PHYSICAL_EXCHANGE,
-    PHYSICAL_DISTRIBUTION;
+public interface Filter {
+    Expression getPredicates();
 }
