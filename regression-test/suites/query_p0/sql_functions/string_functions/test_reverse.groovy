@@ -16,6 +16,6 @@
 // under the License.
 
 suite("test_reverse") {
-    qt_select "select reverse(k7) from test order by k1"
+    qt_select "select reverse(k7) from test_query_db.test order by k1"
 }
 

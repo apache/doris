@@ -20,7 +20,7 @@ suite("test_subquery") {
             select c1, c3, m2 from 
                 (select c1, c3, max(c2) m2 from 
                     (select c1, c2, c3 from 
-                        (select k3 c1, k2 c2, max(k1) c3 from test 
+                        (select k3 c1, k2 c2, max(k1) c3 from test_query_db.test 
                          group by 1, 2 order by 1 desc, 2 desc limit 5) x 
                     ) x2 group by c1, c3 limit 10
                 ) t 

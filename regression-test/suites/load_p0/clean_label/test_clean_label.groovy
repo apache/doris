@@ -72,7 +72,7 @@ suite("test_clean_label") {
         }
 
         test {
-            sql "clean label clean_label_test4 from regression_test_load_p0_clean_label;"
+            sql "clean label clean_label_test4 from regression_test_load_clean_label;"
         }
 
         test {
@@ -85,7 +85,7 @@ suite("test_clean_label") {
         }
 
         test {
-            sql "clean label from regression_test_load_p0_clean_label;"
+            sql "clean label from regression_test_load_clean_label;"
         }
 
         test {
@@ -107,7 +107,7 @@ suite("test_clean_label") {
         qt_select "select * from ${testTable} order by k1;"
 
         test {
-            sql "clean label from regression_test_load_p0_clean_label;"
+            sql "clean label from regression_test_load_clean_label;"
         }
 
     } finally {
