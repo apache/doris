@@ -148,6 +148,8 @@ public class DdlExecutor {
             EncryptKeyHelper.createEncryptKey((CreateEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropEncryptKeyStmt) {
             EncryptKeyHelper.dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateMultiTableMaterializedViewStmt) {
+            env.createMultiTableMaterializedView((CreateMultiTableMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             env.createTable((CreateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableLikeStmt) {
@@ -158,8 +160,8 @@ public class DdlExecutor {
             env.dropTable((DropTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateMaterializedViewStmt) {
             env.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateMultiTableMaterializedViewStmt) {
-            env.createMultiTableMaterializedView((CreateMultiTableMaterializedViewStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropMaterializedViewStmt) {
+            env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
             env.alterTable((AlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStatsStmt) {

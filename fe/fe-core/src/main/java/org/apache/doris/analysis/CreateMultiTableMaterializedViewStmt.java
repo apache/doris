@@ -17,10 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -31,19 +34,15 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
-public class CreateMultiTableMaterializedViewStmt extends DdlStmt {
+public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     private String mvName;
     private MVRefreshInfo.BuildMode buildMethod;
     private MVRefreshInfo refreshInfo;
-    private KeysDesc keysDesc;
-    private PartitionDesc partitionDesc;
-    private DistributionDesc distributionDesc;
-    private Map<String, String> properties;
     private QueryStmt queryStmt;
     private Database database;
     private Map<String, OlapTable> olapTables = Maps.newHashMap();
-    private List<MVColumnItem> mvColumnItems = Lists.newArrayList();
 
     public CreateMultiTableMaterializedViewStmt(String mvName, MVRefreshInfo.BuildMode buildMethod,
             MVRefreshInfo refreshInfo, KeysDesc keyDesc, PartitionDesc partitionDesc, DistributionDesc distributionDesc,
@@ -51,11 +50,12 @@ public class CreateMultiTableMaterializedViewStmt extends DdlStmt {
         this.mvName = mvName;
         this.buildMethod = buildMethod;
         this.refreshInfo = refreshInfo;
+        this.queryStmt = queryStmt;
+
         this.keysDesc = keyDesc;
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
         this.properties = properties;
-        this.queryStmt = queryStmt;
     }
 
     @Override
@@ -65,9 +65,11 @@ public class CreateMultiTableMaterializedViewStmt extends DdlStmt {
         if (queryStmt instanceof SelectStmt) {
             analyzeSelectClause((SelectStmt) queryStmt);
         }
+        tableName = new TableName(null, database.getFullName(), mvName);
+        super.analyze(analyzer);
     }
 
-    private void analyzeSelectClause(SelectStmt selectStmt) throws AnalysisException {
+    private void analyzeSelectClause(SelectStmt selectStmt) throws AnalysisException, DdlException {
         for (TableRef tableRef : selectStmt.getTableRefs()) {
             String dbName = tableRef.getName().getDb();
             if (database == null) {
@@ -78,7 +80,31 @@ public class CreateMultiTableMaterializedViewStmt extends DdlStmt {
             OlapTable table = (OlapTable) database.getTableOrAnalysisException(tableRef.getName().getTbl());
             olapTables.put(table.getName(), table);
         }
-        mvColumnItems = generateMVColumnItems(olapTables, selectStmt.getSelectList());
+        columnDefs = generateColumnDefinitions(selectStmt.getSelectList());
+    }
+
+    private List<ColumnDef> generateColumnDefinitions(SelectList selectList) throws AnalysisException, DdlException {
+        List<MVColumnItem> mvColumnItems = generateMVColumnItems(olapTables, selectList);
+        List<Column> schema = generateSchema(mvColumnItems);
+        return schema.stream()
+                .map(column -> new ColumnDef(
+                        column.getName(),
+                        new TypeDef(column.getType()),
+                        column.isKey(),
+                        column.getAggregationType(),
+                        column.isAllowNull(),
+                        new DefaultValue(column.getDefaultValue() != null, column.getDefaultValue()),
+                        column.getComment())
+                ).collect(Collectors.toList());
+    }
+
+    private List<Column> generateSchema(List<MVColumnItem> mvColumnItems) throws DdlException {
+        List<Column> columns = Lists.newArrayList();
+        for (MVColumnItem mvColumnItem : mvColumnItems) {
+            OlapTable olapTable = olapTables.get(mvColumnItem.getBaseTableName());
+            columns.add(mvColumnItem.toMVColumn(olapTable));
+        }
+        return columns;
     }
 
     private List<MVColumnItem> generateMVColumnItems(Map<String, OlapTable> olapTables, SelectList selectList)
@@ -134,36 +160,11 @@ public class CreateMultiTableMaterializedViewStmt extends DdlStmt {
         return mvName;
     }
 
-    @Override
-    public String getClusterName() {
-        return database.getClusterName();
-    }
-
     public Database getDatabase() {
         return database;
     }
 
     public Map<String, OlapTable> getOlapTables() {
         return olapTables;
-    }
-
-    public List<MVColumnItem> getMVColumnItems() {
-        return mvColumnItems;
-    }
-
-    public KeysDesc getKeysDesc() {
-        return keysDesc;
-    }
-
-    public PartitionDesc getPartitionDesc() {
-        return partitionDesc;
-    }
-
-    public DistributionDesc getDistributionDesc() {
-        return distributionDesc;
-    }
-
-    public Map<String, String> getProperties() {
-        return properties;
     }
 }
