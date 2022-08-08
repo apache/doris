@@ -68,11 +68,6 @@ public class GroupPlan extends LogicalLeaf {
     }
 
     @Override
-    public long getLimit() {
-        throw new IllegalStateException("GroupPlan can not invoke getLimit()");
-    }
-
-    @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         throw new IllegalStateException("GroupPlan can not invoke withGroupExpression()");
     }

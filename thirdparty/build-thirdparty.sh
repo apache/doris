@@ -596,7 +596,7 @@ build_re2() {
     check_if_source_exist "${RE2_SOURCE}"
     cd "${TP_SOURCE_DIR}/${RE2_SOURCE}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
+    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
 }
 
@@ -605,6 +605,13 @@ build_hyperscan() {
     check_if_source_exist "${RAGEL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${RAGEL_SOURCE}"
 
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        cxxflags='-static'
+    else
+        cxxflags=''
+    fi
+
+    CXXFLAGS="${cxxflags}" \
     ./configure --prefix="${TP_INSTALL_DIR}"
     make install
 

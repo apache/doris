@@ -72,12 +72,11 @@ void NullPredicate::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t siz
     }
 }
 
-Status NullPredicate::evaluate(const Schema& schema,
-                               const std::vector<BitmapIndexIterator*>& iterators,
-                               uint32_t num_rows, roaring::Roaring* roaring) const {
-    if (iterators[_column_id] != nullptr) {
+Status NullPredicate::evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
+                               roaring::Roaring* roaring) const {
+    if (iterator != nullptr) {
         roaring::Roaring null_bitmap;
-        RETURN_IF_ERROR(iterators[_column_id]->read_null_bitmap(&null_bitmap));
+        RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap));
         if (_is_null) {
             *roaring &= null_bitmap;
         } else {

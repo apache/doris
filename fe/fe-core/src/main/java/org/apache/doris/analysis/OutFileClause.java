@@ -379,7 +379,7 @@ public class OutFileClause {
             if (!isCsvFormat()) {
                 throw new AnalysisException(PROP_COLUMN_SEPARATOR + " is only for CSV format");
             }
-            columnSeparator = properties.get(PROP_COLUMN_SEPARATOR);
+            columnSeparator = Separator.convertSeparator(properties.get(PROP_COLUMN_SEPARATOR));
             processedPropKeys.add(PROP_COLUMN_SEPARATOR);
         }
 
@@ -387,7 +387,7 @@ public class OutFileClause {
             if (!isCsvFormat()) {
                 throw new AnalysisException(PROP_LINE_DELIMITER + " is only for CSV format");
             }
-            lineDelimiter = properties.get(PROP_LINE_DELIMITER);
+            lineDelimiter = Separator.convertSeparator(properties.get(PROP_LINE_DELIMITER));
             processedPropKeys.add(PROP_LINE_DELIMITER);
         }
 
@@ -583,3 +583,5 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
+
+

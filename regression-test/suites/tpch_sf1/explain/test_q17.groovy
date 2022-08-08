@@ -51,19 +51,20 @@ suite("test_explain_tpch_sf_1_q17", "tpch_sf1") {
 				"  |  group by: ") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
 				"  |  equal join conjunct: <slot 17> = <slot 2> `l_partkey`\n" + 
-				"  |  other join predicates: <slot 32> < 0.2 * <slot 36>") && 
+				"  |  other join predicates: <slot 32> < 0.2 * <slot 36>\n" + 
+				"  |  runtime filters: RF000[in_or_bloom] <- <slot 2> `l_partkey`") && 
 		explainStr.contains("other join predicates: <slot 32> < 0.2 * <slot 36>") && 
 		explainStr.contains("vec output tuple id: 8") && 
 		explainStr.contains("output slot ids: 21 \n" + 
 				"  |  hash output slot ids: 3 14 15 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
 				"  |  equal join conjunct: `l_partkey` = `p_partkey`\n" + 
-				"  |  runtime filters: RF000[in_or_bloom] <- `p_partkey`") && 
+				"  |  runtime filters: RF001[in_or_bloom] <- `p_partkey`") && 
 		explainStr.contains("vec output tuple id: 7") && 
 		explainStr.contains("output slot ids: 14 15 17 \n" + 
 				"  |  hash output slot ids: 6 7 8 ") && 
 		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
-				"     runtime filters: RF000[in_or_bloom] -> `l_partkey`") && 
+				"     runtime filters: RF001[in_or_bloom] -> `l_partkey`") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
 				"  |  output: avg(<slot 3> avg(`l_quantity`))\n" + 
 				"  |  group by: <slot 2> `l_partkey`") && 
@@ -73,7 +74,8 @@ suite("test_explain_tpch_sf_1_q17", "tpch_sf1") {
 				"  |  group by: `l_partkey`") && 
 		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON") && 
 		explainStr.contains("TABLE: part(part), PREAGGREGATION: ON\n" + 
-				"     PREDICATES: `p_brand` = 'Brand#23', `p_container` = 'MED BOX'") 
+				"     PREDICATES: `p_brand` = 'Brand#23', `p_container` = 'MED BOX'\n" + 
+				"     runtime filters: RF000[in_or_bloom] -> <slot 7>")
             
         }
     }

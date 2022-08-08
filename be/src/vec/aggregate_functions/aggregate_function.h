@@ -94,6 +94,11 @@ public:
     virtual void merge_vec(const AggregateDataPtr* places, size_t offset, ConstAggregateDataPtr rhs,
                            Arena* arena, const size_t num_rows) const = 0;
 
+    // same as merge_vec, but only call "merge" function when place is not nullptr
+    virtual void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                    ConstAggregateDataPtr rhs, Arena* arena,
+                                    const size_t num_rows) const = 0;
+
     /// Serializes state (to transmit it over the network, for example).
     virtual void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const = 0;
 
@@ -132,6 +137,11 @@ public:
     virtual void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                            const IColumn** columns, Arena* arena) const = 0;
 
+    // same as add_batch, but only call "add" function when place is not nullptr
+    virtual void add_batch_selected(size_t batch_size, AggregateDataPtr* places,
+                                    size_t place_offset, const IColumn** columns,
+                                    Arena* arena) const = 0;
+
     /** The same for single place.
       */
     virtual void add_batch_single_place(size_t batch_size, AggregateDataPtr place,
@@ -166,6 +176,15 @@ public:
                    const IColumn** columns, Arena* arena) const override {
         for (size_t i = 0; i < batch_size; ++i) {
             static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
+        }
+    }
+
+    void add_batch_selected(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                            const IColumn** columns, Arena* arena) const override {
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (places[i]) {
+                static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
+            }
         }
     }
 
@@ -226,6 +245,18 @@ public:
         for (size_t i = 0; i != num_rows; ++i) {
             static_cast<const Derived*>(this)->merge(places[i] + offset, rhs + size_of_data * i,
                                                      arena);
+        }
+    }
+
+    void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                            ConstAggregateDataPtr rhs, Arena* arena,
+                            const size_t num_rows) const override {
+        const auto size_of_data = static_cast<const Derived*>(this)->size_of_data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            if (places[i]) {
+                static_cast<const Derived*>(this)->merge(places[i] + offset, rhs + size_of_data * i,
+                                                         arena);
+            }
         }
     }
 };

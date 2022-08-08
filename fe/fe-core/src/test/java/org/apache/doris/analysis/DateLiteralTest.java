@@ -241,11 +241,24 @@ public class DateLiteralTest {
             Assert.assertEquals(2023, literal.getYear());
             Assert.assertEquals(6, literal.getMonth());
             Assert.assertEquals(1, literal.getDay());
+
+            literal = new DateLiteral("2020-02-29", Type.DATEV2);
+            Assert.assertEquals(2020, literal.getYear());
+            Assert.assertEquals(2, literal.getMonth());
+            Assert.assertEquals(29, literal.getDay());
         } catch (AnalysisException e) {
             e.printStackTrace();
             hasException = true;
         }
         Assert.assertFalse(hasException);
+
+        try {
+            new DateLiteral("2022-02-29", Type.DATEV2);
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
     }
 
     @Test

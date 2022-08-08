@@ -139,12 +139,13 @@ public:
     std::string log_usage(int max_recursive_depth = INT_MAX, int64_t* logged_consumption = nullptr);
 
     // Log the memory usage when memory limit is exceeded and return a status object with
-    // details of the allocation which caused the limit to be exceeded.
+    // msg of the allocation which caused the limit to be exceeded.
     // If 'failed_allocation_size' is greater than zero, logs the allocation size. If
     // 'failed_allocation_size' is zero, nothing about the allocation size is logged.
     // If 'state' is non-nullptr, logs the error to 'state'.
-    Status mem_limit_exceeded(RuntimeState* state, const std::string& details = std::string(),
-                              int64_t failed_allocation = -1, Status failed_alloc = Status::OK());
+    Status mem_limit_exceeded(const std::string& msg, int64_t failed_consume_size);
+    Status mem_limit_exceeded(RuntimeState* state, const std::string& msg = std::string(),
+                              int64_t failed_consume_size = -1);
 
     std::string debug_string() {
         std::stringstream msg;
@@ -203,6 +204,8 @@ private:
 
     // The number of child trackers that have been added.
     std::atomic_size_t _had_child_count = 0;
+
+    bool _print_log_usage = true;
 
     // Lock to protect gc_memory(). This prevents many GCs from occurring at once.
     std::mutex _gc_lock;
@@ -279,12 +282,5 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     }
     return Status::OK();
 }
-
-#define RETURN_LIMIT_EXCEEDED(state, msg, ...)                                                   \
-    return thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->mem_limit_exceeded( \
-            state, msg, ##__VA_ARGS__);
-#define RETURN_IF_LIMIT_EXCEEDED(state, msg)                                                    \
-    if (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->any_limit_exceeded()) \
-        RETURN_LIMIT_EXCEEDED(state, msg);
 
 } // namespace doris

@@ -1167,7 +1167,8 @@ public class CreateMaterializedViewStmtTest {
                 result = Type.LARGEINT;
             }
         };
-        MVColumnItem mvColumnItem = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr);
+        MVColumnItem mvColumnItem = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
+                functionCallExpr);
         Assert.assertEquals(Type.LARGEINT, mvColumnItem.getType());
 
         SlotRef slotRef2 = new SlotRef(new TableName(internalCtl, "db", "table"), "a");
@@ -1183,7 +1184,8 @@ public class CreateMaterializedViewStmtTest {
                 result = Type.BIGINT;
             }
         };
-        MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr2);
+        MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
+                functionCallExpr2);
         Assert.assertEquals(Type.BIGINT, mvColumnItem2.getType());
 
         SlotRef slotRef3 = new SlotRef(new TableName(internalCtl, "db", "table"), "a");
@@ -1199,7 +1201,8 @@ public class CreateMaterializedViewStmtTest {
                 result = Type.VARCHAR;
             }
         };
-        MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr3);
+        MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
+                functionCallExpr3);
         Assert.assertEquals(Type.VARCHAR, mvColumnItem3.getType());
 
         SlotRef slotRef4 = new SlotRef(new TableName(internalCtl, "db", "table"), "a");
@@ -1215,7 +1218,8 @@ public class CreateMaterializedViewStmtTest {
                 result = Type.DOUBLE;
             }
         };
-        MVColumnItem mvColumnItem4 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr4);
+        MVColumnItem mvColumnItem4 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
+                functionCallExpr4);
         Assert.assertEquals(Type.DOUBLE, mvColumnItem4.getType());
 
     }
@@ -1242,7 +1246,8 @@ public class CreateMaterializedViewStmtTest {
                 result = ScalarType.createVarchar(50);
             }
         };
-        MVColumnItem mvColumnItem = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr);
+        MVColumnItem mvColumnItem = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
+                functionCallExpr);
         Assert.assertEquals(50, mvColumnItem.getType().getLength());
 
         SlotRef slotRef2 = new SlotRef(new TableName(internalCtl, "db", "table"), "a");
@@ -1258,7 +1263,8 @@ public class CreateMaterializedViewStmtTest {
                 result = ScalarType.createDecimalType(10, 1);
             }
         };
-        MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr2);
+        MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
+                functionCallExpr2);
         Assert.assertEquals(new Integer(10), mvColumnItem2.getType().getPrecision());
         Assert.assertEquals(1, ((ScalarType) mvColumnItem2.getType()).getScalarScale());
 
@@ -1275,7 +1281,8 @@ public class CreateMaterializedViewStmtTest {
                 result = ScalarType.createChar(5);
             }
         };
-        MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr3);
+        MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
+                functionCallExpr3);
         Assert.assertEquals(5, mvColumnItem3.getType().getLength());
     }
 }

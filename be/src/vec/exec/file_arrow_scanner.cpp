@@ -186,7 +186,11 @@ Status FileArrowScanner::_append_batch_to_block(Block* block) {
         if (slot_desc == nullptr) {
             continue;
         }
-        auto* array = _batch->GetColumnByName(slot_desc->col_name()).get();
+        int file_index = _cur_file_reader->get_cloumn_index(slot_desc->col_name());
+        if (file_index == -1) {
+            continue;
+        }
+        auto* array = _batch->column(file_index).get();
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         RETURN_IF_ERROR(arrow_column_to_doris_column(
                 array, _arrow_batch_cur_idx, column_with_type_and_name.column,
@@ -228,7 +232,7 @@ ArrowReaderWrap* VFileParquetScanner::_new_arrow_reader(FileReader* file_reader,
                                                         int64_t range_start_offset,
                                                         int64_t range_size) {
     return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file,
-                                 range_start_offset, range_size);
+                                 range_start_offset, range_size, false);
 }
 
 void VFileParquetScanner::_init_profiles(RuntimeProfile* profile) {
@@ -252,7 +256,7 @@ ArrowReaderWrap* VFileORCScanner::_new_arrow_reader(FileReader* file_reader, int
                                                     int64_t range_start_offset,
                                                     int64_t range_size) {
     return new ORCReaderWrap(file_reader, batch_size, num_of_columns_from_file, range_start_offset,
-                             range_size);
+                             range_size, false);
 }
 
 } // namespace doris::vectorized

@@ -370,13 +370,4 @@ private:
     SparseLengthValueType* _sparse_count;
 };
 
-// todo(kks): remove this when dpp_sink class was removed
-class HllSetHelper {
-public:
-    static void set_sparse(char* result, const std::map<int, uint8_t>& index_to_value, int& len);
-    static void set_explicit(char* result, const std::set<uint64_t>& hash_value_set, int& len);
-    static void set_full(char* result, const std::map<int, uint8_t>& index_to_value,
-                         const int set_len, int& len);
-};
-
 } // namespace doris
