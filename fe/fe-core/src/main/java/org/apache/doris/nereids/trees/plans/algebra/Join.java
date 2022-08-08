@@ -15,24 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.JoinType;
 
-import java.util.Collections;
-import java.util.List;
+import java.util.Optional;
 
 /**
- * Common interface for logical/physical scan.
+ * Common interface for logical/physical join.
  */
-public interface Scan {
-    List<Expression> getExpressions();
+public interface Join {
+    JoinType getJoinType();
 
-    Table getTable();
-
-    default List<Slot> getOutput() {
-        return Collections.emptyList();
-    }
+    Optional<Expression> getCondition();
 }
