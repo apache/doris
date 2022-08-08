@@ -38,7 +38,6 @@ SchemaScanner::ColumnDesc SchemaSegmentsScanner::_s_tbls_columns[] = {
         {"TABLET_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"ROWSET_NUM_ROWS", TYPE_BIGINT, sizeof(int64_t), true},
         {"TXN_ID", TYPE_BIGINT, sizeof(int64_t), true},
-        {"PARTITION_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"NUM_SEGMENTS", TYPE_BIGINT, sizeof(int64_t), true},
         {"START_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
         {"END_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
@@ -148,44 +147,39 @@ Status SchemaSegmentsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         void* slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = rowset->txn_id();
     }
-    // PARTITION_ID
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[5]->tuple_offset());
-        *(reinterpret_cast<int64_t*>(slot)) = rowset->partition_id();
-    }
     // NUM_SEGMENTS
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[6]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[5]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = rowset->num_segments();
     }
     // START_VERSION
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[6]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = rowset->start_version();
     }
     // END_VERSION
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = rowset->end_version();
     }
     // INDEX_DISK_SIZE
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
         *(reinterpret_cast<size_t*>(slot)) = rowset->index_disk_size();
     }
     // DATA_DISK_SIZE
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[10]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
         *(reinterpret_cast<size_t*>(slot)) = rowset->data_disk_size();
     }
     // SEGMENT_VERSION
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[11]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[10]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = static_cast<int64_t>(segment_footer.version());
     }
     // SEGMENTS_NUM_ROWS
     {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[12]->tuple_offset());
+        void* slot = tuple->get_slot(_tuple_desc->slots()[11]->tuple_offset());
         *(reinterpret_cast<int64_t*>(slot)) = segment_footer.num_rows();
     }
     // ++segment_footer_PB_idx_;

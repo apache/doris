@@ -391,7 +391,6 @@ public class SchemaTable extends Table {
                                     .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("ROWSET_NUM_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("TXN_ID", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("PARTITION_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("NUM_SEGMENTS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("START_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("END_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
