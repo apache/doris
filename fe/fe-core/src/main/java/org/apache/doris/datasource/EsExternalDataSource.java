@@ -44,7 +44,7 @@ import java.util.Map;
 @Getter
 public class EsExternalDataSource extends ExternalDataSource {
 
-    public static final String DEFAULT_DB = "default_es_db";
+    public static final String DEFAULT_DB = "default_db";
     private static final Logger LOG = LogManager.getLogger(EsExternalDataSource.class);
     private static final String PROP_HOSTS = "elasticsearch.hosts";
     private static final String PROP_USERNAME = "elasticsearch.username";
