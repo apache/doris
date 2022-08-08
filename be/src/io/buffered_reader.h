@@ -93,34 +93,34 @@ public:
      * @param offset start offset ot read in stream
      * @param bytes_to_read bytes to read
      */
-    virtual Status read_bytes(const uint8_t** buf, int64_t offset, int64_t* bytes_to_read) = 0;
+    virtual Status read_bytes(const uint8_t** buf, uint64_t offset, size_t* bytes_to_read) = 0;
     /**
      * Save the data address to slice.data, and the slice.size is the bytes to read.
      */
-    virtual Status read_bytes(Slice& slice, int64_t offset) = 0;
+    virtual Status read_bytes(Slice& slice, uint64_t offset) = 0;
     virtual ~BufferedStreamReader() = default;
 };
 
 class BufferedFileStreamReader : public BufferedStreamReader {
 public:
-    BufferedFileStreamReader(FileReader* file, int64_t offset, int64_t length);
+    BufferedFileStreamReader(FileReader* file, uint64_t offset, uint64_t length);
     ~BufferedFileStreamReader() override = default;
 
-    Status read_bytes(const uint8_t** buf, int64_t stream_offset, int64_t* bytes_to_read) override;
-    Status read_bytes(Slice& slice, int64_t stream_offset) override;
+    Status read_bytes(const uint8_t** buf, uint64_t offset, size_t* bytes_to_read) override;
+    Status read_bytes(Slice& slice, uint64_t offset) override;
 
 private:
     std::unique_ptr<uint8_t[]> _buf;
     FileReader* _file;
-    int64_t _file_start_offset;
-    int64_t _file_end_offset;
+    uint64_t _file_start_offset;
+    uint64_t _file_end_offset;
 
     int64_t _file_position = -1;
-    int64_t _buf_start_offset = 0;
-    int64_t _buf_end_offset = 0;
-    int64_t _buf_size = 0;
+    uint64_t _buf_start_offset = 0;
+    uint64_t _buf_end_offset = 0;
+    size_t _buf_size = 0;
 
-    Status seek(int64_t position);
+    Status seek(uint64_t position);
 };
 
 } // namespace doris
