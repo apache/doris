@@ -1559,24 +1559,24 @@ public class SingleNodePlanner {
                 // Conjuncts will be assigned to the lowest outer join node or non-outer join's leaf children.
                 for (int i = select.getTableRefs().size(); i > 1; i--) {
                     final TableRef joinInnerChild = select.getTableRefs().get(i - 1);
+                    final TableRef joinOuterChild = select.getTableRefs().get(i - 2);
                     if (!joinInnerChild.getJoinOp().isOuterJoin()) {
-                        // lowest join is't outer join.
+                        // lowest join isn't outer join.
                         if (i == 2) {
                             // Register constant for inner.
                             viewAnalyzer.registerConjuncts(newConjuncts, joinInnerChild.getDesc().getId().asList());
                             // Register constant for outer.
-                            final TableRef joinOuterChild = select.getTableRefs().get(0);
                             final List<Expr> cloneConjuncts = cloneExprs(newConjuncts);
                             viewAnalyzer.registerConjuncts(cloneConjuncts, joinOuterChild.getDesc().getId().asList());
                         }
                         continue;
                     }
-                    viewAnalyzer.registerOnClauseConjuncts(newConjuncts, joinInnerChild);
+                    viewAnalyzer.registerConjuncts(newConjuncts, joinOuterChild.getId());
                     break;
                 }
             } else {
                 Preconditions.checkArgument(select.getTableRefs().size() == 1);
-                viewAnalyzer.registerConjuncts(newConjuncts, select.getTableRefs().get(0).getDesc().getId().asList());
+                viewAnalyzer.registerConjuncts(newConjuncts, select.getTableRefs().get(0).getId());
             }
         } else {
             Preconditions.checkArgument(stmt instanceof SetOperationStmt);
