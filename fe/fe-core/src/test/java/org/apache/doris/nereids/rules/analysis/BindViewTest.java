@@ -36,9 +36,13 @@ import java.util.List;
 
 public class BindViewTest extends TestWithFeService {
     private final List<String> testSql = Lists.newArrayList(
-            "SELECT * FROM V1",
-            "SELECT Y.ID1 FROM (SELECT * FROM V3) Y"
+            "SELECT * FROM T1 JOIN (SELECT * FROM V1) T ON T1.ID1 = T.ID1",
+            "SELECT * FROM T2 JOIN (SELECT * FROM V2) T ON T1.ID2 = T.ID2",
+            "SELECT Y.ID1 FROM (SELECT * FROM V3) Y",
+            "SELECT * FROM (SELECT * FROM V1 JOIN V2 ON V1.ID1 = V2.ID2) X JOIN (SELECT * FROM V1 JOIN V3 ON V1.ID1 = V3.ID2) Y ON X.ID1 = Y.ID3"
     );
+
+    private final int currentTestCaseId = 3;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -46,47 +50,56 @@ public class BindViewTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
         createTables(
                 "CREATE TABLE IF NOT EXISTS T1 (\n"
-                        + "    ID bigint,\n"
-                        + "    SCORE bigint\n"
+                        + "    ID1 bigint,\n"
+                        + "    SCORE1 bigint\n"
                         + ")\n"
-                        + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "DUPLICATE KEY(ID1)\n"
+                        + "DISTRIBUTED BY HASH(ID1) BUCKETS 1\n"
                         + "PROPERTIES (\n"
                         + "  \"replication_num\" = \"1\"\n"
                         + ")\n",
                 "CREATE TABLE IF NOT EXISTS T2 (\n"
-                        + "    ID bigint,\n"
-                        + "    SCORE bigint\n"
+                        + "    ID2 bigint,\n"
+                        + "    SCORE2 bigint\n"
                         + ")\n"
-                        + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "DUPLICATE KEY(ID2)\n"
+                        + "DISTRIBUTED BY HASH(ID2) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "  \"replication_num\" = \"1\"\n"
+                        + ")\n",
+                "CREATE TABLE IF NOT EXISTS T3 (\n"
+                        + "    ID3 bigint,\n"
+                        + "    SCORE3 bigint\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(ID3)\n"
+                        + "DISTRIBUTED BY HASH(ID3) BUCKETS 1\n"
                         + "PROPERTIES (\n"
                         + "  \"replication_num\" = \"1\"\n"
                         + ")\n"
         );
-        createView("CREATE VIEW V1 AS SELECT ID FROM T1");
-        createView("CREATE VIEW V2 AS SELECT ID FROM T2");
-        createView("CREATE VIEW V3 AS SELECT SUM(A.ID) ID1, B.SS ID2 FROM V1 A, (SELECT SUM(X.ID) * 2 SS FROM V2 X GROUP BY X.ID) B GROUP BY B.SS");
+        createView("CREATE VIEW V1 AS SELECT * FROM T1");
+        createView("CREATE VIEW V2 AS SELECT * FROM T2");
+        createView("CREATE VIEW V3 AS SELECT * FROM T3 JOIN (SELECT * FROM V2) T ON T3.ID3 = T.ID2");
     }
 
     @Test
     public void testParseView() {
-        System.out.println(parse(testSql.get(0)).treeString());
+        System.out.println(parse(testSql.get(currentTestCaseId)).treeString());
     }
 
     @Test
     public void testAnalyzeView() {
-        System.out.println(analyze(parse(testSql.get(0))).treeString());
+        System.out.println(analyze(parse(testSql.get(currentTestCaseId))).treeString());
     }
 
     @Test
     public void testPlanView() throws AnalysisException {
-        System.out.println(plan(parse(testSql.get(0))).treeString());
+        System.out.println(plan(parse(testSql.get(currentTestCaseId))).treeString());
     }
 
     @Test
     public void testTranslate() throws AnalysisException {
-        System.out.println(translate(plan(parse(testSql.get(0)))).getPlanRoot().getPlanTreeExplainStr());
+        System.out.println(translate(plan(parse(testSql.get(currentTestCaseId)))).getPlanRoot().getPlanTreeExplainStr());
     }
 
     private LogicalPlan parse(String sql) {
