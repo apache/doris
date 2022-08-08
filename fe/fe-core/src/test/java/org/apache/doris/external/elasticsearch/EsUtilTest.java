@@ -99,7 +99,6 @@ public class EsUtilTest extends EsTestCase {
         Assert.assertEquals("k2", searchContext1.docValueFieldsContext().get("k2"));
     }
 
-
     @Test
     public void testWorkFlow(@Injectable EsRestClient client) throws Exception {
         EsTable table = fakeEsTable("fake", "test", "doc", columns);
