@@ -132,6 +132,24 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testOneAndTwo() throws AnalysisException {
+        PlanFragment root1 = new PhysicalPlanTranslator().translatePlan(new NereidsPlanner(connectContext).plan(
+                parser.parseSingle(testSql.get(0)),
+                new PhysicalProperties(),
+                connectContext),
+                new PlanTranslatorContext());
+        PlanFragment root2 = new PhysicalPlanTranslator().translatePlan(new NereidsPlanner(connectContext).plan(
+                parser.parseSingle(testSql.get(1)),
+                new PhysicalProperties(),
+                connectContext),
+                new PlanTranslatorContext());
+
+        System.out.println(root1.getPlanRoot().getExplainString());
+        System.out.println(root2.getPlanRoot().getExplainString());
+        System.out.println(root1.getPlanRoot().getExplainString().equals(root2.getPlanRoot().getExplainString()));
+    }
+
     private void testPlanCase(String sql) throws AnalysisException {
         PhysicalPlan plan = new NereidsPlanner(connectContext).plan(
                 parser.parseSingle(sql),

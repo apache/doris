@@ -24,19 +24,19 @@ suite("sub_query_alias") {
         SET enable_nereids_planner=true
     """
 
-    sql """
+    qt_select """
         select t.c_custkey, t.lo_custkey from (select * from customer, lineorder where customer.c_custkey = lineorder.lo_custkey) t;
     """
 
-    sql """
+    qt_select """
         select c.c_custkey, l.lo_custkey from customer c, lineorder l where c.c_custkey = l.lo_custkey;
     """
 
-    sql """
+    qt_select """
         select t.c_custkey, t.lo_custkey from (select * from customer c, lineorder l where c.c_custkey = l.lo_custkey) t;
     """
 
-    sql """
+    qt_select """
         select * from customer c join customer c1 on c.c_custkey = c1.c_custkey;
     """
 }
