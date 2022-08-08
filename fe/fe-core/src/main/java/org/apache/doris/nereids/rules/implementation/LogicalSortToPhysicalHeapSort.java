@@ -29,8 +29,6 @@ public class LogicalSortToPhysicalHeapSort extends OneImplementationRuleFactory 
     public Rule build() {
         return logicalSort().then(sort -> new PhysicalHeapSort<>(
                 sort.getOrderKeys(),
-                sort.getLimit(),
-                sort.getOffset(),
                 sort.getLogicalProperties(),
                 sort.child())
             ).toRule(RuleType.LOGICAL_SORT_TO_PHYSICAL_HEAP_SORT_RULE);

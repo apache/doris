@@ -78,13 +78,13 @@ Status RowCursor::_init(const std::vector<TabletColumn>& schema,
     return _init(columns);
 }
 
-Status RowCursor::_init_scan_key(const TabletSchema& schema,
+Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
                                  const std::vector<std::string>& scan_keys) {
     // NOTE: cid equal with column index
     // Hyperloglog cannot be key, no need to handle it
     _variable_len = 0;
     for (auto cid : _schema->column_ids()) {
-        const TabletColumn& column = schema.column(cid);
+        const TabletColumn& column = schema->column(cid);
         FieldType type = column.type();
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
             _variable_len += scan_keys[cid].length();
@@ -101,7 +101,7 @@ Status RowCursor::_init_scan_key(const TabletSchema& schema,
     char* variable_ptr = _variable_buf;
     char** long_text_ptr = _long_text_buf;
     for (auto cid : _schema->column_ids()) {
-        const TabletColumn& column = schema.column(cid);
+        const TabletColumn& column = schema->column(cid);
         fixed_ptr = _fixed_buf + _schema->column_offset(cid);
         FieldType type = column.type();
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
@@ -126,20 +126,20 @@ Status RowCursor::_init_scan_key(const TabletSchema& schema,
     return Status::OK();
 }
 
-Status RowCursor::init(const TabletSchema& schema) {
-    return init(schema.columns(), schema.num_columns());
+Status RowCursor::init(TabletSchemaSPtr schema) {
+    return init(schema->columns(), schema->num_columns());
 }
 
 Status RowCursor::init(const std::vector<TabletColumn>& schema) {
     return init(schema, schema.size());
 }
 
-Status RowCursor::init(const TabletSchema& schema, size_t column_count) {
-    if (column_count > schema.num_columns()) {
+Status RowCursor::init(TabletSchemaSPtr schema, size_t column_count) {
+    if (column_count > schema->num_columns()) {
         LOG(WARNING)
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << column_count
-                << ", schema.num_columns=" << schema.num_columns();
+                << ", schema.num_columns=" << schema->num_columns();
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
@@ -147,7 +147,7 @@ Status RowCursor::init(const TabletSchema& schema, size_t column_count) {
     for (size_t i = 0; i < column_count; ++i) {
         columns.push_back(i);
     }
-    RETURN_NOT_OK(_init(schema.columns(), columns));
+    RETURN_NOT_OK(_init(schema->columns(), columns));
     return Status::OK();
 }
 
@@ -167,32 +167,31 @@ Status RowCursor::init(const std::vector<TabletColumn>& schema, size_t column_co
     return Status::OK();
 }
 
-Status RowCursor::init(const TabletSchema& schema, const std::vector<uint32_t>& columns) {
-    RETURN_NOT_OK(_init(schema.columns(), columns));
+Status RowCursor::init(TabletSchemaSPtr schema, const std::vector<uint32_t>& columns) {
+    RETURN_NOT_OK(_init(schema->columns(), columns));
     return Status::OK();
 }
 
-Status RowCursor::init_scan_key(const TabletSchema& schema,
+Status RowCursor::init_scan_key(TabletSchemaSPtr schema,
                                 const std::vector<std::string>& scan_keys) {
     size_t scan_key_size = scan_keys.size();
-    if (scan_key_size > schema.num_columns()) {
+    if (scan_key_size > schema->num_columns()) {
         LOG(WARNING)
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << scan_key_size
-                << ", schema.num_columns=" << schema.num_columns();
+                << ", schema.num_columns=" << schema->num_columns();
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     std::vector<uint32_t> columns(scan_key_size);
     std::iota(columns.begin(), columns.end(), 0);
 
-    RETURN_NOT_OK(_init(schema.columns(), columns));
+    RETURN_NOT_OK(_init(schema->columns(), columns));
 
     return _init_scan_key(schema, scan_keys);
 }
 
-Status RowCursor::init_scan_key(const TabletSchema& schema,
-                                const std::vector<std::string>& scan_keys,
+Status RowCursor::init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& scan_keys,
                                 const std::shared_ptr<Schema>& shared_schema) {
     size_t scan_key_size = scan_keys.size();
 
@@ -206,8 +205,8 @@ Status RowCursor::init_scan_key(const TabletSchema& schema,
     return _init_scan_key(schema, scan_keys);
 }
 
-// TODO(yingchun): parameter 'const TabletSchema& schema' is not used
-Status RowCursor::allocate_memory_for_string_type(const TabletSchema& schema) {
+// TODO(yingchun): parameter 'TabletSchemaSPtr  schema' is not used
+Status RowCursor::allocate_memory_for_string_type(TabletSchemaSPtr schema) {
     // allocate memory for string type(char, varchar, hll, array)
     // The memory allocated in this function is used in aggregate and copy function
     if (_variable_len == 0 && _string_field_count == 0) {

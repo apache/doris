@@ -262,6 +262,11 @@ CONF_mInt64(base_compaction_num_cumulative_deltas, "5");
 CONF_mDouble(base_cumulative_delta_ratio, "0.3");
 CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
+CONF_Bool(enable_base_compaction_idle_sched, "true");
+
+// dup key not compaction big files
+CONF_Bool(enable_dup_key_base_compaction_skip_big_file, "true");
+CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
 // config the cumulative compaction policy
 // Valid configs: num_based, size_based

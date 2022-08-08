@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_delete", "delete") {
+suite("test_delete") {
     def tableName = "delete_regression_test"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

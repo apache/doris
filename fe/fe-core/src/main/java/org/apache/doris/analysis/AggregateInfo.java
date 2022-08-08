@@ -22,7 +22,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.MoreObjects;
@@ -113,8 +115,7 @@ public final class AggregateInfo extends AggregateInfoBase {
     private ArrayList<Integer> materializedAggregateSlots = Lists.newArrayList();
     // if true, this AggregateInfo is the first phase of a 2-phase DISTINCT computation
     private boolean isDistinctAgg = false;
-    // If true, the sql has MultiDistinct
-    private boolean isMultiDistinct;
+    private boolean isUsingSetForDistinct;
 
     // the multi distinct's begin pos  and end pos in groupby exprs
     private ArrayList<Integer> firstIdx = Lists.newArrayList();
@@ -127,10 +128,10 @@ public final class AggregateInfo extends AggregateInfoBase {
     }
 
     private AggregateInfo(ArrayList<Expr> groupingExprs,
-                          ArrayList<FunctionCallExpr> aggExprs, AggPhase aggPhase, boolean isMultiDistinct)  {
+                          ArrayList<FunctionCallExpr> aggExprs, AggPhase aggPhase, boolean isUsingSetForDistinct)  {
         super(groupingExprs, aggExprs);
         this.aggPhase = aggPhase;
-        this.isMultiDistinct = isMultiDistinct;
+        this.isUsingSetForDistinct = isUsingSetForDistinct;
     }
 
     /**
@@ -197,11 +198,11 @@ public final class AggregateInfo extends AggregateInfoBase {
         // 1: if aggExprs don't have distinct or have multi distinct , create aggregate info for
         // one stage aggregation.
         // 2: if aggExprs have one distinct , create aggregate info for two stage aggregation
-        boolean isMultiDistinct = estimateIfContainsMultiDistinct(distinctAggExprs);
-        if (distinctAggExprs.isEmpty() || isMultiDistinct) {
+        boolean isUsingSetForDistinct = estimateIfUsingSetForDistinct(distinctAggExprs);
+        if (distinctAggExprs.isEmpty() || isUsingSetForDistinct) {
             // It is used to map new aggr expr to old expr to help create an external
             // reference to the aggregation node tuple
-            result.setIsMultiDistinct(isMultiDistinct);
+            result.setIsUsingSetForDistinct(isUsingSetForDistinct);
             if (tupleDesc == null) {
                 result.createTupleDescs(analyzer);
                 result.createSmaps(analyzer);
@@ -239,6 +240,26 @@ public final class AggregateInfo extends AggregateInfoBase {
             result.materializedSlots.add(i);
         }
         return result;
+    }
+
+
+    // note(wb): in some cases, using hashset for distinct is better
+    public static boolean isSetUsingSetForDistinct(List<FunctionCallExpr> distinctAggExprs) {
+        boolean isSetUsingSetForDistinct = false;
+        // for vectorized execution, we force it to using hash set to execution
+        if (distinctAggExprs.size() == 1
+                && distinctAggExprs.get(0).getFnParams().isDistinct()
+                && VectorizedUtil.isVectorized()
+                && ConnectContext.get().getSessionVariable().enableSingleDistinctColumnOpt()) {
+            isSetUsingSetForDistinct = true;
+        }
+        return isSetUsingSetForDistinct;
+    }
+
+    public static boolean estimateIfUsingSetForDistinct(List<FunctionCallExpr> distinctAggExprs)
+            throws AnalysisException {
+        return estimateIfContainsMultiDistinct(distinctAggExprs)
+                || isSetUsingSetForDistinct(distinctAggExprs);
     }
 
     /**
@@ -283,6 +304,7 @@ public final class AggregateInfo extends AggregateInfoBase {
                 hasMultiDistinct = true;
             }
         }
+
         return hasMultiDistinct;
     }
 
@@ -340,11 +362,11 @@ public final class AggregateInfo extends AggregateInfoBase {
             }
         }
 
-        this.isMultiDistinct = estimateIfContainsMultiDistinct(distinctAggExprs);
+        this.isUsingSetForDistinct = estimateIfUsingSetForDistinct(distinctAggExprs);
         isDistinctAgg = true;
 
         // add DISTINCT parameters to grouping exprs
-        if (!isMultiDistinct) {
+        if (!isUsingSetForDistinct) {
             groupingExprs.addAll(expr0Children);
         }
 
@@ -399,12 +421,12 @@ public final class AggregateInfo extends AggregateInfoBase {
                 && !secondPhaseDistinctAggInfo.getAggregateExprs().isEmpty());
     }
 
-    public void setIsMultiDistinct(boolean value) {
-        this.isMultiDistinct = value;
+    public void setIsUsingSetForDistinct(boolean value) {
+        this.isUsingSetForDistinct = value;
     }
 
-    public boolean isMultiDistinct() {
-        return isMultiDistinct;
+    public boolean isUsingSetForDistinct() {
+        return isUsingSetForDistinct;
     }
 
     public AggregateInfo getSecondPhaseDistinctAggInfo() {
@@ -547,7 +569,7 @@ public final class AggregateInfo extends AggregateInfoBase {
 
         AggPhase aggPhase =
                 (this.aggPhase == AggPhase.FIRST) ? AggPhase.FIRST_MERGE : AggPhase.SECOND_MERGE;
-        mergeAggInfo = new AggregateInfo(groupingExprs, aggExprs, aggPhase, isMultiDistinct);
+        mergeAggInfo = new AggregateInfo(groupingExprs, aggExprs, aggPhase, isUsingSetForDistinct);
         mergeAggInfo.intermediateTupleDesc = intermediateTupleDesc;
         mergeAggInfo.outputTupleDesc = outputTupleDesc;
         mergeAggInfo.intermediateTupleSmap = intermediateTupleSmap;
@@ -616,7 +638,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         for (FunctionCallExpr inputExpr : distinctAggExprs) {
             Preconditions.checkState(inputExpr.isAggregateFunction());
             FunctionCallExpr aggExpr = null;
-            if (!isMultiDistinct) {
+            if (!isUsingSetForDistinct) {
                 if (inputExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
                     // COUNT(DISTINCT ...) ->
                     // COUNT(IF(IsNull(<agg slot 1>), NULL, IF(IsNull(<agg slot 2>), NULL, ...)))
@@ -682,7 +704,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         ArrayList<Expr> substGroupingExprs =
                 Expr.substituteList(origGroupingExprs, intermediateTupleSmap, analyzer, false);
         secondPhaseDistinctAggInfo =
-                new AggregateInfo(substGroupingExprs, secondPhaseAggExprs, AggPhase.SECOND, isMultiDistinct);
+                new AggregateInfo(substGroupingExprs, secondPhaseAggExprs, AggPhase.SECOND, isUsingSetForDistinct);
         secondPhaseDistinctAggInfo.createTupleDescs(analyzer);
         secondPhaseDistinctAggInfo.createSecondPhaseAggSMap(this, distinctAggExprs);
         secondPhaseDistinctAggInfo.createMergeAggInfo(analyzer);
@@ -699,7 +721,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         ArrayList<SlotDescriptor> slotDescs = outputTupleDesc.getSlots();
 
         int numDistinctParams = 0;
-        if (!isMultiDistinct) {
+        if (!isUsingSetForDistinct) {
             numDistinctParams = distinctAggExprs.get(0).getChildren().size();
         } else {
             for (int i = 0; i < distinctAggExprs.size(); i++) {
@@ -849,7 +871,7 @@ public final class AggregateInfo extends AggregateInfoBase {
                     outputTupleDesc.getSlots().get(groupExprsSize + i);
             SlotDescriptor intermediateSlotDesc =
                     intermediateTupleDesc.getSlots().get(groupExprsSize + i);
-            if (isDistinctAgg || isMultiDistinct) {
+            if (isDistinctAgg || isUsingSetForDistinct) {
                 slotDesc.setIsMaterialized(true);
                 intermediateSlotDesc.setIsMaterialized(true);
             }

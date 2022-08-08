@@ -550,10 +550,10 @@ Status Conditions::append_condition(const TCondition& tcond) {
     }
 
     CondColumn* cond_col = nullptr;
-    auto it = _columns.find(index);
+    auto it = _columns.find(column.unique_id());
     if (it == _columns.end()) {
         cond_col = new CondColumn(*_schema, index);
-        _columns[index] = cond_col;
+        _columns[column.unique_id()] = cond_col;
     } else {
         cond_col = it->second;
     }
@@ -561,8 +561,8 @@ Status Conditions::append_condition(const TCondition& tcond) {
     return cond_col->add_cond(tcond, column);
 }
 
-CondColumn* Conditions::get_column(int32_t cid) const {
-    auto iter = _columns.find(cid);
+CondColumn* Conditions::get_column(int32_t uid) const {
+    auto iter = _columns.find(uid);
     if (iter != _columns.end()) {
         return iter->second;
     }

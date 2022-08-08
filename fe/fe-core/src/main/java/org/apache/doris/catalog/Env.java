@@ -1536,7 +1536,7 @@ public class Env {
                 MetaHelper.complete(filename, dir);
             } else {
                 LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
-                         localImageVersion, version);
+                        localImageVersion, version);
             }
         } catch (Exception e) {
             throw new IOException(e);
@@ -2890,6 +2890,12 @@ public class Env {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
+            // show lightSchemaChange only when it is set true
+            if (olapTable.getUseLightSchemaChange()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_USE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
+                sb.append(olapTable.getUseLightSchemaChange()).append("\"");
+            }
+
             // storage policy
             if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
@@ -2899,7 +2905,7 @@ public class Env {
             // sequence type
             if (olapTable.hasSequenceCol()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
-                    + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
+                        + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
                 sb.append(olapTable.getSequenceType().toString()).append("\"");
             }
 
@@ -4118,7 +4124,7 @@ public class Env {
                     olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
                     // storage policy re-use modify in memory
                     Optional.ofNullable(tableProperty.getStoragePolicy()).filter(p -> !p.isEmpty())
-                        .ifPresent(p -> olapTable.getPartitionInfo().setStoragePolicy(partition.getId(), p));
+                            .ifPresent(p -> olapTable.getPartitionInfo().setStoragePolicy(partition.getId(), p));
                 }
             }
         } finally {
@@ -5003,7 +5009,7 @@ public class Env {
             Optional<Table> table = db.getTable(tableId);
             if (table.isPresent()) {
                 return new TableName(InternalDataSource.INTERNAL_DS_NAME,
-                                    db.getFullName(), table.get().getName());
+                        db.getFullName(), table.get().getName());
             }
         }
         return null;

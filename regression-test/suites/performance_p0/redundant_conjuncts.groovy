@@ -14,7 +14,32 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_bloom_filter", "bloom_filter") {
-    // todo: test bloom filter, such alter table bloom filter, create table with bloom filter
-    sql "SHOW ALTER TABLE COLUMN"
+
+suite("redundant_conjuncts") {
+    sql """
+        SET enable_vectorized_engine = true;
+    """
+
+    sql """
+    DROP TABLE IF EXISTS redundant_conjuncts;
+    """
+    sql """
+    CREATE TABLE `redundant_conjuncts` (
+      `k1` int(11) NULL COMMENT "",
+      `v1` int(11) NULL COMMENT ""
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`, `v1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+    PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    
+    qt_redundant_conjuncts """
+    EXPLAIN SELECT v1 FROM redundant_conjuncts WHERE k1 = 1 AND k1 = 1;
+    """
+
+    qt_redundant_conjuncts_gnerated_by_extract_common_filter """
+    EXPLAIN SELECT v1 FROM redundant_conjuncts WHERE k1 = 1 OR k1 = 2;
+    """
 }
