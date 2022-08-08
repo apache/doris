@@ -32,7 +32,11 @@ BACKUP
 
 ### Description
 
-该语句用于备份指定数据库下的数据。该命令为异步操作。提交成功后，需通过 SHOW BACKUP 命令查看进度。仅支持备份 OLAP 类型的表。
+该语句用于备份指定数据库下的数据。该命令为异步操作。
+
+仅 root 或 superuser 用户可以创建仓库。
+
+提交成功后，需通过 SHOW BACKUP 命令查看进度。仅支持备份 OLAP 类型的表。
 
 语法：
 
@@ -85,6 +89,65 @@ BACKUP SNAPSHOT example_db.snapshot_label3
 TO example_repo
 EXCLUDE (example_tbl);
 ```
+
+4. 创建名为 hdfs_repo 的仓库，依赖 Baidu hdfs broker "hdfs_broker"，数据根目录为：hdfs://hadoop-name-node:54310/path/to/repo/
+
+```
+CREATE REPOSITORY `hdfs_repo`
+WITH BROKER `hdfs_broker`
+ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
+PROPERTIES
+(
+    "username" = "user",
+    "password" = "password"
+);
+```
+
+5. 创建名为 s3_repo 的仓库，直接链接云存储，而不通过broker.
+
+```
+CREATE REPOSITORY `s3_repo`
+WITH S3
+ON LOCATION "s3://s3-repo"
+PROPERTIES
+(
+    "AWS_ENDPOINT" = "http://s3-REGION.amazonaws.com",
+    "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
+    "AWS_SECRET_KEY"="AWS_SECRET_KEY",
+    "AWS_REGION" = "REGION"
+);
+```
+
+6. 创建名为 hdfs_repo 的仓库，直接链接HDFS，而不通过broker.
+
+```
+CREATE REPOSITORY `hdfs_repo`
+WITH hdfs
+ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
+PROPERTIES
+(
+    "fs.defaultFS"="hdfs://hadoop-name-node:54310",
+    "hadoop.username"="user"
+);
+```
+
+7. 创建名为 minio_repo 的仓库，直接通过 s3 协议链接 minio.
+
+```
+CREATE REPOSITORY `minio_repo`
+WITH S3
+ON LOCATION "s3://minio_repo"
+PROPERTIES
+(
+    "AWS_ENDPOINT" = "http://minio.com",
+    "AWS_ACCESS_KEY" = "MINIO_USER",
+    "AWS_SECRET_KEY"="MINIO_PASSWORD",
+    "AWS_REGION" = "REGION",
+    "use_path_style" = "true"
+);
+```
+
+
 
 ### Keywords
 
