@@ -43,7 +43,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
     private final NereidsParser parser = new NereidsParser();
 
     private final List<String> testSql = Lists.newArrayList(
-            //"SELECT * FROM (SELECT * FROM T1 T) T2",
+            "SELECT * FROM (SELECT * FROM T1 T) T2",
             "SELECT * FROM T1 TT1 JOIN (SELECT * FROM T2 TT2) T ON TT1.ID = T.ID",
             "SELECT * FROM T1 TT1 JOIN (SELECT TT2.ID FROM T2 TT2) T ON TT1.ID = T.ID",
             "SELECT T.ID FROM T1 T",

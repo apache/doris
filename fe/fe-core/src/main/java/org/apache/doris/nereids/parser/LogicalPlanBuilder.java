@@ -206,10 +206,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // TODO: support on row relation
             LogicalPlan relation = withRelation(Optional.ofNullable(ctx.fromClause()));
             return withSelectQuerySpecification(
-                    ctx, relation,
-                    ctx.selectClause(),
-                    Optional.ofNullable(ctx.whereClause()),
-                    Optional.ofNullable(ctx.aggClause())
+                ctx, relation,
+                ctx.selectClause(),
+                Optional.ofNullable(ctx.whereClause()),
+                Optional.ofNullable(ctx.aggClause())
             );
         });
     }
@@ -317,7 +317,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     return new NullSafeEqual(left, right);
                 default:
                     throw new IllegalStateException("Unsupported comparison expression: "
-                            + operator.getSymbol().getText());
+                        + operator.getSymbol().getText());
             }
         });
     }
@@ -433,11 +433,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create a value based [[CaseWhen]] expression. This has the following SQL form:
      * {{{
-     * CASE [expression]
-     * WHEN [value] THEN [expression]
-     * ...
-     * ELSE [expression]
-     * END
+     *   CASE [expression]
+     *    WHEN [value] THEN [expression]
+     *    ...
+     *    ELSE [expression]
+     *   END
      * }}}
      */
     @Override
@@ -455,11 +455,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create a condition based [[CaseWhen]] expression. This has the following SQL syntax:
      * {{{
-     * CASE
-     * WHEN [predicate] THEN [expression]
-     * ...
-     * ELSE [expression]
-     * END
+     *   CASE
+     *    WHEN [predicate] THEN [expression]
+     *    ...
+     *    ELSE [expression]
+     *   END
      * }}}
      *
      * @param context the parse tree
@@ -622,7 +622,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
             // build left deep join tree
-            left = left == null ? right : new LogicalJoin<>(JoinType.INNER_JOIN, Optional.empty(), left, right);
+            left = left == null ? right : new LogicalJoin<>(JoinType.CROSS_JOIN, Optional.empty(), left, right);
             left = withJoinRelations(left, relation);
             // TODO: pivot and lateral view
         }
@@ -641,8 +641,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public List<String> visitMultipartIdentifier(MultipartIdentifierContext ctx) {
         return ctx.parts.stream()
-                .map(RuleContext::getText)
-                .collect(ImmutableList.toImmutableList());
+            .map(RuleContext::getText)
+            .collect(ImmutableList.toImmutableList());
     }
 
     /**
@@ -659,8 +659,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public List<String> visitIdentifierSeq(IdentifierSeqContext ctx) {
         return ctx.ident.stream()
-                .map(RuleContext::getText)
-                .collect(ImmutableList.toImmutableList());
+            .map(RuleContext::getText)
+            .collect(ImmutableList.toImmutableList());
     }
 
     /**
@@ -682,9 +682,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private <T> List<T> visit(List<? extends ParserRuleContext> contexts, Class<T> clazz) {
         return contexts.stream()
-                .map(this::visit)
-                .map(clazz::cast)
-                .collect(ImmutableList.toImmutableList());
+            .map(this::visit)
+            .map(clazz::cast)
+            .collect(ImmutableList.toImmutableList());
     }
 
     private LogicalPlan plan(ParserRuleContext tree) {
@@ -815,7 +815,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withProjection(LogicalPlan input, SelectClauseContext selectCtx,
-            Optional<AggClauseContext> aggCtx) {
+                                       Optional<AggClauseContext> aggCtx) {
         return ParserUtils.withOrigin(selectCtx, () -> {
             // TODO: skip if havingClause exists
             if (aggCtx.isPresent()) {
@@ -834,7 +834,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withAggregate(LogicalPlan input, SelectClauseContext selectCtx,
-            Optional<AggClauseContext> aggCtx) {
+                                      Optional<AggClauseContext> aggCtx) {
         return input.optionalMap(aggCtx, () -> {
             List<Expression> groupByExpressions = visit(aggCtx.get().groupByItem().expression(), Expression.class);
             List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
@@ -862,14 +862,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     break;
                 case DorisParser.LIKE:
                     outExpression = new Like(
-                            valueExpression,
-                            getExpression(ctx.pattern)
+                        valueExpression,
+                        getExpression(ctx.pattern)
                     );
                     break;
                 case DorisParser.REGEXP:
                     outExpression = new Regexp(
-                            valueExpression,
-                            getExpression(ctx.pattern)
+                        valueExpression,
+                        getExpression(ctx.pattern)
                     );
                     break;
                 case DorisParser.IN:
