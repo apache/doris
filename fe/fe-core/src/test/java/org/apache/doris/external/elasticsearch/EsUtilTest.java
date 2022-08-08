@@ -264,56 +264,59 @@ public class EsUtilTest extends EsTestCase {
     public void testEs6Mapping() throws IOException, URISyntaxException {
         JSONObject testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_aliases_mapping.json"),
                 "doc");
-        Assertions.assertEquals(
-                "{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
-                testAliases.toJSONString());
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testAliases.toJSONString());
         JSONObject testAliasesNoType = EsUtil.getMappingProps("test",
                 loadJsonFromFile("data/es/es6_aliases_mapping.json"), null);
-        Assertions.assertEquals(
-                "{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
                 testAliasesNoType.toJSONString());
         JSONObject testIndex = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_index_mapping.json"),
                 "doc");
-        Assertions.assertEquals(
-                "{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
-                testIndex.toJSONString());
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
     }
 
     @Test
     public void testEs7Mapping() throws IOException, URISyntaxException {
         JSONObject testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es7_aliases_mapping.json"),
                 null);
-        Assertions.assertEquals(
-                "{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
-                testAliases.toJSONString());
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testAliases.toJSONString());
         JSONObject testAliasesErrorType = EsUtil.getMappingProps("test",
                 loadJsonFromFile("data/es/es7_aliases_mapping.json"), "doc");
-        Assertions.assertEquals(
-                "{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
                 testAliasesErrorType.toJSONString());
         JSONObject testIndex = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es7_index_mapping.json"),
                 "doc");
-        Assertions.assertEquals(
-                "{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
-                testIndex.toJSONString());
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
     }
 
     @Test
     public void testEs8Mapping() throws IOException, URISyntaxException {
         JSONObject testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_aliases_mapping.json"),
                 null);
-        Assertions.assertEquals(
-                "{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
-                testAliases.toJSONString());
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testAliases.toJSONString());
         JSONObject testAliasesErrorType = EsUtil.getMappingProps("test",
                 loadJsonFromFile("data/es/es8_aliases_mapping.json"), "doc");
-        Assertions.assertEquals(
-                "{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
                 testAliasesErrorType.toJSONString());
         JSONObject testIndex = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_index_mapping.json"),
                 "doc");
-        Assertions.assertEquals(
-                "{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
-                testIndex.toJSONString());
+        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
+                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
     }
 }
