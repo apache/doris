@@ -300,10 +300,13 @@ public class CastExpr extends Expr {
                         searchDesc, Function.CompareMode.IS_IDENTICAL);
             }
         } else if (type.isArrayType()) {
-            fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
+            // only support char/varchar/string cast to array for origin exec engine.
+            if (childType.isStringType()) {
+                fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
                     type, Function.NullableMode.ALWAYS_NULLABLE,
                     Lists.newArrayList(Type.VARCHAR), false,
                     "doris::CastFunctions::cast_to_array_val", null, null, true);
+            }
         }
 
         if (fn == null) {
