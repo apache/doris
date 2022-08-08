@@ -18,6 +18,7 @@
 suite("test_clean_label") {
     // define a sql table
     def testTable = "tbl_test_clean_label"
+    def dbName = context.config.getDbNameByFile(context.file)
     
     def create_test_table = {testTablex, enable_vectorized_flag ->
         if (enable_vectorized_flag) {
@@ -72,7 +73,7 @@ suite("test_clean_label") {
         }
 
         test {
-            sql "clean label clean_label_test4 from regression_test_load_clean_label;"
+            sql "clean label clean_label_test4 from ${dbName};"
         }
 
         test {
@@ -85,7 +86,7 @@ suite("test_clean_label") {
         }
 
         test {
-            sql "clean label from regression_test_load_clean_label;"
+            sql "clean label from ${dbName};"
         }
 
         test {
@@ -107,7 +108,7 @@ suite("test_clean_label") {
         qt_select "select * from ${testTable} order by k1;"
 
         test {
-            sql "clean label from regression_test_load_clean_label;"
+            sql "clean label from ${dbName};"
         }
 
     } finally {
