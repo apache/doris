@@ -41,7 +41,7 @@ suite("sub_query_alias") {
     """
 
     qt_select_5 """
-        select * from customer c join (select * from lineorder l) t on c.c_custkey = t.l.lo_custkey;
+        select * from customer c join (select * from lineorder l) t on c.c_custkey = t.lo_custkey;
     """
 }
 
