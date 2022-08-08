@@ -30,6 +30,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -373,9 +374,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalProject(PhysicalProject<Plan> project, PlanTranslatorContext context) {
         PlanFragment inputFragment = project.child(0).accept(this, context);
 
-        TupleDescriptor desc = context.generateTupleDesc();
-        project.getProjects().forEach(e -> {
-            context.createSlotDesc(desc, (SlotReference) e.toSlot());
+        project.getProjects().stream().filter(p -> p instanceof Alias).forEach(p -> {
+            SlotRef ref = context.findSlotRef(((NamedExpression) p.child(0)).getExprId());
+            context.addExprIdPair(p.getExprId(), ref);
         });
 
         List<Expr> execExprList = project.getProjects()

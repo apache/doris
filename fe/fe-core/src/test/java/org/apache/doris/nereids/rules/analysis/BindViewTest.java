@@ -36,13 +36,15 @@ import java.util.List;
 
 public class BindViewTest extends TestWithFeService {
     private final List<String> testSql = Lists.newArrayList(
+            "SELECT * FROM V1",
+            "SELECT * FROM V3",
             "SELECT * FROM T1 JOIN (SELECT * FROM V1) T ON T1.ID1 = T.ID1",
-            "SELECT * FROM T2 JOIN (SELECT * FROM V2) T ON T1.ID2 = T.ID2",
-            "SELECT Y.ID1 FROM (SELECT * FROM V3) Y",
+            "SELECT * FROM T2 JOIN (SELECT * FROM V2) T ON T2.ID2 = T.ID2",
+            "SELECT Y.ID2 FROM (SELECT * FROM V3) Y",
             "SELECT * FROM (SELECT * FROM V1 JOIN V2 ON V1.ID1 = V2.ID2) X JOIN (SELECT * FROM V1 JOIN V3 ON V1.ID1 = V3.ID2) Y ON X.ID1 = Y.ID3"
     );
 
-    private final int currentTestCaseId = 3;
+    private final int currentTestCaseId = 0;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -83,6 +85,14 @@ public class BindViewTest extends TestWithFeService {
     }
 
     @Test
+    public void testAllCase() throws AnalysisException {
+        for (String sql : testSql) {
+            System.out.println("\n\n***** " + sql + " *****\n\n");
+            System.out.println(getTranslateString(sql));
+        }
+    }
+
+    @Test
     public void testParseView() {
         System.out.println(parse(testSql.get(currentTestCaseId)).treeString());
     }
@@ -99,7 +109,11 @@ public class BindViewTest extends TestWithFeService {
 
     @Test
     public void testTranslate() throws AnalysisException {
-        System.out.println(translate(plan(parse(testSql.get(currentTestCaseId)))).getPlanRoot().getPlanTreeExplainStr());
+        System.out.println(translate(plan(parse(testSql.get(currentTestCaseId)))).getPlanRoot().getExplainString());
+    }
+
+    private String getTranslateString(String sql) throws AnalysisException {
+        return translate(plan(parse(sql))).getPlanRoot().getExplainString();
     }
 
     private LogicalPlan parse(String sql) {
