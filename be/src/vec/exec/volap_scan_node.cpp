@@ -1774,9 +1774,6 @@ VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_
             if (!push_down &&
                 (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
                  _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range))) {
-                if (!is_key_column(slot->col_name())) {
-                    return cur_expr;
-                }
                 std::visit(
                         [&](auto& value_range) {
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
@@ -1791,14 +1788,16 @@ VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_
                             RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
                                     cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
                                     &push_down));
-                            RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
-                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &push_down));
-                            RETURN_IF_PUSH_DOWN(_normalize_function_filters(
-                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &push_down));
+                            if (is_key_column(slot->col_name())) {
+                                RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
+                                        cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &push_down));
+                                RETURN_IF_PUSH_DOWN(_normalize_function_filters(
+                                        cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &push_down));
+                            }
                         },
                         *range);
             }
-            if (push_down) {
+            if (push_down && is_key_column(slot->col_name())) {
                 return nullptr;
             } else {
                 return conjunct_expr_root;
