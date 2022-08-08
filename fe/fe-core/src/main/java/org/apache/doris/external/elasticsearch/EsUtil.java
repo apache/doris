@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
@@ -36,7 +35,6 @@ import org.apache.doris.analysis.LikePredicate.Operator;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
@@ -408,9 +406,6 @@ public class EsUtil {
         if (expr instanceof BoolLiteral) {
             BoolLiteral boolLiteral = (BoolLiteral) expr;
             return boolLiteral.getValue();
-        } else if (expr instanceof DateLiteral) {
-            DateLiteral dateLiteral = (DateLiteral) expr;
-            return dateLiteral.getStringValue();
         } else if (expr instanceof DecimalLiteral) {
             DecimalLiteral decimalLiteral = (DecimalLiteral) expr;
             return decimalLiteral.getValue();
@@ -423,11 +418,8 @@ public class EsUtil {
         } else if (expr instanceof LargeIntLiteral) {
             LargeIntLiteral largeIntLiteral = (LargeIntLiteral) expr;
             return largeIntLiteral.getLongValue();
-        } else if (expr instanceof StringLiteral) {
-            StringLiteral stringLiteral = (StringLiteral) expr;
-            return stringLiteral.getStringValue();
         }
-        return null;
+        return expr.getStringValue();
     }
 
 }
