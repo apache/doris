@@ -157,10 +157,10 @@ public class EsUtil {
     }
 
     private static JSONObject getRootSchema(JSONObject mappings, String mappingType) {
-        // Type is null in the following two cases
-        // 1. 6.8.x, such as 7.x, 8.x
+        // Type is null in the following three cases
+        // 1. Equal 6.8.x and after
         // 2. Multi-catalog auto infer
-        // 3. Before 6.8.x user not passed
+        // 3. Equal 6.8.x and before user not passed
         if (mappingType == null) {
             String firstType = (String) mappings.keySet().iterator().next();
             if (!"properties".equals(firstType)) {
