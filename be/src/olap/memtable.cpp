@@ -19,6 +19,7 @@
 
 #include "common/logging.h"
 #include "olap/row.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/schema.h"
 #include "runtime/tuple.h"
@@ -31,7 +32,8 @@ namespace doris {
 
 MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   RowsetWriter* rowset_writer, bool support_vec)
+                   RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
+                   const RowsetIdUnorderedSet& rowset_ids, bool support_vec)
         : _tablet(std::move(tablet)),
           _schema(schema),
           _tablet_schema(tablet_schema),
@@ -46,7 +48,9 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
           _agg_functions(schema->num_columns()),
           _offsets_of_aggregate_states(schema->num_columns()),
           _total_size_of_aggregate_states(0),
-          _mem_usage(0) {
+          _mem_usage(0),
+          _delete_bitmap(delete_bitmap),
+          _rowset_ids(rowset_ids) {
     if (support_vec) {
         _skip_list = nullptr;
         _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
@@ -293,10 +297,7 @@ void MemTable::_replace_row(const ContiguousRow& src_row, TableKey row_in_skipli
         auto dst_cell = dst_row.cell(cid);
         auto src_cell = src_row.cell(cid);
         auto column = _schema->column(cid);
-        // Dest cell already allocated memory, use dirct_copy rather than deep_copy(which will
-        // allocate memory for dst_cell). If dst_cell's size is smaller than src_cell, direct_copy
-        // will reallocate the memory to fit the src_cell's data.
-        column->direct_copy(&dst_cell, src_cell);
+        column->deep_copy(&dst_cell, src_cell, _table_mem_pool.get());
     }
 }
 
@@ -397,15 +398,36 @@ bool MemTable::need_to_agg() {
                                              : memory_usage() >= config::memtable_max_buffer_size;
 }
 
+Status MemTable::_generate_delete_bitmap() {
+    // generate delete bitmap, build a tmp rowset and load recent segment
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        auto rowset = _rowset_writer->build_tmp();
+        auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        segment_v2::SegmentSharedPtr segment;
+        if (beta_rowset->num_segments() == 0) {
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(beta_rowset->load_segment(beta_rowset->num_segments() - 1, &segment));
+        segments.push_back(segment);
+        std::lock_guard<std::shared_mutex> meta_wrlock(_tablet->get_header_lock());
+        RETURN_IF_ERROR(_tablet->calc_delete_bitmap(beta_rowset->rowset_id(), segments,
+                                                    &_rowset_ids, _delete_bitmap));
+    }
+    return Status::OK();
+}
+
 Status MemTable::flush() {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
     RETURN_NOT_OK(_do_flush(duration_ns));
+    RETURN_NOT_OK(_generate_delete_bitmap());
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << tablet_id()
                   << ", flushsize: " << _flush_size;
+
     return Status::OK();
 }
 
