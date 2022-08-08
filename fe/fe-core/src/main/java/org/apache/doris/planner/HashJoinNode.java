@@ -556,8 +556,6 @@ public class HashJoinNode extends PlanNode {
         TupleDescriptor vIntermediateLeftTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
         TupleDescriptor vIntermediateRightTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
         vIntermediateTupleDescList = new ArrayList<>();
-        vIntermediateTupleDescList.add(vIntermediateLeftTupleDesc);
-        vIntermediateTupleDescList.add(vIntermediateRightTupleDesc);
         boolean leftNullable = false;
         boolean rightNullable = false;
         boolean copyleft = true;
@@ -576,15 +574,11 @@ public class HashJoinNode extends PlanNode {
             case LEFT_ANTI_JOIN:
             case LEFT_SEMI_JOIN:
             case NULL_AWARE_LEFT_ANTI_JOIN:
-                if (otherJoinConjuncts == null || otherJoinConjuncts.isEmpty()) {
-                    copyRight = false;
-                }
+                copyRight = false;
                 break;
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
-                if (otherJoinConjuncts == null || otherJoinConjuncts.isEmpty()) {
-                    copyleft = false;
-                }
+                copyleft = false;
                 break;
             default:
                 break;
@@ -594,6 +588,7 @@ public class HashJoinNode extends PlanNode {
         Map<List<TupleId>, TupleId> originTidsToIntermediateTidMap = Maps.newHashMap();
         // left
         if (copyleft) {
+            vIntermediateTupleDescList.add(vIntermediateLeftTupleDesc);
             originTidsToIntermediateTidMap.put(getChild(0).getOutputTupleIds(), vIntermediateLeftTupleDesc.getId());
             for (TupleDescriptor tupleDescriptor : analyzer.getDescTbl()
                     .getTupleDesc(getChild(0).getOutputTupleIds())) {
@@ -606,10 +601,11 @@ public class HashJoinNode extends PlanNode {
                     originToIntermediateSmap.put(new SlotRef(slotDescriptor), new SlotRef(intermediateSlotDesc));
                 }
             }
+            vIntermediateLeftTupleDesc.computeMemLayout();
         }
-        vIntermediateLeftTupleDesc.computeMemLayout();
         // right
         if (copyRight) {
+            vIntermediateTupleDescList.add(vIntermediateRightTupleDesc);
             originTidsToIntermediateTidMap.put(getChild(1).getOutputTupleIds(), vIntermediateRightTupleDesc.getId());
             for (TupleDescriptor tupleDescriptor : analyzer.getDescTbl()
                     .getTupleDesc(getChild(1).getOutputTupleIds())) {
@@ -622,19 +618,13 @@ public class HashJoinNode extends PlanNode {
                     originToIntermediateSmap.put(new SlotRef(slotDescriptor), new SlotRef(intermediateSlotDesc));
                 }
             }
+            vIntermediateRightTupleDesc.computeMemLayout();
         }
-        vIntermediateRightTupleDesc.computeMemLayout();
         // 3. replace srcExpr by intermediate tuple
         Preconditions.checkState(vSrcToOutputSMap != null);
         // Set `preserveRootTypes` to true because we should keep the consistent for types. See Issue-11314.
         vSrcToOutputSMap.substituteLhs(originToIntermediateSmap, analyzer, true);
-        // 4. replace other conjuncts and conjuncts
-        otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
-        if (votherJoinConjunct != null) {
-            votherJoinConjunct =
-                    Expr.substituteList(Arrays.asList(votherJoinConjunct), originToIntermediateSmap, analyzer, false)
-                            .get(0);
-        }
+        // 4. replace and conjuncts
         conjuncts = Expr.substituteList(conjuncts, originToIntermediateSmap, analyzer, false);
         if (vconjunct != null) {
             vconjunct = Expr.substituteList(Arrays.asList(vconjunct), originToIntermediateSmap, analyzer, false).get(0);
