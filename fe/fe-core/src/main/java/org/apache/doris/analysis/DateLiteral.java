@@ -48,6 +48,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
@@ -415,7 +416,9 @@ public class DateLiteral extends LiteralExpr {
                         builder.appendLiteral(":");
                     }
                 }
-                DateTimeFormatter formatter = builder.toFormatter();
+                // The default resolver style is 'SMART', which parses "2022-06-31" as "2022-06-30"
+                // and does not throw an exception. 'STRICT' is used here.
+                DateTimeFormatter formatter = builder.toFormatter().withResolverStyle(ResolverStyle.STRICT);
                 dateTime = formatter.parse(s);
                 parsed = true;
             }
