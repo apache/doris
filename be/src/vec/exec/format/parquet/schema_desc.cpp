@@ -17,8 +17,6 @@
 
 #include "schema_desc.h"
 
-#include "gutil/strings/substitute.h"
-
 namespace doris::vectorized {
 
 static bool is_group_node(const tparquet::SchemaElement& schema) {
@@ -98,15 +96,14 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
     for (int i = 0; i < root_schema.num_children; ++i) {
         RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, &_fields[i]));
         if (_name_to_field.find(_fields[i].name) != _name_to_field.end()) {
-            return Status::InvalidArgument(
-                    strings::Substitute("Duplicated field name: {}", _fields[i].name));
+            return Status::InvalidArgument("Duplicated field name: {}", _fields[i].name);
         }
         _name_to_field.emplace(_fields[i].name, &_fields[i]);
     }
 
     if (_next_schema_pos != t_schemas.size()) {
-        return Status::InvalidArgument(strings::Substitute("Remaining {} unparsed schema elements",
-                                                           t_schemas.size() - _next_schema_pos));
+        return Status::InvalidArgument("Remaining {} unparsed schema elements",
+                                       t_schemas.size() - _next_schema_pos);
     }
 
     return Status::OK();
@@ -355,7 +352,7 @@ int FieldDescriptor::get_column_index(const std::string& column) const {
     return -1;
 }
 
-const FieldSchema* FieldDescriptor::get_column(const string& name) const {
+const FieldSchema* FieldDescriptor::get_column(const std::string& name) const {
     auto it = _name_to_field.find(name);
     if (it != _name_to_field.end()) {
         return it->second;

@@ -17,45 +17,45 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "common/status.h"
 #include "gen_cpp/parquet_types.h"
-#include "io/buffered_reader.h"
+#include "parquet_common.h"
+#include "util/bit_stream_utils.h"
+#include "util/rle_encoding.h"
 
 namespace doris::vectorized {
 
-/**
- * Use to deserialize parquet page header, and get the page data in iterator interface.
- */
-class PageReader {
+class LevelDecoder {
 public:
-public:
-    PageReader(BufferedStreamReader* reader, uint64_t offset, uint64_t length);
-    ~PageReader() = default;
+    LevelDecoder() = default;
+    ~LevelDecoder() = default;
 
-    bool has_next_page() const { return _offset < _end_offset; }
+    Status init(Slice* slice, tparquet::Encoding::type encoding, level_t max_level,
+                uint32_t num_levels);
 
-    Status next_page();
+    bool has_levels() const { return _num_levels > 0; }
 
-    Status skip_page();
+    size_t get_levels(level_t* levels, size_t n);
 
-    const tparquet::PageHeader* get_page_header() const { return &_cur_page_header; }
+    size_t next_repeated_count() {
+        DCHECK_EQ(_encoding, tparquet::Encoding::RLE);
+        return _rle_decoder.repeated_count();
+    }
 
-    Status get_page_date(Slice& slice);
-
-    void seek_to_page(int64_t page_header_offset) {
-        _offset = page_header_offset;
-        _next_header_offset = page_header_offset;
+    level_t get_repeated_value(size_t count) {
+        DCHECK_EQ(_encoding, tparquet::Encoding::RLE);
+        return _rle_decoder.get_repeated_value(count);
     }
 
 private:
-    BufferedStreamReader* _reader;
-    tparquet::PageHeader _cur_page_header;
-
-    uint64_t _offset = 0;
-    uint64_t _next_header_offset = 0;
-
-    uint64_t _start_offset = 0;
-    uint64_t _end_offset = 0;
+    tparquet::Encoding::type _encoding;
+    level_t _bit_width = 0;
+    level_t _max_level = 0;
+    uint32_t _num_levels = 0;
+    RleDecoder<level_t> _rle_decoder;
+    BitReader _bit_packed_decoder;
 };
 
 } // namespace doris::vectorized
