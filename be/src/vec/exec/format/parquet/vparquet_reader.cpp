@@ -63,7 +63,8 @@ Status ParquetReader::init_reader(const TupleDescriptor* tuple_desc,
     }
     LOG(WARNING) << "";
     RETURN_IF_ERROR(_init_read_columns(tuple_slot_descs));
-    _init_row_group_reader(tuple_desc, _range_start_offset, _range_size, conjunct_ctxs);
+    RETURN_IF_ERROR(
+            _init_row_group_reader(tuple_desc, _range_start_offset, _range_size, conjunct_ctxs));
     return Status::OK();
 }
 
@@ -121,13 +122,14 @@ void ParquetReader::_fill_block_data(Block* block, int group_id) {
     _row_group_reader->fill_columns_data(block, group_id);
 }
 
-void ParquetReader::_init_row_group_reader(const TupleDescriptor* tuple_desc,
-                                           int64_t range_start_offset, int64_t range_size,
-                                           const std::vector<ExprContext*>& conjunct_ctxs) {
+Status ParquetReader::_init_row_group_reader(const TupleDescriptor* tuple_desc,
+                                             int64_t range_start_offset, int64_t range_size,
+                                             const std::vector<ExprContext*>& conjunct_ctxs) {
     // todo: extract as create()
     _row_group_reader.reset(new RowGroupReader(_file_reader, _file_metadata, _read_columns,
                                                _map_column, conjunct_ctxs));
-    _row_group_reader->init(tuple_desc, range_start_offset, range_size);
+    RETURN_IF_ERROR(_row_group_reader->init(tuple_desc, range_start_offset, range_size));
+    return Status::OK();
 }
 
 bool ParquetReader::_has_page_index(std::vector<tparquet::ColumnChunk> columns) {

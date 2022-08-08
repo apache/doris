@@ -45,13 +45,14 @@ RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
 }
 
-void RowGroupReader::init(const TupleDescriptor* tuple_desc, int64_t split_start_offset,
-                          int64_t split_size) {
+Status RowGroupReader::init(const TupleDescriptor* tuple_desc, int64_t split_start_offset,
+                            int64_t split_size) {
     _tuple_desc = tuple_desc;
     _split_start_offset = split_start_offset;
     _split_size = split_size;
     _init_conjuncts(tuple_desc, _conjunct_ctxs);
-    _init_column_readers();
+    RETURN_IF_ERROR(_init_column_readers());
+    return Status::OK();
 }
 
 void RowGroupReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
@@ -99,25 +100,34 @@ void RowGroupReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
     }
 }
 
-void RowGroupReader::_init_column_readers() {
+Status RowGroupReader::_init_column_readers() {
     for (auto& read_col : _read_columns) {
         SlotDescriptor* slot_desc = read_col.slot_desc;
         FieldDescriptor schema = _file_metadata->schema();
+        TypeDescriptor col_type = slot_desc->type();
         const auto& field = schema.get_column(slot_desc->col_name());
         const tparquet::RowGroup row_group =
                 _file_metadata->to_thrift_metadata().row_groups[_current_row_group];
-        ColumnReader* reader;
-        ColumnReader::create(_file_reader, MAX_PARQUET_BLOCK_SIZE, field, read_col,
-                             slot_desc->type(), row_group, reader);
+        ParquetColumnReader* reader = nullptr;
+        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, MAX_PARQUET_BLOCK_SIZE, field,
+                                                    read_col, slot_desc->type(), row_group,
+                                                    reader));
+        if (reader == nullptr) {
+            return Status::Corruption("Init row group reader failed");
+        }
         _column_readers[slot_desc->id()] = reader;
     }
+    return Status::OK();
 }
 
 Status RowGroupReader::fill_columns_data(Block* block, const int32_t group_id) {
     // get ColumnWithTypeAndName from src_block
     for (auto& read_col : _read_columns) {
+        const tparquet::RowGroup row_group =
+                _file_metadata->to_thrift_metadata().row_groups[_current_row_group];
         auto& column_with_type_and_name = block->get_by_name(read_col.slot_desc->col_name());
-        RETURN_IF_ERROR(_column_readers[read_col.slot_desc->id()]->read_column_data());
+        RETURN_IF_ERROR(_column_readers[read_col.slot_desc->id()]->read_column_data(
+                row_group, &column_with_type_and_name.column));
         VLOG_DEBUG << column_with_type_and_name.name;
     }
     // use data fill utils read column data to column ptr

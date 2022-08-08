@@ -15,39 +15,55 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "vparquet_column_reader.h"
+
 #include <common/status.h>
 #include <gen_cpp/parquet_types.h>
 
 #include "schema_desc.h"
-#include "vparquet_reader.h"
-//#include "vparquet_column_chunk_reader.h"
+#include "vparquet_column_chunk_reader.h"
 
 namespace doris::vectorized {
-class ColumnReader {
-public:
-    ColumnReader(const ParquetReadColumn& column) : _column(column) {};
-    virtual ~ColumnReader() = 0;
-    virtual Status read_column_data(const tparquet::RowGroup& row_group_meta, ColumnPtr* data) = 0;
-    static Status create(const FileReader* file, int64_t chunk_size, const FieldSchema* field,
-                         const ParquetReadColumn& column, const TypeDescriptor& col_type,
-                         const tparquet::RowGroup& row_group, const ColumnReader* reader);
-    virtual void close() = 0;
 
-protected:
-    const ParquetReadColumn& _column;
-    //    const ColumnChunkReader& _chunk_reader;
-};
+Status ScalarColumnReader::init(const FileReader* file, const FieldSchema* field,
+                                const tparquet::ColumnChunk* chunk, const TypeDescriptor& col_type,
+                                int64_t chunk_size) {
+    // todo1: init column chunk reader
+    // BufferedFileStreamReader stream_reader(reader, 0, chunk_size);
+    // _chunk_reader(&stream_reader, chunk, field);
+    // _chunk_reader.init();
+    return Status();
+}
 
-class ScalarColumnReader : public ColumnReader {
-public:
-    ScalarColumnReader(const ParquetReadColumn& column) : ColumnReader(column) {};
-    ~ScalarColumnReader() override = default;
-    Status init(const FileReader* file, const FieldSchema* field,
-                const tparquet::ColumnChunk* chunk, const TypeDescriptor& col_type,
-                int64_t chunk_size);
-    Status read_column_data(const tparquet::RowGroup& row_group_meta, ColumnPtr* data) override;
-    void close() override;
-};
+Status ParquetColumnReader::create(const FileReader* file, int64_t chunk_size,
+                                   const FieldSchema* field, const ParquetReadColumn& column,
+                                   const TypeDescriptor& col_type,
+                                   const tparquet::RowGroup& row_group,
+                                   const ParquetColumnReader* reader) {
+    if (field->type.type == TYPE_MAP || field->type.type == TYPE_STRUCT) {
+        return Status::Corruption("not supported type");
+    }
+    if (field->type.type == TYPE_ARRAY) {
+        return Status::Corruption("not supported array type yet");
+    } else {
+        ScalarColumnReader* scalar_reader = new ScalarColumnReader(column);
+        RETURN_IF_ERROR(scalar_reader->init(file, field,
+                                            &row_group.columns[field->physical_column_index],
+                                            col_type, chunk_size));
+        reader = scalar_reader;
+    }
+    return Status::OK();
+}
 
+Status ScalarColumnReader::read_column_data(const tparquet::RowGroup& row_group_meta,
+                                            ColumnPtr* data) {
+    // todo2: read data with chunk reader to load page data
+    // while (_chunk_reader.has_next) {
+    // _chunk_reader.next_page();
+    // _chunk_reader.load_page_data();
+    // }
+    return Status();
+}
+
+void ScalarColumnReader::close() {}
 }; // namespace doris::vectorized

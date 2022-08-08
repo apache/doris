@@ -24,14 +24,17 @@
 //#include "vparquet_column_chunk_reader.h"
 
 namespace doris::vectorized {
-class ColumnReader {
+
+class ParquetReadColumn;
+
+class ParquetColumnReader {
 public:
-    ColumnReader(const ParquetReadColumn& column) : _column(column) {};
-    virtual ~ColumnReader() = 0;
+    ParquetColumnReader(const ParquetReadColumn& column) : _column(column) {};
+    virtual ~ParquetColumnReader() = 0;
     virtual Status read_column_data(const tparquet::RowGroup& row_group_meta, ColumnPtr* data) = 0;
     static Status create(const FileReader* file, int64_t chunk_size, const FieldSchema* field,
                          const ParquetReadColumn& column, const TypeDescriptor& col_type,
-                         const tparquet::RowGroup& row_group, const ColumnReader* reader);
+                         const tparquet::RowGroup& row_group, const ParquetColumnReader* reader);
     virtual void close() = 0;
 
 protected:
@@ -39,9 +42,9 @@ protected:
     //    const ColumnChunkReader& _chunk_reader;
 };
 
-class ScalarColumnReader : public ColumnReader {
+class ScalarColumnReader : public ParquetColumnReader {
 public:
-    ScalarColumnReader(const ParquetReadColumn& column) : ColumnReader(column) {};
+    ScalarColumnReader(const ParquetReadColumn& column) : ParquetColumnReader(column) {};
     ~ScalarColumnReader() override = default;
     Status init(const FileReader* file, const FieldSchema* field,
                 const tparquet::ColumnChunk* chunk, const TypeDescriptor& col_type,

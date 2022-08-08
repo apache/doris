@@ -28,6 +28,7 @@
 
 namespace doris::vectorized {
 class ParquetReadColumn;
+class ParquetColumnReader;
 class RowGroupReader {
 public:
     RowGroupReader(doris::FileReader* file_reader,
@@ -36,7 +37,7 @@ public:
                    const std::map<std::string, int>& map_column,
                    const std::vector<ExprContext*>& conjunct_ctxs);
     ~RowGroupReader();
-    void init(const TupleDescriptor* tuple_desc, int64_t split_start_offset, int64_t split_size);
+    Status init(const TupleDescriptor* tuple_desc, int64_t split_start_offset, int64_t split_size);
     Status get_next_row_group(const int32_t* group_id);
     Status fill_columns_data(Block* block, const int32_t group_id);
 
@@ -50,7 +51,7 @@ private:
     void _init_conjuncts(const TupleDescriptor* tuple_desc,
                          const std::vector<ExprContext*>& conjunct_ctxs);
 
-    void _init_column_readers();
+    Status _init_column_readers();
 
     Status _process_row_group_filter(const tparquet::RowGroup& row_group,
                                      const std::vector<ExprContext*>& conjunct_ctxs,
@@ -94,7 +95,7 @@ private:
 private:
     doris::FileReader* _file_reader;
     const std::shared_ptr<FileMetaData>& _file_metadata;
-    std::unordered_map<int32_t, ColumnReader*> _column_readers;
+    std::unordered_map<int32_t, ParquetColumnReader*> _column_readers;
     const TupleDescriptor* _tuple_desc; // get all slot info
     const std::vector<ParquetReadColumn>& _read_columns;
     const std::map<std::string, int>& _map_column;

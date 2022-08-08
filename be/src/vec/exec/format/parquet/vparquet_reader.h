@@ -78,8 +78,9 @@ public:
 
 private:
     Status _init_read_columns(const std::vector<SlotDescriptor*>& tuple_slot_descs);
-    void _init_row_group_reader(const TupleDescriptor* tuple_desc, int64_t range_start_offset,
-                                int64_t range_size, const std::vector<ExprContext*>& conjunct_ctxs);
+    Status _init_row_group_reader(const TupleDescriptor* tuple_desc, int64_t range_start_offset,
+                                  int64_t range_size,
+                                  const std::vector<ExprContext*>& conjunct_ctxs);
     void _fill_block_data(Block* block, int group_id);
     bool _has_page_index(std::vector<tparquet::ColumnChunk> columns);
     Status _process_page_index(std::vector<tparquet::ColumnChunk> columns);
