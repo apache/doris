@@ -112,6 +112,18 @@ Status ParquetReader::read_next_batch(Block* block) {
     // metadata has been processed, fill parquet data to block
     // block is the batch data of a row group. a row group has N batch
     // push to scanner queue
+    int64_t row_group_end_offset =
+            _current_row_group + 1 > total_group
+                    ? _split_start_offset + _split_size
+                    : _get_row_group_start_offset(metadata.row_groups[_current_row_group + 1]);
+    if (_current_batch_start_offset < row_group_end_offset) {
+        int64_t batch_size = _current_batch_start_offset + MAX_PARQUET_BATCH_SIZE;
+        if (batch_size > row_group_end_offset) {
+            batch_size = row_group_end_offset - _current_batch_start_offset;
+        }
+    } else {
+        advanced_group = true;
+    }
     _fill_block_data(block, group_id);
     return Status::OK();
 }
@@ -119,7 +131,7 @@ Status ParquetReader::read_next_batch(Block* block) {
 void ParquetReader::_fill_block_data(Block* block, int group_id) {
     // make and init src block here
     // read column chunk
-    _row_group_reader->fill_columns_data(block, group_id);
+    _row_group_reader->next_batch(block, batch_size);
 }
 
 Status ParquetReader::_init_row_group_reader(const TupleDescriptor* tuple_desc,

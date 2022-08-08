@@ -100,23 +100,32 @@ void RowGroupReader::_init_conjuncts(const TupleDescriptor* tuple_desc,
     }
 }
 
-Status RowGroupReader::_init_column_readers() {
+Status RowGroupReader::_init_column_readers(int64_t batch_size) {
     for (auto& read_col : _read_columns) {
         SlotDescriptor* slot_desc = read_col.slot_desc;
         FieldDescriptor schema = _file_metadata->schema();
         TypeDescriptor col_type = slot_desc->type();
-        const auto& field = schema.get_column(slot_desc->col_name());
+        auto field = const_cast<FieldSchema*>(schema.get_column(slot_desc->col_name()));
         const tparquet::RowGroup row_group =
                 _file_metadata->to_thrift_metadata().row_groups[_current_row_group];
+
         ParquetColumnReader* reader = nullptr;
-        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, MAX_PARQUET_BLOCK_SIZE, field,
-                                                    read_col, slot_desc->type(), row_group,
-                                                    reader));
+        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, _split_start_offset, batch_size,
+                                                    field, read_col, row_group, reader));
         if (reader == nullptr) {
             return Status::Corruption("Init row group reader failed");
         }
         _column_readers[slot_desc->id()] = reader;
     }
+    return Status::OK();
+}
+
+bool RowGroupReader::has_next_batch() {
+    int32_t total_group = _file_metadata->num_row_groups();
+    return _current_row_group < total_group;
+}
+
+Status RowGroupReader::next_batch(Block* block, int64_t batch_size) {
     return Status::OK();
 }
 
@@ -126,8 +135,8 @@ Status RowGroupReader::fill_columns_data(Block* block, const int32_t group_id) {
         const tparquet::RowGroup row_group =
                 _file_metadata->to_thrift_metadata().row_groups[_current_row_group];
         auto& column_with_type_and_name = block->get_by_name(read_col.slot_desc->col_name());
-        RETURN_IF_ERROR(_column_readers[read_col.slot_desc->id()]->read_column_data(
-                row_group, &column_with_type_and_name.column));
+        auto column_ptr = column_with_type_and_name.column;
+        RETURN_IF_ERROR(_column_readers[read_col.slot_desc->id()]->read_column_data(&column_ptr));
         VLOG_DEBUG << column_with_type_and_name.name;
     }
     // use data fill utils read column data to column ptr
