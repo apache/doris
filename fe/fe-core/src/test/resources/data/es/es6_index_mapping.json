@@ -1,12 +1,12 @@
 {
-  "test1": {
+  "test_202207": {
     "mappings": {
       "doc": {
         "properties": {
-          "age": {
-            "type": "long"
+          "test1": {
+            "type": "keyword"
           },
-          "array": {
+          "test2": {
             "type": "text",
             "fields": {
               "keyword": {
@@ -15,14 +15,11 @@
               }
             }
           },
-          "name": {
-            "type": "text",
-            "fields": {
-              "keyword": {
-                "type": "keyword",
-                "ignore_above": 256
-              }
-            }
+          "test3": {
+            "type": "double"
+          },
+          "test4": {
+            "type": "date"
           }
         }
       }

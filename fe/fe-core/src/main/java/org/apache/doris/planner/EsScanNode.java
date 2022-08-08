@@ -32,12 +32,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
-import org.apache.doris.external.elasticsearch.EsUrls;
 import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.external.elasticsearch.QueryBuilders;
 import org.apache.doris.external.elasticsearch.QueryBuilders.BoolQueryBuilder;
 import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
@@ -181,16 +179,6 @@ public class EsScanNode extends ScanNode {
             properties.put(EsTable.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
         }
         properties.put(EsTable.ES_DSL, queryBuilder.toJson());
-
-        // Be use it add es host_port and shardId to query.
-        EsUrls esUrls = EsUtil.genEsUrls(table.getIndexName(), table.getMappingType(), table.isEnableDocValueScan(),
-                ConnectContext.get().getSessionVariable().batchSize, msg.limit);
-        if (esUrls.getSearchUrl() != null) {
-            properties.put(EsTable.SEARCH_URL, esUrls.getSearchUrl());
-        } else {
-            properties.put(EsTable.INIT_SCROLL_URL, esUrls.getInitScrollUrl());
-            properties.put(EsTable.NEXT_SCROLL_URL, esUrls.getNextScrollUrl());
-        }
         if (table.isEnableKeywordSniff() && table.fieldsContext().size() > 0) {
             esScanNode.setFieldsContext(table.fieldsContext());
         }

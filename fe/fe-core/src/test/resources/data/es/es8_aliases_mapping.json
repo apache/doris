@@ -1,5 +1,5 @@
 {
-  "test_202208": {
+  "test_202207": {
     "mappings": {
       "properties": {
         "test1": {
@@ -23,7 +23,7 @@
       }
     }
   },
-  "test_202207": {
+  "test_202208": {
     "mappings": {
       "properties": {
         "test1": {

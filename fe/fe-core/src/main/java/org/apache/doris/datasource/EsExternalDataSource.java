@@ -37,7 +37,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * External data source for elasticsearch
@@ -167,10 +166,7 @@ public class EsExternalDataSource extends ExternalDataSource {
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
-        List<String> indexes = esRestClient.getIndexes().stream().distinct().collect(Collectors.toList());
-        esRestClient.getAliases().entrySet().stream().filter(e -> indexes.contains(e.getKey()))
-                .flatMap(e -> e.getValue().stream()).distinct().forEach(indexes::add);
-        return indexes;
+        return esRestClient.listTable();
     }
 
     @Nullable
