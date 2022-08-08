@@ -26,7 +26,7 @@ under the License.
 
 # 数据导出
 
-数据导出（Export）是 Doris 提供的一种将数据导出的功能。该功能可以将用户指定的表或分区的数据，以文本的格式，通过 Broker 进程导出到远端存储上，如 HDFS/BOS 等。
+数据导出（Export）是 Doris 提供的一种将数据导出的功能。该功能可以将用户指定的表或分区的数据，以文本的格式，通过 Broker 进程导出到远端存储上，如 HDFS / 对象存储（支持S3协议） 等。
 
 本文档主要介绍 Export 的基本原理、使用方式、最佳实践以及注意事项。
 
@@ -126,6 +126,28 @@ WITH BROKER "hdfs"
 * `timeout`：作业超时时间。默认 2小时。单位秒。
 * `tablet_num_per_task`：每个查询计划分配的最大分片数。默认为 5。
 
+### 导出到对象存储
+
+创建名为 s3_repo 的仓库，直接链接云存储，而不通过broker.
+
+```sql
+CREATE REPOSITORY `s3_repo`
+WITH S3
+ON LOCATION "s3://s3-repo"
+PROPERTIES
+(
+    "AWS_ENDPOINT" = "http://s3-REGION.amazonaws.com",
+    "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
+    "AWS_SECRET_KEY"="AWS_SECRET_KEY",
+    "AWS_REGION" = "REGION"
+);
+```
+
+- `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：是您访问OSS API 的密钥.
+- `AWS_ENDPOINT`：表示OSS的数据中心所在的地域.
+- `AWS_REGION`：Endpoint表示OSS对外服务的访问域名.
+
+
 ### 查看导出状态
 
 提交作业后，可以通过  [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) 命令查询导入作业状态。结果举例如下：
@@ -137,7 +159,7 @@ mysql> show EXPORT\G;
      State: FINISHED
   Progress: 100%
   TaskInfo: {"partitions":["*"],"exec mem limit":2147483648,"column separator":",","line delimiter":"\n","tablet num":1,"broker":"hdfs","coord num":1,"db":"default_cluster:db1","tbl":"tbl3"}
-      Path: bos://bj-test-cmy/export/
+      Path: hdfs://host/path/to/export/
 CreateTime: 2019-06-25 17:08:24
  StartTime: 2019-06-25 17:08:28
 FinishTime: 2019-06-25 17:08:34
