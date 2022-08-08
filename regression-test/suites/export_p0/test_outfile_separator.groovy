@@ -48,6 +48,7 @@ suite("test_outfile") {
         logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
         return
     }
+    def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "outfile_test_separator"
     def outFilePath = """${context.file.parent}/tmp_separator"""
     try {
@@ -79,7 +80,7 @@ suite("test_outfile") {
         assert outLines.size() == 2
 
         streamLoad {
-            db 'regression_test_export'
+            db """${dbName}"""
             table 'outfile_test_separator'
             set 'column_separator', '\\x01'
             file files[0].getAbsolutePath()
