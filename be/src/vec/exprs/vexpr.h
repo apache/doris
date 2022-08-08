@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exprs/bloomfilter_predicate.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/types.h"
 #include "udf/udf_internal.h"
@@ -136,6 +137,25 @@ public:
     /// owned by this expr. This should only be called after Open() has been called on this
     /// expr.
     virtual ColumnPtrWrapper* get_const_col(VExprContext* context);
+
+    int fn_context_index() { return _fn_context_index; };
+
+    static const VExpr* expr_without_cast(const VExpr* expr) {
+        if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {
+            return expr_without_cast(expr->_children[0]);
+        }
+        return expr;
+    }
+
+    // If this expr is a RuntimeFilterWrapper, this method will return an underlying rf expression
+    virtual const VExpr* get_impl() const { return nullptr; }
+
+    // If this expr is a BloomPredicate, this method will return a BloomFilterFunc
+    virtual std::shared_ptr<IBloomFilterFuncBase> get_bloom_filter_func() const {
+        LOG(FATAL) << "Method 'get_bloom_filter_func()' is not supported in expression: "
+                   << this->debug_string();
+        return nullptr;
+    }
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information

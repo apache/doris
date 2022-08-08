@@ -1000,7 +1000,7 @@ private:
     int32_t _max_in_num = -1;
     std::unique_ptr<MinMaxFuncBase> _minmax_func;
     std::unique_ptr<HybridSetBase> _hybrid_set;
-    std::unique_ptr<IBloomFilterFuncBase> _bloomfilter_func;
+    std::shared_ptr<IBloomFilterFuncBase> _bloomfilter_func;
     bool _is_bloomfilter = false;
     bool _is_ignored_in_filter = false;
     std::string* _ignored_in_filter_msg = nullptr;
@@ -1057,6 +1057,14 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctx
     DCHECK(is_consumer());
     if (!_is_ignored) {
         return _wrapper->get_push_context(push_expr_ctxs, _state, _probe_ctx);
+    }
+    return Status::OK();
+}
+
+Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs) {
+    DCHECK(is_consumer());
+    if (!_is_ignored) {
+        return _wrapper->get_push_vexprs(push_vexprs, _state, _vprobe_ctx);
     }
     return Status::OK();
 }
@@ -1649,7 +1657,7 @@ Status RuntimePredicateWrapper::get_push_context(T* container, RuntimeState* sta
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
         auto bloom_pred = _pool->add(new BloomFilterPredicate(node));
-        RETURN_IF_ERROR(bloom_pred->prepare(state, _bloomfilter_func.release()));
+        RETURN_IF_ERROR(bloom_pred->prepare(state, _bloomfilter_func));
         bloom_pred->add_child(Expr::copy(_pool, prob_expr->root()));
         ExprContext* ctx = _pool->add(new ExprContext(bloom_pred));
         container->push_back(ctx);
@@ -1677,6 +1685,8 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
     case RuntimeFilterType::IN_FILTER: {
         if (!_is_ignored_in_filter) {
             TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
+            type_desc.__set_is_nullable(
+                    _hybrid_set->size() > 0 ? true : vprob_expr->root()->is_nullable());
             TExprNode node;
             node.__set_type(type_desc);
             node.__set_node_type(TExprNodeType::IN_PRED);
@@ -1684,6 +1694,8 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
             node.__set_opcode(TExprOpcode::FILTER_IN);
             node.__isset.vector_opcode = true;
             node.__set_vector_opcode(to_in_opcode(_column_return_type));
+            node.__set_is_nullable(_hybrid_set->size() > 0 ? true
+                                                           : vprob_expr->root()->is_nullable());
 
             // VInPredicate
             doris::vectorized::VExpr* expr = nullptr;
@@ -1732,12 +1744,14 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
     case RuntimeFilterType::BLOOM_FILTER: {
         // create a bloom filter
         TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
+        type_desc.__set_is_nullable(vprob_expr->root()->is_nullable());
         TExprNode node;
         node.__set_type(type_desc);
         node.__set_node_type(TExprNodeType::BLOOM_PRED);
         node.__set_opcode(TExprOpcode::RT_FILTER);
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
+        node.__set_is_nullable(vprob_expr->root()->is_nullable());
         auto bloom_pred = _pool->add(new doris::vectorized::VBloomPredicate(node));
         bloom_pred->set_filter(_bloomfilter_func);
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
