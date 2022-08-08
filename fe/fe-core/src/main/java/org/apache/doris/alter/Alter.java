@@ -120,8 +120,14 @@ public class Alter {
     }
 
     public void processCreateMultiTableMaterializedView(CreateMultiTableMaterializedViewStmt stmt)
-            throws AnalysisException {
-        throw new AnalysisException("Create multi table materialized view is unsupported : " + stmt.toSql());
+            throws UserException {
+        // check db
+        Database db = stmt.getDatabase();
+        // check cluster capacity
+        Env.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
+        // check db quota
+        db.checkQuota();
+        ((MaterializedViewHandler) materializedViewHandler).processCreateMultiTablesMaterializedView(stmt);
     }
 
     public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {

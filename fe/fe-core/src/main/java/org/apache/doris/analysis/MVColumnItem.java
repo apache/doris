@@ -40,21 +40,27 @@ public class MVColumnItem {
     private boolean isAggregationTypeImplicit;
     private Expr defineExpr;
     private String baseColumnName;
+    private String baseTableName;
 
     public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
-            Expr defineExpr, String baseColumnName) {
+            Expr defineExpr, String baseColumnName, String baseTableName) {
         this.name = name;
         this.type = type;
         this.aggregationType = aggregateType;
         this.isAggregationTypeImplicit = isAggregationTypeImplicit;
         this.defineExpr = defineExpr;
         this.baseColumnName = baseColumnName;
+        this.baseTableName = baseTableName;
     }
 
     public MVColumnItem(String name, Type type) {
+        this(name, type, name);
+    }
+
+    public MVColumnItem(String name, Type type, String baseColumnName) {
         this.name = name;
         this.type = type;
-        this.baseColumnName = name;
+        this.baseColumnName = baseColumnName;
     }
 
     public String getName() {
@@ -102,8 +108,12 @@ public class MVColumnItem {
         return baseColumnName;
     }
 
+    public String getBaseTableName() {
+        return baseTableName;
+    }
+
     public Column toMVColumn(OlapTable olapTable) throws DdlException {
-        Column baseColumn = olapTable.getBaseColumn(name);
+        Column baseColumn = olapTable.getBaseColumn(baseColumnName);
         if (baseColumn == null) {
             Preconditions.checkNotNull(defineExpr != null);
             Column result = new Column(name, type, isKey, aggregationType, ColumnDef.DefaultValue.ZERO, "");
@@ -111,6 +121,7 @@ public class MVColumnItem {
             return result;
         } else {
             Column result = new Column(baseColumn);
+            result.setName(name);
             result.setIsKey(isKey);
             // If the mv column type is inconsistent with the base column type, the daily test will core.
             // So, I comment this line firstly.

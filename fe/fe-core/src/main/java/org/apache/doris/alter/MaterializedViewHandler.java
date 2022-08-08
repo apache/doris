@@ -19,12 +19,19 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelStmt;
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
+import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropRollupClause;
 import org.apache.doris.analysis.MVColumnItem;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -48,6 +55,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -80,6 +88,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /*
  * MaterializedViewHandler is responsible for ADD/DROP materialized view.
@@ -1139,4 +1148,68 @@ public class MaterializedViewHandler extends AlterHandler {
         return tableRunningJobMap;
     }
 
+    public void processCreateMultiTablesMaterializedView(CreateMultiTableMaterializedViewStmt addMVClause)
+            throws UserException {
+        Map<String, OlapTable> olapTables = addMVClause.getOlapTables();
+        try {
+            olapTables.values().forEach(Table::writeLock);
+            for (OlapTable table : olapTables.values()) {
+                table.checkStableAndNormal(addMVClause.getDatabase().getClusterName());
+                if (table.existTempPartitions()) {
+                    throw new DdlException("Can not alter table when there are temp partitions in table");
+                }
+                Preconditions.checkState(table.getState() == OlapTableState.NORMAL);
+            }
+            List<Column> schema = createSchema(addMVClause);
+            createMaterializedView(addMVClause, schema);
+        } finally {
+            olapTables.values().forEach(Table::writeLock);
+        }
+    }
+
+    private List<Column> createSchema(CreateMultiTableMaterializedViewStmt addMVClause) throws DdlException {
+        Map<String, OlapTable> olapTables = addMVClause.getOlapTables();
+        List<MVColumnItem> mvColumnItems = addMVClause.getMVColumnItems();
+        List<Column> columns = Lists.newArrayList();
+        for (MVColumnItem mvColumnItem : mvColumnItems) {
+            OlapTable olapTable = olapTables.get(mvColumnItem.getBaseTableName());
+            columns.add(mvColumnItem.toMVColumn(olapTable));
+        }
+        return columns;
+    }
+
+    private void createMaterializedView(CreateMultiTableMaterializedViewStmt addMVClause, List<Column> schema)
+            throws UserException {
+        List<ColumnDef> columnDefinitions = schema.stream()
+                .map(column -> new ColumnDef(
+                        column.getName(),
+                        new TypeDef(column.getType()),
+                        column.isKey(),
+                        column.getAggregationType(),
+                        column.isAllowNull(),
+                        new DefaultValue(column.getDefaultValue() != null, column.getDefaultValue()),
+                        column.getComment())
+                ).collect(Collectors.toList());
+        TableName tableName = new TableName(
+                Env.getCurrentInternalCatalog().getName(),
+                addMVClause.getDatabase().getFullName(),
+                addMVClause.getMVName()
+        );
+        CreateTableStmt createStmt = new CreateTableStmt(
+                true,
+                false,
+                tableName,
+                columnDefinitions,
+                "olap",
+                addMVClause.getKeysDesc(),
+                addMVClause.getPartitionDesc(),
+                addMVClause.getDistributionDesc(),
+                addMVClause.getProperties(),
+                null,
+                null
+        );
+        Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
+        createStmt.analyze(analyzer);
+        Env.getCurrentEnv().createTable(createStmt);
+    }
 }

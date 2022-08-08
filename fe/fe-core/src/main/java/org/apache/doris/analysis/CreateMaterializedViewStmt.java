@@ -421,7 +421,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             default:
                 throw new AnalysisException("Unsupported function:" + functionName);
         }
-        return new MVColumnItem(mvColumnName, type, mvAggregateType, false, defineExpr, baseColumnName);
+        return new MVColumnItem(mvColumnName, type, mvAggregateType, false, defineExpr,
+                baseColumnName, baseColumnRef.getTableName().getTbl());
     }
 
     public Map<String, Expr> parseDefineExprWithoutAnalyze() throws AnalysisException {
