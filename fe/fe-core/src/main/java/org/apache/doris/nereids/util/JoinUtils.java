@@ -29,7 +29,6 @@ import com.google.common.collect.Lists;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Utils for join
@@ -53,10 +52,8 @@ public class JoinUtils {
             return eqConjuncts;
         }
 
-        List<SlotReference> leftSlots = join.left().getOutput().stream().map(slot -> (SlotReference) slot)
-                .collect(Collectors.toList());
-        List<SlotReference> rightSlots = join.right().getOutput().stream().map(slot -> (SlotReference) slot)
-                .collect(Collectors.toList());
+        List<SlotReference> leftSlots = Utils.getOutputSlotReference(join.left());
+        List<SlotReference> rightSlots = Utils.getOutputSlotReference(join.right());
 
         Expression onCondition = join.getCondition().get();
         List<Expression> conjunctList = ExpressionUtils.extractConjunction(onCondition);
@@ -93,12 +90,9 @@ public class JoinUtils {
         Pair<List<SlotReference>, List<SlotReference>> childSlots =
                 new Pair<>(Lists.newArrayList(), Lists.newArrayList());
 
-        List<SlotReference> leftSlots = join.left().getOutput().stream().map(slot -> (SlotReference) slot)
-                .collect(Collectors.toList());
-        List<SlotReference> rightSlots = join.right().getOutput().stream().map(slot -> (SlotReference) slot)
-                .collect(Collectors.toList());
+        List<SlotReference> leftSlots = Utils.getOutputSlotReference(join.left());
+        List<SlotReference> rightSlots = Utils.getOutputSlotReference(join.right());
         List<EqualTo> equalToList = getEqualTo(join);
-
 
         for (EqualTo equalTo : equalToList) {
             List<SlotReference> leftOnSlots = equalTo.left().collect(SlotReference.class::isInstance);
