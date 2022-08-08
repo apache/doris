@@ -338,8 +338,7 @@ public class InPredicate extends Predicate {
             // fn = getBuiltinFunction(analyzer, isNotIn ? NOT_IN_SET_LOOKUP : IN_SET_LOOKUP,
             // argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             opcode = isNotIn ? TExprOpcode.FILTER_NOT_IN : TExprOpcode.FILTER_IN;
-            // Todo: need to implement completely type compatible, like castAllToCompatibleType();
-            // only supported Integer type now.
+            // Todo: need to implement completely type cast compatibility, like castAllToCompatibleType();
             Type compatibleType = getChild(0).getType();
             for (int i = 1; i < children.size(); ++i) {
                 compatibleType = Type.getCmpType(compatibleType, getChild(i).getType());

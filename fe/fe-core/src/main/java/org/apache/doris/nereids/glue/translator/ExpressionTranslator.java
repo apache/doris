@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.ArithmeticExpr;
-import org.apache.doris.analysis.BetweenPredicate;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.BoolLiteral;
