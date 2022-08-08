@@ -29,6 +29,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
  */
 @Developing
 public class JoinCommute extends OneExplorationRuleFactory {
+
+    public static final JoinCommute SWAP_OUTER_COMMUTE_BOTTOM_JOIN = new JoinCommute(true, SwapType.BOTTOM_JOIN);
+
     private final SwapType swapType;
     private final boolean swapOuter;
 

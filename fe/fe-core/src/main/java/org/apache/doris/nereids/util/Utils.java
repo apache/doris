@@ -17,11 +17,15 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
+
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Utils for Nereids.
@@ -56,11 +60,10 @@ public class Utils {
 
     /**
      * Helper function to eliminate unnecessary checked exception caught requirement from the main logic of translator.
-     *
      */
     @SuppressWarnings("unchecked")
     public static <R> R execWithReturnVal(Supplier<R> f) {
-        final Object[] ans = new Object[]{null};
+        final Object[] ans = new Object[] {null};
         try {
             ans[0] = f.get();
         } catch (Exception e) {
@@ -106,5 +109,14 @@ public class Utils {
             return false;
         }
         return new HashSet<>(one).containsAll(other) && new HashSet<>(other).containsAll(one);
+    }
+
+    /**
+     * Get SlotReference from output of plam.
+     * Warning, plan must have bound, because exists Slot Cast to SlotReference.
+     */
+    public static List<SlotReference> getOutputSlotReference(Plan plan) {
+        return plan.getOutput().stream().map(SlotReference.class::cast)
+                .collect(Collectors.toList());
     }
 }

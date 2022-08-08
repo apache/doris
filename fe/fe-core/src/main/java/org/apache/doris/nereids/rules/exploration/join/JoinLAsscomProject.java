@@ -25,32 +25,35 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
- * Rule for change inner join LAsscom (associative and commutive).
+ * Rule for change inner join left associative to right.
  */
 @Developing
-public class JoinLAsscom extends OneExplorationRuleFactory {
+public class JoinLAsscomProject extends OneExplorationRuleFactory {
     /*
-     *      topJoin                newTopJoin
-     *      /     \                 /     \
-     * bottomJoin  C   -->  newBottomJoin  B
-     *  /    \                  /    \
-     * A      B                A      C
+     *        topJoin                   newTopJoin
+     *        /     \                   /        \
+     *    project    C          newLeftProject newRightProject
+     *      /            ──►          /            \
+     * bottomJoin                newBottomJoin      B
+     *    /   \                     /   \
+     *   A     B                   A     C
      */
     @Override
     public Rule build() {
-        return logicalJoin(logicalJoin(), groupPlan())
+        return logicalJoin(logicalProject(logicalJoin()), groupPlan())
             .when(JoinLAsscomHelper::check)
             .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()
-                    && (join.left().getJoinType().isInnerJoin() || join.left().getJoinType().isLeftOuterJoin()))
+                    && (join.left().child().getJoinType().isInnerJoin() || join.left().child().getJoinType()
+                    .isLeftOuterJoin()))
             .then(topJoin -> {
+                LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
 
-                LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                 JoinLAsscomHelper helper = JoinLAsscomHelper.of(topJoin, bottomJoin);
                 if (!helper.initJoinOnCondition()) {
                     return null;
                 }
 
-                return helper.newTopJoin();
+                return helper.newProjectTopJoin();
             }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
     }
 }

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
 import mockit.Mocked;
@@ -37,7 +38,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 public class JoinLAsscomTest {
 
@@ -49,17 +49,13 @@ public class JoinLAsscomTest {
         LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScanWithTable("t1");
         LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScanWithTable("t2");
         LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScanWithTable("t3");
-
         scans.add(scan1);
         scans.add(scan2);
         scans.add(scan3);
 
-        List<SlotReference> t1Output = scan1.getOutput().stream().map(slot -> (SlotReference) slot)
-                .collect(Collectors.toList());
-        List<SlotReference> t2Output = scan2.getOutput().stream().map(slot -> (SlotReference) slot)
-                .collect(Collectors.toList());
-        List<SlotReference> t3Output = scan3.getOutput().stream().map(slot -> (SlotReference) slot)
-                .collect(Collectors.toList());
+        List<SlotReference> t1Output = Utils.getOutputSlotReference(scan1);
+        List<SlotReference> t2Output = Utils.getOutputSlotReference(scan2);
+        List<SlotReference> t3Output = Utils.getOutputSlotReference(scan3);
         outputs.add(t1Output);
         outputs.add(t2Output);
         outputs.add(t3Output);

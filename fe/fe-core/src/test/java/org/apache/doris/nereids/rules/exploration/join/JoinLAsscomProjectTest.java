@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -41,9 +42,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
-public class JoinProjectLAsscomTest {
+public class JoinLAsscomProjectTest {
 
     private static final List<LogicalOlapScan> scans = Lists.newArrayList();
     private static final List<List<SlotReference>> outputs = Lists.newArrayList();
@@ -58,12 +58,9 @@ public class JoinProjectLAsscomTest {
         scans.add(scan2);
         scans.add(scan3);
 
-        List<SlotReference> t1Output = scan1.getOutput().stream().map(slot -> (SlotReference) slot)
-                .collect(Collectors.toList());
-        List<SlotReference> t2Output = scan2.getOutput().stream().map(slot -> (SlotReference) slot)
-                .collect(Collectors.toList());
-        List<SlotReference> t3Output = scan3.getOutput().stream().map(slot -> (SlotReference) slot)
-                .collect(Collectors.toList());
+        List<SlotReference> t1Output = Utils.getOutputSlotReference(scan1);
+        List<SlotReference> t2Output = Utils.getOutputSlotReference(scan2);
+        List<SlotReference> t3Output = Utils.getOutputSlotReference(scan3);
 
         outputs.add(t1Output);
         outputs.add(t2Output);
@@ -97,7 +94,7 @@ public class JoinProjectLAsscomTest {
         LogicalJoin<LogicalProject<LogicalJoin<LogicalOlapScan, LogicalOlapScan>>, LogicalOlapScan> topJoin
                 = new LogicalJoin<>(JoinType.INNER_JOIN, Optional.of(topJoinOnCondition), project, scans.get(2));
 
-        Rule rule = new JoinProjectLAsscom().build();
+        Rule rule = new JoinLAsscomProject().build();
         List<Plan> transform = rule.transform(topJoin, plannerContext);
         Assertions.assertEquals(1, transform.size());
         Assertions.assertTrue(transform.get(0) instanceof LogicalJoin);
