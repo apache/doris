@@ -159,7 +159,7 @@ mysql> show EXPORT\G;
      State: FINISHED
   Progress: 100%
   TaskInfo: {"partitions":["*"],"exec mem limit":2147483648,"column separator":",","line delimiter":"\n","tablet num":1,"broker":"hdfs","coord num":1,"db":"default_cluster:db1","tbl":"tbl3"}
-      Path: bos://bj-test-cmy/export/
+      Path: hdfs://host/path/to/export/
 CreateTime: 2019-06-25 17:08:24
  StartTime: 2019-06-25 17:08:28
 FinishTime: 2019-06-25 17:08:34

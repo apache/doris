@@ -112,10 +112,10 @@ Export's detailed commands can be passed through `HELP EXPORT;` Examples are as 
 EXPORT TABLE db1.tbl1 
 PARTITION (p1,p2)
 [WHERE [expr]]
-TO "bos://bj-test-cmy/export/" 
+TO "hdfs://host/path/to/export/" 
 PROPERTIES
 (
-    "label"="mylabel",
+    "label" = "mylabel",
     "column_separator"=",",
     "columns" = "col1,col2",
     "exec_mem_limit"="2147483648",
@@ -123,8 +123,8 @@ PROPERTIES
 )
 WITH BROKER "hdfs"
 (
-	"username" = "user",
-	"password" = "passwd"
+    "username" = "user",
+    "password" = "passwd"
 );
 ```
 
@@ -168,7 +168,7 @@ mysql> show EXPORT\G;
      State: FINISHED
   Progress: 100%
   TaskInfo: {"partitions":["*"],"exec mem limit":2147483648,"column separator":",","line delimiter":"\n","tablet num":1,"broker":"hdfs","coord num":1,"db":"default_cluster:db1","tbl":"tbl3"}
-      Path: bos://bj-test-cmy/export/
+      Path: hdfs://host/path/to/export/
 CreateTime: 2019-06-25 17:08:24
  StartTime: 2019-06-25 17:08:28
 FinishTime: 2019-06-25 17:08:34
@@ -233,5 +233,4 @@ Usually, a query plan for an Export job has only two parts `scan`- `export`, and
 ## More Help
 
 For more detailed syntax and best practices used by Export, please refer to the [Export](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) command manual, you can also You can enter `HELP EXPORT` at the command line of the MySql client for more help.
-
 
