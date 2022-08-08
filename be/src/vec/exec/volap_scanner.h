@@ -83,10 +83,6 @@ public:
 
     int64_t update_wait_worker_timer() const { return _watcher.elapsed_time(); }
 
-    void set_use_pushdown_conjuncts(bool has_pushdown_conjuncts) {
-        _use_pushdown_conjuncts = has_pushdown_conjuncts;
-    }
-
     std::vector<bool>* mutable_runtime_filter_marks() { return &_runtime_filter_marks; }
 
     TabletStorageType get_storage_type();
@@ -117,7 +113,6 @@ private:
     bool _aggregation;
     bool _need_agg_finalize = true;
     bool _has_update_counter = false;
-    bool _use_pushdown_conjuncts = false;
 
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;

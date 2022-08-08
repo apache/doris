@@ -37,7 +37,9 @@ public:
         return pool->add(new VBloomPredicate(*this));
     }
     const std::string& expr_name() const override;
-    void set_filter(std::unique_ptr<IBloomFilterFuncBase>& filter);
+    void set_filter(std::shared_ptr<IBloomFilterFuncBase>& filter);
+
+    std::shared_ptr<IBloomFilterFuncBase> get_bloom_filter_func() const override { return _filter; }
 
 private:
     std::shared_ptr<IBloomFilterFuncBase> _filter;

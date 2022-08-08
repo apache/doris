@@ -43,12 +43,13 @@ BloomFilterPredicate::BloomFilterPredicate(const BloomFilterPredicate& other)
           _filtered_rows(),
           _scan_rows() {}
 
-Status BloomFilterPredicate::prepare(RuntimeState* state, IBloomFilterFuncBase* filter) {
+Status BloomFilterPredicate::prepare(RuntimeState* state,
+                                     std::shared_ptr<IBloomFilterFuncBase> filter) {
     // DCHECK(filter != nullptr);
     if (_is_prepare) {
         return Status::OK();
     }
-    _filter.reset(filter);
+    _filter = filter;
     if (nullptr == _filter.get()) {
         return Status::InternalError("Unknown column type.");
     }

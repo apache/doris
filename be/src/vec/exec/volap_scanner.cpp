@@ -122,10 +122,6 @@ Status VOlapScanner::open() {
     SCOPED_TIMER(_parent->_reader_init_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
-    if (_conjunct_ctxs.size() > _parent->_direct_conjunct_size) {
-        _use_pushdown_conjuncts = true;
-    }
-
     _runtime_filter_marks.resize(_parent->runtime_filter_descs().size(), false);
 
     auto res = _tablet_reader->init(_tablet_reader_params);

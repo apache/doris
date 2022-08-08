@@ -354,7 +354,7 @@ Status VExpr::init_function_context(VExprContext* context,
 
 void VExpr::close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
                                    const FunctionBasePtr& function) const {
-    if (_fn_context_index != -1) {
+    if (_fn_context_index != -1 && !context->_stale) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
         function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
         if (scope == FunctionContext::FRAGMENT_LOCAL) {

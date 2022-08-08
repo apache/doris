@@ -256,6 +256,11 @@ public:
         range.remove_fixed_value(*value);
     }
 
+    static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
+                                CppType* value) {
+        range.add_range(op, *value);
+    }
+
     static ColumnValueRange<primitive_type> create_empty_column_value_range() {
         return ColumnValueRange<primitive_type>::create_empty_column_value_range("");
     }

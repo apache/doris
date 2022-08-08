@@ -41,6 +41,10 @@ public:
 
     virtual std::string debug_string() const override;
 
+    const FunctionBasePtr function() { return _function; };
+
+    const bool is_not_in() { return _is_not_in; };
+
 private:
     FunctionBasePtr _function;
     std::string _expr_name;
