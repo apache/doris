@@ -29,6 +29,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -300,8 +301,12 @@ public class CastExpr extends Expr {
                         searchDesc, Function.CompareMode.IS_IDENTICAL);
             }
         } else if (type.isArrayType()) {
-            // only support char/varchar/string cast to array for origin exec engine.
-            if (childType.isStringType()) {
+            if (VectorizedUtil.isVectorized()) {
+                // Vec engine don't need a scala cast function, but we still create one to pass the check.
+                fn = ScalarFunction.createBuiltin("CAST", type,  Lists.newArrayList(), false,
+                    "", null, null, true);
+            } else if (childType.isVarchar()) {
+                // only support varchar cast to array for origin exec engine.
                 fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
                     type, Function.NullableMode.ALWAYS_NULLABLE,
                     Lists.newArrayList(Type.VARCHAR), false,
