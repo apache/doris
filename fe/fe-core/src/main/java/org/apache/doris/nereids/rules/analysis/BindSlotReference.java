@@ -282,6 +282,10 @@ public class BindSlotReference implements AnalysisRuleFactory {
             );
         }
 
+        public String toSql() {
+            return children.stream().map(Expression::toSql).collect(Collectors.joining(", "));
+        }
+
         public List<Slot> getSlots() {
             return (List) children();
         }

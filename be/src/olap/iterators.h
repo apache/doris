@@ -23,7 +23,6 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
-#include "olap/rowid_conversion.h"
 #include "olap/tablet_schema.h"
 #include "vec/core/block.h"
 
@@ -93,7 +92,7 @@ public:
     bool use_page_cache = false;
     int block_row_max = 4096;
 
-    const TabletSchema* tablet_schema = nullptr;
+    TabletSchemaSPtr tablet_schema = nullptr;
     bool record_rowids = false;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;

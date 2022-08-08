@@ -1069,7 +1069,7 @@ public class DistributedPlanner {
 
         AggregateInfo firstPhaseAggInfo = ((AggregationNode) node.getChild(0)).getAggInfo();
         List<Expr> partitionExprs = null;
-        boolean isMultiDistinct = node.getAggInfo().isMultiDistinct();
+        boolean isUsingSetForDistinct = node.getAggInfo().isUsingSetForDistinct();
         if (hasGrouping) {
             // We need to do
             // - child fragment:
@@ -1092,7 +1092,7 @@ public class DistributedPlanner {
             //   * phase 2 agg
             // - merge fragment 2, unpartitioned:
             //   * merge agg of phase 2
-            if (!isMultiDistinct) {
+            if (!isUsingSetForDistinct) {
                 partitionExprs = Expr.substituteList(firstPhaseAggInfo.getGroupingExprs(),
                         firstPhaseAggInfo.getIntermediateSmap(), ctx.getRootAnalyzer(), false);
             }
@@ -1130,7 +1130,7 @@ public class DistributedPlanner {
             mergeFragment.addPlanRoot(node);
         }
 
-        if (!hasGrouping && !isMultiDistinct) {
+        if (!hasGrouping && !isUsingSetForDistinct) {
             // place the merge aggregation of the 2nd phase in an unpartitioned fragment;
             // add preceding merge fragment at end
             if (mergeFragment != childFragment) {
@@ -1242,7 +1242,8 @@ public class DistributedPlanner {
         if (hasLimit) {
             exchNode.setLimit(limit);
         }
-        exchNode.setMergeInfo(node.getSortInfo(), offset);
+        exchNode.setMergeInfo(node.getSortInfo());
+        exchNode.setOffset(offset);
 
         // Child nodes should not process the offset. If there is a limit,
         // the child nodes need only return (offset + limit) rows.

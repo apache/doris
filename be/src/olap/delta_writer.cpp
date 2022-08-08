@@ -131,12 +131,19 @@ Status DeltaWriter::init() {
 
     RETURN_NOT_OK(_tablet->create_rowset_writer(_req.txn_id, _req.load_id, PREPARED, OVERLAPPING,
                                                 _tablet_schema, &_rowset_writer));
-    _schema.reset(new Schema(*_tablet_schema));
+    _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();
 
     // create flush handler
     RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
             &_flush_token, _rowset_writer->type(), _req.is_high_priority));
+
+    // create delete bitmap and get rowset ids snapshot
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        _delete_bitmap = std::make_shared<DeleteBitmap>(-1);
+        std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
+        _rowset_ids = _tablet->all_rs_id();
+    }
 
     _is_init = true;
     return Status::OK();
@@ -283,7 +290,8 @@ Status DeltaWriter::wait_flush() {
 
 void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
-                                  _req.tuple_desc, _rowset_writer.get(), _is_vec));
+                                  _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,
+                                  _rowset_ids, _is_vec));
 }
 
 Status DeltaWriter::close() {
@@ -335,6 +343,11 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         LOG(WARNING) << "Failed to commit txn: " << _req.txn_id
                      << " for rowset: " << _cur_rowset->rowset_id();
         return res;
+    }
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
+                _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
+                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids);
     }
 
     _delta_written_success = true;
@@ -407,11 +420,18 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
                                                const POlapTableSchemaParam& ptable_schema_param,
                                                const TabletSchema& ori_tablet_schema) {
     _tablet_schema->copy_from(ori_tablet_schema);
-    //new tablet schame if new table
+
+    // find the right index id
+    int i = 0;
+    for (; i < ptable_schema_param.indexes_size(); i++) {
+        if (ptable_schema_param.indexes(i).id() == index_id) break;
+    }
+
     if (ptable_schema_param.indexes_size() > 0 &&
-        ptable_schema_param.indexes(0).columns_desc_size() != 0 &&
-        ptable_schema_param.indexes(0).columns_desc(0).unique_id() >= 0) {
-        _tablet_schema->build_current_tablet_schema(index_id, ptable_schema_param,
+        ptable_schema_param.indexes(i).columns_desc_size() != 0 &&
+        ptable_schema_param.indexes(i).columns_desc(0).unique_id() >= 0) {
+        _tablet_schema->build_current_tablet_schema(index_id, ptable_schema_param.version(),
+                                                    ptable_schema_param.indexes(i),
                                                     ori_tablet_schema);
     }
 }

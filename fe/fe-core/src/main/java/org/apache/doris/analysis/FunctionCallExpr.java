@@ -1066,6 +1066,11 @@ public class FunctionCallExpr extends Expr {
                     if (!argTypes[i].matchesType(args[ix]) && Config.enable_date_conversion
                             && !argTypes[i].isDateType() && (args[ix].isDate() || args[ix].isDatetime())) {
                         uncheckedCastChild(ScalarType.getDefaultDateType(args[ix]), i);
+                    } else if (!argTypes[i].matchesType(args[ix]) && Config.enable_decimalv3
+                            && Config.enable_decimal_conversion
+                            && argTypes[i].isDecimalV3() && args[ix].isDecimalV2()) {
+                        uncheckedCastChild(ScalarType.createDecimalV3Type(argTypes[i].getPrecision(),
+                                ((ScalarType) argTypes[i]).getScalarScale()), i);
                     } else if (!argTypes[i].matchesType(args[ix]) && !(
                             argTypes[i].isDateType() && args[ix].isDateType())) {
                         uncheckedCastChild(args[ix], i);
@@ -1130,19 +1135,38 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
+        if (this.type.isDecimalV2() && Config.enable_decimal_conversion && Config.enable_decimalv3
+                && fn.getArgs().length == childTypes.length) {
+            boolean implicitCastToDecimalV3 = false;
+            for (int i = 0; i < fn.getArgs().length; i++) {
+                implicitCastToDecimalV3 = Type.canCastTo(childTypes[i], fn.getArgs()[i]);
+                if (implicitCastToDecimalV3) {
+                    break;
+                }
+            }
+            if (implicitCastToDecimalV3) {
+                this.type = ScalarType.createDecimalV3Type(fn.getReturnType().getPrecision(),
+                        ((ScalarType) fn.getReturnType()).getScalarScale());
+                fn.setReturnType(this.type);
+            }
+        }
+
         if (this.type.isDecimalV3()) {
             // DECIMAL need to pass precision and scale to be
             if (DECIMAL_FUNCTION_SET.contains(fn.getFunctionName().getFunction())
                     && (this.type.isDecimalV2() || this.type.isDecimalV3())) {
                 if (DECIMAL_SAME_TYPE_SET.contains(fnName.getFunction())) {
                     this.type = argTypes[0];
+                    fn.setReturnType(this.type);
                 } else if (DECIMAL_WIDER_TYPE_SET.contains(fnName.getFunction())) {
                     this.type = ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
                             ((ScalarType) argTypes[0]).getScalarScale());
+                    fn.setReturnType(this.type);
                 } else if (STDDEV_FUNCTION_SET.contains(fnName.getFunction())) {
                     // for all stddev function, use decimal(38,9) as computing result
                     this.type = ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
                             STDDEV_DECIMAL_SCALE);
+                    fn.setReturnType(this.type);
                 }
             }
         }
@@ -1370,15 +1394,20 @@ public class FunctionCallExpr extends Expr {
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             // Prevent the cast type in vector exec engine
             Type childType = getChild(0).type.getMaxResolutionType();
-            fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[] {childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            type = fn.getReturnType();
+        } else if (fnName.getFunction().equalsIgnoreCase("count")) {
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
         } else if (fnName.getFunction().equalsIgnoreCase("substring")
                 || fnName.getFunction().equalsIgnoreCase("cast")) {
             Type[] childTypes = getChildren().stream().map(t -> t.type).toArray(Type[]::new);
             fn = getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
-        } else if (fnName.getFunction().equalsIgnoreCase("year")) {
+        } else if (fnName.getFunction().equalsIgnoreCase("year")
+                || fnName.getFunction().equalsIgnoreCase("min")
+                || fnName.getFunction().equalsIgnoreCase("avg")) {
             Type childType = getChild(0).type;
             fn = getBuiltinFunction(fnName.getFunction(), new Type[]{childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);

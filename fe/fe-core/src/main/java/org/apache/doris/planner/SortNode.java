@@ -59,7 +59,8 @@ public class SortNode extends PlanNode {
     List<Expr> resolvedTupleExprs;
     private final SortInfo info;
     private final boolean  useTopN;
-    private final boolean  isDefaultLimit;
+
+    private boolean  isDefaultLimit;
     private long offset;
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
@@ -69,7 +70,7 @@ public class SortNode extends PlanNode {
      * Constructor.
      */
     public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN,
-                    boolean isDefaultLimit, long offset) {
+            boolean isDefaultLimit, long offset) {
         super(id, useTopN ? "TOP-N" : "SORT", StatisticalType.SORT_NODE);
         this.info = info;
         this.useTopN = useTopN;
@@ -82,6 +83,10 @@ public class SortNode extends PlanNode {
         Preconditions.checkArgument(info.getOrderingExprs().size() == info.getIsAscOrder().size());
     }
 
+    public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN) {
+        this(id, input, info, useTopN, true, 0);
+    }
+
     /**
      * Clone 'inputSortNode' for distributed Top-N.
      */
@@ -92,6 +97,14 @@ public class SortNode extends PlanNode {
         this.isDefaultLimit = inputSortNode.isDefaultLimit;
         this.children.add(child);
         this.offset = inputSortNode.offset;
+    }
+
+    /**
+     * set isDefaultLimit when translate PhysicalLimit
+     * @param defaultLimit
+     */
+    public void setDefaultLimit(boolean defaultLimit) {
+        isDefaultLimit = defaultLimit;
     }
 
     public void setIsAnalyticSort(boolean v) {

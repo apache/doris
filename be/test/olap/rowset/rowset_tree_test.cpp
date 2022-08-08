@@ -101,11 +101,23 @@ private:
 };
 
 TEST_F(TestRowsetTree, TestTree) {
+    RowsetIdUnorderedSet rowset_ids;
     RowsetVector vec;
-    vec.push_back(create_rowset("0", "5"));
-    vec.push_back(create_rowset("3", "5"));
-    vec.push_back(create_rowset("5", "9"));
-    vec.push_back(create_rowset("0", "0", true));
+    auto rowset1 = create_rowset("0", "5");
+    vec.push_back(rowset1);
+    rowset_ids.insert(rowset1->rowset_id());
+
+    auto rowset2 = create_rowset("3", "5");
+    vec.push_back(rowset2);
+    rowset_ids.insert(rowset2->rowset_id());
+
+    auto rowset3 = create_rowset("5", "9");
+    vec.push_back(rowset3);
+    rowset_ids.insert(rowset3->rowset_id());
+
+    auto rowset4 = create_rowset("0", "0", true);
+    vec.push_back(rowset4);
+    rowset_ids.insert(rowset4->rowset_id());
 
     RowsetTree tree;
     ASSERT_FALSE(tree.Init(vec).ok());
@@ -115,13 +127,13 @@ TEST_F(TestRowsetTree, TestTree) {
 
     // "2" overlaps 0-5
     vector<std::pair<RowsetSharedPtr, int32_t>> out;
-    tree.FindRowsetsWithKeyInRange("2", &out);
+    tree.FindRowsetsWithKeyInRange("2", &rowset_ids, &out);
     ASSERT_EQ(1, out.size());
     ASSERT_EQ(vec[0].get(), out[0].first.get());
 
     // "4" overlaps 0-5, 3-5
     out.clear();
-    tree.FindRowsetsWithKeyInRange("4", &out);
+    tree.FindRowsetsWithKeyInRange("4", &rowset_ids, &out);
     ASSERT_EQ(2, out.size());
     ASSERT_EQ(vec[0].get(), out[0].first.get());
     ASSERT_EQ(vec[1].get(), out[1].first.get());
@@ -149,14 +161,14 @@ TEST_F(TestRowsetTree, TestTree) {
 
     // "3" overlaps 0-5, 3-5
     out.clear();
-    tree.FindRowsetsWithKeyInRange("3", &out);
+    tree.FindRowsetsWithKeyInRange("3", &rowset_ids, &out);
     ASSERT_EQ(2, out.size());
     ASSERT_EQ(vec[0].get(), out[0].first.get());
     ASSERT_EQ(vec[1].get(), out[1].first.get());
 
     // "5" overlaps 0-5, 3-5, 5-9
     out.clear();
-    tree.FindRowsetsWithKeyInRange("5", &out);
+    tree.FindRowsetsWithKeyInRange("5", &rowset_ids, &out);
     ASSERT_EQ(3, out.size());
     ASSERT_EQ(vec[0].get(), out[0].first.get());
     ASSERT_EQ(vec[1].get(), out[1].first.get());
@@ -333,10 +345,15 @@ TEST_P(TestRowsetTreePerformance, TestPerformance) {
 
     MonotonicStopWatch one_at_time_timer;
     MonotonicStopWatch batch_timer;
+    RowsetIdUnorderedSet rowset_ids;
     for (int i = 0; i < kNumIterations; i++) {
+        rowset_ids.clear();
         // Create a bunch of rowsets, each of which spans about 10% of the "row space".
         // The row space here is 4-digit 0-padded numbers.
         RowsetVector vec = GenerateRandomRowsets(kNumRowsets);
+        for (auto rowset : vec) {
+            rowset_ids.insert(rowset->rowset_id());
+        }
 
         RowsetTree tree;
         ASSERT_TRUE(tree.Init(vec).ok());
@@ -353,7 +370,7 @@ TEST_P(TestRowsetTreePerformance, TestPerformance) {
             vector<std::pair<RowsetSharedPtr, int32_t>> out;
             for (const auto& q : queries) {
                 out.clear();
-                tree.FindRowsetsWithKeyInRange(Slice(q), &out);
+                tree.FindRowsetsWithKeyInRange(Slice(q), &rowset_ids, &out);
                 individual_matches += out.size();
             }
         }

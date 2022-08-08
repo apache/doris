@@ -197,7 +197,7 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 ### `jetty_server_max_http_post_size`
 
-默认值：100 * 1024 * 1024  （100MB）
+默认值：`100 * 1024 * 1024`  （100MB）
 
 这个是 put 或 post 方法上传文件的最大字节数，默认值：100MB
 
@@ -859,7 +859,7 @@ tablet 状态更新间隔
 
 ### `storage_min_left_capacity_bytes`
 
-默认值： 2 * 1024 * 1024 * 1024  (2GB)
+默认值： `2 * 1024 * 1024 * 1024`  (2GB)
 
 是否可以动态配置：true
 
@@ -1115,7 +1115,7 @@ broker scanner 的最大并发数。
 
 ### `storage_cooldown_second`
 
-默认值：30 * 24 * 3600L  （30天）
+默认值：`30 * 24 * 3600L`  （30天）
 
 创建表（或分区）时，可以指定其存储介质（HDD 或 SSD）。 如果设置为 SSD，这将指定tablet在 SSD 上停留的默认时间。 之后，tablet将自动移动到 HDD。 您可以在 `CREATE TABLE stmt` 中设置存储冷却时间。
 
@@ -2057,7 +2057,7 @@ HOUR: log前缀是：yyyyMMddHH
 
 ### `history_job_keep_max_second`
 
-默认值：7 * 24 * 3600   （7天）
+默认值：`7 * 24 * 3600`  （7天）
 
 是否可以动态配置：true
 
@@ -2073,7 +2073,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 ### `delete_info_keep_max_second`
 
-默认值：3 * 24 * 3600  (3天)
+默认值：`3 * 24 * 3600`  (3天)
 
 是否可以动态配置：true
 
@@ -2179,7 +2179,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 ### `min_bytes_indicate_replica_too_large`
 
-默认值：2 * 1024 * 1024 * 1024 (2G)
+默认值：`2 * 1024 * 1024 * 1024` (2G)
 
 是否可以动态配置：true
 
@@ -2221,7 +2221,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 提交事务需满足的最小数据大小。若 Fe 接收到的数据大小小于它，会继续等待下一批数据直到时间超过了 `sync_commit_interval_second` 为止。默认值是 15 MB，如果你想修改此配置，请确保此值小于 canal 端的 `canal.instance.memory.buffer.size` 和 `canal.instance.memory.buffer.memunit` 的乘积（默认 16 MB），否则在 ack 前 Fe 会尝试获取比 store 空间更大的数据，导致 store 队列阻塞至超时为止。
 
-默认值：15 * 1024 * 1024（15M）
+默认值：`15 * 1024 * 1024`（15M）
 
 是否可以动态配置：true
 

@@ -116,7 +116,7 @@ private:
     void _output_non_pred_columns(vectorized::Block* block);
     Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                    std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
-                                   size_t select_size, vectorized::MutableColumns* mutable_columns);
+                                   size_t select_size);
 
     template <class Container>
     Status _output_column_by_sel_idx(vectorized::Block* block, const Container& column_ids,
@@ -165,10 +165,10 @@ private:
     std::shared_ptr<Segment> _segment;
     const Schema& _schema;
     // _column_iterators.size() == _schema.num_columns()
-    // _column_iterators[cid] == nullptr if cid is not in _schema
-    std::vector<ColumnIterator*> _column_iterators;
-    // FIXME prefer vector<unique_ptr<BitmapIndexIterator>>
-    std::vector<BitmapIndexIterator*> _bitmap_index_iterators;
+    // map<unique_id, ColumnIterator*> _column_iterators/_bitmap_index_iterators;
+    // can use _schema get unique_id by cid
+    std::map<int32_t, ColumnIterator*> _column_iterators;
+    std::map<int32_t, BitmapIndexIterator*> _bitmap_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan

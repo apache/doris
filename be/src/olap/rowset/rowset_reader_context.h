@@ -33,7 +33,7 @@ class TabletSchema;
 struct RowsetReaderContext {
     ReaderType reader_type = READER_QUERY;
     Version version {-1, -1};
-    const TabletSchema* tablet_schema = nullptr;
+    TabletSchemaSPtr tablet_schema = nullptr;
     // whether rowset should return ordered rows.
     bool need_ordered_result = true;
     // used for special optimization for query : ORDER BY key DESC LIMIT n

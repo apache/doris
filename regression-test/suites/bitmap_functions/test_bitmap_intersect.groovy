@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_bitmap_intersect", "bitmap_function") {
+suite("test_bitmap_intersect", "p0") {
 
     def tbName = "test_bitmap_intersect"
     sql """ SET enable_vectorized_engine = FALSE; """

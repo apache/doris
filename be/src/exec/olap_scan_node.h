@@ -158,7 +158,6 @@ protected:
                                                          int conj_idx, int child_idx);
 
     friend class OlapScanner;
-    friend class vectorized::VOlapScanner;
 
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;

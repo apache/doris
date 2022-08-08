@@ -23,13 +23,26 @@ namespace doris::vectorized {
 
 class PageIndex {
 public:
+    PageIndex() = default;
+    ~PageIndex();
     Status get_row_range_for_page();
     Status collect_skipped_page_range();
+    bool check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns);
+    Status parse_column_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff);
+    Status parse_offset_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
+                              int64_t buffer_size);
 
-    //private:
-    //    // row range define
-    //    tparquet::ColumnIndex _column_index;
-    //    tparquet::OffsetIndex _offset_index;
+private:
+private:
+    friend class ParquetReader;
+    int64_t _column_index_start;
+    int64_t _column_index_size;
+    int64_t _offset_index_start;
+    int64_t _offset_index_size;
+
+    tparquet::OffsetIndex* _offset_index;
+    tparquet::ColumnIndex* _column_index;
+    // row range define
 };
 
 } // namespace doris::vectorized

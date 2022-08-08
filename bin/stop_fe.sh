@@ -56,7 +56,7 @@ if [ -f $pidfile ]; then
     fi
 
     # check if pid process exist
-    if ! kill -0 $pid; then
+    if ! kill -0 $pid  2>&1; then
         echo "ERROR: fe process $pid does not exist."
         exit 1
     fi
