@@ -50,7 +50,7 @@ import java.util.Map;
  * it will create partitionItems for each alive be node.
  * So, we can use partitionInfo to select the necessary `be` to send query.
  */
-public class BackendSchemaScanNode extends SchemaScanNode {
+public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     public static final String SEGMENTS = "segments";
 
     public static boolean isBackendSchemaTable(String tableName) {
@@ -72,7 +72,7 @@ public class BackendSchemaScanNode extends SchemaScanNode {
     private Map<Long, Long> partitionIDToBackendID;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
 
-    public BackendSchemaScanNode(PlanNodeId id, TupleDescriptor desc) {
+    public BackendPartitionedSchemaScanNode(PlanNodeId id, TupleDescriptor desc) {
         super(id, desc);
     }
 
