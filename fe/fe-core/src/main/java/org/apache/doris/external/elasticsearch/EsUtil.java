@@ -19,6 +19,7 @@ package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
@@ -192,27 +193,39 @@ public class EsUtil {
         return properties;
     }
 
-    private static QueryBuilder toCompoundEsDsl(Expr expr) {
+    private static QueryBuilder toCompoundEsDsl(Expr expr, List<Expr> notPushDownList) {
         CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
         switch (compoundPredicate.getOp()) {
             case AND: {
-                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0));
-                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1));
+                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList);
+                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList);
                 if (left != null && right != null) {
                     return QueryBuilders.boolQuery().must(left).must(right);
                 }
                 return null;
             }
             case OR: {
-                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0));
-                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1));
+                int beforeSize = notPushDownList.size();
+                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList);
+                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList);
+                int afterSize = notPushDownList.size();
                 if (left != null && right != null) {
                     return QueryBuilders.boolQuery().should(left).should(right);
+                }
+                // One 'or' association cannot be pushed down and the other cannot be pushed down
+                if (afterSize > beforeSize) {
+                    if (left != null) {
+                        // add right if right don't pushdown
+                        notPushDownList.add(compoundPredicate.getChild(0));
+                    } else if (right != null) {
+                        // add left if left don't pushdown
+                        notPushDownList.add(compoundPredicate.getChild(1));
+                    }
                 }
                 return null;
             }
             case NOT: {
-                QueryBuilder child = toEsDsl(compoundPredicate.getChild(0));
+                QueryBuilder child = toEsDsl(compoundPredicate.getChild(0), notPushDownList);
                 if (child != null) {
                     return QueryBuilders.boolQuery().mustNot(child);
                 }
@@ -223,18 +236,27 @@ public class EsUtil {
         }
     }
 
+    public static QueryBuilder toEsDsl(Expr expr) {
+        return toEsDsl(expr, new ArrayList<>());
+    }
+
     /**
      * Doris expr to es dsl.
      **/
-    public static QueryBuilder toEsDsl(Expr expr) {
+    public static QueryBuilder toEsDsl(Expr expr, List<Expr> notPushDownList) {
         if (expr == null) {
             return null;
         }
         // CompoundPredicate, `between` also converted to CompoundPredicate.
         if (expr instanceof CompoundPredicate) {
-            return toCompoundEsDsl(expr);
+            return toCompoundEsDsl(expr, notPushDownList);
         }
         TExprOpcode opCode = expr.getOpcode();
+        // Cast can not pushdown
+        if (expr.getChild(0) instanceof CastExpr || expr.getChild(1) instanceof CastExpr) {
+            notPushDownList.add(expr);
+            return null;
+        }
         String column = ((SlotRef) expr.getChild(0)).getColumnName();
         if (expr instanceof BinaryPredicate) {
             Object value = toDorisLiteral(expr.getChild(1));
