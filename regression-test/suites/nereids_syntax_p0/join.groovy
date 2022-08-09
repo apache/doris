@@ -63,5 +63,9 @@ suite("join") {
     order_qt_right_anti_join """
         SELECT * FROM lineorder RIGHT ANTI JOIN supplier ON lineorder.lo_suppkey = supplier.s_suppkey
     """
+
+    order_qt_cross_join """
+        SELECT * FROM lineorder CROSS JOIN supplier;
+    """
 }
 

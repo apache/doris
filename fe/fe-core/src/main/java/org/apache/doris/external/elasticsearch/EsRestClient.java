@@ -19,7 +19,9 @@ package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.common.util.JsonUtil;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.google.common.collect.ImmutableList;
 import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -36,9 +38,11 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSession;
@@ -141,7 +145,7 @@ public class EsRestClient {
     /**
      * Get all index.
      **/
-    public List<String> getIndexes() {
+    public List<String> getIndices() {
         String indexes = execute("_cat/indices?h=index&format=json&s=index:asc");
         if (indexes == null) {
             throw new DorisEsException("get es indexes error");
@@ -156,6 +160,38 @@ public class EsRestClient {
             }
         });
         return ret;
+    }
+
+    /**
+     * Get all alias.
+     **/
+    public Map<String, List<String>> getAliases() {
+        String res = execute("_aliases");
+        Map<String, List<String>> ret = new HashMap<>();
+        JsonNode root = JsonUtil.readTree(res);
+        if (root == null) {
+            return ret;
+        }
+        Iterator<Map.Entry<String, JsonNode>> elements = root.fields();
+        while (elements.hasNext()) {
+            Map.Entry<String, JsonNode> element = elements.next();
+            JsonNode aliases = element.getValue().get("aliases");
+            Iterator<String> aliasNames = aliases.fieldNames();
+            if (aliasNames.hasNext()) {
+                ret.put(element.getKey(), ImmutableList.copyOf(aliasNames));
+            }
+        }
+        return ret;
+    }
+
+    /**
+     * Returns the merge of index and alias
+     **/
+    public List<String> listTable() {
+        List<String> indices = getIndices().stream().distinct().collect(Collectors.toList());
+        getAliases().entrySet().stream().filter(e -> indices.contains(e.getKey()))
+                .flatMap(e -> e.getValue().stream()).distinct().forEach(indices::add);
+        return indices;
     }
 
 

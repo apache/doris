@@ -90,6 +90,7 @@ import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.IntervalLiteral;
@@ -595,24 +596,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return visit(namedCtx.namedExpression(), Expression.class);
     }
 
-    /**
-     * Create OrderKey list.
-     *
-     * @param ctx QueryOrganizationContext
-     * @return List of OrderKey
-     */
-    @Override
-    public List<OrderKey> visitQueryOrganization(QueryOrganizationContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
-            if (ctx.sortClause().ORDER() != null) {
-                return visit(ctx.sortClause().sortItem(), OrderKey.class);
-            } else {
-                return ImmutableList.of();
-            }
-        });
-    }
-
-    private LogicalPlan visitRelation(List<RelationContext> relations) {
+    private LogicalPlan visitRelationList(List<RelationContext> relations) {
         LogicalPlan left = null;
         for (RelationContext relation : relations) {
             LogicalPlan right = plan(relation.relationPrimary());
@@ -631,7 +615,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitFromClause(FromClauseContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> visitRelation(ctx.relation()));
+        return ParserUtils.withOrigin(ctx, () -> visitRelationList(ctx.relation()));
     }
 
     /* ********************************************************************************************
@@ -874,9 +858,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     break;
                 case DorisParser.IN:
                     if (ctx.query() == null) {
-                        //TODO: InPredicate
-                        outExpression = null;
-                        throw new IllegalStateException("Unsupported predicate type: " + ctx.kind.getText());
+                        outExpression = new InPredicate(
+                                valueExpression,
+                                withInList(ctx)
+                        );
                     } else {
                         outExpression = new InSubquery(
                                 valueExpression,
@@ -913,5 +898,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitExist(ExistContext context) {
         return ParserUtils.withOrigin(context, () -> new Exists(typedVisit(context.query())));
+    }
+
+    public List<Expression> withInList(PredicateContext ctx) {
+        List<Expression> expressions = ctx.expression().stream()
+                .map(this::getExpression).collect(ImmutableList.toImmutableList());
+        return expressions;
     }
 }

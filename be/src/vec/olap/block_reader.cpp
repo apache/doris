@@ -34,7 +34,7 @@ BlockReader::~BlockReader() {
 
 Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
                                        std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
-    _vcollect_iter.init(this);
+    _vcollect_iter.init(this, read_params.read_orderby_key, read_params.read_orderby_key_reverse);
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto res = _capture_rs_readers(read_params, &rs_readers);
     if (!res.ok()) {
@@ -172,7 +172,10 @@ Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPo
     }
     *eof = res.precise_code() == OLAP_ERR_DATA_EOF;
     if (UNLIKELY(_reader_context.record_rowids)) {
-        RETURN_IF_ERROR(_vcollect_iter.current_block_row_locations(&_block_row_locations));
+        res = _vcollect_iter.current_block_row_locations(&_block_row_locations);
+        if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
+            return res;
+        }
         DCHECK_EQ(_block_row_locations.size(), block->rows());
     }
     return Status::OK();

@@ -104,7 +104,7 @@ Status VOlapScanner::prepare(
                 ss << "failed to initialize storage reader. tablet=" << _tablet->full_name()
                    << ", res=" << acquire_reader_st
                    << ", backend=" << BackendOptions::get_localhost();
-                return Status::InternalError(ss.str().c_str());
+                return Status::InternalError(ss.str());
             }
         }
     }
@@ -122,10 +122,6 @@ Status VOlapScanner::open() {
     SCOPED_TIMER(_parent->_reader_init_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
-    if (_conjunct_ctxs.size() > _parent->_direct_conjunct_size) {
-        _use_pushdown_conjuncts = true;
-    }
-
     _runtime_filter_marks.resize(_parent->runtime_filter_descs().size(), false);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
@@ -134,7 +130,7 @@ Status VOlapScanner::open() {
         ss << "failed to initialize storage reader. tablet="
            << _tablet_reader_params.tablet->full_name() << ", res=" << res
            << ", backend=" << BackendOptions::get_localhost();
-        return Status::InternalError(ss.str().c_str());
+        return Status::InternalError(ss.str());
     }
     return Status::OK();
 }
@@ -246,6 +242,17 @@ Status VOlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
 
+    if (_parent->_olap_scan_node.__isset.sort_info &&
+        _parent->_olap_scan_node.sort_info.is_asc_order.size() > 0) {
+        _limit = _parent->_limit_per_scanner;
+        _tablet_reader_params.read_orderby_key = true;
+        if (!_parent->_olap_scan_node.sort_info.is_asc_order[0]) {
+            _tablet_reader_params.read_orderby_key_reverse = true;
+        }
+        _tablet_reader_params.read_orderby_key_num_prefix_columns =
+                _parent->_olap_scan_node.sort_info.is_asc_order.size();
+    }
+
     return Status::OK();
 }
 
@@ -255,11 +262,9 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
             continue;
         }
 
-        int32_t index = _tablet_schema->field_index(slot->col_unique_id());
-        if (index < 0) {
-            // rollup/materialized view should use col_name to find index
-            index = _tablet_schema->field_index(slot->col_name());
-        }
+        int32_t index = slot->col_unique_id() >= 0
+                                ? _tablet_schema->field_index(slot->col_unique_id())
+                                : _tablet_schema->field_index(slot->col_name());
 
         if (index < 0) {
             std::stringstream ss;
@@ -333,6 +338,12 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
     // But checking raw_bytes_threshold is still added here for consistency with raw_rows_threshold
     // and olap_scanner.cpp.
 
+    // set eof to true if per scanner limit is reached
+    // currently for query: ORDER BY key LIMIT n
+    if (_limit > 0 && _num_rows_read > _limit) {
+        *eof = true;
+    }
+
     return Status::OK();
 }
 
@@ -352,7 +363,9 @@ Status VOlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
-    if (_vconjunct_ctx) _vconjunct_ctx->close(state);
+    if (_vconjunct_ctx) {
+        _vconjunct_ctx->close(state);
+    }
     // olap scan node will call scanner.close() when finished
     // will release resources here
     // if not clear rowset readers in read_params here

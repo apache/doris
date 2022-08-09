@@ -68,6 +68,11 @@ public:
     // return nullptr when failed
     virtual RowsetSharedPtr build() = 0;
 
+    // we have to load segment data to build delete_bitmap for current segment,
+    // so we  build a tmp rowset ptr to load segment data.
+    // real build will be called in DeltaWriter close_wait.
+    virtual RowsetSharedPtr build_tmp() = 0;
+
     virtual Version version() = 0;
 
     virtual int64_t num_rows() const = 0;

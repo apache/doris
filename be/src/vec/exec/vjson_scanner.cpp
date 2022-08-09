@@ -286,8 +286,9 @@ Status VJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator v
     int32_t wbytes = 0;
     std::string json_str;
 
+    vectorized::ColumnNullable* nullable_column = nullptr;
     if (slot_desc->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
+        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
         nullable_column->get_null_map_data().push_back(0);
         column_ptr = &nullable_column->get_nested_column();
     }
@@ -321,7 +322,6 @@ Status VJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator v
         break;
     case rapidjson::Type::kNullType:
         if (slot_desc->is_nullable()) {
-            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
             nullable_column->insert_default();
         } else {
             RETURN_IF_ERROR(_append_error_msg(
@@ -329,7 +329,9 @@ Status VJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator v
                     slot_desc->col_name(), valid));
             return Status::OK();
         }
-        break;
+        // return immediately to prevent from repeatedly insert_data
+        *valid = true;
+        return Status::OK();
     default:
         // for other type like array or object. we convert it to string to save
         json_str = JsonReader::_print_json_value(*value);

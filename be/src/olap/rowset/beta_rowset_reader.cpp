@@ -97,6 +97,8 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     read_options.use_page_cache = read_context->use_page_cache;
     read_options.tablet_schema = read_context->tablet_schema;
     read_options.record_rowids = read_context->record_rowids;
+    read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
+    read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
@@ -128,8 +130,12 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
             _rowset->rowset_meta()->is_segments_overlapping()) {
             final_iterator = vectorized::new_merge_iterator(
                     iterators, read_context->sequence_id_idx, read_context->is_unique,
-                    read_context->merged_rows);
+                    read_context->read_orderby_key_reverse, read_context->merged_rows);
         } else {
+            if (read_context->read_orderby_key_reverse) {
+                // reverse iterators to read backward for ORDER BY key DESC
+                std::reverse(iterators.begin(), iterators.end());
+            }
             final_iterator = vectorized::new_union_iterator(iterators);
         }
     } else {

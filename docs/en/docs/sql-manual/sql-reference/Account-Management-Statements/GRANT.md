@@ -35,7 +35,7 @@ GRANT
 The GRANT command is used to grant the specified user or role specified permissions
 
 ```sql
-GRANT privilege_list ON db_name[.tbl_name] TO user_identity [ROLE role_name]
+GRANT privilege_list ON priv_level TO user_identity [ROLE role_name]
 
 GRANT privilege_list ON RESOURCE resource_name TO user_identity [ROLE role_name]
 ````
@@ -45,11 +45,11 @@ privilege_list is a list of privileges to be granted, separated by commas. Curre
     NODE_PRIV: Cluster node operation permissions, including node online and offline operations. Only the root user has this permission and cannot be granted to other users.
     ADMIN_PRIV: All privileges except NODE_PRIV.
     GRANT_PRIV: Privilege for operation privileges. Including creating and deleting users, roles, authorization and revocation, setting passwords, etc.
-    SELECT_PRIV: read permission on the specified library or table
-    LOAD_PRIV: Import privileges on the specified library or table
-    ALTER_PRIV: Schema change permission for the specified library or table
-    CREATE_PRIV: Create permission on the specified library or table
-    DROP_PRIV: drop privilege on the specified library or table
+    SELECT_PRIV: read permission on the specified database or table
+    LOAD_PRIV: Import privileges on the specified database or table
+    ALTER_PRIV: Schema change permission for the specified database or table
+    CREATE_PRIV: Create permission on the specified database or table
+    DROP_PRIV: drop privilege on the specified database or table
     USAGE_PRIV: access to the specified resource
     
     ALL and READ_WRITE in legacy permissions will be converted to: SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV;
@@ -58,16 +58,17 @@ privilege_list is a list of privileges to be granted, separated by commas. Curre
 Permission classification:
 
     1. Node Privilege: NODE_PRIV
-    2. Library table permissions: SELECT_PRIV, LOAD_PRIV, ALTER_PRIV, CREATE_PRIV, DROP_PRIV
+    2. database table permissions: SELECT_PRIV, LOAD_PRIV, ALTER_PRIV, CREATE_PRIV, DROP_PRIV
     3. Resource permission: USAGE_PRIV
 
-db_name[.tbl_name] supports the following three forms:
+Priv_level supports the following four forms:
 
-    1. *.* permissions can be applied to all libraries and all tables in them
-    2. db.* permissions can be applied to all tables under the specified library
-    3. The db.tbl permission can be applied to the specified table under the specified library
+    1. *.*.* permissions can be applied to all catalogs, all databases and all tables in them
+    2. ctl.*.* permissions can be applied to all databases and all tables in them
+    3. ctl.db.* permissions can be applied to all tables under the specified database
+    4. ctl.db.tbl permission can be applied to the specified table under the specified database
     
-    The library or table specified here can be a library and table that does not exist.
+    The catalog or database, table specified here may be not exist.
 
 resource_name supports the following two forms:
 
@@ -84,22 +85,22 @@ user_identity:
 
 ### Example
 
-1. Grant permissions to all libraries and tables to the user
+1. Grant permissions to all catalog and databases and tables to the user
 
    ```sql
-   GRANT SELECT_PRIV ON *.* TO 'jack'@'%';
+   GRANT SELECT_PRIV ON *.*.* TO 'jack'@'%';
    ````
 
-2. Grant permissions to the specified library table to the user
+2. Grant permissions to the specified database table to the user
 
    ```sql
-   GRANT SELECT_PRIV,ALTER_PRIV,LOAD_PRIV ON db1.tbl1 TO 'jack'@'192.8.%';
+   GRANT SELECT_PRIV,ALTER_PRIV,LOAD_PRIV ON ctl1.db1.tbl1 TO 'jack'@'192.8.%';
    ````
 
-3. Grant permissions to the specified library table to the role
+3. Grant permissions to the specified database table to the role
 
    ```sql
-   GRANT LOAD_PRIV ON db1.* TO ROLE 'my_role';
+   GRANT LOAD_PRIV ON ctl1.db1.* TO ROLE 'my_role';
    ````
 
 4. Grant access to all resources to users
