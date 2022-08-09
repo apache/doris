@@ -82,6 +82,10 @@ public class PlanTranslatorContext {
         this.planFragmentList.add(planFragment);
     }
 
+    public void removePlanFragment(PlanFragment planFragment) {
+        this.planFragmentList.remove(planFragment);
+    }
+
     public void addExprIdPair(ExprId exprId, SlotRef slotRef) {
         exprIdSlotRefMap.put(exprId, slotRef);
     }

@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -25,6 +28,8 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -43,7 +48,7 @@ public class JoinUtils {
     }
 
     public static boolean onlyShuffle(PhysicalJoin join) {
-        return join.getJoinType().isRightJoin() || join.getJoinType().isFullOuterJoin();
+        return join.getJoinType().isReturnUnmatchedRightJoin();
     }
 
     /**
@@ -125,5 +130,52 @@ public class JoinUtils {
     public static boolean shouldNestedLoopJoin(Join join) {
         JoinType joinType = join.getJoinType();
         return (joinType.isInnerJoin() && !join.getCondition().isPresent()) || joinType.isCrossJoin();
+    }
+
+    public static boolean shouldBroadcastJoin(PhysicalJoin join) {
+        Preconditions.checkState(join.left() instanceof PhysicalPlan,
+                "Join's left child must be PhysicalPlan");
+        Preconditions.checkState(join.right() instanceof PhysicalPlan,
+                "Join's right child must be PhysicalPlan");
+        PhysicalPlan right = (PhysicalPlan) join.right();
+        DistributionSpec rightDistributionSpec = right.getPhysicalProperties().getDistributionSpec();
+        return rightDistributionSpec instanceof DistributionSpecReplicated;
+    }
+
+    public static boolean shouldColocateJoin(PhysicalJoin join) {
+        if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
+            return false;
+        }
+        Preconditions.checkState(join.left() instanceof PhysicalPlan,
+                "Join's left child must be PhysicalPlan");
+        Preconditions.checkState(join.right() instanceof PhysicalPlan,
+                "Join's right child must be PhysicalPlan");
+        DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
+        PhysicalPlan left = (PhysicalPlan) join.left();
+        PhysicalPlan right = (PhysicalPlan) join.right();
+        DistributionSpec leftDistributionSpec = left.getPhysicalProperties().getDistributionSpec();
+        DistributionSpec rightDistributionSpec = right.getPhysicalProperties().getDistributionSpec();
+        if (!(joinDistributionSpec instanceof DistributionSpecHash)
+                || !(leftDistributionSpec instanceof DistributionSpecHash)
+                || !(rightDistributionSpec instanceof DistributionSpecHash)) {
+            return false;
+        }
+        return leftDistributionSpec.satisfy(joinDistributionSpec)
+                && rightDistributionSpec.satisfy(joinDistributionSpec);
+    }
+
+    public static boolean shouldBucketShuffleJoin(PhysicalJoin join) {
+        if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
+            return false;
+        }
+        Preconditions.checkState(join.left() instanceof PhysicalPlan,
+                "Join's left child must be PhysicalPlan");
+        Preconditions.checkState(join.right() instanceof PhysicalPlan,
+                "Join's right child must be PhysicalPlan");
+        DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
+        PhysicalPlan left = (PhysicalPlan) join.left();
+        DistributionSpec leftDistributionSpec = left.getPhysicalProperties().getDistributionSpec();
+        return leftDistributionSpec instanceof DistributionSpecHash
+                && leftDistributionSpec.satisfy(joinDistributionSpec);
     }
 }

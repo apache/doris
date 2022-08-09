@@ -19,6 +19,7 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.BaseTableRef;
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -66,6 +68,7 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -362,12 +365,93 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     rightFragmentPlanRoot, JoinType.toJoinOperator(joinType), execEqConjunctList, Lists.newArrayList(),
                     srcToOutput, outputDescriptor, outputDescriptor);
 
-            hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
-            hashJoinNode.setChild(0, leftFragmentPlanRoot);
-            connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
-            leftFragment.setPlanRoot(hashJoinNode);
-            return leftFragment;
+            if (JoinUtils.shouldBroadcastJoin(hashJoin)) {
+                return constructBroadcastJoin(hashJoinNode, leftFragment, rightFragment, context);
+            } else if (JoinUtils.shouldColocateJoin(hashJoin)) {
+                return constructColocateJoin(hashJoinNode, leftFragment, rightFragment, context);
+            } else if (JoinUtils.shouldBucketShuffleJoin(hashJoin)) {
+                return constructBucketShuffleJoin(hashJoinNode, leftFragment, rightFragment, context);
+            } else {
+                return constructShuffleJoin(hashJoinNode, leftFragment, rightFragment, context);
+            }
         }
+    }
+
+    private PlanFragment constructBroadcastJoin(HashJoinNode hashJoinNode, PlanFragment leftFragment,
+            PlanFragment rightFragment, PlanTranslatorContext context) {
+        hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
+        hashJoinNode.setChild(0, leftFragment.getPlanRoot());
+        connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
+        leftFragment.setPlanRoot(hashJoinNode);
+        return leftFragment;
+    }
+
+    private PlanFragment constructColocateJoin(HashJoinNode hashJoinNode, PlanFragment leftFragment,
+            PlanFragment rightFragment, PlanTranslatorContext context) {
+        hashJoinNode.setColocate(true, "");
+        hashJoinNode.setChild(0, leftFragment.getPlanRoot());
+        hashJoinNode.setChild(1, rightFragment.getPlanRoot());
+        leftFragment.setPlanRoot(hashJoinNode);
+        context.removePlanFragment(rightFragment);
+        leftFragment.setHasColocatePlanNode(true);
+        return leftFragment;
+    }
+
+    private PlanFragment constructBucketShuffleJoin(HashJoinNode hashJoinNode, PlanFragment leftFragment,
+            PlanFragment rightFragment, PlanTranslatorContext context) {
+        hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
+        DataPartition rhsJoinPartition =
+                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, rhsPartitionxprs);
+        ExchangeNode rhsExchange =
+                new ExchangeNode(context.nextPlanNodeId(), rightFragment.getPlanRoot(), false);
+        rhsExchange.setNumInstances(rightFragment.getPlanRoot().getNumInstances());
+
+        hashJoinNode.setChild(0, leftFragment.getPlanRoot());
+        hashJoinNode.setChild(1, rhsExchange);
+        leftFragment.setPlanRoot(hashJoinNode);
+
+        leftFragment.setDestination(rhsExchange);
+        leftFragment.setOutputPartition(rhsJoinPartition);
+
+        return leftFragment;
+    }
+
+    private PlanFragment constructShuffleJoin(HashJoinNode hashJoinNode, PlanFragment leftFragment,
+            PlanFragment rightFragment, PlanTranslatorContext context) {
+        hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
+        // first, extract join exprs
+        List<BinaryPredicate> eqJoinConjuncts = hashJoinNode.getEqJoinConjuncts();
+        List<Expr> lhsJoinExprs = Lists.newArrayList();
+        List<Expr> rhsJoinExprs = Lists.newArrayList();
+        for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
+            // no remapping necessary
+            lhsJoinExprs.add(eqJoinPredicate.getChild(0).clone(null));
+            rhsJoinExprs.add(eqJoinPredicate.getChild(1).clone(null));
+        }
+
+        // create the parent fragment containing the HashJoin node
+        DataPartition lhsJoinPartition = new DataPartition(TPartitionType.HASH_PARTITIONED,
+                Expr.cloneList(lhsJoinExprs, null));
+        ExchangeNode lhsExchange =
+                new ExchangeNode(context.nextPlanNodeId(), leftFragment.getPlanRoot(), false);
+        lhsExchange.setNumInstances(leftFragment.getPlanRoot().getNumInstances());
+
+        DataPartition rhsJoinPartition =
+                new DataPartition(TPartitionType.HASH_PARTITIONED, rhsJoinExprs);
+        ExchangeNode rhsExchange =
+                new ExchangeNode(context.nextPlanNodeId(), rightFragment.getPlanRoot(), false);
+        rhsExchange.setNumInstances(rightFragment.getPlanRoot().getNumInstances());
+
+        hashJoinNode.setChild(0, lhsExchange);
+        hashJoinNode.setChild(1, rhsExchange);
+        PlanFragment joinFragment = new PlanFragment(context.nextFragmentId(), hashJoinNode, lhsJoinPartition);
+        // connect the child fragments
+        leftFragment.setDestination(lhsExchange);
+        leftFragment.setOutputPartition(lhsJoinPartition);
+        rightFragment.setDestination(rhsExchange);
+        rightFragment.setOutputPartition(rhsJoinPartition);
+
+        return joinFragment;
     }
 
     @Override
