@@ -170,7 +170,7 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
-        // if the plan is LogicalRelation, this == that should be true,
+        // if the plan is LogicalRelation or PhysicalRelation, this == that should be true,
         // when if one relation appear in plan more than once,
         // we cannot distinguish them throw equals function, since equals function cannot use output info.
         if (plan instanceof LogicalRelation || plan instanceof PhysicalRelation) {

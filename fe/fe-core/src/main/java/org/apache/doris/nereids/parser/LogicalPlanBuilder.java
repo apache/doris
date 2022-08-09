@@ -596,23 +596,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return visit(namedCtx.namedExpression(), Expression.class);
     }
 
-    /**
-     * Create OrderKey list.
-     *
-     * @param ctx QueryOrganizationContext
-     * @return List of OrderKey
-     */
-    @Override
-    public List<OrderKey> visitQueryOrganization(QueryOrganizationContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
-            if (ctx.sortClause().ORDER() != null) {
-                return visit(ctx.sortClause().sortItem(), OrderKey.class);
-            } else {
-                return ImmutableList.of();
-            }
-        });
-    }
-
     private LogicalPlan visitRelation(List<RelationContext> relations) {
         LogicalPlan left = null;
         for (RelationContext relation : relations) {
