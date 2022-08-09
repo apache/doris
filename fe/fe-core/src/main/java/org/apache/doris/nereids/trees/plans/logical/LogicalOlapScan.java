@@ -24,14 +24,21 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Logical OlapScan.
  */
 public class LogicalOlapScan extends LogicalRelation  {
+
+    public LogicalOlapScan(Table table) {
+        this(table, ImmutableList.of());
+    }
 
     public LogicalOlapScan(Table table, List<String> qualifier) {
         this(table, qualifier, Optional.empty(), Optional.empty());
@@ -50,7 +57,11 @@ public class LogicalOlapScan extends LogicalRelation  {
 
     @Override
     public String toString() {
-        return "ScanOlapTable (" + qualifiedName() + ")";
+        return "ScanOlapTable ("
+                + qualifiedName()
+                + ", output: "
+                + computeOutput().stream().map(Objects::toString).collect(Collectors.joining(", ", "[",  "]"))
+                + ")";
     }
 
     @Override
@@ -62,11 +73,6 @@ public class LogicalOlapScan extends LogicalRelation  {
             return false;
         }
         return true;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode());
     }
 
     @Override
