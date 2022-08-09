@@ -53,12 +53,12 @@ public class ExploreGroupExpressionJob extends Job {
         validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
         for (Rule rule : validRules) {
-            pushTask(new ApplyRuleJob(groupExpression, rule, context));
+            pushJob(new ApplyRuleJob(groupExpression, rule, context));
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
                 if (childPattern.arity() > 0 && !childPattern.isGroup()) {
                     Group child = groupExpression.child(i);
-                    pushTask(new ExploreGroupJob(child, context));
+                    pushJob(new ExploreGroupJob(child, context));
                 }
             }
         }

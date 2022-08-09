@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -38,18 +39,23 @@ public abstract class AbstractPhysicalSort<CHILD_TYPE extends Plan> extends Phys
 
     protected final List<OrderKey> orderKeys;
 
-    public AbstractPhysicalSort(PlanType type, List<OrderKey> orderKeys,
-            LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(type, orderKeys, Optional.empty(), logicalProperties, child);
-    }
-
     /**
-     * Constructor of PhysicalHashJoinNode.
+     * Constructor of AbstractPhysicalSort.
      */
     public AbstractPhysicalSort(PlanType type, List<OrderKey> orderKeys,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
         super(type, groupExpression, logicalProperties, child);
+        this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
+    }
+
+    /**
+     * Constructor of AbstractPhysicalSort.
+     */
+    public AbstractPhysicalSort(PlanType type, List<OrderKey> orderKeys,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, CHILD_TYPE child) {
+        super(type, groupExpression, logicalProperties, physicalProperties, child);
         this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
     }
 

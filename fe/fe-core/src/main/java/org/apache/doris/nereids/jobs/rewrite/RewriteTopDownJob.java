@@ -84,7 +84,7 @@ public class RewriteTopDownJob extends Job {
                     if (result.generateNewExpression) {
                         // new group-expr replaced the origin group-expr in `group`,
                         // run this rule against this `group` again.
-                        pushTask(new RewriteTopDownJob(group, rules, context));
+                        pushJob(new RewriteTopDownJob(group, rules, context));
                         return;
                     }
                 }
@@ -92,7 +92,7 @@ public class RewriteTopDownJob extends Job {
         }
 
         for (Group childGroup : group.getLogicalExpression().children()) {
-            pushTask(new RewriteTopDownJob(childGroup, rules, context));
+            pushJob(new RewriteTopDownJob(childGroup, rules, context));
         }
     }
 }
