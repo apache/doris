@@ -276,7 +276,7 @@ public class TableProperty implements Writable {
 
     public void buildReplicaAllocation() {
         try {
-            // Must copy the properties because "analyzeReplicaAllocation" with remove the property
+            // Must copy the properties because "analyzeReplicaAllocation" will remove the property
             // from the properties.
             Map<String, String> copiedProperties = Maps.newHashMap(properties);
             this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(copiedProperties, "default");
