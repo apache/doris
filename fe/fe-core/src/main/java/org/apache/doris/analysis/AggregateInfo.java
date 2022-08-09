@@ -104,11 +104,6 @@ public final class AggregateInfo extends AggregateInfoBase {
     // if set, a subset of groupingExprs_; set and used during planning
     private List<Expr> partitionExprs_;
 
-    // indices into aggregateExprs for those that need to be materialized;
-    // shared between this, mergeAggInfo and secondPhaseDistinctAggInfo
-    private ArrayList<Integer> materializedAggregateSlots_ = Lists.newArrayList();
-    // if true, this AggregateInfo is the first phase of a 2-phase DISTINCT computation
-    private boolean isDistinctAgg = false;
     // If true, the sql has MultiDistinct
     private boolean isMultiDistinct_;
 
@@ -309,7 +304,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
 
         this.isMultiDistinct_= estimateIfContainsMultiDistinct(distinctAggExprs);
-        isDistinctAgg = true;
 
         // add DISTINCT parameters to grouping exprs
         if (!isMultiDistinct_) {

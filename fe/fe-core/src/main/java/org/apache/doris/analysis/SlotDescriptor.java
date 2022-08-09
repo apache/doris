@@ -157,6 +157,21 @@ public class SlotDescriptor {
         isMaterialized = value;
     }
 
+    public void materializeSrcExpr() {
+        if (sourceExprs_ == null) {
+            return;
+        }
+        for (Expr expr : sourceExprs_) {
+            if (!(expr instanceof SlotRef)) {
+                continue;
+            }
+            SlotRef slotRef = (SlotRef) expr;
+            SlotDescriptor slotDesc = slotRef.getDesc();
+            slotDesc.setIsMaterialized(true);
+            slotDesc.materializeSrcExpr();
+        }
+    }
+
     public boolean getIsNullable() {
         return isNullable;
     }
