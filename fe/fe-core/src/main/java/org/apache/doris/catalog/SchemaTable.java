@@ -337,6 +337,8 @@ public class SchemaTable extends Table {
                                             .column("NULLABLE", ScalarType.createVarchar(3))
                                             .column("INDEX_TYPE", ScalarType.createVarchar(16))
                                             .column("COMMENT", ScalarType.createVarchar(16))
+                                            // for datagrip
+                                            .column("INDEX_COMMENT", ScalarType.createVarchar(1024))
                                             .build()))
                     .put("files",
                             new SchemaTable(
@@ -417,6 +419,68 @@ public class SchemaTable extends Table {
                                             .column("NODEGROUP", ScalarType.createVarchar(256))
                                             .column("TABLESPACE_NAME", ScalarType.createVarchar(268))
                                             .build()))
+                    // Compatible with Datagrip
+                    .put("column_privileges",
+                            new SchemaTable(SystemIdGenerator.getNextId(), "column_privileges", TableType.SCHEMA,
+                                    builder().column("GRANTEE", ScalarType.createVarchar(128))
+                                            .column("TABLE_CATALOG", ScalarType.createVarchar(512))
+                                            .column("TABLE_SCHEMA", ScalarType.createVarchar(64))
+                                            .column("TABLE_NAME", ScalarType.createVarchar(64))
+                                            .column("COLUMN_NAME", ScalarType.createVarchar(64))
+                                            .column("PRIVILEGE_TYPE", ScalarType.createVarchar(64))
+                                            .column("IS_GRANTABLE", ScalarType.createVarchar(3)).build()))
+                    // Compatible with Datagrip
+                    .put("triggers",
+                            new SchemaTable(SystemIdGenerator.getNextId(), "triggers", TableType.SCHEMA,
+                                    builder().column("TRIGGER_CATALOG", ScalarType.createVarchar(512))
+                                            .column("TRIGGER_SCHEMA", ScalarType.createVarchar(64))
+                                            .column("TRIGGER_NAME", ScalarType.createVarchar(64))
+                                            .column("EVENT_MANIPULATION", ScalarType.createVarchar(6))
+                                            .column("EVENT_OBJECT_CATALOG", ScalarType.createVarchar(512))
+                                            .column("EVENT_OBJECT_SCHEMA", ScalarType.createVarchar(64))
+                                            .column("EVENT_OBJECT_TABLE", ScalarType.createVarchar(64))
+                                            .column("ACTION_ORDER", ScalarType.createVarchar(4))
+                                            .column("ACTION_CONDITION", ScalarType.createVarchar(512))
+                                            .column("ACTION_STATEMENT", ScalarType.createVarchar(512))
+                                            .column("ACTION_ORIENTATION", ScalarType.createVarchar(9))
+                                            .column("ACTION_TIMING", ScalarType.createVarchar(6))
+                                            .column("ACTION_REFERENCE_OLD_TABLE", ScalarType.createVarchar(64))
+                                            .column("ACTION_REFERENCE_NEW_TABLE", ScalarType.createVarchar(64))
+                                            .column("ACTION_REFERENCE_OLD_ROW", ScalarType.createVarchar(3))
+                                            .column("ACTION_REFERENCE_NEW_ROW", ScalarType.createVarchar(3))
+                                            .column("CREATED", ScalarType.createType(PrimitiveType.DATETIME))
+                                            .column("SQL_MODE", ScalarType.createVarchar(8192))
+                                            .column("DEFINER", ScalarType.createVarchar(77))
+                                            .column("CHARACTER_SET_CLIENT", ScalarType.createVarchar(32))
+                                            .column("COLLATION_CONNECTION", ScalarType.createVarchar(32))
+                                            .column("DATABASE_COLLATION", ScalarType.createVarchar(32)).build()))
+                    // Compatible with Datagrip
+                    .put("events",
+                            new SchemaTable(SystemIdGenerator.getNextId(), "events", TableType.SCHEMA,
+                                    builder().column("EVENT_CATALOG", ScalarType.createVarchar(64))
+                                            .column("EVENT_SCHEMA", ScalarType.createVarchar(64))
+                                            .column("EVENT_NAME", ScalarType.createVarchar(64))
+                                            .column("DEFINER", ScalarType.createVarchar(77))
+                                            .column("TIME_ZONE", ScalarType.createVarchar(64))
+                                            .column("EVENT_BODY", ScalarType.createVarchar(8))
+                                            .column("EVENT_DEFINITION", ScalarType.createVarchar(512))
+                                            .column("EVENT_TYPE", ScalarType.createVarchar(9))
+                                            .column("EXECUTE_AT", ScalarType.createType(PrimitiveType.DATETIME))
+                                            .column("INTERVAL_VALUE", ScalarType.createVarchar(256))
+                                            .column("INTERVAL_FIELD", ScalarType.createVarchar(18))
+                                            .column("SQL_MODE", ScalarType.createVarchar(8192))
+                                            .column("STARTS", ScalarType.createType(PrimitiveType.DATETIME))
+                                            .column("ENDS", ScalarType.createType(PrimitiveType.DATETIME))
+                                            .column("STATUS", ScalarType.createVarchar(18))
+                                            .column("ON_COMPLETION", ScalarType.createVarchar(12))
+                                            .column("CREATED", ScalarType.createType(PrimitiveType.DATETIME))
+                                            .column("LAST_ALTERED", ScalarType.createType(PrimitiveType.DATETIME))
+                                            .column("LAST_EXECUTED", ScalarType.createType(PrimitiveType.DATETIME))
+                                            .column("EVENT_COMMENT", ScalarType.createVarchar(64))
+                                            .column("ORIGINATOR", ScalarType.createType(PrimitiveType.INT))
+                                            .column("CHARACTER_SET_CLIENT", ScalarType.createVarchar(32))
+                                            .column("COLLATION_CONNECTION", ScalarType.createVarchar(32))
+                                            .column("DATABASE_COLLATION", ScalarType.createVarchar(32)).build()))
                     .build();
     //  statistics is table provides information about table indexes in mysql: 5.7
     // views column is from show create table views in mysql: 5.5.6
