@@ -1994,9 +1994,9 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
         }
     }
     LOG(INFO) << "construct delete bitmap tablet: " << tablet_id() << " rowset: " << rowset_id
-              << " dummy_version: " << dummy_version << "bitmap num: "
-              << delete_bitmap->delete_bitmap.size() << " cost: " << watch.get_elapse_time_us()
-              << "(us)";
+              << " dummy_version: " << dummy_version
+              << "bitmap num: " << delete_bitmap->delete_bitmap.size()
+              << " cost: " << watch.get_elapse_time_us() << "(us)";
     return Status::OK();
 }
 

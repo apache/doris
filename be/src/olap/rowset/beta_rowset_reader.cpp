@@ -81,7 +81,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
                     {rowset_id, seg_id, read_context->version.second});
             if (d->isEmpty()) continue; // Empty delete bitmap for the segment
             VLOG_TRACE << "Get the delete bitmap for rowset: " << rowset_id.to_string()
-                      << ", segment id:" << seg_id << ", size:" << d->cardinality();
+                       << ", segment id:" << seg_id << ", size:" << d->cardinality();
             read_options.delete_bitmap.emplace(seg_id, std::move(d));
         }
     }
