@@ -113,8 +113,8 @@ Status OlapScanner::prepare(
                 return Status::InternalError(ss.str().c_str());
             }
             // Initialize _params
-            RETURN_IF_ERROR(
-                    _init_tablet_reader_params(key_ranges, filters, bloom_filters, function_filters));
+            RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, bloom_filters,
+                                                       function_filters));
         }
     }
 
