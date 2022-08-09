@@ -163,11 +163,19 @@ private:
 
     Status _parse_json_doc(size_t* size, bool* eof);
 
+    Status _parse_jsonpath_and_json_root(const std::string& jsonpath, const std::string& json_root);
+
+    Status _generate_json_paths(const std::string& jsonpath,
+                                std::vector<std::string>* vect);
+
     Status _append_error_msg(simdjson::ondemand::value object_value, std::string error_msg,
                              std::string col_name, bool* valid);
 
     std::unique_ptr<simdjson::ondemand::parser> _json_parser = nullptr;
-    simdjson::ondemand::document _json_doc;
+    simdjson::ondemand::document _original_json_doc;
+    simdjson::ondemand::value _json_value;
+    // for strip outer array
+    simdjson::ondemand::array_iterator _array_iter;
 
     int _next_line;
     int _total_lines;
@@ -178,15 +186,17 @@ private:
     LineReader* _line_reader;
     bool _closed;
     bool _strip_outer_array;
-    bool _num_as_string;
-    bool _fuzzy_parse;
     RuntimeProfile::Counter* _bytes_read_counter;
     RuntimeProfile::Counter* _read_timer;
     RuntimeProfile::Counter* _file_read_timer;
 
-    std::unordered_map<std::string, int> _name_map;
-    std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
-    std::vector<JsonPath> _parsed_json_root;
+    // simdjson pointer string, eg.
+    //        jsonpath             simdjson pointer
+    // `["$.k1[0]", "$.k2.a"]` -> ["/k1/0", "/k2/a"]
+    // notice array index not support `*`
+    // so we are not fully compatible with previous inplementation by rapidjson
+    std::vector<std::string> _parsed_jsonpaths;
+    std::string _parsed_json_root;
 
     bool* _scanner_eof;
 
