@@ -109,11 +109,12 @@ Doris 目前支持以下几种权限
 
 ## 权限层级
 
-同时，根据权限适用范围的不同，我们将库表的权限分为以下三个层级：
+同时，根据权限适用范围的不同，我们将库表的权限分为以下四个层级：
 
-1. GLOBAL LEVEL：全局权限。即通过 GRANT 语句授予的 `*.*` 上的权限。被授予的权限适用于任意数据库中的任意表。
-2. DATABASE LEVEL：数据库级权限。即通过 GRANT 语句授予的 `db.*` 上的权限。被授予的权限适用于指定数据库中的任意表。
-3. TABLE LEVEL：表级权限。即通过 GRANT 语句授予的 `db.tbl` 上的权限。被授予的权限适用于指定数据库中的指定表。
+1. GLOBAL LEVEL：全局权限。即通过 GRANT 语句授予的 `*.*.*` 上的权限。被授予的权限适用于任意数据库中的任意表。
+2. CATALOG LEVEL：Catalog级权限。即通过 GRANT 语句授予的 `ctl.*.*` 上的权限。被授予的权限适用于指定Catalog中的任意库表。
+3. DATABASE LEVEL：数据库级权限。即通过 GRANT 语句授予的 `ctl.db.*` 上的权限。被授予的权限适用于指定数据库中的任意表。
+4. TABLE LEVEL：表级权限。即通过 GRANT 语句授予的 `ctl.db.tbl` 上的权限。被授予的权限适用于指定数据库中的指定表。
 
 将资源的权限分为以下两个层级：
 
@@ -125,13 +126,14 @@ Doris 目前支持以下几种权限
 ADMIN_PRIV 和 GRANT_PRIV 权限同时拥有**授予权限**的权限，较为特殊。这里对和这两个权限相关的操作逐一说明。
 
 1. CREATE USER
-   - 拥有 ADMIN 权限，或任意层级的 GRANT 权限的用户可以创建新用户。
+   - 拥有 ADMIN 权限，或 GLOBAL 和 DATABASE 层级的 GRANT 权限的用户可以创建新用户。
 2. DROP USER
-   - 只有 ADMIN 权限可以删除用户。
+   - 拥有 ADMIN 权限或全局层级的 GRANT 权限的用户可以删除用户。
 3. CREATE/DROP ROLE
-   - 只有 ADMIN 权限可以创建角色。
+   - 拥有 ADMIN 权限或全局层级的 GRANT 权限的用户可以创建角色。
 4. GRANT/REVOKE
    - 拥有 ADMIN 权限，或者 GLOBAL 层级 GRANT 权限的用户，可以授予或撤销任意用户的权限。
+   - 拥有 CATALOG 层级 GRANT 权限的用户，可以授予或撤销任意用户对指定CATALOG的权限。
    - 拥有 DATABASE 层级 GRANT 权限的用户，可以授予或撤销任意用户对指定数据库的权限。
    - 拥有 TABLE 层级 GRANT 权限的用户，可以授予或撤销任意用户对指定数据库中指定表的权限。
 5. SET PASSWORD
