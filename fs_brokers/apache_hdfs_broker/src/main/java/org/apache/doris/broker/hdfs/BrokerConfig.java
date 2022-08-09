@@ -29,7 +29,7 @@ public class BrokerConfig extends ConfigBase {
     public static int hdfs_write_buffer_size_kb = 1024;
     
     @ConfField
-    public static int client_expire_seconds = 300;
+    public static int client_expire_seconds = 1800;
     
     @ConfField
     public static int broker_ipc_port = 8000;
