@@ -65,6 +65,10 @@ VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
           _max_materialized_blocks(config::doris_scanner_queue_size) {
     _materialized_blocks.reserve(_max_materialized_blocks);
     _free_blocks.reserve(_max_materialized_blocks);
+    // if sort_info is set, push _limit to each olap scanner
+    if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
+        _limit_per_scanner = _olap_scan_node.sort_limit;
+    }
 }
 
 Status VOlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {

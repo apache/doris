@@ -108,6 +108,8 @@ private:
     // to record which runtime filters have been used
     std::vector<bool> _runtime_filter_marks;
 
+    int64_t _limit = -1;
+
     int _id;
     bool _is_open;
     bool _aggregation;

@@ -299,6 +299,24 @@ public:
         return 0;
     }
 
+    int compare_at(size_t n, size_t m, const std::vector<uint32_t>* compare_columns,
+                   const Block& rhs, int nan_direction_hint) const {
+        DCHECK_GE(columns(), compare_columns->size());
+        DCHECK_GE(rhs.columns(), compare_columns->size());
+
+        DCHECK_LE(n, rows());
+        DCHECK_LE(m, rhs.rows());
+        for (auto i : *compare_columns) {
+            DCHECK(get_by_position(i).type->equals(*rhs.get_by_position(i).type));
+            auto res = get_by_position(i).column->compare_at(n, m, *(rhs.get_by_position(i).column),
+                                                             nan_direction_hint);
+            if (res) {
+                return res;
+            }
+        }
+        return 0;
+    }
+
     //note(wb) no DCHECK here, because this method is only used after compare_at now, so no need to repeat check here.
     // If this method is used in more places, you can add DCHECK case by case.
     int compare_column_at(size_t n, size_t m, size_t col_idx, const Block& rhs,
