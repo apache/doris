@@ -45,7 +45,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             switch (nameParts.size()) {
                 case 1: {
                     // Use current database name from catalog.
-                    return useCurrentDb(connectContext, nameParts);
+                    return bindWithCurrentDb(connectContext, nameParts);
                 }
                 case 2: {
                     // Use database name from table name parts.
@@ -69,7 +69,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    private LogicalPlan useCurrentDb(ConnectContext ctx, List<String> nameParts) {
+    private LogicalPlan bindWithCurrentDb(ConnectContext ctx, List<String> nameParts) {
         String dbName = ctx.getDatabase();
         Table table = getTable(dbName, nameParts.get(0), ctx.getEnv());
         // TODO: should generate different Scan sub class according to table's type
@@ -79,7 +79,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             LogicalPlan viewPlan = new NereidsAnalyzer(ctx).analyze(table.getDdlSql());
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
         }
-        throw new RuntimeException("");
+        throw new RuntimeException("Unsupported tableType:" + table.getType());
     }
 
     private LogicalPlan useDbNameFromNamePart(ConnectContext ctx, List<String> nameParts) {
@@ -95,6 +95,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
             LogicalPlan viewPlan = new NereidsAnalyzer(ctx).analyze(table.getDdlSql());
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
         }
-        throw new RuntimeException("");
+        throw new RuntimeException("Unsupported tableType:" + table.getType());
     }
 }

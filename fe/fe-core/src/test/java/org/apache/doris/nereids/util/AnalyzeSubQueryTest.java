@@ -138,7 +138,6 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
                 new PhysicalProperties(),
                 connectContext
         );
-        System.out.println(plan.treeString());
         PlanFragment root = new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
         System.out.println(root.getPlanRoot().getPlanTreeExplainStr());
     }
@@ -151,7 +150,6 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     private void finalizeAnalyze(String sql) {
         LogicalPlan plan = analyze(sql);
-        System.out.println(plan.treeString());
         plan = (LogicalPlan) PlanRewriter.bottomUpRewrite(plan, connectContext, new EliminateAliasNode());
         System.out.println(plan.treeString());
     }
