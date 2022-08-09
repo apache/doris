@@ -198,24 +198,24 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
   **注意：如果是SSD磁盘要在目录后面加上`.SSD`,HDD磁盘在目录后面加`.HDD`**
 
-  `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
+  `storage_root_path=/home/disk1/doris.HDD;/home/disk2/doris.SSD;/home/disk2/doris`
 
   **说明**
 
-    - /home/disk1/doris.HDD,50，表示存储限制为50GB，HDD;
-    - /home/disk2/doris.SSD,10，存储限制为10GB，SSD；
-    - /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
+    - /home/disk1/doris.HDD ： 表示存储介质是HDD;
+    - /home/disk2/doris.SSD： 表示存储介质是SSD；
+    - /home/disk2/doris： 表示存储介质是HDD（默认）
 
   示例2如下：
 
   **注意：不论HDD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
 
-  `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
+  `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
 
   **说明**
 
-    - /home/disk1/doris,medium:hdd,capacity:10，表示存储限制为10GB, HDD;
-    - /home/disk2/doris,medium:ssd,capacity:50，表示存储限制为50GB, SSD;
+    - /home/disk1/doris,medium:hdd： 表示存储介质是HDD;
+    - /home/disk2/doris,medium:ssd： 表示存储介质是SSD;
 
 * BE webserver_port端口配置
 
