@@ -144,7 +144,7 @@ public:
       *  and do a single call to "add_batch" for devirtualization and inlining.
       */
     virtual void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                           const IColumn** columns, Arena* arena) const = 0;
+                           const IColumn** columns, Arena* arena, bool agg_many = false) const = 0;
 
     // same as add_batch, but only call "add" function when place is not nullptr
     virtual void add_batch_selected(size_t batch_size, AggregateDataPtr* places,
@@ -182,30 +182,33 @@ public:
             : IAggregateFunction(argument_types_, parameters_) {}
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* arena) const override {
+                   const IColumn** columns, Arena* arena, bool agg_many) const override {
         if constexpr (std::is_same_v<Derived, AggregateFunctionBitmapCount<false, ColumnBitmap>> ||
                       std::is_same_v<Derived, AggregateFunctionBitmapCount<true, ColumnBitmap>>) {
-            phmap::flat_hash_map<AggregateDataPtr, std::vector<int>> place_rows;
-            for (int i = 0; i < batch_size; ++i) {
-                auto iter = place_rows.find(places[i] + place_offset);
-                if (iter == place_rows.end()) {
-                    std::vector<int> rows;
-                    rows.push_back(i);
-                    place_rows.emplace(places[i] + place_offset, rows);
-                } else {
-                    iter->second.push_back(i);
+            if (agg_many) {
+                phmap::flat_hash_map<AggregateDataPtr, std::vector<int>> place_rows;
+                for (int i = 0; i < batch_size; ++i) {
+                    auto iter = place_rows.find(places[i] + place_offset);
+                    if (iter == place_rows.end()) {
+                        std::vector<int> rows;
+                        rows.push_back(i);
+                        place_rows.emplace(places[i] + place_offset, rows);
+                    } else {
+                        iter->second.push_back(i);
+                    }
                 }
+                auto iter = place_rows.begin();
+                while (iter != place_rows.end()) {
+                    static_cast<const Derived*>(this)->add_many(iter->first, columns, iter->second,
+                                                                arena);
+                    iter++;
+                }
+                return;
             }
-            auto iter = place_rows.begin();
-            while (iter != place_rows.end()) {
-                static_cast<const Derived*>(this)->add_many(iter->first, columns, iter->second,
-                                                            arena);
-                iter++;
-            }
-        } else {
-            for (size_t i = 0; i < batch_size; ++i) {
-                static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
-            }
+        }
+
+        for (size_t i = 0; i < batch_size; ++i) {
+            static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
         }
     }
 
