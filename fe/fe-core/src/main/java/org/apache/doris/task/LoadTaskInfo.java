@@ -88,6 +88,8 @@ public interface LoadTaskInfo {
 
     String getHeaderType();
 
+    List<String> getHiddenColumns();
+
     class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();
         public boolean isColumnDescsRewrited = false;
