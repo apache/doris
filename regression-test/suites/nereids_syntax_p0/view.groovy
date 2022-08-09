@@ -24,53 +24,70 @@ suite("view") {
         SET enable_nereids_planner=true
     """
 
-    create_view_1 """
-        create view if not exists v1 as select 
-        c_custkey, c_name, c_address, c_city 
+    sql """
+        create view if not exists v1 as 
+        select * 
         from customer
     """
 
-    create_view_2 """
-        create view if not exists v2 as select 
-        lo_custkey, lo_orderkey, lo_linenumber 
+    sql """
+        create view if not exists v2 as
+        select *
         from lineorder
     """
 
-    create_view_3 """
-        create view if not exists v3 as select 
-        v1.c_custkey, t.* 
+    sql """
+        create view if not exists v3 as 
+        select *
         from v1 join (
-            select lo_custkey 
+            select *
             from v2
-            ) t on v1.c_custkey = t.lo_custkey;
+            ) t 
+        on v1.c_custkey = t.lo_custkey;
     """
 
     qt_select_1 """
+        select * 
+        from v1
+    """
+
+    qt_select_2 """
+        select *
+        from v2
+    """
+
+    qt_select_3 """
+        select *
+        from v3
+    """
+
+    qt_select_4 """
         select * 
         from customer c join (
             select * 
             from v1
             ) t 
-        on c.c_custkey = t.c_custkey + 1;
+        on c.c_custkey = t.c_custkey;
     """
 
-    qt_select_2 """
+    qt_select_5 """
         select * 
         from lineorder l join (
             select * 
             from v2
             ) t 
-        on l.lo_custkey = t.lo_custkey - 1;
+        on l.lo_custkey = t.lo_custkey;
     """
 
-    qt_select_3 """
+    qt_select_6 """
         select * from (
             select * 
-            from 
-            part p join v2 on p.p_partkey = v2.lo_partkey) t1 
+            from part p 
+            join v2 on p.p_partkey = v2.lo_partkey) t1 
         join (
             select * 
-            from v1 join v3 on v1.c_custkey = v3.c_custkey + 1) t2 
+            from v1 
+            join v3 on v1.c_custkey = v3.c_custkey) t2 
         on t1.p_partkey = t2.lo_partkey;
     """
 }
