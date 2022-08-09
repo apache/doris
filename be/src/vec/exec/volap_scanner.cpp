@@ -108,8 +108,8 @@ Status VOlapScanner::prepare(
             }
 
             // Initialize tablet_reader_params
-            RETURN_IF_ERROR(
-                    _init_tablet_reader_params(key_ranges, filters, bloom_filters, function_filters));
+            RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, bloom_filters,
+                                                       function_filters));
         }
     }
 
