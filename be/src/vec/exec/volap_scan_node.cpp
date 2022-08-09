@@ -443,10 +443,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
 
     if (!vexprs.empty()) {
         if (*scanner->vconjunct_ctx_ptr()) {
-            (*scanner->vconjunct_ctx_ptr())->mark_as_stale();
-            _stale_vexpr_ctxs.push_back(
-                    std::make_unique<VExprContext*>(*scanner->vconjunct_ctx_ptr()));
-            *scanner->vconjunct_ctx_ptr() = nullptr;
+            scanner->discard_conjuncts();
         }
         WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
                       "Something wrong for runtime filters: ");
