@@ -107,28 +107,29 @@ Doris currently supports the following permissions
 
 ## Permission hierarchy
 
-At the same time, according to the scope of application of permissions, we divide them into three levels:
+At the same time, according to the scope of application of permissions, we divide them into four levels:
 
-1. GLOBAL LEVEL: Global permissions. That is, permissions on `*.*` granted by GRANT statements. The granted permissions apply to any table in any database.
-2. DATABASE LEVEL: Database-level permissions. That is, permissions on `db.*` granted by GRANT statements. The granted permissions apply to any table in the specified database.
-3. TABLE LEVEL: Table-level permissions. That is, permissions on `db.tbl` granted by GRANT statements. The permissions granted apply to the specified tables in the specified database.
+1. GLOBAL LEVEL: Global permissions. That is, permissions on `*.*.*` granted by GRANT statements. The granted permissions apply to any table in any database.
+2. CATALOG LEVEL: Catalog level permissions. That is, the permissions on `ctl.*.*` granted through the GRANT statement. The permissions granted apply to any library table in the specified Catalog.
+3. DATABASE LEVEL: Database-level permissions. That is, the permissions on `ctl.db.*` granted through the GRANT statement. The privileges granted apply to any table in the specified database.
+4. TABLE LEVEL: Table-level permissions. That is, the permissions on `ctl.db.tbl` granted through the GRANT statement. The privileges granted apply to the specified table in the specified database.
 
 
 ## ADMIN /GRANT
 
-ADMIN\_PRIV and GRANT\_PRIV have the authority of **"grant authority"** at the same time, which is more special. The operations related to these two privileges are described here one by one.
+ADMIN_PRIV and GRANT_PRIV have the authority of **"grant authority"** at the same time, which is more special. The operations related to these two privileges are described here one by one.
 
 1. CREATE USER
 
-	* Users with ADMIN or GRANT privileges at any level can create new users.
+	* Users with ADMIN privileges, or GRANT privileges at the GLOBAL and DATABASE levels can create new users.
 
 2. DROP USER
 
-	* Only ADMIN privileges can delete users.
+	* Users with ADMIN authority or GRANT authority at the global level can drop users.
 
 3. CREATE/DROP ROLE
 
-	* Only ADMIN privileges can create roles.
+	* Users with ADMIN authority or GRANT authority at the global level can create or drop role.
 
 4. GRANT /REVOKE
 
