@@ -85,7 +85,7 @@ suite("load") {
         file "baseall.txt"
     }
     sql "insert into ${dbName}.test select * from ${dbName}.baseall where k1 <= 3"
-    sql "insert into ${dbName}.bigdata select * from ${dbName}.baseall"
+    sql "insert into ${dbName}.bigtable select * from ${dbName}.baseall"
 
     // table for compaction
     sql """
