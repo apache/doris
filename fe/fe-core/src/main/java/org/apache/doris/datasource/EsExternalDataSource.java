@@ -44,7 +44,7 @@ import java.util.Map;
 @Getter
 public class EsExternalDataSource extends ExternalDataSource {
 
-    public static final String DEFAULT_DB = "default";
+    public static final String DEFAULT_DB = "default_db";
     private static final Logger LOG = LogManager.getLogger(EsExternalDataSource.class);
     private static final String PROP_HOSTS = "elasticsearch.hosts";
     private static final String PROP_USERNAME = "elasticsearch.username";
@@ -64,9 +64,9 @@ public class EsExternalDataSource extends ExternalDataSource {
 
     private String[] nodes;
 
-    private String username = "";
+    private String username = null;
 
-    private String password = "";
+    private String password = null;
 
     private boolean enableDocValueScan = true;
 
@@ -166,7 +166,7 @@ public class EsExternalDataSource extends ExternalDataSource {
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
-        return esRestClient.getIndexes();
+        return esRestClient.listTable();
     }
 
     @Nullable
