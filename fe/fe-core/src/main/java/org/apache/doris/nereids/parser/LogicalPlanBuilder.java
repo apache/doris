@@ -244,7 +244,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitAliasedRelation(AliasedRelationContext ctx) {
-        return withTableAlias((LogicalPlan) visitRelation(ctx.relation()), ctx.tableAlias());
+        return withTableAlias(visitRelation(ctx.relation()), ctx.tableAlias());
     }
 
     /**
@@ -596,26 +596,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return visit(namedCtx.namedExpression(), Expression.class);
     }
 
-    private LogicalPlan visitRelationList(List<RelationContext> relations) {
-        LogicalPlan left = null;
-        for (RelationContext relation : relations) {
-            LogicalPlan right = plan(relation.relationPrimary());
-            if (relation.LATERAL() != null) {
-                if (!(right instanceof LogicalSubQueryAlias)) {
-                    throw new IllegalStateException("lateral join right table should be sub-query");
-                }
+    @Override
+    public LogicalPlan visitRelation(RelationContext ctx) {
+        LogicalPlan right = plan(ctx.relationPrimary());
+        if (ctx.LATERAL() != null) {
+            if (!(right instanceof LogicalSubQueryAlias)) {
+                throw new IllegalStateException("lateral join right table should be sub-query");
             }
-            // build left deep join tree
-            left = left == null ? right : new LogicalJoin<>(JoinType.CROSS_JOIN, Optional.empty(), left, right);
-            left = withJoinRelations(left, relation);
-            // TODO: pivot and lateral view
         }
-        return left;
+        return right;
     }
 
     @Override
     public LogicalPlan visitFromClause(FromClauseContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> visitRelationList(ctx.relation()));
+        return ParserUtils.withOrigin(ctx, () -> {
+            LogicalPlan left = visitRelation(ctx.relation(0));
+            for (RelationContext relation : ctx.relation().subList(1, ctx.relation().size())) {
+                // build left deep join tree
+                left = withJoinRelations(
+                        new LogicalJoin<>(
+                                JoinType.CROSS_JOIN,
+                                Optional.empty(),
+                                left,
+                                visitRelation(relation)),
+                        relation);
+                // TODO: pivot and lateral view
+            }
+            return left;
+        });
     }
 
     /* ********************************************************************************************

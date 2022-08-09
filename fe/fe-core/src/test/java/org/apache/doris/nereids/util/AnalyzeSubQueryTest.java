@@ -38,6 +38,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.function.BiFunction;
+import java.util.function.Predicate;
 
 public class AnalyzeSubQueryTest extends TestWithFeService {
     private final NereidsParser parser = new NereidsParser();
@@ -50,6 +52,8 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
             "SELECT A.ID FROM T1 A, T2 B WHERE A.ID = B.ID",
             "SELECT * FROM T1 JOIN T1 T2 ON T1.ID = T2.ID"
     );
+
+    private final int currentTestCase = 2;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -91,7 +95,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testAnalyze() {
-        checkAnalyze(testSql.get(0));
+        checkAnalyze(testSql.get(currentTestCase));
     }
 
     @Test
@@ -103,12 +107,12 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testParse() {
-        System.out.println(parser.parseSingle(testSql.get(0)).treeString());
+        System.out.println(parser.parseSingle(testSql.get(currentTestCase)).treeString());
     }
 
     @Test
     public void testFinalizeAnalyze() {
-        finalizeAnalyze(testSql.get(0));
+        finalizeAnalyze(testSql.get(currentTestCase));
     }
 
     @Test
@@ -121,7 +125,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
 
     @Test
     public void testPlan() throws AnalysisException {
-        testPlanCase(testSql.get(0));
+        testPlanCase(testSql.get(currentTestCase));
     }
 
     @Test
@@ -142,12 +146,6 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         System.out.println(root.getPlanRoot().getPlanTreeExplainStr());
     }
 
-    private void checkAnalyze(String sql) {
-        LogicalPlan analyzed = analyze(sql);
-        System.out.println(analyzed.treeString());
-        Assertions.assertTrue(checkBound(analyzed));
-    }
-
     private void finalizeAnalyze(String sql) {
         LogicalPlan plan = analyze(sql);
         plan = (LogicalPlan) PlanRewriter.bottomUpRewrite(plan, connectContext, new EliminateAliasNode());
@@ -158,37 +156,15 @@ public class AnalyzeSubQueryTest extends TestWithFeService {
         return new NereidsAnalyzer(connectContext).analyze(sql);
     }
 
-    /**
-     * PlanNode and its expressions are all bound.
-     */
-    private boolean checkBound(LogicalPlan plan) {
-        if (plan instanceof Unbound) {
-            return false;
-        }
-
-        List<Plan> children = plan.children();
-        for (Plan child : children) {
-            if (!checkBound((LogicalPlan) child)) {
-                return false;
-            }
-        }
-
-        List<Expression> expressions = plan.getExpressions();
-        return expressions.stream().allMatch(this::checkExpressionBound);
-    }
-
-    private boolean checkExpressionBound(Expression expr) {
-        if (expr instanceof Unbound) {
-            return false;
-        }
-
-        List<Expression> children = expr.children();
-        for (Expression child : children) {
-            if (!checkExpressionBound(child)) {
-                return false;
-            }
-        }
-        return true;
+    private void checkAnalyze(String sql) {
+        CheckPlanTreeBase<Expression> exprCheck = new CheckPlanTreeBase<>(
+                expr -> !(expr instanceof Unbound),
+                expr -> true
+        );
+        Assertions.assertTrue(new CheckPlanTreeBase<Plan>(
+                plan -> !(plan instanceof Unbound),
+                plan -> ((Plan) plan).getExpressions().stream().allMatch(exprCheck::execute)
+        ).execute(analyze(sql)));
     }
 }
 
