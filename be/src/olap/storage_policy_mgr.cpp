@@ -62,6 +62,8 @@ void StoragePolicyMgr::periodic_put(const std::string& name, const StoragePolicy
             s3_conf.max_connections = policy->s3_max_conn;
             s3_conf.request_timeout_ms = policy->s3_request_timeout_ms;
             s3_conf.connect_timeout_ms = policy->s3_conn_timeout_ms;
+            s3_conf.bucket = policy->bucket;
+            s3_conf.prefix = policy->root_path;
             s3_fs = std::make_shared<io::S3FileSystem>(std::move(s3_conf), name);
             io::FileSystemMap::instance()->insert(name, s3_fs);
             _policy_map.emplace(name, policy);
