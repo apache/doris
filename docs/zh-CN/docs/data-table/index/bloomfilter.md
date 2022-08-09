@@ -93,7 +93,7 @@ PROPERTIES (
 查看我们在表上建立的BloomFilter索引是使用:
 
 ```sql
-SHOW CREATE TABLE <table_name>
+SHOW CREATE TABLE <table_name>;
 ```
 
 ## 删除BloomFilter索引
@@ -116,12 +116,12 @@ ALTER TABLE <db.table_name> SET ("bloom_filter_columns" = "k1,k3");
 
 满足以下几个条件时可以考虑对某列建立Bloom Filter 索引：
 
-1. 首先BloomFilter适用于非前缀过滤.
-2. 查询会根据该列高频过滤，而且查询条件大多是in和 = 过滤.
-3. 不同于Bitmap, BloomFilter适用于高基数列。比如UserID。因为如果创建在低基数的列上，比如”性别“列，则每个Block几乎都会包含所有取值，导致BloomFilter索引失去意义
+1. 首先BloomFilter适用于非前缀过滤。
+2. 查询会根据该列高频过滤，而且查询条件大多是 in 和 = 过滤。
+3. 不同于Bitmap, BloomFilter适用于高基数列。比如UserID。因为如果创建在低基数的列上，比如 “性别” 列，则每个Block几乎都会包含所有取值，导致BloomFilter索引失去意义。
 
 ## **Doris BloomFilter使用注意事项**
 
 1. 不支持对Tinyint、Float、Double 类型的列建Bloom Filter索引。
-2. Bloom Filter索引只对in和 = 过滤查询有加速效果。
-3. 如果要查看某个查询是否命中了Bloom Filter索引，可以通过查询的Profile信息查看
+2. Bloom Filter索引只对 in 和 = 过滤查询有加速效果。
+3. 如果要查看某个查询是否命中了Bloom Filter索引，可以通过查询的Profile信息查看。
