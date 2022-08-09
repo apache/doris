@@ -21,9 +21,6 @@ import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewri
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.StringLiteral;
-
-import java.util.Optional;
 
 
 /**
@@ -39,30 +36,25 @@ public class SimplifyCastRule extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitCast(Cast origin, ExpressionRewriteContext context) {
-        return simplify(origin)
-            .map(simplifiedExpr -> {
-                if (simplifiedExpr instanceof Cast) {
-                    return rewrite(simplifiedExpr, context);
-                }
-                return simplifiedExpr;
-            })
-            .orElse(origin);
+        return simplify(origin);
     }
 
-    private Optional<Expression> simplify(Cast cast) {
+    private Expression simplify(Cast cast) {
         Expression source = cast.left();
-        StringLiteral type = cast.right();
+        // simplify inside
+        if (source instanceof Cast) {
+            source = simplify((Cast) source);
+        }
 
         // remove redundant cast
         // CAST(value as type), value is type
         if (cast.getDataType().equals(source.getDataType())) {
-            return Optional.of(source);
-        }
-        // CAST(CAST()) -> CAST()
-        if (source instanceof Cast) {
-            return Optional.of(new Cast(((Cast) source).left(), type));
+            return source;
         }
 
-        return Optional.empty();
+        if (source != cast.left()) {
+            return new Cast(source, cast.right());
+        }
+        return cast;
     }
 }

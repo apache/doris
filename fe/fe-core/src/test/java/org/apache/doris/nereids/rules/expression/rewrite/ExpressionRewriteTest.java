@@ -154,12 +154,14 @@ public class ExpressionRewriteTest {
     public void testSimplifyCastRule() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE));
 
+        // deduplicate
         assertRewrite("CAST(1 AS int)", "1");
-        assertRewrite("CAST(\"string\" AS string)", "\"string\"");
-
-        assertRewrite("CAST(CAST(1 AS string) AS bigint)", "CAST(1 AS bigint)");
-
+        assertRewrite("CAST(\"str\" AS string)", "\"str\"");
         assertRewrite("CAST(CAST(1 AS int) AS int)", "1");
+
+        // deduplicate inside
+        assertRewrite("CAST(CAST(\"str\" AS string) AS double)", "CAST(\"str\" AS double)");
+        assertRewrite("CAST(CAST(1 AS int) AS double)", "CAST(1 AS double)");
 
     }
 
