@@ -31,6 +31,7 @@ import com.google.common.collect.Lists;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Utils for join
@@ -80,8 +81,10 @@ public class JoinUtils {
             return false;
         }
 
-        return (new HashSet<>(leftSlots).containsAll(leftUsed) && new HashSet<>(rightSlots).containsAll(rightUsed))
-                || (new HashSet<>(leftSlots).containsAll(rightUsed) && new HashSet<>(rightSlots).containsAll(leftUsed));
+        Set<SlotReference> leftSlotsSet = new HashSet<>(leftSlots);
+        Set<SlotReference> rightSlotsSet = new HashSet<>(rightSlots);
+        return (leftSlotsSet.containsAll(leftUsed) && rightSlotsSet.containsAll(rightUsed))
+                || (leftSlotsSet.containsAll(rightUsed) && rightSlotsSet.containsAll(leftUsed));
     }
 
     /**
@@ -115,7 +118,7 @@ public class JoinUtils {
             }
         }
 
-        Preconditions.checkArgument(childSlots.first.size() == childSlots.second.size());
+        Preconditions.checkState(childSlots.first.size() == childSlots.second.size());
         return childSlots;
     }
 

@@ -46,7 +46,7 @@ public class OrderSpec {
      *
      * @param other another OrderSpec.
      */
-    public boolean meet(OrderSpec other) {
+    public boolean satisfy(OrderSpec other) {
         if (this.orderKeys.size() < other.getOrderKeys().size()) {
             return false;
         }

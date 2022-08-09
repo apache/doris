@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.implementation;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -30,12 +29,12 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Implementation rule that convert logical OlapScan to physical OlapScan.
@@ -45,7 +44,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
     public Rule build() {
         return logicalOlapScan().then(olapScan ->
             new PhysicalOlapScan(
-                (OlapTable) olapScan.getTable(),
+                olapScan.getTable(),
                 olapScan.getQualifier(),
                 convertDistribution(olapScan),
                 Optional.empty(),
@@ -58,8 +57,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         if (distributionInfo instanceof HashDistributionInfo) {
             HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
 
-            List<SlotReference> output = olapScan.getOutput().stream().map(slot -> (SlotReference) slot)
-                    .collect(Collectors.toList());
+            List<SlotReference> output = Utils.getOutputSlotReference(olapScan);
             List<SlotReference> hashColumns = Lists.newArrayList();
             List<Column> schemaColumns = olapScan.getTable().getFullSchema();
             for (int i = 0; i < schemaColumns.size(); i++) {
@@ -72,7 +70,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
             return new DistributionSpecHash(hashColumns, ShuffleType.LOCAL);
         } else {
             // RandomDistributionInfo
-            return DistributionSpecAny.getInstance();
+            return DistributionSpecAny.INSTANCE;
         }
     }
 }

@@ -67,19 +67,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         this.groupExpression = groupExpression;
     }
 
-    //    @Override
-    //    public void execute1() {
-    //        for (Group childGroup : groupExpression.children()) {
-    //            if (!childGroup.isHasCost()) {
-    //                // TODO: interim solution
-    //                pushTask(new CostAndEnforcerJob(this.groupExpression, context));
-    //                pushTask(new OptimizeGroupJob(childGroup, context));
-    //                childGroup.setHasCost(true);
-    //                return;
-    //            }
-    //        }
-    //    }
-
     /*-
      * Please read the ORCA paper
      * - 4.1.4 Optimization.
@@ -212,13 +199,13 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         // groupExpression can satisfy its own output property
         putProperty(groupExpression, outputProperty, outputProperty, childrenInputProperties);
         // groupExpression can satisfy the ANY type output property
-        putProperty(groupExpression, outputProperty, new PhysicalProperties(), childrenInputProperties);
+        putProperty(groupExpression, outputProperty, PhysicalProperties.ANY, childrenInputProperties);
 
         EnforceMissingPropertiesHelper enforceMissingPropertiesHelper = new EnforceMissingPropertiesHelper(context,
                 groupExpression, curTotalCost);
 
         PhysicalProperties requestedProperties = context.getRequiredProperties();
-        if (!outputProperty.meet(requestedProperties)) {
+        if (!outputProperty.satisfy(requestedProperties)) {
             Pair<PhysicalProperties, Double> pair = enforceMissingPropertiesHelper.enforceProperty(outputProperty,
                     requestedProperties);
             PhysicalProperties addEnforcedProperty = pair.first;

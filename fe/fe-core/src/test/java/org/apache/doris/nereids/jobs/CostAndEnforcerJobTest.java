@@ -83,35 +83,22 @@ public class CostAndEnforcerJobTest {
             }
         };
 
+        /*
+         *   bottomJoin
+         *    /    \
+         *   A      B
+         */
         Expression bottomJoinOnCondition = new EqualTo(outputs.get(0).get(0), outputs.get(1).get(0));
-        //Expression topJoinOnCondition = new EqualTo(outputs.get(0).get(0), outputs.get(2).get(0));
 
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> bottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                 Optional.of(bottomJoinOnCondition), scans.get(0), scans.get(1));
-        //        LogicalJoin<LogicalOlapScan, LogicalJoin> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-        //                Optional.of(topJoinOnCondition), scans.get(2), bottomJoin);
 
         PlannerContext plannerContext = new Memo(bottomJoin).newPlannerContext(new ConnectContext())
                 .setDefaultJobContext();
-
         plannerContext.pushJob(
                 new OptimizeGroupJob(
                         plannerContext.getMemo().getRoot(),
                         plannerContext.getCurrentJobContext()));
-
         plannerContext.getJobScheduler().executeJobPool(plannerContext);
-
-        //        PhysicalHashJoin physicalTopJoin
-        //                = (PhysicalHashJoin) LogicalProjectToPhysicalProjectTest.rewriteLogicalToPhysical(topJoin);
-        //        PhysicalHashJoin physicalBottomJoin = (PhysicalHashJoin) plan.child(1);
-        //
-        //        List<SlotReference> collect = physicalBottomJoin.getOutput().stream().map(slot -> (SlotReference) slot)
-        //                .collect(Collectors.toList());
-        //
-        //
-        //        OptimizeGroupJob optimizeGroupJob = new OptimizeGroupJob(plannerContext.getMemo().getRoot(),
-        //                plannerContext.getCurrentJobContext());
-        //        plannerContext.pushJob(optimizeGroupJob);
-        //        plannerContext.getJobScheduler().executeJobPool(plannerContext);
     }
 }

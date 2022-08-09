@@ -65,7 +65,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visit(Plan plan, PlanContext context) {
-        return new PhysicalProperties();
+        return PhysicalProperties.ANY;
     }
 
     @Override
@@ -75,19 +75,19 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         PhysicalProperties rightOutputProperty = childrenOutputProperties.get(1);
 
         // broadcast
-        // TODO
+        // TODO: handle condition of broadcast
         if (rightOutputProperty.getDistributionSpec() instanceof DistributionSpecReplicated) {
             return leftOutputProperty;
         }
 
         // shuffle
-        // TODO
+        // TODO: handle condition of shuffle
         DistributionSpec leftDistribution = leftOutputProperty.getDistributionSpec();
         DistributionSpec rightDistribution = rightOutputProperty.getDistributionSpec();
         if (!(leftDistribution instanceof DistributionSpecHash)
                 || !(rightDistribution instanceof DistributionSpecHash)) {
             Preconditions.checkState(false, "error");
-            return new PhysicalProperties();
+            return PhysicalProperties.ANY;
         }
 
         return leftOutputProperty;
@@ -121,7 +121,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         if (!(leftDistribution instanceof DistributionSpecHash)
                 || !(rightDistribution instanceof DistributionSpecHash)) {
             Preconditions.checkState(false, "error");
-            return new PhysicalProperties();
+            return PhysicalProperties.ANY;
         }
 
         return leftOutputProperty;
@@ -129,7 +129,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanContext context) {
-
-        return new PhysicalProperties(olapScan.getDistributionSpec());
+        if (olapScan.getDistributionSpec() instanceof DistributionSpecHash) {
+            return PhysicalProperties.createHash((DistributionSpecHash) olapScan.getDistributionSpec());
+        } else {
+            return PhysicalProperties.ANY;
+        }
     }
 }

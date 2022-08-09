@@ -66,7 +66,7 @@ public class DistributionSpecHash extends DistributionSpec {
         }
 
         // TODO: need consider following logic whether is right, and maybe need consider more.
-
+        // TODO: consider Agg.
         // Current shuffleType is LOCAL/AGG, allow if current is contained by other
         if (shuffleType == ShuffleType.LOCAL || spec.shuffleType == ShuffleType.AGG) {
             return new HashSet<>(spec.shuffledColumns).containsAll(shuffledColumns);

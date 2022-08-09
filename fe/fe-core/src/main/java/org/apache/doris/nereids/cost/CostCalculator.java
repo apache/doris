@@ -44,6 +44,7 @@ public class CostCalculator {
      * Constructor.
      */
     public static double calculateCost(GroupExpression groupExpression) {
+        // TODO: Enable following code after enable stats derive.
         // PlanContext planContext = new PlanContext(groupExpression);
         // CostEstimator costCalculator = new CostEstimator();
         // CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
