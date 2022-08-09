@@ -100,8 +100,15 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                 file_writer->append(file_slice),
                 fmt::format("Write local cache file failed: {}", cache_file.native()));
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                io::global_local_filesystem()->create_file(cache_done_file, &file_writer),
+                file_writer->close(),
+                fmt::format("Close local cache file failed: {}", cache_file.native()));
+        io::FileWriterPtr done_file_writer;
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                io::global_local_filesystem()->create_file(cache_done_file, &done_file_writer),
                 fmt::format("Create local done file failed: {}", cache_done_file.native()));
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                done_file_writer->close(),
+                fmt::format("Close local done file failed: {}", cache_done_file.native()));
     }
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &_cache_file_reader));
     _cache_file_size = _cache_file_reader->size();
