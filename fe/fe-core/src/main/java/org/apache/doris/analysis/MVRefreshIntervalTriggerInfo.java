@@ -17,10 +17,21 @@
 
 package org.apache.doris.analysis;
 
-public class MVRefreshIntervalTriggerInfo {
+import org.apache.doris.common.io.Text;
+
+import org.apache.hadoop.io.Writable;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class MVRefreshIntervalTriggerInfo implements Writable {
     private String startTime;
     private long interval;
     private String timeUnit;
+
+    // For deserialization
+    public MVRefreshIntervalTriggerInfo() {}
 
     public MVRefreshIntervalTriggerInfo(String startTime, long interval, String timeUnit) {
         this.startTime = startTime;
@@ -50,5 +61,25 @@ public class MVRefreshIntervalTriggerInfo {
             sb.append(" NEXT ").append(interval).append(" ").append(timeUnit);
         }
         return sb.toString();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, startTime);
+        out.writeLong(interval);
+        out.writeBoolean(timeUnit != null);
+        if (timeUnit != null) {
+            Text.writeString(out, timeUnit);
+        }
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        startTime = Text.readString(in);
+        interval = in.readLong();
+        boolean hasTimeUnit = in.readBoolean();
+        if (hasTimeUnit) {
+            timeUnit = Text.readString(in);
+        }
     }
 }

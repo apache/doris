@@ -19,26 +19,32 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
 
-public class MVRefreshInfo {
-    private final boolean neverRefresh;
+import org.apache.hadoop.io.Writable;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class MVRefreshInfo implements Writable {
+    private boolean neverRefresh;
     private RefreshMethod refreshMethod;
     private MVRefreshTriggerInfo triggerInfo;
 
+    // For deserialization
+    public MVRefreshInfo() {}
+
     public MVRefreshInfo(boolean neverRefresh) {
-        this.neverRefresh = neverRefresh;
-        if (!neverRefresh) {
-            refreshMethod = RefreshMethod.COMPLETE;
-            triggerInfo = null;
-        }
+        this(neverRefresh, RefreshMethod.COMPLETE, null);
     }
 
     public MVRefreshInfo(RefreshMethod method, MVRefreshTriggerInfo trigger) {
-        this.neverRefresh = false;
-        this.refreshMethod = method;
-        if (!neverRefresh) {
-            refreshMethod = RefreshMethod.COMPLETE;
-            triggerInfo = trigger;
-        }
+        this(false, method, trigger);
+    }
+
+    public MVRefreshInfo(boolean neverRefresh, RefreshMethod method, MVRefreshTriggerInfo trigger) {
+        this.neverRefresh = neverRefresh;
+        refreshMethod = method;
+        triggerInfo = trigger;
     }
 
     void analyze(Analyzer analyzer) throws UserException {
@@ -60,8 +66,41 @@ public class MVRefreshInfo {
         return sb.toString();
     }
 
+    public boolean isNeverRefresh() {
+        return neverRefresh;
+    }
+
+    public RefreshMethod getRefreshMethod() {
+        return refreshMethod;
+    }
+
+    public MVRefreshTriggerInfo getTriggerInfo() {
+        return triggerInfo;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeBoolean(neverRefresh);
+        out.writeByte(refreshMethod.ordinal());
+        out.writeBoolean(triggerInfo != null);
+        if (triggerInfo != null) {
+            triggerInfo.write(out);
+        }
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        neverRefresh = in.readBoolean();
+        refreshMethod = RefreshMethod.values()[in.readByte()];
+        boolean hasTriggerInfo = in.readBoolean();
+        if (hasTriggerInfo) {
+            triggerInfo = new MVRefreshTriggerInfo();
+            triggerInfo.readFields(in);
+        }
+    }
+
     enum RefreshMethod {
-        FAST, COMPLETE, FORCE
+        COMPLETE, FAST, FORCE
     }
 
     enum RefreshTrigger {
@@ -72,4 +111,3 @@ public class MVRefreshInfo {
         IMMEDIATE, DEFERRED
     }
 }
-

@@ -37,12 +37,12 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
-    private String mvName;
-    private MVRefreshInfo.BuildMode buildMethod;
-    private MVRefreshInfo refreshInfo;
-    private QueryStmt queryStmt;
+    private final String mvName;
+    private final MVRefreshInfo.BuildMode buildMethod;
+    private final MVRefreshInfo refreshInfo;
+    private final QueryStmt queryStmt;
     private Database database;
-    private Map<String, OlapTable> olapTables = Maps.newHashMap();
+    private final Map<String, OlapTable> olapTables = Maps.newHashMap();
 
     public CreateMultiTableMaterializedViewStmt(String mvName, MVRefreshInfo.BuildMode buildMethod,
             MVRefreshInfo refreshInfo, KeysDesc keyDesc, PartitionDesc partitionDesc, DistributionDesc distributionDesc,
@@ -166,5 +166,13 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
 
     public Map<String, OlapTable> getOlapTables() {
         return olapTables;
+    }
+
+    public MVRefreshInfo getRefreshInfo() {
+        return refreshInfo;
+    }
+
+    public QueryStmt getQueryStmt() {
+        return queryStmt;
     }
 }

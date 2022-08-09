@@ -21,18 +21,30 @@ import org.apache.doris.analysis.MVRefreshInfo.RefreshTrigger;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
-public class MVRefreshTriggerInfo {
+import org.apache.hadoop.io.Writable;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class MVRefreshTriggerInfo implements Writable {
     private RefreshTrigger refreshTrigger;
     private MVRefreshIntervalTriggerInfo intervalTrigger;
 
-    public MVRefreshTriggerInfo(MVRefreshIntervalTriggerInfo trigger) {
-        this.intervalTrigger = trigger;
-        this.refreshTrigger = RefreshTrigger.INTERVAL;
-    }
+    // For deserialization
+    public MVRefreshTriggerInfo() {}
 
     public MVRefreshTriggerInfo(RefreshTrigger trigger) {
-        this.intervalTrigger = null;
-        this.refreshTrigger = trigger;
+        this(trigger, null);
+    }
+
+    public MVRefreshTriggerInfo(MVRefreshIntervalTriggerInfo trigger) {
+        this(RefreshTrigger.INTERVAL, trigger);
+    }
+
+    public MVRefreshTriggerInfo(RefreshTrigger refreshTrigger, MVRefreshIntervalTriggerInfo intervalTrigger) {
+        this.refreshTrigger = refreshTrigger;
+        this.intervalTrigger = intervalTrigger;
     }
 
     void analyze(Analyzer analyzer) throws UserException {
@@ -49,6 +61,10 @@ public class MVRefreshTriggerInfo {
         return refreshTrigger;
     }
 
+    public MVRefreshIntervalTriggerInfo getIntervalTrigger() {
+        return intervalTrigger;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -59,5 +75,24 @@ public class MVRefreshTriggerInfo {
             sb.append(intervalTrigger.toString());
         }
         return sb.toString();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeByte(refreshTrigger.ordinal());
+        out.writeBoolean(intervalTrigger != null);
+        if (intervalTrigger != null) {
+            intervalTrigger.write(out);
+        }
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        refreshTrigger = RefreshTrigger.values()[in.readByte()];
+        boolean hasIntervalTrigger = in.readBoolean();
+        if (hasIntervalTrigger) {
+            intervalTrigger = new MVRefreshIntervalTriggerInfo();
+            intervalTrigger.readFields(in);
+        }
     }
 }
