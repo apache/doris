@@ -102,4 +102,171 @@ suite("aggregate", "query") {
     qt_aggregate """ select variance(c_bigint), variance(distinct c_double) from ${tableName}  """
     qt_aggregate """ select 1 k1, 2 k2, c_bigint k3, sum(c_double) from ${tableName} group by 1, k2, k3 order by k1, k2, k3 """
     qt_aggregate """ select (k1 + k2) * k3 k4 from (select 1 k1, 2 k2, c_bigint k3, sum(c_double) from ${tableName} group by 1, k2, k3) t order by k4 """
+
+    sql "use test_query_db"
+    List<String> fields = ["k1", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9"]
+    def random = new java.util.Random()
+    // test_query_normal_aggression
+    int i = random.nextInt(3)
+    int j = random.nextInt(3)
+    while (i==j) {
+        i = random.nextInt(3)
+        j = random.nextInt(3)
+    }
+    String k1 = fields[i]
+    String k2 = fields[j]
+    qt_aggregate1"select ${k1}, sum(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
+    qt_aggregate2"""
+                select t1.${k1}, t2.mysum from baseall t1,
+                (select ${k1}, sum(${k2}) as mysum from baseall 
+                group by ${k1}) t2 where t1.${k1}=t2.${k1} 
+                order by t1.${k1}, t2.mysum
+                """
+
+    qt_aggregate3"select * from (select ${k1}, sum(${k2}) over (partition by ${k1}) as wj from baseall) b order by ${k1}, wj"
+
+    i = random.nextInt(10)
+    j = random.nextInt(10)
+    while ( i == j || i == 9) {
+        i = random.nextInt(10)
+        j = random.nextInt(10)
+    }
+    k1 = fields[i]
+    k2 = fields[j]
+    qt_aggregate4"select ${k1}, min(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
+    qt_aggregate5"""
+                    select t1.${k1}, t2.mysum from baseall t1,
+                    (select ${k1}, min(${k2}) as mysum from baseall 
+                    group by ${k1}) t2 where t1.${k1}=t2.${k1} 
+                    order by t1.${k1}, t2.mysum
+                """
+
+    i = random.nextInt(10)
+    j = random.nextInt(10)
+    while ( i == j || i == 9) {
+        i = random.nextInt(10)
+        j = random.nextInt(10)
+    }
+    k1 = fields[i]
+    k2 = fields[j]
+    qt_aggregate6"select ${k1}, max(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
+    qt_aggregate7"""
+                    select t1.${k1}, t2.mysum from baseall t1,
+                    (select ${k1}, max(${k2}) as mysum from baseall 
+                    group by ${k1}) t2 where t1.${k1}=t2.${k1} 
+                    order by t1.${k1}, t2.mysum
+                """
+
+    i = random.nextInt(10)
+    j = random.nextInt(10)
+    while ( i == j || i == 9) {
+        i = random.nextInt(10)
+        j = random.nextInt(10)
+    }
+    k1 = fields[i]
+    k2 = fields[j]
+    qt_aggregate8"select ${k1}, count(${k2}) over (partition by ${k1}) as wj from baseall order by ${k1}, wj"
+    qt_aggregate9"""select t1.${k1}, t2.mysum from baseall t1,
+                (select ${k1}, count(${k2}) as mysum from baseall
+                group by ${k1}) t2 where t1.${k1}=t2.${k1}
+                order by t1.${k1}, t2.mysum
+                """
+
+    // test_query_normal_order_aggression
+    i = random.nextInt(10)
+    j = random.nextInt(10)
+    int k = random.nextInt(10)
+    while (i == j || i == k || j == k || k == 9 || i == 9) {
+        i = random.nextInt(10)
+        j = random.nextInt(10)
+        k = random.nextInt(10)
+    }
+    k1 = fields[i]
+    k2 = fields[j]
+    String k3 = fields[k]
+    qt_aggregate10"select ${k1}, ${k3}, count(${k2}) over (partition by ${k1}, ${k3} order by ${k3}) as wj from baseall order by ${k1}, ${k3}, wj"
+    qt_aggregate11"""select ${k1}, count(${k2}) over (partition by ${k1} order by ${k3}
+             range between unbounded preceding and unbounded following)
+             as wj from baseall order by ${k1}, wj"""
+    qt_aggregate12"""
+            select ${k1}, count(${k2}) over (partition by ${k1} order by ${k3}
+            rows between unbounded preceding and unbounded following)
+            as wj from baseall order by ${k1}, wj
+            """
+    qt_aggregate13"""
+            select t1.${k1}, t2.mysum from baseall t1,
+            (select ${k1}, count(${k2}) as mysum from baseall 
+            group by ${k1}) t2 where t1.${k1}=t2.${k1} 
+            order by t1.${k1}, t2.mysum
+            """
+    qt_aggregate14"""
+            select t1.${k1}, t1.${k3}, t2.mysum from baseall t1,
+            (select ${k1}, ${k3}, count(${k2}) as mysum from baseall
+            group by ${k1}, ${k3}) t2 where t1.${k1}=t2.${k1} and t1.${k3}=t2.${k3}
+            order by t1.${k1}, t1.${k3}, t2.mysum
+            """
+
+    qt_aggregate15"""select ${k1}, ${k3}, max(${k2}) over (partition by ${k1}, ${k3} order by ${k3})
+             as wj from baseall order by ${k1}, ${k3}, wj"""
+    qt_aggregate16"""select ${k1}, max(${k2}) over (partition by ${k1} order by ${k3}
+             range between unbounded preceding and unbounded following)
+             as wj from baseall order by ${k1}, wj"""
+    qt_aggregate17"""select ${k1}, max(${k2}) over (partition by ${k1} order by ${k3}
+             rows between unbounded preceding and unbounded following)
+             as wj from baseall order by ${k1}, wj"""
+    qt_aggregate18"""select t1.${k1}, t2.mysum from baseall t1,
+             (select ${k1}, max(${k2}) as mysum from baseall
+             group by ${k1}) t2 where t1.${k1}=t2.${k1}
+             order by t1.${k1}, t2.mysum"""
+    qt_aggregate19"""select t1.${k1}, t1.${k3}, t2.mysum from baseall t1,
+             (select ${k1}, ${k3}, max(${k2}) as mysum from baseall
+             group by ${k1}, ${k3}) t2 where t1.${k1}=t2.${k1} and t1.${k3}=t2.${k3}
+             order by t1.${k1}, t1.${k3}, t2.mysum"""
+    qt_aggregate20"""select ${k1}, ${k3}, min(${k2}) over (partition by ${k1}, ${k3} order by ${k3})
+             as wj from baseall order by ${k1}, ${k3}, wj"""
+    qt_aggregate21"""select ${k1}, min(${k2}) over (partition by ${k1} order by ${k3} 
+             range between unbounded preceding and unbounded following) 
+             as wj from baseall order by ${k1}, wj"""
+    qt_aggregate22"""select ${k1}, min(${k2}) over (partition by ${k1} order by ${k3} 
+             rows between unbounded preceding and unbounded following) 
+             as wj from baseall order by ${k1}, wj"""
+    qt_aggregate23"""select t1.${k1}, t2.mysum from baseall t1,
+             (select ${k1}, min(${k2}) as mysum from baseall 
+             group by ${k1}) t2 where t1.${k1}=t2.${k1} 
+             order by t1.${k1}, t2.mysum"""
+    qt_aggregate24"""select t1.${k1}, t1.${k3}, t2.mysum from baseall t1,
+             (select ${k1}, ${k3}, min(${k2}) as mysum from baseall 
+             group by ${k1}, ${k3}) t2 where t1.${k1}=t2.${k1} and t1.${k3}=t2.${k3}
+             order by t1.${k1}, t1.${k3}, t2.mysum"""
+
+    i = random.nextInt(3)
+    j = random.nextInt(3)
+    k = random.nextInt(3)
+    while (i == j || i == k || j == k) {
+        i = random.nextInt(3)
+        j = random.nextInt(3)
+        k = random.nextInt(3)
+    }
+    k1 = fields[i]
+    k2 = fields[j]
+    k3 = fields[k]
+    qt_aggregate25"""select ${k1}, ${k3}, sum(${k2}) over (partition by ${k1}, ${k3} order by ${k3})
+             as wj from baseall order by ${k1}, ${k3}, wj
+            """
+    qt_aggregate26"""select ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} 
+             range between unbounded preceding and unbounded following) 
+             as wj from baseall order by ${k1}, wj
+            """
+    qt_aggregate27"""select ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} 
+             rows between unbounded preceding and unbounded following) 
+             as wj from baseall order by ${k1}, wj
+            """
+    qt_aggregate28"""select t1.${k1}, t2.mysum from baseall t1,
+             (select ${k1}, sum(${k2}) as mysum from baseall 
+             group by ${k1}) t2 where t1.${k1}=t2.${k1} 
+             order by t1.${k1}, t2.mysum"""
+    qt_aggregate29"""select t1.${k1}, t1.${k3}, t2.mysum from baseall t1,
+             (select ${k1}, ${k3}, sum(${k2}) as mysum from baseall 
+             group by ${k1}, ${k3}) t2 where t1.${k1}=t2.${k1} and t1.${k3}=t2.${k3}
+             order by t1.${k1}, t1.${k3}, t2.mysum"""
 }
