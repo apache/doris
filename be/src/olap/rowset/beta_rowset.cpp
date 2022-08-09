@@ -108,7 +108,8 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
     }
     auto seg_path = segment_file_path(seg_id);
-    auto s = segment_v2::Segment::open(fs, seg_path, seg_id, _schema, segment);
+    auto cache_path = segment_cache_path(seg_id);
+    auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _schema, segment);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << unique_id()
                      << " : " << s.to_string();
