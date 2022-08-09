@@ -184,6 +184,9 @@ inline int get_olap_size(PrimitiveType type) {
     return 0;
 }
 
+template <PrimitiveType>
+static constexpr bool always_false_v = false;
+
 inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
     switch (type) {
     case TExprOpcode::LT:
@@ -213,6 +216,25 @@ inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
     }
 
     return FILTER_IN;
+}
+
+inline SQLFilterOp to_olap_filter_type(const std::string& function_name, bool opposite) {
+    if (function_name == "lt") {
+        return opposite ? FILTER_LARGER : FILTER_LESS;
+    } else if (function_name == "gt") {
+        return opposite ? FILTER_LESS : FILTER_LARGER;
+    } else if (function_name == "le") {
+        return opposite ? FILTER_LARGER_OR_EQUAL : FILTER_LESS_OR_EQUAL;
+    } else if (function_name == "ge") {
+        return opposite ? FILTER_LESS_OR_EQUAL : FILTER_LARGER_OR_EQUAL;
+    } else if (function_name == "eq") {
+        return opposite ? FILTER_NOT_IN : FILTER_IN;
+    } else if (function_name == "ne") {
+        return opposite ? FILTER_IN : FILTER_NOT_IN;
+    } else {
+        DCHECK(false) << "Function Name: " << function_name;
+        return FILTER_IN;
+    }
 }
 
 } // namespace doris

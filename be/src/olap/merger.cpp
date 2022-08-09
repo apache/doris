@@ -113,8 +113,9 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_NOT_OK(reader.init(reader_params));
 
-    // init segment map for rowid conversion
     if (reader_params.record_rowids) {
+        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
+        // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_num_rows;
         for (auto& rs_reader : reader_params.rs_readers) {
             RETURN_NOT_OK(rs_reader->get_segment_num_rows(&segment_num_rows));
@@ -136,7 +137,10 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
                 "failed to write block when merging rowsets of tablet " + tablet->full_name());
 
         if (reader_params.record_rowids && block.rows() > 0) {
-            stats_output->rowid_conversion->add(reader.current_block_row_locations());
+            std::vector<uint32_t> segment_num_rows;
+            RETURN_IF_ERROR(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
+            stats_output->rowid_conversion->add(reader.current_block_row_locations(),
+                                                segment_num_rows);
         }
 
         output_rows += block.rows();
@@ -152,14 +156,6 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     RETURN_NOT_OK_LOG(
             dst_rowset_writer->flush(),
             "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
-
-    if (reader_params.record_rowids) {
-        // rowid_conversion set segment rows number of destination rowset
-        std::vector<uint32_t> segment_num_rows;
-        RETURN_NOT_OK(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
-        stats_output->rowid_conversion->set_dst_segment_num_rows(dst_rowset_writer->rowset_id(),
-                                                                 segment_num_rows);
-    }
 
     return Status::OK();
 }

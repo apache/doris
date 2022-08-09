@@ -66,3 +66,13 @@ Doris的 Master FE 节点会主动发送心跳给各个FE或BE节点，并且在
 那么可能副本1 的结果是 `1, "abc"`，而副本2 的结果是 `1, "def"`。从而导致查询结果不一致。
 
 为了确保不同副本之间的数据先后顺序唯一，可以参考 [Sequence Column](../data-operate/update-delete/sequence-column-manual.md) 功能。
+
+### Q5. 查询 bitmap/hll 类型的数据返回 NULL 的问题
+
+在 1.1.x 版本中，在开启向量化的情况下，执行查询数据表中 bitmp 类型字段返回结果为 NULL 的情况下，
+
+1. 首先你要 `set return_object_data_as_binary=true;`
+2. 关闭向量化 `set enable_vectorized_engine=false;`
+3. 关闭 SQL 缓存 `set [global] enable_sql_cache = false;`
+
+这里是因为 bitmap / hll 类型在向量化执行引擎中：输入均为NULL，则输出的结果也是NULL而不是0

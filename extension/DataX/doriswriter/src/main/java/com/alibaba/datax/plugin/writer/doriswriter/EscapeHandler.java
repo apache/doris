@@ -15,24 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package com.alibaba.datax.plugin.writer.doriswriter;
 
-import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-
-import java.util.Collections;
-import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Common interface for logical/physical scan.
+ * Handler for escape in properties.
  */
-public interface Scan {
-    List<Expression> getExpressions();
+public class EscapeHandler {
+    public static final String ESCAPE_DELIMITERS_FLAGS = "\\x";
+    public static final Pattern ESCAPE_PATTERN = Pattern.compile("\\\\x([0-9|a-f|A-F]{2})");
 
-    Table getTable();
-
-    default List<Slot> getOutput() {
-        return Collections.emptyList();
+    public static String escapeString(String source) {
+        if (source.startsWith(ESCAPE_DELIMITERS_FLAGS)) {
+            Matcher m = ESCAPE_PATTERN.matcher(source);
+            StringBuffer buf = new StringBuffer();
+            while (m.find()) {
+                m.appendReplacement(buf, String.format("%s", (char) Integer.parseInt(m.group(1), 16)));
+            }
+            m.appendTail(buf);
+            return buf.toString();
+        }
+        return source;
     }
 }

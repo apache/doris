@@ -438,23 +438,6 @@ public class FunctionCallExpr extends Expr {
         return fnParams.isDistinct();
     }
 
-    public boolean isCountStar() {
-        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
-            if (fnParams.isStar()) {
-                return true;
-            } else if (fnParams.exprs() == null || fnParams.exprs().isEmpty()) {
-                return true;
-            } else {
-                for (Expr expr : fnParams.exprs()) {
-                    if (expr.isConstant()) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
     public boolean isCountDistinctBitmapOrHLL() {
         if (!fnParams.isDistinct()) {
             return false;

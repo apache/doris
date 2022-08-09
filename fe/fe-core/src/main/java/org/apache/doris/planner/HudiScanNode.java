@@ -46,6 +46,7 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -235,7 +236,7 @@ public class HudiScanNode extends BrokerScanNode {
         }
 
 
-        Configuration configuration = new Configuration();
+        Configuration configuration = new HdfsConfiguration();
         InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(configuration, inputFormatName, false);
         // alway get fileSplits from inputformat,
         // because all hoodie input format have UseFileSplitsFromInputFormat annotation

@@ -237,7 +237,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromCteAndUnion);
         ShowResultSet showResultSet1 = showCreateTableByName("select_cte_union");
         Assertions.assertEquals(
-                "CREATE TABLE `select_cte_union` (\n" + "  `id` tinyint(4) NOT NULL\n" + ") ENGINE=OLAP\n"
+                "CREATE TABLE `select_cte_union` (\n" + "  `id` tinyint(4) NULL\n" + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`id`)\n" + "COMMENT 'OLAP'\n" + "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n"
                         + "PROPERTIES (\n" + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"in_memory\" = \"false\",\n" + "\"storage_format\" = \"V2\"\n" + ")",

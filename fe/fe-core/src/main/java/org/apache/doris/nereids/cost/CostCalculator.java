@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -133,5 +134,32 @@ public class CostCalculator {
                     0);
         }
 
+        @Override
+        public CostEstimate visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<Plan, Plan> nestedLoopJoin,
+                PlanContext context) {
+            // TODO: copy from physicalHashJoin, should update according to physical nested loop join properties.
+            Preconditions.checkState(context.getGroupExpression().arity() == 2);
+            Preconditions.checkState(context.getChildrenStats().size() == 2);
+
+            StatsDeriveResult leftStatistics = context.getChildStatistics(0);
+            StatsDeriveResult rightStatistics = context.getChildStatistics(1);
+            List<Id> leftIds = context.getChildOutputIds(0);
+            List<Id> rightIds = context.getChildOutputIds(1);
+
+            // TODO: handle some case
+            // handle cross join, onClause is empty .....
+            if (nestedLoopJoin.getJoinType().isCrossJoin()) {
+                return new CostEstimate(
+                        leftStatistics.computeColumnSize(leftIds) + rightStatistics.computeColumnSize(rightIds),
+                        rightStatistics.computeColumnSize(rightIds),
+                        0);
+            }
+
+            // TODO: network 0?
+            return new CostEstimate(
+                    (leftStatistics.computeColumnSize(leftIds) + rightStatistics.computeColumnSize(rightIds)) / 2,
+                    rightStatistics.computeColumnSize(rightIds),
+                    0);
+        }
     }
 }

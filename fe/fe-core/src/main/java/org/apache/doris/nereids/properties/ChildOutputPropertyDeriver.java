@@ -21,6 +21,7 @@ import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
@@ -69,6 +70,40 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalHashJoin(PhysicalHashJoin<Plan, Plan> hashJoin, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 2);
+        PhysicalProperties leftOutputProperty = childrenOutputProperties.get(0);
+        PhysicalProperties rightOutputProperty = childrenOutputProperties.get(1);
+
+        // broadcast
+        if (rightOutputProperty.getDistributionSpec() instanceof DistributionSpecReplicated) {
+            // TODO
+            return leftOutputProperty;
+        }
+
+        // shuffle
+        // List<SlotReference> leftSlotRefs = hashJoin.left().getOutput().stream().map(slot -> (SlotReference) slot)
+        //        .collect(Collectors.toList());
+        // List<SlotReference> rightSlotRefs = hashJoin.right().getOutput().stream().map(slot -> (SlotReference) slot)
+        //                .collect(Collectors.toList());
+
+        //        List<SlotReference> leftOnSlotRefs;
+        //        List<SlotReference> rightOnSlotRefs;
+        //        Preconditions.checkState(leftOnSlotRefs.size() == rightOnSlotRefs.size());
+        DistributionSpec leftDistribution = leftOutputProperty.getDistributionSpec();
+        DistributionSpec rightDistribution = rightOutputProperty.getDistributionSpec();
+        if (!(leftDistribution instanceof DistributionSpecHash)
+                || !(rightDistribution instanceof DistributionSpecHash)) {
+            Preconditions.checkState(false, "error");
+            return new PhysicalProperties();
+        }
+
+        return leftOutputProperty;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<Plan, Plan> nestedLoopJoin,
+            PlanContext context) {
+        // TODO: copy from hash join, should update according to nested loop join properties.
         Preconditions.checkState(childrenOutputProperties.size() == 2);
         PhysicalProperties leftOutputProperty = childrenOutputProperties.get(0);
         PhysicalProperties rightOutputProperty = childrenOutputProperties.get(1);
