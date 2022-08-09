@@ -94,6 +94,12 @@ public:
 
         // used for comapction to record row ids
         bool record_rowids = false;
+        // used for special optimization for query : ORDER BY key LIMIT n
+        bool read_orderby_key = false;
+        // used for special optimization for query : ORDER BY key DESC LIMIT n
+        bool read_orderby_key_reverse = false;
+        // num of columns for orderby key
+        size_t read_orderby_key_num_prefix_columns = 0;
 
         void check_validation() const;
 
@@ -154,6 +160,8 @@ protected:
 
     Status _init_keys_param(const ReaderParams& read_params);
 
+    Status _init_orderby_keys_param(const ReaderParams& read_params);
+
     void _init_conditions_param(const ReaderParams& read_params);
 
     ColumnPredicate* _parse_to_predicate(const TCondition& condition, bool opposite = false) const;
@@ -179,6 +187,9 @@ protected:
     std::set<uint32_t> _load_bf_columns;
     std::set<uint32_t> _load_bf_all_columns;
     std::vector<uint32_t> _return_columns;
+    // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
+    // columns for orderby keys
+    std::vector<uint32_t> _orderby_key_columns;
     // only use in outer join which change the column nullable which must keep same in
     // vec query engine
     std::unordered_set<uint32_t>* _tablet_columns_convert_to_null_set = nullptr;

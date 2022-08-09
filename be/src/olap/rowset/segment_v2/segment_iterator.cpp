@@ -41,9 +41,12 @@ namespace segment_v2 {
 // Example:
 //   input bitmap:  [0 1 4 5 6 7 10 15 16 17 18 19]
 //   output ranges: [0,2), [4,8), [10,11), [15,20) (when max_range_size=10)
-//   output ranges: [0,2), [4,8), [10,11), [15,18), [18,20) (when max_range_size=3)
+//   output ranges: [0,2), [4,7), [7,8), [10,11), [15,18), [18,20) (when max_range_size=3)
 class SegmentIterator::BitmapRangeIterator {
 public:
+    BitmapRangeIterator() {}
+    virtual ~BitmapRangeIterator() = default;
+
     explicit BitmapRangeIterator(const roaring::Roaring& bitmap) {
         roaring_init_iterator(&bitmap.roaring, &_iter);
         _read_next_batch();
@@ -53,7 +56,7 @@ public:
 
     // read next range into [*from, *to) whose size <= max_range_size.
     // return false when there is no more range.
-    bool next_range(const uint32_t max_range_size, uint32_t* from, uint32_t* to) {
+    virtual bool next_range(const uint32_t max_range_size, uint32_t* from, uint32_t* to) {
         if (_eof) {
             return false;
         }
@@ -102,6 +105,43 @@ private:
     uint32_t _buf_pos = 0;
     uint32_t _buf_size = 0;
     bool _eof = false;
+};
+
+// A backward range iterator for roaring bitmap. Output ranges use closed-open form, like [from, to).
+// Example:
+//   input bitmap:  [0 1 4 5 6 7 10 15 16 17 18 19]
+//   output ranges: , [15,20), [10,11), [4,8), [0,2) (when max_range_size=10)
+//   output ranges: [17,20), [15,17), [10,11), [5,8), [4, 5), [0,2) (when max_range_size=3)
+class SegmentIterator::BackwardBitmapRangeIterator : public SegmentIterator::BitmapRangeIterator {
+public:
+    explicit BackwardBitmapRangeIterator(const roaring::Roaring& bitmap) {
+        roaring_init_iterator_last(&bitmap.roaring, &_riter);
+    }
+
+    bool has_more_range() const { return !_riter.has_value; }
+
+    // read next range into [*from, *to) whose size <= max_range_size.
+    // return false when there is no more range.
+    bool next_range(const uint32_t max_range_size, uint32_t* from, uint32_t* to) override {
+        if (!_riter.has_value) {
+            return false;
+        }
+
+        uint32_t range_size = 0;
+        *to = _riter.current_value + 1;
+
+        do {
+            *from = _riter.current_value;
+            range_size++;
+            roaring_previous_uint32_iterator(&_riter);
+        } while (range_size < max_range_size && _riter.has_value &&
+                 _riter.current_value + 1 == *from);
+
+        return true;
+    }
+
+private:
+    roaring::api::roaring_uint32_iterator_t _riter;
 };
 
 SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema)
@@ -158,7 +198,11 @@ Status SegmentIterator::_init(bool is_vec) {
         _row_bitmap -= *(_opts.delete_bitmap[segment_id()]);
         _opts.stats->rows_del_by_bitmap += (pre_size - _row_bitmap.cardinality());
     }
-    _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
+    if (_opts.read_orderby_key_reverse) {
+        _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
+    } else {
+        _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
+    }
     return Status::OK();
 }
 
@@ -918,7 +962,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         } else {
             nrows_read += rows_to_read;
         }
-    } while (nrows_read < nrows_read_limit);
+        // if _opts.read_orderby_key_reverse is true, only read one range for fast reverse purpose
+    } while (nrows_read < nrows_read_limit && !_opts.read_orderby_key_reverse);
     return Status::OK();
 }
 
@@ -1139,6 +1184,19 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
         _update_max_row(block);
     }
+
+    // reverse block row order
+    if (_opts.read_orderby_key_reverse) {
+        size_t num_rows = block->rows();
+        size_t num_columns = block->columns();
+        vectorized::IColumn::Permutation permutation;
+        for (size_t i = 0; i < num_rows; ++i) permutation.emplace_back(num_rows - 1 - i);
+
+        for (size_t i = 0; i < num_columns; ++i)
+            block->get_by_position(i).column =
+                    block->get_by_position(i).column->permute(permutation, num_rows);
+    }
+
     return Status::OK();
 }
 

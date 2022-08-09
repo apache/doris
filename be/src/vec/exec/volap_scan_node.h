@@ -338,6 +338,7 @@ private:
 
     phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
     std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
+    int64_t _limit_per_scanner = -1;
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _id_to_slot_column_value_range;
 };
