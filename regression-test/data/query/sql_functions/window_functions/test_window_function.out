@@ -124,3 +124,380 @@ Sweden	Mats	Tja
 USA	John	Hi
 USA	Pete	Hello
 
+-- !first_value1 --
+\N	\N
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+true	1
+true	1
+true	1
+true	1
+true	1
+true	1
+true	1
+
+-- !first_value2 --
+\N	\N
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+true	1
+true	1
+true	1
+true	1
+true	1
+true	1
+true	1
+
+-- !first_value3 --
+\N	\N
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+true	1
+true	1
+true	1
+true	1
+true	1
+true	1
+true	1
+
+-- !first_value4 --
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+true	1
+true	1
+true	1
+true	1
+true	1
+true	1
+true	1
+
+-- !last_value1 --
+\N	\N
+false	2
+false	3
+false	4
+false	7
+false	10
+false	12
+false	13
+false	14
+true	1
+true	5
+true	6
+true	8
+true	9
+true	11
+true	15
+
+-- !last_value2 --
+\N	\N
+false	2
+false	3
+false	4
+false	7
+false	10
+false	12
+false	13
+false	14
+true	1
+true	5
+true	6
+true	8
+true	9
+true	11
+true	15
+
+-- !last_value3 --
+\N	\N
+false	2
+false	3
+false	4
+false	7
+false	10
+false	12
+false	13
+false	14
+true	1
+true	5
+true	6
+true	8
+true	9
+true	11
+true	15
+
+-- !last_value4 --
+false	2
+false	3
+false	4
+false	7
+false	10
+false	12
+false	13
+false	14
+true	1
+true	5
+true	6
+true	8
+true	9
+true	11
+true	15
+
+-- !row_number1 --
+\N	1
+false	1
+false	2
+false	3
+false	4
+false	5
+false	6
+false	7
+false	8
+true	1
+true	2
+true	3
+true	4
+true	5
+true	6
+true	7
+
+-- !row_number2 --
+\N	0
+false	1
+false	2
+false	3
+false	4
+false	5
+false	6
+false	7
+false	8
+true	1
+true	2
+true	3
+true	4
+true	5
+true	6
+true	7
+
+-- !window_error1 --
+true	6
+true	6
+true	6
+true	6
+true	6
+true	6
+true	6
+\N	\N
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+false	2
+
+-- !window_error2 --
+\N	\N
+true	\N
+false	\N
+false	\N
+false	\N
+true	\N
+true	\N
+false	\N
+true	\N
+true	\N
+false	\N
+true	\N
+false	\N
+false	\N
+false	\N
+true	\N
+
+-- !window_error3 --
+\N	\N
+true	1
+false	2
+false	3
+false	4
+true	5
+true	6
+false	7
+true	8
+true	9
+false	10
+true	11
+false	12
+false	13
+false	14
+true	15
+
+-- !rank1 --
+\N	1
+false	1
+false	2
+false	3
+false	4
+false	5
+false	6
+false	7
+false	8
+true	1
+true	2
+true	3
+true	4
+true	5
+true	6
+true	7
+
+-- !rank2 --
+false	1
+false	2
+false	3
+false	4
+false	5
+false	6
+false	7
+false	8
+true	1
+true	2
+true	3
+true	4
+true	5
+true	6
+true	7
+
+-- !window_hang1 --
+\N	1
+false	1
+false	2
+false	3
+false	4
+false	5
+false	6
+false	7
+false	8
+true	1
+true	2
+true	3
+true	4
+true	5
+true	6
+true	7
+
+-- !window_hang2 --
+false	1
+false	2
+false	3
+false	4
+false	5
+false	6
+false	7
+false	8
+true	1
+true	2
+true	3
+true	4
+true	5
+true	6
+true	7
+
+-- !hujie1 --
+\N	\N
+1	true
+2	false
+3	false
+4	false
+5	true
+6	true
+7	false
+8	true
+9	true
+10	false
+11	true
+12	false
+13	false
+14	false
+15	true
+
+-- !hujie2 --
+\N	\N
+1	true
+2	false
+3	false
+4	false
+5	true
+6	true
+7	false
+8	true
+9	true
+10	false
+11	true
+12	false
+13	false
+14	false
+15	true
+
+-- !window_bug1 --
+2
+2
+
+-- !window_bug2 --
+1989	3	1	1989
+1989	3	3	1989
+1989	3	11	1989
+1989	11	1	1989
+1989	11	3	1989
+1989	11	11	1989
+1991	10	4	1991
+1991	10	10	1991
+1991	10	9	1991
+255	8	8	255
+255	8	14	255
+1991	9	4	1991
+1991	9	10	1991
+1991	9	9	1991
+255	14	8	255
+255	14	14	255
+32767	12	12	32767
+32767	12	6	32767
+-32767	7	7	-32767
+-32767	7	13	-32767
+-32767	13	7	-32767
+-32767	13	13	-32767
+32767	6	12	32767
+32767	6	6	32767
+1989	1	1	1989
+1989	1	3	1989
+1989	1	11	1989
+1986	2	2	1986
+1991	4	4	1991
+1991	4	10	1991
+1991	4	9	1991
+1985	5	5	1985
+1992	15	15	1992
+
