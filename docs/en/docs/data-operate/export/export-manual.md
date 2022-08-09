@@ -26,7 +26,7 @@ under the License.
 
 # Data export
 
-Export is a function provided by Doris to export data. This function can export user-specified table or partition data in text format to remote storage through Broker process, such as HDFS/BOS.
+Export is a function provided by Doris to export data. This function can export user-specified table or partition data in text format to remote storage through Broker process, such as HDFS / Object storage (supports S3 protocol) etc.
 
 This document mainly introduces the basic principles, usage, best practices and precautions of Export.
 
@@ -106,14 +106,16 @@ For detailed usage of Export, please refer to [SHOW EXPORT](../../sql-manual/sql
 
 Export's detailed commands can be passed through `HELP EXPORT;` Examples are as follows:
 
+### Export to hdfs
+
 ```sql
 EXPORT TABLE db1.tbl1 
 PARTITION (p1,p2)
 [WHERE [expr]]
-TO "bos://bj-test-cmy/export/" 
+TO "hdfs://host/path/to/export/" 
 PROPERTIES
 (
-    "label"="mylabel",
+    "label" = "mylabel",
     "column_separator"=",",
     "columns" = "col1,col2",
     "exec_mem_limit"="2147483648",
@@ -121,8 +123,8 @@ PROPERTIES
 )
 WITH BROKER "hdfs"
 (
-	"username" = "user",
-	"password" = "passwd"
+    "username" = "user",
+    "password" = "passwd"
 );
 ```
 
@@ -134,6 +136,29 @@ WITH BROKER "hdfs"
 * `timeout`: homework timeout. Default 2 hours. Unit seconds.
 * `tablet_num_per_task`: The maximum number of fragments allocated per query plan. The default is 5.
 
+### Export to object storage (supports S3 protocol)
+
+Create a repository named s3_repo to link cloud storage directly without going through the broker.
+
+```sql
+CREATE REPOSITORY `s3_repo`
+WITH S3
+ON LOCATION "s3://s3-repo"
+PROPERTIES
+(
+    "AWS_ENDPOINT" = "http://s3-REGION.amazonaws.com",
+    "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
+    "AWS_SECRET_KEY"="AWS_SECRET_KEY",
+    "AWS_REGION" = "REGION"
+);
+```
+
+- `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：Is your key to access the OSS API.
+- `AWS_ENDPOINT`：Endpoint indicates the access domain name of OSS external services.
+- `AWS_REGION`：Region indicates the region where the OSS data center is located.
+
+### View export status
+
 After submitting a job, the job status can be imported by querying the   [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md)  command. The results are as follows:
 
 ```sql
@@ -143,7 +168,7 @@ mysql> show EXPORT\G;
      State: FINISHED
   Progress: 100%
   TaskInfo: {"partitions":["*"],"exec mem limit":2147483648,"column separator":",","line delimiter":"\n","tablet num":1,"broker":"hdfs","coord num":1,"db":"default_cluster:db1","tbl":"tbl3"}
-      Path: bos://bj-test-cmy/export/
+      Path: hdfs://host/path/to/export/
 CreateTime: 2019-06-25 17:08:24
  StartTime: 2019-06-25 17:08:28
 FinishTime: 2019-06-25 17:08:34
@@ -208,3 +233,4 @@ Usually, a query plan for an Export job has only two parts `scan`- `export`, and
 ## More Help
 
 For more detailed syntax and best practices used by Export, please refer to the [Export](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) command manual, you can also You can enter `HELP EXPORT` at the command line of the MySql client for more help.
+

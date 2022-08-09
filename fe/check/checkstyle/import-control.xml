@@ -24,6 +24,7 @@ under the License.
 
 <import-control pkg="org.apache.doris" strategyOnMismatch="allowed">
     <disallow pkg="com.clearspring.analytics.util" />
+    <disallow pkg="com.alibaba.google" />
     <subpackage name="nereids">
         <allow pkg="org.junit.jupiter"/>
         <disallow pkg="org.junit"/>

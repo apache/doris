@@ -15,15 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
-
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-
-import java.util.List;
+package org.apache.doris.nereids.trees.plans.algebra;
 
 /**
- * Common interface for logical/physical project.
+ * Common interface for logical/physical limit.
  */
-public interface Project {
-    List<NamedExpression> getProjects();
+public interface Limit {
+    long getLimit();
+
+    long getOffset();
 }

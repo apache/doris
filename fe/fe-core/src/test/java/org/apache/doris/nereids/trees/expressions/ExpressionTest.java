@@ -15,24 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.types.IntegerType;
 
-import java.util.Collections;
-import java.util.List;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-/**
- * Common interface for logical/physical scan.
- */
-public interface Scan {
-    List<Expression> getExpressions();
+public class ExpressionTest {
+    @Test
+    public void testConstantExpression() {
+        // literal is constant
+        Assertions.assertTrue(new StringLiteral("abc").isConstant());
 
-    Table getTable();
+        // slot reference is not constant
+        Assertions.assertFalse(new SlotReference("a", IntegerType.INSTANCE).isConstant());
 
-    default List<Slot> getOutput() {
-        return Collections.emptyList();
+        // `1 + 2` is constant
+        Assertions.assertTrue(new Add(new IntegerLiteral(1), new IntegerLiteral(2)).isConstant());
+
+        // `a + 1` is not constant
+        Assertions.assertFalse(
+                new Add(new SlotReference("a", IntegerType.INSTANCE), new IntegerLiteral(1)).isConstant());
     }
 }

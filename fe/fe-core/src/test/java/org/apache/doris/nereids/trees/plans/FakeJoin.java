@@ -17,11 +17,27 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-/**
- * Common interface for logical/physical limit.
- */
-public interface Limit {
-    long getLimit();
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 
-    long getOffset();
+import java.util.Optional;
+
+public class FakeJoin implements Join {
+    private final JoinType joinType;
+    private final Optional<Expression> condition;
+
+    public FakeJoin(JoinType joinType, Optional<Expression> condition) {
+        this.joinType = joinType;
+        this.condition = condition;
+    }
+
+    @Override
+    public JoinType getJoinType() {
+        return joinType;
+    }
+
+    @Override
+    public Optional<Expression> getCondition() {
+        return condition;
+    }
 }

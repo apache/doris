@@ -122,10 +122,6 @@ Status VOlapScanner::open() {
     SCOPED_TIMER(_parent->_reader_init_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
-    if (_conjunct_ctxs.size() > _parent->_direct_conjunct_size) {
-        _use_pushdown_conjuncts = true;
-    }
-
     _runtime_filter_marks.resize(_parent->runtime_filter_descs().size(), false);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
@@ -246,6 +242,17 @@ Status VOlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
 
+    if (_parent->_olap_scan_node.__isset.sort_info &&
+        _parent->_olap_scan_node.sort_info.is_asc_order.size() > 0) {
+        _limit = _parent->_limit_per_scanner;
+        _tablet_reader_params.read_orderby_key = true;
+        if (!_parent->_olap_scan_node.sort_info.is_asc_order[0]) {
+            _tablet_reader_params.read_orderby_key_reverse = true;
+        }
+        _tablet_reader_params.read_orderby_key_num_prefix_columns =
+                _parent->_olap_scan_node.sort_info.is_asc_order.size();
+    }
+
     return Status::OK();
 }
 
@@ -330,6 +337,12 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
     // There is no need to check raw_bytes_threshold since block->rows() == 0 is checked first.
     // But checking raw_bytes_threshold is still added here for consistency with raw_rows_threshold
     // and olap_scanner.cpp.
+
+    // set eof to true if per scanner limit is reached
+    // currently for query: ORDER BY key LIMIT n
+    if (_limit > 0 && _num_rows_read > _limit) {
+        *eof = true;
+    }
 
     return Status::OK();
 }

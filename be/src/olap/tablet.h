@@ -36,6 +36,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_tree.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_meta.h"
 #include "olap/tuple.h"
 #include "olap/utils.h"
@@ -93,6 +94,7 @@ public:
     size_t num_rows();
     int version_count() const;
     Version max_version() const;
+    Version max_version_unlocked() const;
     CumulativeCompactionPolicy* cumulative_compaction_policy();
     bool enable_unique_key_merge_on_write() const;
 
@@ -307,7 +309,23 @@ public:
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
-    Status lookup_row_key(const Slice& encoded_key, RowLocation* row_location, uint32_t version);
+    Status lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
+                          RowLocation* row_location, uint32_t version);
+
+    // calc delete bitmap when flush memtable, use a fake version to calc
+    // For example, cur max version is 5, and we use version 6 to calc but
+    // finally this rowset publish version with 8, we should make up data
+    // for rowset 6-7. Also, if a compaction happens between commit_txn and
+    // publish_txn, we should remove compaction input rowsets' delete_bitmap
+    // and build newly generated rowset's delete_bitmap
+    Status calc_delete_bitmap(RowsetId rowset_id,
+                              const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                              const RowsetIdUnorderedSet* specified_rowset_ids,
+                              DeleteBitmapPtr delete_bitmap, bool check_pre_segments = false);
+
+    Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
+                                const RowsetIdUnorderedSet& pre_rowset_ids);
+    RowsetIdUnorderedSet all_rs_id() const;
 
     void remove_self_owned_remote_rowsets();
 
@@ -346,6 +364,14 @@ private:
     // in the version tracker is greater than the threshold, rebuild the version tracker
     bool _reconstruct_version_tracker_if_necessary();
     void _init_context_common_fields(RowsetWriterContext& context);
+
+    bool _check_pk_in_pre_segments(const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
+                                   const Slice& key, const Version& version,
+                                   DeleteBitmapPtr delete_bitmap);
+    void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
+                                RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
+    Status _load_rowset_segments(const RowsetSharedPtr& rowset,
+                                 std::vector<segment_v2::SegmentSharedPtr>* segments);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -492,6 +518,10 @@ inline int Tablet::version_count() const {
 }
 
 inline Version Tablet::max_version() const {
+    return _tablet_meta->max_version();
+}
+
+inline Version Tablet::max_version_unlocked() const {
     return _tablet_meta->max_version();
 }
 

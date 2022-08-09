@@ -34,6 +34,8 @@ BACKUP
 
 This statement is used to back up the data under the specified database. This command is an asynchronous operation. After the submission is successful, you need to check the progress through the SHOW BACKUP command. Only backing up tables of type OLAP is supported.
 
+ Only root or superuser users can create repositories.
+
 grammar:
 
 ```sql
@@ -84,6 +86,63 @@ ON
 BACKUP SNAPSHOT example_db.snapshot_label3
 TO example_repo
 EXCLUDE (example_tbl);
+```
+
+4. Create a warehouse named hdfs_repo, rely on Baidu hdfs broker "hdfs_broker", the data root directory is: hdfs://hadoop-name-node:54310/path/to/repo/
+
+```
+CREATE REPOSITORY `hdfs_repo`
+WITH BROKER `hdfs_broker`
+ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
+PROPERTIES
+(
+    "username" = "user",
+    "password" = "password"
+);
+```
+
+5. Create a repository named s3_repo to link cloud storage directly without going through the broker.
+
+```
+CREATE REPOSITORY `s3_repo`
+WITH S3
+ON LOCATION "s3://s3-repo"
+PROPERTIES
+(
+    "AWS_ENDPOINT" = "http://s3-REGION.amazonaws.com",
+    "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
+    "AWS_SECRET_KEY"="AWS_SECRET_KEY",
+    "AWS_REGION" = "REGION"
+);
+```
+
+6. Create a repository named hdfs_repo to link HDFS directly without going through the broker.
+
+```
+CREATE REPOSITORY `hdfs_repo`
+WITH hdfs
+ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
+PROPERTIES
+(
+    "fs.defaultFS"="hdfs://hadoop-name-node:54310",
+    "hadoop.username"="user"
+);
+```
+
+7. Create a repository named minio_repo to link minio storage directly through the s3 protocol.
+
+```
+CREATE REPOSITORY `minio_repo`
+WITH S3
+ON LOCATION "s3://minio_repo"
+PROPERTIES
+(
+    "AWS_ENDPOINT" = "http://minio.com",
+    "AWS_ACCESS_KEY" = "MINIO_USER",
+    "AWS_SECRET_KEY"="MINIO_PASSWORD",
+    "AWS_REGION" = "REGION",
+    "use_path_style" = "true"
+);
 ```
 
 ### Keywords

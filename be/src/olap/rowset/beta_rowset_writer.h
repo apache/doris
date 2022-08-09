@@ -57,6 +57,10 @@ public:
 
     RowsetSharedPtr build() override;
 
+    // build a tmp rowset for load segment to calc delete_bitmap
+    // for this segment
+    RowsetSharedPtr build_tmp() override;
+
     Version version() override { return _context.version; }
 
     int64_t num_rows() const override { return _num_rows_written; }
@@ -79,6 +83,7 @@ private:
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
+    void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
 
 private:
     RowsetWriterContext _context;
