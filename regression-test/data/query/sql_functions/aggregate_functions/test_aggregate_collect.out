@@ -7,3 +7,9 @@
 1	['hello']	[2022-07-04]	[1.23]
 2	\N	\N	\N
 
+-- !select --
+['hello', 'hello']	['hello', 'hello', 'hello', 'hello']
+
+-- !select --
+['hello']	['hello']
+
