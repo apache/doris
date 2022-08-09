@@ -45,7 +45,7 @@ public:
     // Hold reader point to get reader params
     ~VCollectIterator();
 
-    void init(TabletReader* reader);
+    void init(TabletReader* reader, bool force_merge, bool is_reverse);
 
     Status add_child(RowsetReaderSharedPtr rs_reader);
 
@@ -79,7 +79,9 @@ private:
     // then merged with other rowset readers.
     class LevelIterator {
     public:
-        LevelIterator(TabletReader* reader) : _schema(reader->tablet_schema()) {};
+        LevelIterator(TabletReader* reader)
+                : _schema(reader->tablet_schema()),
+                  _compare_columns(reader->_reader_context.read_orderby_key_columns) {};
 
         virtual Status init() = 0;
 
@@ -99,6 +101,8 @@ private:
 
         const TabletSchema& tablet_schema() const { return _schema; };
 
+        const inline std::vector<uint32_t>* compare_columns() const { return _compare_columns; };
+
         virtual RowLocation current_row_location() = 0;
 
         virtual Status current_block_row_locations(std::vector<RowLocation>* row_location) = 0;
@@ -106,18 +110,22 @@ private:
     protected:
         const TabletSchema& _schema;
         IteratorRowRef _ref;
+        std::vector<uint32_t>* _compare_columns;
     };
 
     // Compare row cursors between multiple merge elements,
     // if row cursors equal, compare data version.
     class LevelIteratorComparator {
     public:
-        LevelIteratorComparator(int sequence = -1) : _sequence(sequence) {}
+        LevelIteratorComparator(int sequence, bool is_reverse)
+                : _sequence(sequence), _is_reverse(is_reverse) {}
 
         bool operator()(LevelIterator* lhs, LevelIterator* rhs);
 
     private:
         int _sequence;
+        // reverse the compare order
+        bool _is_reverse = false;
     };
 
 #ifdef USE_LIBCPP
@@ -159,7 +167,7 @@ private:
     class Level1Iterator : public LevelIterator {
     public:
         Level1Iterator(const std::list<LevelIterator*>& children, TabletReader* reader, bool merge,
-                       bool skip_same);
+                       bool is_reverse, bool skip_same);
 
         Status init() override;
 
@@ -198,6 +206,8 @@ private:
         // from the first rowset, the second rowset, .., the last rowset. The output of CollectorIterator is also
         // *partially* ordered.
         bool _merge = true;
+        // reverse the compare order
+        bool _is_reverse = false;
 
         bool _skip_same;
         // used when `_merge == true`
@@ -216,6 +226,8 @@ private:
     std::list<LevelIterator*> _children;
 
     bool _merge = true;
+    // reverse the compare order
+    bool _is_reverse = false;
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;
 

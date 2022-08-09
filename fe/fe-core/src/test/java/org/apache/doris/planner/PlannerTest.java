@@ -506,4 +506,25 @@ public class PlannerTest extends TestWithFeService {
         Assert.assertEquals(MysqlStateType.ERR, state.getStateType());
         Assert.assertTrue(state.getErrorMessage().contains("failed to execute update stmt"));
     }
+
+    @Test
+    public void testPushSortToOlapScan() throws Exception {
+        // Push sort successfully
+        String sql1 = "explain select k1 from db1.tbl1 order by k1, k2";
+        StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
+        stmtExecutor1.execute();
+        Planner planner1 = stmtExecutor1.planner();
+        String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+        Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
+        Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
+
+        // Push sort failed
+        String sql2 = "explain select k1, k2, k3 from db1.tbl1 order by k1, k3, k2";
+        StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
+        stmtExecutor2.execute();
+        Planner planner2 = stmtExecutor2.planner();
+        String plan2 = planner2.getExplainString(new ExplainOptions(false, false));
+        Assertions.assertFalse(plan2.contains("SORT INFO:"));
+        Assertions.assertFalse(plan2.contains("SORT LIMIT:"));
+    }
 }

@@ -34,7 +34,7 @@ VCollectIterator::~VCollectIterator() {}
         }                                                                               \
     } while (false)
 
-void VCollectIterator::init(TabletReader* reader) {
+void VCollectIterator::init(TabletReader* reader, bool force_merge, bool is_reverse) {
     _reader = reader;
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
     // multiple data to aggregate for better performance
@@ -44,6 +44,11 @@ void VCollectIterator::init(TabletReader* reader) {
           _reader->_tablet->enable_unique_key_merge_on_write()))) {
         _merge = false;
     }
+
+    if (force_merge) {
+        _merge = true;
+    }
+    _is_reverse = is_reverse;
 }
 
 Status VCollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
@@ -103,19 +108,21 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
                 }
                 ++i;
             }
-            Level1Iterator* cumu_iter = new Level1Iterator(cumu_children, _reader,
-                                                           cumu_children.size() > 1, _skip_same);
+            Level1Iterator* cumu_iter = new Level1Iterator(
+                    cumu_children, _reader, cumu_children.size() > 1, _is_reverse, _skip_same);
             RETURN_IF_NOT_EOF_AND_OK(cumu_iter->init());
             std::list<LevelIterator*> children;
             children.push_back(*base_reader_child);
             children.push_back(cumu_iter);
-            _inner_iter.reset(new Level1Iterator(children, _reader, _merge, _skip_same));
+            _inner_iter.reset(
+                    new Level1Iterator(children, _reader, _merge, _is_reverse, _skip_same));
         } else {
             // _children.size() == 1
-            _inner_iter.reset(new Level1Iterator(_children, _reader, _merge, _skip_same));
+            _inner_iter.reset(
+                    new Level1Iterator(_children, _reader, _merge, _is_reverse, _skip_same));
         }
     } else {
-        _inner_iter.reset(new Level1Iterator(_children, _reader, _merge, _skip_same));
+        _inner_iter.reset(new Level1Iterator(_children, _reader, _merge, _is_reverse, _skip_same));
     }
     RETURN_IF_NOT_EOF_AND_OK(_inner_iter->init());
     // Clear _children earlier to release any related references
@@ -127,11 +134,14 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
     const IteratorRowRef& lhs_ref = *lhs->current_row_ref();
     const IteratorRowRef& rhs_ref = *rhs->current_row_ref();
 
-    int cmp_res =
-            lhs_ref.block->compare_at(lhs_ref.row_pos, rhs_ref.row_pos,
-                                      lhs->tablet_schema().num_key_columns(), *rhs_ref.block, -1);
+    int cmp_res = UNLIKELY(lhs->compare_columns())
+                          ? lhs_ref.block->compare_at(lhs_ref.row_pos, rhs_ref.row_pos,
+                                                      lhs->compare_columns(), *rhs_ref.block, -1)
+                          : lhs_ref.block->compare_at(lhs_ref.row_pos, rhs_ref.row_pos,
+                                                      lhs->tablet_schema().num_key_columns(),
+                                                      *rhs_ref.block, -1);
     if (cmp_res != 0) {
-        return cmp_res > 0;
+        return UNLIKELY(_is_reverse) ? cmp_res < 0 : cmp_res > 0;
     }
 
     if (_sequence != -1) {
@@ -270,11 +280,12 @@ Status VCollectIterator::Level0Iterator::current_block_row_locations(
 
 VCollectIterator::Level1Iterator::Level1Iterator(
         const std::list<VCollectIterator::LevelIterator*>& children, TabletReader* reader,
-        bool merge, bool skip_same)
+        bool merge, bool is_reverse, bool skip_same)
         : LevelIterator(reader),
           _children(children),
           _reader(reader),
           _merge(merge),
+          _is_reverse(is_reverse),
           _skip_same(skip_same) {
     _ref.row_pos = -1; // represent eof
     _batch_size = reader->_batch_size;
@@ -351,7 +362,7 @@ Status VCollectIterator::Level1Iterator::init() {
                 break;
             }
         }
-        _heap.reset(new MergeHeap {LevelIteratorComparator(sequence_loc)});
+        _heap.reset(new MergeHeap {LevelIteratorComparator(sequence_loc, _is_reverse)});
         for (auto child : _children) {
             DCHECK(child != nullptr);
             //DCHECK(child->current_row().ok());
